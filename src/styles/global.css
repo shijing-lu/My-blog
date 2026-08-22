@@ -565,3 +565,39 @@
   background: var(--color-accent);
   color: var(--color-foreground);
 }
+
+/* 自定义主题导入控件 */
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.settings-mini-btn {
+  font-family: var(--font-pixel-family);
+  font-size: 0.55rem;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-muted-foreground);
+  transition: border-color 0.2s, color 0.2s, background-color 0.2s;
+}
+.settings-mini-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-accent);
+}
+.theme-delete {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-sm);
+  color: var(--color-muted-foreground);
+  font-size: 1rem;
+  line-height: 1;
+  transition: background-color 0.2s, color 0.2s;
+}
+.theme-delete:hover {
+  background: var(--color-destructive);
+  color: #fff;
+}

@@ -60,18 +60,25 @@ function tokensToCss(tokens: ThemeTokens): string {
 }
 
 /**
+ * 将单个主题生成 CSS（含亮/暗两段）
+ *
+ * @param theme 主题定义
+ * @returns 可直接注入 <style> 的内容
+ */
+export function themeToCss(theme: ThemeDefinition): string {
+  return (
+    `html[data-theme='${theme.id}'] { ${tokensToCss(theme.light)} }` +
+    `\nhtml[data-theme='${theme.id}'].dark { ${tokensToCss(theme.dark)} }`
+  );
+}
+
+/**
  * 生成全部主题的 CSS
  *
  * @returns 可直接作为 <style> 内容的字符串
  */
 export function buildThemeCss(): string {
-  return themes
-    .map(
-      (t) =>
-        `html[data-theme='${t.id}'] { ${tokensToCss(t.light)} }` +
-        `\nhtml[data-theme='${t.id}'].dark { ${tokensToCss(t.dark)} }`,
-    )
-    .join('\n');
+  return themes.map(themeToCss).join('\n');
 }
 
 /** 依据 id 查找主题（找不到返回 undefined） */

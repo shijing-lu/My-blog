@@ -42,8 +42,20 @@ const themeCss = buildThemeCss();
       (function () {
         try {
           const s = JSON.parse(localStorage.getItem('my-blog-theme') || '{}');
+          const themeId = s.themeId || '';
           const r = document.documentElement;
-          if (s.themeId) r.setAttribute('data-theme', s.themeId);
+          if (themeId) r.setAttribute('data-theme', themeId);
+          // 自定义主题：若当前主题是导入的，首帧前注入其 CSS（_css 由导入时预生成）
+          const customs = JSON.parse(localStorage.getItem('my-blog-custom-themes') || '[]');
+          if (Array.isArray(customs) && themeId) {
+            const t = customs.find(function (x) { return x.id === themeId; });
+            if (t && typeof t._css === 'string') {
+              const st = document.createElement('style');
+              st.id = 'custom-theme-css';
+              st.textContent = t._css;
+              document.head.appendChild(st);
+            }
+          }
           const m = s.mode || 'system';
           const d = m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
           r.classList.toggle('dark', d);

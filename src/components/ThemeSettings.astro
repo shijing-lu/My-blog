@@ -2,8 +2,8 @@
 /*
  * ThemeSettings.astro —— 主题设置面板（原生 <dialog>，零水合依赖）
  * Props: 无
- * Imports: 主题注册表（渲染主题卡片）+ 客户端主题状态
- * Logic: 打开/选择/关闭均由原生 JS 处理，选择即写入 localStorage 并全局生效
+ * Imports: 主题注册表（内置主题卡片）+ 自定义主题（运行时 JSON 导入）
+ * Logic: 内置主题选择 / 外观三态 / 导入·删除自定义主题，均由原生 JS 处理
  */
 import { themes } from '@/themes';
 
@@ -72,6 +72,18 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
     }
   </div>
 
+  <!-- 自定义主题（运行时 JSON 导入） -->
+  <div class="settings-label mt-5 flex items-center justify-between gap-2">
+    <span>自定义主题 / CUSTOM</span>
+    <span class="flex items-center gap-1.5">
+      <button id="theme-template-btn" type="button" class="settings-mini-btn" title="下载模板 JSON">下载模板</button>
+      <button id="theme-import-btn" type="button" class="settings-mini-btn" title="导入主题 JSON">导入 JSON</button>
+    </span>
+  </div>
+  <input id="theme-file-input" type="file" accept=".json,application/json" class="hidden" />
+  <div id="custom-themes-list" class="settings-grid" />
+  <p id="theme-import-error" class="mt-2 hidden text-xs text-destructive" role="alert" />
+
   <p class="settings-label mt-5">外观模式 / MODE</p>
   <div class="settings-modes">
     {
@@ -86,10 +98,29 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
 
 <script>
   import { readState, writeState, type ThemeMode } from '@/lib/theme';
+  import {
+    parseThemeJson,
+    getCustomThemes,
+    addCustomTheme,
+    removeCustomTheme,
+    injectCustomThemeCss,
+    clearCustomThemeCss,
+  } from '@/lib/custom-theme';
 
   const dialog = document.getElementById('theme-settings-dialog') as HTMLDialogElement | null;
   const openBtn = document.getElementById('theme-settings-btn');
   const closeBtn = document.getElementById('settings-close');
+  const customList = document.getElementById('custom-themes-list');
+  const fileInput = document.getElementById('theme-file-input') as HTMLInputElement | null;
+  const importBtn = document.getElementById('theme-import-btn');
+  const templateBtn = document.getElementById('theme-template-btn');
+  const errorP = document.getElementById('theme-import-error');
+
+  /** HTML 转义（自定义主题名/描述来自用户 JSON） */
+  function escapeHtml(value: string): string {
+    const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return value.replace(/[&<>"']/g, (c) => map[c] ?? c);
+  }
 
   /** 依据当前状态刷新选中态 */
   function render(): void {
@@ -109,29 +140,133 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
     });
   }
 
+  /** 渲染自定义主题卡片列表 */
+  function renderCustomThemes(): void {
+    if (!customList) return;
+    customList.innerHTML = '';
+    const list = getCustomThemes();
+    if (list.length === 0) {
+      customList.innerHTML =
+        '<p class="px-1 text-xs text-muted-foreground">暂无自定义主题 —— 先点「下载模板」，或导入一个主题 JSON。</p>';
+      return;
+    }
+    list.forEach((t) => {
+      const card = document.createElement('div');
+      card.className = 'theme-card';
+      card.setAttribute('role', 'button');
+      card.tabIndex = 0;
+      card.dataset.themeCard = t.id;
+      card.dataset.default = '0';
+      card.setAttribute('aria-pressed', 'false');
+      card.innerHTML = `
+        <span class="theme-swatches" aria-hidden="true">${t.preview.map((c) => `<span style="background-color:${c}"></span>`).join('')}</span>
+        <span class="min-w-0 flex-1">
+          <span class="theme-name">${escapeHtml(t.name)}<span class="theme-default-chip">自定义</span></span>
+          <span class="theme-desc">${escapeHtml(t.description)}</span>
+        </span>
+        <span class="theme-active-dot" aria-hidden="true"></span>
+        <button type="button" class="theme-delete" data-delete-theme="${t.id}" aria-label="删除主题" title="删除主题">×</button>
+      `;
+      card.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('[data-delete-theme]')) return;
+        injectCustomThemeCss(t);
+        writeState({ ...readState(), themeId: t.id });
+        render();
+      });
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          injectCustomThemeCss(t);
+          writeState({ ...readState(), themeId: t.id });
+          render();
+        }
+      });
+      card.querySelector<HTMLElement>('[data-delete-theme]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const state = readState();
+        removeCustomTheme(t.id);
+        if (state.themeId === t.id) {
+          clearCustomThemeCss();
+          writeState({ ...state, themeId: '' });
+        }
+        renderCustomThemes();
+        render();
+      });
+      customList.appendChild(card);
+    });
+  }
+
+  /** 错误提示 */
+  function showError(message: string): void {
+    if (!errorP) return;
+    errorP.textContent = message;
+    errorP.classList.remove('hidden');
+  }
+
+  /** 导入主题文件 */
+  async function importFile(file: File): Promise<void> {
+    errorP?.classList.add('hidden');
+    try {
+      const text = await file.text();
+      const result = parseThemeJson(text);
+      if (!result.ok) {
+        showError(result.error);
+        return;
+      }
+      addCustomTheme(result.theme);
+      injectCustomThemeCss(result.theme);
+      writeState({ ...readState(), themeId: result.theme.id });
+      renderCustomThemes();
+      render();
+    } catch {
+      showError('读取文件失败，请重试。');
+    }
+  }
+
+  /** 下载模板 JSON */
+  function downloadTemplate(): void {
+    const template = {
+      id: 'my-theme',
+      name: '我的主题',
+      description: '一句话描述',
+      light: {
+        background: '#ffffff',
+        foreground: '#141413',
+        card: '#ffffff',
+        primary: '#d97757',
+        border: '#e3ddd1',
+      },
+      dark: {
+        background: '#171514',
+        foreground: '#ede7dc',
+        card: '#1f1b18',
+        primary: '#e08b6e',
+        border: '#2f291f',
+      },
+      preview: ['#ffffff', '#d97757', '#e08b6e'],
+    };
+    const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'my-blog-theme-template.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   openBtn?.addEventListener('click', () => {
     render();
+    renderCustomThemes();
     dialog?.showModal();
   });
   closeBtn?.addEventListener('click', () => dialog?.close());
-  // 点遮罩关闭
   dialog?.addEventListener('click', (e) => {
     if (e.target === dialog) dialog.close();
   });
-  // ESC 关闭（原生 cancel 事件）
-
-  document.querySelectorAll<HTMLElement>('[data-theme-card]').forEach((card) => {
-    card.addEventListener('click', () => {
-      const isDefault = card.dataset.default === '1';
-      const id = isDefault ? '' : (card.dataset.themeCard ?? '');
-      writeState({ ...readState(), themeId: id });
-      render();
-    });
-  });
-  document.querySelectorAll<HTMLElement>('[data-mode-btn]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      writeState({ ...readState(), mode: btn.dataset.modeBtn as ThemeMode });
-      render();
-    });
+  importBtn?.addEventListener('click', () => fileInput?.click());
+  templateBtn?.addEventListener('click', downloadTemplate);
+  fileInput?.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (file) void importFile(file);
+    fileInput.value = '';
   });
 </script>

@@ -117,8 +117,46 @@ const theme: ThemeDefinition = {
 };
 ```
 
-## 7. 常见问题
+## 7. 运行时导入自定义主题（无需改代码）
 
+不想动代码？设置面板（右上角调色盘）提供了 **导入 JSON / 下载模板** 入口：
+
+1. 点「**下载模板**」得到 `my-blog-theme-template.json`；
+2. 编辑 JSON（改 id / name / 颜色令牌）；
+3. 点「**导入 JSON**」选择文件 → 校验通过即生效、并出现在「自定义主题」列表（可随时删除）。
+
+**JSON 格式**（令牌字段与第 4 节一致）：
+
+```json
+{
+  "id": "my-theme",
+  "name": "我的主题",
+  "description": "一句话描述",
+  "light": {
+    "background": "#ffffff",
+    "foreground": "#141413",
+    "card": "#ffffff",
+    "primary": "#d97757",
+    "border": "#e3ddd1"
+  },
+  "dark": {
+    "background": "#171514",
+    "foreground": "#ede7dc",
+    "card": "#1f1b18",
+    "primary": "#e08b6e",
+    "border": "#2f291f"
+  },
+  "preview": ["#ffffff", "#d97757", "#e08b6e"]
+}
+```
+
+**必需令牌**：`light`/`dark` 至少含 `background`、`foreground`、`card`、`primary`、`border`；
+其余（`secondary`、`muted`、`accent`、`ring`、`fontSans`、`fontDisplay`、`fontPixel`、`radius` 等）缺省时自动兜底。
+`id` 只能包含小写字母/数字/连字符，且不得与内置主题冲突。
+
+> 导入的主题持久化在 localStorage，仅当前浏览器生效；要让所有访客看到，请按第 3 节作为代码插件内置。
+
+## 8. 常见问题
 - **改了主题没变化**：确认 `id` 已注册进 `themes` 数组，且没有其它主题 `isDefault` 冲突；刷新或清 localStorage 的 `my-blog-theme` 后再试。
 - **像素字没生效**：`fontPixel` 需引用已加载字体（Silkscreen）；无像素主题设 `FONT_SANS` 即可去掉像素感。
 - **想让它成为默认**：把该主题 `isDefault: true` 并把默认主题的 `isDefault` 去掉（保持唯一）。
