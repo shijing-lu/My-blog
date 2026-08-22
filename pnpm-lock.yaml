@@ -29,6 +29,12 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.9
         version: 6.43.9
+      '@fontsource/lora':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/silkscreen':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@mdx-js/language-service':
         specifier: ^0.7.3
         version: 0.7.3(supports-color@7.1.0)(typescript@6.0.3)
@@ -946,6 +952,12 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fontsource/lora@5.3.0':
+    resolution: {integrity: sha512-OK1g1z01rHVPqO5aw/FOIoDqc46KKYZdgL3NOLkxLWDk6QhDHhdr/h2BV1cke6gTvR1tzpDfdKyUkGsC+sQLeQ==}
+
+  '@fontsource/silkscreen@5.3.0':
+    resolution: {integrity: sha512-M1NQ3LQH0LFNvyFPd/piHEGMImPPtpLglNnLC6Vdcq9kL0jNIOtTQmksAWCc4enbDnw1OnIpZtjNEfRqYm/QmA==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -5080,6 +5092,10 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@fontsource/lora@5.3.0': {}
+
+  '@fontsource/silkscreen@5.3.0': {}
 
   '@img/colour@1.1.0':
     optional: true

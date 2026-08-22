@@ -1,0 +1,31 @@
+---
+/*
+ * RightToolbar.astro —— 右侧竖向图标工具栏（d-d 式）
+ * Props: 无
+ * Imports: 无（内联 SVG + 原生脚本）
+ */
+---
+<aside class="side-toolbar" aria-label="快捷工具栏">
+  <!-- 返回首页 -->
+  <a href="/" aria-label="返回首页" title="首页">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
+      <path d="M3 10.5 12 3l9 7.5" />
+      <path d="M5 9.5V21h14V9.5" />
+    </svg>
+  </a>
+  <!-- 回到顶部 -->
+  <button id="to-top" type="button" aria-label="回到顶部" title="回到顶部">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
+    </svg>
+  </button>
+</aside>
+
+<script>
+  /** 回到顶部（平滑滚动） */
+  const toTop = document.getElementById('to-top');
+  toTop?.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+</script>

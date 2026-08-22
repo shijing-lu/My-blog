@@ -5,65 +5,129 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { listArticles } from '@/lib/articles';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
 const articles = await listArticles();
 
+/** 文章类型 → 中文标签 */
 const typeLabels: Record<ArticleType, string> = {
   tech: '技术',
   note: '笔记',
   photo: '摄影',
 };
 
-const typeBadgeStyles: Record<ArticleType, string> = {
-  tech: 'bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300',
-  note: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
-  photo: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+/** 文章类型 → 像素章样式类 */
+const typeChipClass: Record<ArticleType, string> = {
+  tech: 'chip-tech',
+  note: 'chip-note',
+  photo: 'chip-photo',
 };
 
-/** 格式化日期为「2025年1月5日」风格 */
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(date);
+/** 栏目入口（d-d 式：图标 + 标签 + 英文标语） */
+const SECTIONS: ReadonlyArray<{ type: ArticleType; label: string; tagline: string }> = [
+  { type: 'tech', label: '技术', tagline: 'THE ESSENCE OF TECH' },
+  { type: 'note', label: '笔记', tagline: 'MARGIN OF THOUGHT' },
+  { type: 'photo', label: '摄影', tagline: 'FRAMES OF LIGHT' },
+];
+
+/** 全部标签总数（去重） */
+const uniqueTags = new Set(articles.flatMap((a) => a.tags)).size;
+
+/** 最近更新时间 */
+const lastUpdated = articles[0]?.updatedAt;
+
+/** 格式化最近更新为「YYYY-MM-DD HH:mm」像素风格 */
+function formatShort(date?: Date): string {
+  if (!date) return '—';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${min}`;
 }
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="首页" description="技术教程 · 学习笔记 · 随笔与摄影 —— My Blog">
-  <section class="mx-auto w-full max-w-5xl px-4 py-10">
-    <h1 class="text-3xl font-bold tracking-tight">全部文章</h1>
-    <p class="mt-2 text-sm text-muted-foreground">共 {articles.length} 篇</p>
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <!-- Hero -->
+    <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">Personal Knowledge Base</p>
+    <h1 class="mt-4 font-display text-4xl font-semibold tracking-tight sm:text-5xl">
+      记录 · 思考 · 光影
+    </h1>
+    <p class="mt-3 max-w-2xl text-base text-muted-foreground">
+      这里是我的技术教程、学习笔记与随笔摄影。
+      <span class="text-primary">私密写作，公开阅读</span> —— 共 {articles.length} 篇。
+    </p>
 
-    <div class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <!-- 栏目入口（图标 + 标语） -->
+    <div class="mt-8 flex flex-wrap gap-3">
       {
-        articles.map((article) => (
-          <Card
-            className="transition-transform duration-200 hover:scale-[1.02] hover:shadow-lg"
-          >
-            <CardHeader>
-              <div class="flex items-center justify-between gap-2">
-                <Badge className={typeBadgeStyles[article.type]}>{typeLabels[article.type]}</Badge>
-                <time class="text-xs text-muted-foreground" datetime={article.updatedAt.toISOString()}>
-                  {formatDate(article.updatedAt)}
-                </time>
-              </div>
-              <CardTitle className="text-lg leading-snug">{article.title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p class="line-clamp-3 text-sm text-muted-foreground">{article.summary}</p>
-            </CardContent>
-          </Card>
+        SECTIONS.map((s) => (
+          <div class="section-nav-item border bg-card">
+            <span class="text-base text-primary">{typeLabels[s.type]}</span>
+            <span class="tagline">{s.tagline}</span>
+          </div>
         ))
       }
     </div>
 
-    {
-      articles.length === 0 && (
-        <p class="mt-8 text-sm text-muted-foreground">
-          暂无文章 —— 请先运行 <code class="rounded bg-muted px-1.5 py-0.5">pnpm db:push:dev && pnpm db:seed</code>
-        </p>
-      )
-    }
+    <!-- 像素统计条 -->
+    <div class="pixel-divider mt-8" />
+    <div class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 font-pixel text-xs text-muted-foreground">
+      <span>
+        <span class="text-primary">{articles.length}</span> ARTICLES
+      </span>
+      <span>
+        <span class="text-primary">{uniqueTags}</span> TAGS
+      </span>
+      <span>
+        UPDATED <span class="text-primary">{formatShort(lastUpdated)}</span>
+      </span>
+    </div>
+
+    <!-- 最新文章 -->
+    <div class="mt-10">
+      <div class="flex items-center gap-2.5">
+        <h2 class="font-display text-2xl font-semibold">最新文章</h2>
+        <span class="pixel-chip rounded bg-muted px-2 py-1 text-muted-foreground">LATEST ARTICLES</span>
+      </div>
+
+      <div class="mt-4 grid gap-4">
+        {
+          articles.map((article) => (
+            <article class="post-card p-5">
+              <div class="flex items-center gap-2 text-xs">
+                <span class={`pixel-chip rounded px-1.5 py-0.5 ${typeChipClass[article.type]}`}>
+                  {typeLabels[article.type]}
+                </span>
+                <time class="font-pixel text-muted-foreground" datetime={article.updatedAt.toISOString()}>
+                  {formatShort(article.updatedAt)}
+                </time>
+              </div>
+              <h3 class="mt-2.5 font-display text-lg font-semibold transition-colors duration-200">
+                {article.title}
+              </h3>
+              <p class="mt-1.5 text-sm text-muted-foreground line-clamp-2">{article.summary}</p>
+              <div class="mt-3 flex items-center justify-between text-xs text-muted-foreground/70">
+                <span class="pixel-chip uppercase">
+                  {article.tags.length > 0 ? article.tags.slice(0, 3).join(' · ') : '未分类'}
+                </span>
+                <span aria-hidden="true">{String(article.tags.length).padStart(2, '0')} tags</span>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+
+      {
+        articles.length === 0 && (
+          <p class="mt-6 text-sm text-muted-foreground">
+            暂无文章 —— 请先运行 <code class="rounded bg-muted px-1.5 py-0.5">pnpm db:push:dev && pnpm db:seed</code>
+          </p>
+        )
+      }
+    </div>
   </section>
 </BaseLayout>

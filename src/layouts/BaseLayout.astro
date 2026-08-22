@@ -15,6 +15,7 @@ const {
 import '../styles/global.css';
 import { ClientRouter } from 'astro:transitions';
 import ThemeToggle from '@/components/ThemeToggle.astro';
+import RightToolbar from '@/components/RightToolbar.astro';
 
 const siteTitle = 'My Blog';
 const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
@@ -31,12 +32,19 @@ const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
     <ClientRouter />
   </head>
   <body class="flex min-h-dvh flex-col">
-    <header class="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-sm">
-      <div class="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4">
-        <a href="/" class="text-base font-semibold tracking-tight transition-opacity duration-200 hover:opacity-75">
-          {siteTitle}
+    <header class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
+      <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
+        <a
+          href="/"
+          class="font-pixel text-sm tracking-wider text-primary glow-text transition-opacity duration-200 hover:opacity-80"
+        >
+          My Blog
         </a>
-        <nav class="flex items-center gap-1">
+        <nav class="flex items-center gap-1 text-sm" aria-label="主导航">
+          <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+            首页
+          </a>
+          <span class="hidden text-xs text-muted-foreground/70 sm:inline">技术教程 · 学习笔记 · 随笔与摄影</span>
           <ThemeToggle />
         </nav>
       </div>
@@ -47,9 +55,17 @@ const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
     </main>
 
     <footer class="border-t">
-      <div class="mx-auto w-full max-w-5xl px-4 py-6 text-center text-sm text-muted-foreground">
-        技术教程 · 学习笔记 · 随笔与摄影
+      <div class="mx-auto w-full max-w-6xl px-4 py-6">
+        <div class="pixel-divider mb-4" />
+        <p class="text-center text-sm text-muted-foreground">
+          技术教程 · 学习笔记 · 随笔与摄影
+        </p>
+        <p class="mt-2 text-center text-xs text-muted-foreground/70">
+          © {new Date().getFullYear()} My Blog · Powered by Astro
+        </p>
       </div>
     </footer>
+
+    <RightToolbar />
   </body>
 </html>

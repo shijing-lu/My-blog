@@ -2,85 +2,78 @@
  * 全局样式（Tailwind CSS v4，CSS-first 配置）
  *
  * <!-- 区域划分 -->
- * - Imports: tailwindcss / tw-animate-css / tailwindcss 插件
- * - Theme: shadcn/ui zinc 主题 CSS 变量（亮/暗）与 @theme 映射
- * - Base: 全局基础样式
- * - Components: prose 微调、代码块/行号/复制按钮、TOC 等组件样式
+ * - Imports: tailwindcss / tw-animate-css / 自托管字体（衬线 Lora、像素 Silkscreen）/ typography 插件
+ * - Theme: Claude 暖色（亮） + 复古暗黑终端（暗）双主题 CSS 变量 与 @theme 映射
+ * - Base: 全局基础样式（衬线标题字体、暗色径向光晕、锚点偏移）
+ * - Components: prose 微调、像素字体工具、像素分割线/角标、类型章、竖向图标工具栏、统计条
  */
+
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource/silkscreen/400.css";
+@import "@fontsource/silkscreen/700.css";
+@import "@fontsource/lora/400.css";
+@import "@fontsource/lora/500.css";
+@import "@fontsource/lora/600.css";
+@import "@fontsource/lora/700.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
-/* ==================== 主题变量（zinc） ==================== */
+/* ==================== 主题变量 ==================== */
+/* 亮色：Claude 暖奶油底 + 陶土橙 + 炭黑 */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.21 0.006 285.885);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.21 0.006 285.885);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.705 0.015 286.067);
+  --radius: 0.75rem;
+  --background: #faf9f5;
+  --foreground: #141413;
+  --card: #ffffff;
+  --card-foreground: #141413;
+  --popover: #ffffff;
+  --popover-foreground: #141413;
+  --primary: #d97757; /* Claude 陶土橙 */
+  --primary-foreground: #ffffff;
+  --secondary: #efede4;
+  --secondary-foreground: #141413;
+  --muted: #efede4;
+  --muted-foreground: #6f6a60;
+  --accent: #efede4;
+  --accent-foreground: #141413;
+  --destructive: #c0362c;
+  --border: #e3ddd1;
+  --input: #e3ddd1;
+  --ring: #d97757;
+  --chart-1: #d97757;
+  --chart-2: #6b8f71;
+  --chart-3: #c9a227;
+  --chart-4: #8a7fbf;
+  --chart-5: #c06a6a;
 }
 
+/* 暗色：d-d.design 式复古暗黑终端（近黑暖色 + 陶土橙霓虹） */
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.92 0.004 286.32);
-  --primary-foreground: oklch(0.21 0.006 285.885);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.552 0.016 285.938);
+  --background: #0f0e0d;
+  --foreground: #ede7dc;
+  --card: #171514;
+  --card-foreground: #ede7dc;
+  --popover: #1b1917;
+  --popover-foreground: #ede7dc;
+  --primary: #e08b6e; /* 暗色下略提亮的陶土橙 */
+  --primary-foreground: #0f0e0d;
+  --secondary: #1e1c1a;
+  --secondary-foreground: #ede7dc;
+  --muted: #1e1c1a;
+  --muted-foreground: #8a837a;
+  --accent: #1e1c1a;
+  --accent-foreground: #ede7dc;
+  --destructive: #e06a5a;
+  --border: #2a2724;
+  --input: #2a2724;
+  --ring: #d97757;
+  --chart-1: #e08b6e;
+  --chart-2: #8faf94;
+  --chart-3: #d8b04a;
+  --chart-4: #a99cc9;
+  --chart-5: #d68b8b;
 }
 
 /* 将 CSS 变量映射为 Tailwind 主题令牌 */
@@ -108,18 +101,16 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* 字体家族 */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Lora", ui-serif, Georgia, "Songti SC", "Noto Serif SC", serif;
+  --font-pixel: "Silkscreen", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 /* ==================== 基础样式 ==================== */
@@ -128,7 +119,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased font-sans;
   }
   html {
     scroll-behavior: smooth;
@@ -137,15 +128,28 @@
   [id] {
     scroll-margin-top: 5.5rem;
   }
+  /* 标题默认用衬线（Claude 编辑风格） */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
+  /* 暗色下顶部加一层陶土橙径向光晕（d-d 霓虹质感） */
+  html.dark body {
+    background-image: radial-gradient(55rem 26rem at 50% -8%, rgb(224 139 110 / 0.12), transparent 60%);
+    background-repeat: no-repeat;
+  }
 }
 
 /* ==================== 组件样式 ==================== */
 @layer components {
-  /* 文章正文排版（prose 微调：链接颜色、代码块圆角、引用样式） */
+  /* 文章正文排版 */
   .prose {
     @apply prose-zinc dark:prose-invert;
     --tw-prose-pre-bg: oklch(0.205 0.006 285.9);
     --tw-prose-quotes: oklch(0.552 0.016 285.938);
+    --tw-prose-headings: var(--foreground);
   }
   .prose :where(pre):not(:where([class~='not-prose'] *)) {
     border-radius: var(--radius-lg);
@@ -154,28 +158,89 @@
     @apply rounded-md px-1 py-0.5 font-medium;
   }
 
-  /* 代码块：复制按钮容器（交互逻辑见 scripts/copy-button.ts） */
-  .code-block {
-    @apply relative;
+  /* 像素字体工具 */
+  .font-pixel {
+    font-family: var(--font-pixel);
   }
-  .code-block .copy-button {
-    @apply absolute top-2.5 right-2.5 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-300 opacity-0 transition-opacity duration-200 hover:bg-white/15 focus-visible:opacity-100;
-  }
-  .code-block:hover .copy-button,
-  .code-block .copy-button:focus-visible {
-    @apply opacity-100;
-  }
-  /* 行号（rehype-prism-plus 输出）不可选中 */
-  .line-number {
-    user-select: none;
-    -webkit-user-select: none;
+  .pixel-chip {
+    font-family: var(--font-pixel);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
-  /* 右侧 TOC 容器 */
-  .toc-link {
-    @apply block rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-accent-foreground;
+  /* 像素化分割线：由陶土橙小方块组成的虚线 */
+  .pixel-divider {
+    height: 6px;
+    background-image: repeating-linear-gradient(
+      90deg,
+      var(--color-primary) 0 6px,
+      transparent 6px 12px
+    );
+    opacity: 0.5;
   }
-  .toc-link[data-active='true'] {
-    @apply bg-accent text-accent-foreground;
+
+  /* 像素角标（卡片/区块四角方括号装饰） */
+  .corner-mark {
+    position: relative;
+  }
+  .corner-mark::before,
+  .corner-mark::after {
+    content: "";
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border: 0 solid var(--color-primary);
+    pointer-events: none;
+  }
+  .corner-mark::before {
+    top: -6px;
+    left: -6px;
+    border-top-width: 3px;
+    border-left-width: 3px;
+  }
+  .corner-mark::after {
+    bottom: -6px;
+    right: -6px;
+    border-bottom-width: 3px;
+    border-right-width: 3px;
+  }
+
+  /* 霓虹文字光晕（暗色下更明显） */
+  .glow-text {
+    text-shadow: 0 0 16px rgb(217 119 87 / 0.4);
+  }
+
+  /* 文章类型配色章（tech=陶土橙 / note=鼠尾草绿 / photo=琥珀） */
+  .chip-tech {
+    @apply bg-[#d97757] text-white dark:bg-[#e08b6e] dark:text-[#0f0e0d];
+  }
+  .chip-note {
+    @apply bg-[#6b8f71] text-white dark:bg-[#8faf94] dark:text-[#0f0e0d];
+  }
+  .chip-photo {
+    @apply bg-[#c9a227] text-[#141413] dark:bg-[#d8b04a];
+  }
+
+  /* 竖向图标工具栏（右侧固定） */
+  .side-toolbar {
+    @apply fixed top-1/2 right-2 z-50 flex -translate-y-1/2 flex-col gap-1 rounded-full border bg-background/80 p-1.5 shadow-sm backdrop-blur-sm;
+  }
+  .side-toolbar a,
+  .side-toolbar button {
+    @apply inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary;
+  }
+
+  /* 区域导航项（d-d 式：图标 + 主标签 + 英文小字标语） */
+  .section-nav-item {
+    @apply flex flex-col items-center gap-0.5 rounded-lg px-3 py-2 text-center text-[0.8rem] font-medium text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground;
+  }
+  .section-nav-item .tagline {
+    @apply font-pixel text-[0.5rem] tracking-wider text-primary/70;
+  }
+
+  /* 首页卡片：暖白底 + 细边，悬停上浮 + 陶土橙边 */
+  .post-card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md;
   }
 }
