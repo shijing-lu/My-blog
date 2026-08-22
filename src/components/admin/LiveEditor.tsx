@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
-import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
+import { EditorView, drawSelection, keymap, lineNumbers } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import type { Language } from '@codemirror/language';
@@ -261,7 +261,6 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
         doc: draftRef.current.content,
         extensions: [
           lineNumbers(),
-          highlightActiveLine(),
           drawSelection(),
           history(),
           keymap.of([

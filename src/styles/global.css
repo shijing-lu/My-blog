@@ -675,29 +675,32 @@
 .cm-lp-block {
   margin: 0.5rem 0;
 }
-.cm-lp-heading h1 {
+.cm-lp-heading {
   font-family: var(--font-display-family);
+}
+.cm-lp-heading.cm-lp-h1 {
   font-size: 1.7em;
   font-weight: 700;
   margin: 0.4em 0 0.3em;
 }
-.cm-lp-heading h2 {
-  font-family: var(--font-display-family);
+.cm-lp-heading.cm-lp-h2 {
   font-size: 1.45em;
   font-weight: 700;
   margin: 0.5em 0 0.3em;
 }
-.cm-lp-heading h3 {
-  font-family: var(--font-display-family);
+.cm-lp-heading.cm-lp-h3 {
   font-size: 1.25em;
   font-weight: 600;
   margin: 0.6em 0 0.2em;
 }
-.cm-lp-heading h4 {
-  font-family: var(--font-display-family);
+.cm-lp-heading.cm-lp-h4 {
   font-size: 1.1em;
   font-weight: 600;
   margin: 0.6em 0 0.2em;
+}
+.cm-lp-quote-text {
+  font-style: italic;
+  color: var(--color-muted-foreground);
 }
 .cm-lp-code pre {
   background: oklch(0.205 0.006 285.9);

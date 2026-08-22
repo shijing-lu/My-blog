@@ -269,22 +269,26 @@ function buildDecorations(view: EditorView): DecorationSet {
     i = consumed > 0 ? consumed : i + 1;
   }
 
-  // ---- 行级：标题 / 引用（未与选区相交时渲染为块） ----
+  // ---- 行级：标题 / 引用（隐藏标记 + 文本套样式，保持可编辑；选区相交则显源码） ----
   lines.forEach((line, idx) => {
     if (blockedLines.has(idx)) return;
     const head = line.text.match(/^(\s*)(#{1,6})\s+(.*)$/);
     if (head && !intersectsSelection(sel, line.from, line.to)) {
       const level = head[2]!.length;
-      const html = `<h${level}>${esc(head[3] ?? '')}</h${level}>`;
-      items.push({ from: line.from, to: line.to + 1, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-heading', line.from) }) });
-      blockedLines.add(idx);
+      const markerEnd = line.from + (head[1]?.length ?? 0) + level + 1;
+      // 隐藏「#」标记
+      items.push({ from: line.from, to: markerEnd, deco: hide });
+      // 标题文本套样式（仍是可编辑文本）
+      items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: `cm-lp-heading cm-lp-h${level}` }) });
       return;
     }
     const quote = line.text.match(/^(\s*)>\s?(.*)$/);
     if (quote && !intersectsSelection(sel, line.from, line.to)) {
-      const html = `<blockquote>${mdToHtmlSync(quote[2] ?? '')}</blockquote>`;
-      items.push({ from: line.from, to: line.to + 1, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-quote', line.from) }) });
-      blockedLines.add(idx);
+      const markerEnd = line.from + (quote[1]?.length ?? 0) + 1;
+      // 隐藏「>」标记
+      items.push({ from: line.from, to: markerEnd, deco: hide });
+      // 引用文本套样式
+      items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: 'cm-lp-quote-text' }) });
     }
   });
 
