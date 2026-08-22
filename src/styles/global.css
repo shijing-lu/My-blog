@@ -248,6 +248,54 @@
     @apply rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md;
   }
 
+  /* 卡片封面：按类型着色的主题渐变（随主题 chart 令牌换色） */
+  .post-cover {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-start;
+    overflow: hidden;
+    padding: 0.75rem;
+    background-image: linear-gradient(135deg, var(--color-primary), var(--color-muted));
+  }
+  .post-cover[data-type='note'] {
+    background-image: linear-gradient(135deg, var(--color-chart-2), var(--color-muted));
+  }
+  .post-cover[data-type='photo'] {
+    background-image: linear-gradient(135deg, var(--color-chart-3), var(--color-muted));
+  }
+  .post-cover-glyph {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 3.5rem;
+    font-weight: 700;
+    color: rgb(255 255 255 / 0.18);
+    transition: transform 0.3s ease;
+  }
+  .post-card:hover .post-cover-glyph {
+    transform: scale(1.06);
+  }
+  .post-cover-dither {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.25;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgb(255 255 255 / 0.07) 0 4px,
+      transparent 4px 8px
+    );
+  }
+  .post-cover-chip {
+    position: relative;
+    z-index: 1;
+  }
+
   /* 代码块：相对定位 + 顶部留白给复制按钮（纯 CSS，规避 @apply 偶发丢弃） */
   .code-block {
     position: relative;
