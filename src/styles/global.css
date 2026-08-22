@@ -30,7 +30,7 @@
   --card-foreground: #141413;
   --popover: #ffffff;
   --popover-foreground: #141413;
-  --primary: #d97757; /* Claude 陶土橙 */
+  --primary: #b3542d; /* Claude 陶土橙 */
   --primary-foreground: #ffffff;
   --secondary: #efede4;
   --secondary-foreground: #141413;
@@ -41,8 +41,8 @@
   --destructive: #c0362c;
   --border: #e3ddd1;
   --input: #e3ddd1;
-  --ring: #d97757;
-  --chart-1: #d97757;
+  --ring: #b3542d;
+  --chart-1: #b3542d;
   --chart-2: #6b8f71;
   --chart-3: #c9a227;
   --chart-4: #8a7fbf;
@@ -73,7 +73,7 @@
   --destructive: #e06a5a;
   --border: #2a2724;
   --input: #2a2724;
-  --ring: #d97757;
+  --ring: #b3542d;
   --chart-1: #e08b6e;
   --chart-2: #8faf94;
   --chart-3: #d8b04a;
@@ -246,10 +246,10 @@
 
   /* 文章类型配色章（tech=陶土橙 / note=鼠尾草绿 / photo=琥珀） */
   .chip-tech {
-    @apply bg-[#d97757] text-white dark:bg-[#e08b6e] dark:text-[#0f0e0d];
+    @apply bg-[#b3542d] text-white dark:bg-[#e08b6e] dark:text-[#0f0e0d];
   }
   .chip-note {
-    @apply bg-[#6b8f71] text-white dark:bg-[#8faf94] dark:text-[#0f0e0d];
+    @apply bg-[#557a5c] text-white dark:bg-[#8faf94] dark:text-[#0f0e0d];
   }
   .chip-photo {
     @apply bg-[#c9a227] text-[#141413] dark:bg-[#d8b04a];
@@ -269,7 +269,7 @@
     @apply flex flex-col items-center gap-0.5 rounded-lg px-3 py-2 text-center text-[0.8rem] font-medium text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground;
   }
   .section-nav-item .tagline {
-    @apply font-pixel text-[0.5rem] tracking-wider text-primary/70;
+    @apply font-pixel text-[0.5rem] tracking-wider text-primary;
   }
 
   /* 首页卡片：暖白底 + 细边，悬停上浮 + 陶土橙边 */

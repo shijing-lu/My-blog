@@ -123,13 +123,15 @@ function formatShort(date?: Date): string {
         {
           articles.map((article) => (
             <article
-              class="post-card group overflow-hidden"
+              class="post-card group relative overflow-hidden"
               data-search-card
               data-type={article.type}
               data-search-title={article.title.toLowerCase()}
               data-search-summary={article.summary.toLowerCase()}
               data-search-tags={article.tags.join(' ').toLowerCase()}
             >
+              {/* 整卡链接：点击卡片任意处进入详情页（stretched-link） */}
+              <a href={`/blog/${article.slug}`} class="absolute inset-0 z-0" aria-label={`阅读《${article.title || '未命名'}》`} />
               {/* 封面：文章第一张图（无则主题渐变占位 + 大字字形 + 像素类型章） */}
               <div class="post-cover" data-type={article.type}>
                 {
@@ -194,7 +196,7 @@ function formatShort(date?: Date): string {
                         article.tags.slice(0, 3).map((tag) => (
                           <a
                             href={`/tags/${encodeURIComponent(tag)}`}
-                            class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary"
+                            class="relative z-[1] rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary"
                           >
                             {tag}
                           </a>

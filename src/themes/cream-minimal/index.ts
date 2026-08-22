@@ -19,7 +19,7 @@ const theme: ThemeDefinition = {
     cardForeground: '#1c1b18',
     popover: '#ffffff',
     popoverForeground: '#1c1b18',
-    primary: '#c76b4a',
+    primary: '#a3542c',
     primaryForeground: '#ffffff',
     secondary: '#f2ede2',
     secondaryForeground: '#1c1b18',
@@ -30,7 +30,7 @@ const theme: ThemeDefinition = {
     destructive: '#b5433b',
     border: '#e6dfd2',
     input: '#e6dfd2',
-    ring: '#c76b4a',
+    ring: '#a3542c',
     fontSans: FONT_SANS,
     fontDisplay: FONT_DISPLAY,
     fontPixel: FONT_SANS,
@@ -60,7 +60,7 @@ const theme: ThemeDefinition = {
     fontPixel: FONT_SANS,
     radius: '1rem',
   },
-  preview: ['#fbf8f2', '#c76b4a', '#8a7f5e'],
+  preview: ['#fbf8f2', '#a3542c', '#8a7f5e'],
 };
 
 export default theme;
