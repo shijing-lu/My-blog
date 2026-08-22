@@ -243,4 +243,79 @@
   .post-card {
     @apply rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md;
   }
+
+  /* 代码块：顶部留白给复制按钮 */
+  .code-block {
+    padding-top: 2.5rem;
+  }
+
+  /* Admonition（依据 data-admonition 用语义色带） */
+  .admonition {
+    @apply my-6 rounded-lg border-l-4 border bg-muted/40 px-4 py-3;
+  }
+  .admonition-title {
+    @apply mb-1.5 flex items-center gap-2 text-sm font-semibold;
+  }
+  .admonition-icon {
+    @apply flex size-5 items-center justify-center rounded-full border text-xs;
+  }
+  .admonition-body {
+    @apply text-sm text-muted-foreground;
+  }
+  .admonition-body :where(p, ul, ol, pre) {
+    @apply first:mt-0 last:mb-0;
+  }
+  .admonition[data-admonition='note'] {
+    @apply border-sky-500 bg-sky-50 dark:bg-sky-950/40;
+  }
+  .admonition[data-admonition='tip'] {
+    @apply border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40;
+  }
+  .admonition[data-admonition='warning'] {
+    @apply border-amber-500 bg-amber-50 dark:bg-amber-950/40;
+  }
+  .admonition[data-admonition='danger'] {
+    @apply border-red-500 bg-red-50 dark:bg-red-950/40;
+  }
+  .admonition[data-admonition='info'] {
+    @apply border-violet-500 bg-violet-50 dark:bg-violet-950/40;
+  }
+
+  /* 图片灯箱（figure 包装） */
+  .lightbox-figure {
+    @apply my-6 overflow-hidden rounded-lg border;
+  }
+  .lightbox-figure img {
+    @apply block w-full cursor-zoom-in;
+  }
+  .lightbox-figure figcaption {
+    @apply border-t bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground;
+  }
+
+  /* 灯箱遮罩（JS 动态注入） */
+  .lightbox-overlay {
+    @apply fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm;
+  }
+  .lightbox-overlay .lightbox-close {
+    @apply absolute top-4 right-4 flex size-10 items-center justify-center rounded-full bg-white/10 text-2xl text-white transition-colors hover:bg-white/20;
+  }
+  .lightbox-overlay .lightbox-view {
+    @apply max-h-[85vh] max-w-[90vw];
+  }
+  .lightbox-overlay .lightbox-view img {
+    @apply max-h-[78vh] w-auto rounded-md object-contain;
+  }
+  .lightbox-overlay .lightbox-view figcaption {
+    @apply mt-2 text-center text-sm text-white/80;
+  }
+  .lightbox-overlay .lightbox-prev,
+  .lightbox-overlay .lightbox-next {
+    @apply absolute top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-3xl text-white transition-colors hover:bg-white/20;
+  }
+  .lightbox-overlay .lightbox-prev {
+    @apply left-4;
+  }
+  .lightbox-overlay .lightbox-next {
+    @apply right-4;
+  }
 }

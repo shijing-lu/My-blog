@@ -1,0 +1,100 @@
+---
+/* ===== Props ===== */
+/* （演示页无 Props） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { renderMdx } from '@/lib/mdx';
+
+/* ===== Logic ===== */
+/** 生成内嵌 SVG 占位图（无需外网） */
+function svgDataUri(from: string, to: string, label: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><text x="50%" y="50%" font-family="sans-serif" font-size="44" fill="rgba(255,255,255,.9)" text-anchor="middle" dominant-baseline="middle">${label}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+const img1 = svgDataUri('#d97757', '#8a4b3a', '灯箱预览 · 图一');
+const img2 = svgDataUri('#6b8f71', '#35506b', '灯箱预览 · 图二');
+
+const SOURCE = `# MDX 渲染演示
+
+这是 **Phase 2** 的现场演示页，用来验收渲染管线。
+
+:::note
+这是一个 **备注**（note）块：用于补充说明。
+:::
+
+## GFM 表格
+
+| 特性 | 说明 |
+| --- | --- |
+| remark-gfm | 表格、任务列表、删除线 |
+| remark-directive | \`:::note\` 等容器指令 |
+| rehype-prism-plus | 代码高亮 + 行号 |
+
+:::tip
+提示块：右侧栏目录可点击跳转到对应锚点。
+:::
+
+## 代码块（带行号 + 复制按钮）
+
+\`\`\`ts
+// 示例：类型安全的高亮
+const message: string = 'Hello MDX';
+function add(a: number, b: number): number {
+  return a + b;
+}
+console.log(add(1, 2));
+\`\`\`
+
+:::warning
+这是 **注意**（warning）块。
+:::
+
+## 图片与灯箱
+
+![示例图片：陶土橙渐变](IMG1)
+
+![示例图片：鼠尾草渐变](IMG2)
+
+### 子标题 H3
+
+:::danger
+**危险**（danger）块示例。
+:::
+
+## 结尾
+
+点击上方任意图片即可进入灯箱预览（ESC / 点击遮罩关闭，←/→ 切换）。
+`;
+
+const { html, toc } = await renderMdx(
+  SOURCE.replace('IMG1', img1).replace('IMG2', img2),
+);
+---
+<!-- ===== Template ===== -->
+<BaseLayout title="MDX 渲染演示" description="Phase 2 MDX 渲染管线现场演示">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <div class="pixel-divider" />
+    <div class="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <article class="prose max-w-none" set:html={html} />
+      <aside class="hidden lg:block">
+        <div class="sticky top-20">
+          <p class="pixel-chip mb-2 text-muted-foreground">目录 / TOC</p>
+          <nav class="border-l border-border pl-3">
+            {
+              toc.map((item) => (
+                <a class="toc-link py-1" href={`#${item.id}`}>{item.text}</a>
+              ))
+            }
+          </nav>
+        </div>
+      </aside>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  import '@/scripts/copy-button';
+  import '@/scripts/lightbox';
+</script>
