@@ -269,4 +269,22 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
     if (file) void importFile(file);
     fileInput.value = '';
   });
+
+  // 内置主题卡片选择（默认主题设空 id）
+  document.querySelectorAll<HTMLElement>('[data-theme-card]').forEach((card) => {
+    card.addEventListener('click', () => {
+      const isDefault = card.dataset.default === '1';
+      const id = isDefault ? '' : (card.dataset.themeCard ?? '');
+      writeState({ ...readState(), themeId: id });
+      render();
+    });
+  });
+
+  // 外观模式三态
+  document.querySelectorAll<HTMLElement>('[data-mode-btn]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      writeState({ ...readState(), mode: btn.dataset.modeBtn as ThemeMode });
+      render();
+    });
+  });
 </script>
