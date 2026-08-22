@@ -30,7 +30,10 @@ function isProtectedApi(pathname: string): boolean {
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;
   const protectedPage = isProtectedPage(pathname);
-  const protectedApi = pathname.startsWith('/api/') && isProtectedApi(pathname);
+  // 图片上传仅 POST 受保护；GET 输出图片公开
+  const protectedApi =
+    pathname.startsWith('/api/') &&
+    (isProtectedApi(pathname) || (pathname === '/api/images' && context.request.method === 'POST'));
   if (!protectedPage && !protectedApi) return next();
 
   if (verifyRequest(context.cookies)) return next();

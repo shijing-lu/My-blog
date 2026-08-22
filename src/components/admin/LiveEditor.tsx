@@ -133,6 +133,8 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -305,7 +307,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.content]);
 
-  /** 目录：点击跳转到 CM 对应标题行 */
+  /** 跳转目录对应标题行 */
   const jumpToHeading = useCallback((line: number): void => {
     const view = viewRef.current;
     if (!view) return;
@@ -313,6 +315,56 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
     view.focus();
   }, []);
+
+  /** 在光标处插入文本（编辑器不可用时追加到末尾） */
+  const insertAtCursor = useCallback((text: string): void => {
+    const view = viewRef.current;
+    if (!view) {
+      update('content', `${draftRef.current.content}${text}`);
+      return;
+    }
+    const head = view.state.selection.main.head;
+    view.dispatch({ changes: { from: head, insert: text } });
+    view.focus();
+  }, [update]);
+
+  /** 读取本地图片 → 上传 /api/images → 在光标处插入 Markdown 图片 */
+  const handleImageFile = useCallback(
+    async (file: File): Promise<void> => {
+      setUploading(true);
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error('read failed'));
+          reader.readAsDataURL(file);
+        });
+        const mime = dataUrl.slice(5, dataUrl.indexOf(';'));
+        const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        const res = await fetch('/api/images', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, mime, data: base64 }),
+        });
+        if (res.status === 401) {
+          setSaveStatus('expired');
+          return;
+        }
+        const out = (await res.json()) as { url?: string; error?: string };
+        if (!out.url) {
+          window.alert(out.error ?? '图片上传失败');
+          return;
+        }
+        const name = (file.name.replace(/\.[^.]+$/, '') || 'image').replace(/["\[\]]/g, '');
+        insertAtCursor(`![${name}](${out.url})\n`);
+      } catch {
+        window.alert('图片读取失败，请重试。');
+      } finally {
+        setUploading(false);
+      }
+    },
+    [insertAtCursor, setSaveStatus],
+  );
 
   /** 当前文章目录 */
   const toc = useMemo(() => extractToc(draft.content), [draft.content]);
@@ -408,6 +460,33 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
               placeholder="标题"
               className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
             />
+            {/* 添加图片：标题右侧、分类左侧 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleImageFile(file);
+                e.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary disabled:opacity-50"
+              title="插入本地图片"
+              aria-label="插入本地图片"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="size-4" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="9" cy="9" r="2" />
+                <path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21" />
+              </svg>
+              {uploading ? '上传中…' : '图片'}
+            </button>
             <select
               value={draft.type}
               onChange={(e) => update('type', e.target.value as ArticleType)}

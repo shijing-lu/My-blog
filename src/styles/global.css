@@ -324,6 +324,14 @@
     position: relative;
     z-index: 1;
   }
+  /* 封面图：填满封面栏（object-cover） */
+  .post-cover-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
 
   /* 代码块：相对定位 + 顶部留白给复制按钮（纯 CSS，规避 @apply 偶发丢弃） */
   .code-block {

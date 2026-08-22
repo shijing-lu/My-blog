@@ -46,3 +46,17 @@ export const articles = sqliteTable(
 export type NewArticle = typeof articles.$inferInsert;
 /** 行类型（查询用） */
 export type ArticleRow = typeof articles.$inferSelect;
+
+/** 图片表：编辑器上传的本地图片（DB 持久化，兼容 Vercel 无本地磁盘） */
+export const images = sqliteTable('images', {
+  /** UUID 主键 */
+  id: text('id').primaryKey(),
+  /** MIME 类型（仅允许 image/* 白名单） */
+  mime: text('mime').notNull(),
+  /** 图片二进制 */
+  data: text('data').notNull(), // base64 编码的图片二进制
+  /** 创建时间 */
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

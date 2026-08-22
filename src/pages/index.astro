@@ -7,12 +7,15 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import { listArticles } from '@/lib/articles';
 import SearchBox from '@/components/SearchBox.astro';
 import { verifyRequest } from '@/lib/auth';
+import { extractFirstImage } from '@/lib/images';
 import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
 const articles = await listArticles();
 /** 是否管理员（决定卡片编辑入口等） */
 const isAuthed = verifyRequest(Astro.cookies);
+/** 文章 → 封面图（取正文第一张图，无则用主题渐变占位） */
+const covers = new Map(articles.map((a) => [a.id, extractFirstImage(a.content)]));
 
 /** 文章类型 → 中文标签 */
 const typeLabels: Record<ArticleType, string> = {
@@ -127,10 +130,21 @@ function formatShort(date?: Date): string {
               data-search-summary={article.summary.toLowerCase()}
               data-search-tags={article.tags.join(' ').toLowerCase()}
             >
-              {/* 封面：按类型着色的主题渐变 + 大字字形 + 像素类型章 */}
+              {/* 封面：文章第一张图（无则主题渐变占位 + 大字字形 + 像素类型章） */}
               <div class="post-cover" data-type={article.type}>
-                <span class="post-cover-dither" aria-hidden="true" />
-                <span class="post-cover-glyph" aria-hidden="true">{typeGlyph[article.type]}</span>
+                {
+                  (() => {
+                    const cover = covers.get(article.id);
+                    return cover ? (
+                      <img src={cover} alt="" class="post-cover-img" loading="lazy" />
+                    ) : (
+                      <>
+                        <span class="post-cover-dither" aria-hidden="true" />
+                        <span class="post-cover-glyph" aria-hidden="true">{typeGlyph[article.type]}</span>
+                      </>
+                    );
+                  })()
+                }
                 <span class={`post-cover-chip pixel-chip rounded px-1.5 py-0.5 ${typeChipClass[article.type]}`}>
                   {typeLabels[article.type]}
                 </span>
