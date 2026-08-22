@@ -13,7 +13,12 @@ const PROTECTED_API_PREFIXES = ['/api/save-draft', '/api/articles'];
 
 /** 是否为受保护页面路径 */
 function isProtectedPage(pathname: string): boolean {
-  return pathname === '/admin' || pathname.startsWith('/admin/');
+  return (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/edit' ||
+    pathname.startsWith('/edit/')
+  );
 }
 
 /** 是否为受保护 API 路径 */

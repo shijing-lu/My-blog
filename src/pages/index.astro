@@ -6,10 +6,13 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { listArticles } from '@/lib/articles';
 import SearchBox from '@/components/SearchBox.astro';
+import { verifyRequest } from '@/lib/auth';
 import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
 const articles = await listArticles();
+/** 是否管理员（决定卡片编辑入口等） */
+const isAuthed = verifyRequest(Astro.cookies);
 
 /** 文章类型 → 中文标签 */
 const typeLabels: Record<ArticleType, string> = {
@@ -67,7 +70,7 @@ function formatShort(date?: Date): string {
   <section class="mx-auto w-full max-w-6xl px-4 py-10">
     <!-- Hero -->
     <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">Personal Knowledge Base</p>
-    <h1 class="mt-4 font-display text-4xl font-semibold tracking-tight sm:text-5xl">
+    <h1 class="ghost-text mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
       记录 · 思考 · 光影
     </h1>
     <p class="mt-3 max-w-2xl text-base text-muted-foreground">
@@ -117,7 +120,7 @@ function formatShort(date?: Date): string {
         {
           articles.map((article) => (
             <article
-              class="post-card overflow-hidden"
+              class="post-card group overflow-hidden"
               data-search-card
               data-type={article.type}
               data-search-title={article.title.toLowerCase()}
@@ -131,6 +134,20 @@ function formatShort(date?: Date): string {
                 <span class={`post-cover-chip pixel-chip rounded px-1.5 py-0.5 ${typeChipClass[article.type]}`}>
                   {typeLabels[article.type]}
                 </span>
+                {
+                  isAuthed && (
+                    <a
+                      href={`/edit/${article.id}`}
+                      aria-label="编辑文章"
+                      title="编辑"
+                      class="absolute right-2 top-2 z-10 inline-flex size-7 items-center justify-center rounded-md bg-black/40 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100 hover:bg-black/60"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
+                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      </svg>
+                    </a>
+                  )
+                }
               </div>
               <div class="p-4">
                 <div class="flex items-start justify-between gap-2">

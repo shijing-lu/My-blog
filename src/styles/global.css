@@ -123,7 +123,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground antialiased font-sans;
+    @apply bg-background text-foreground antialiased font-pixel;
   }
   html {
     scroll-behavior: smooth;
@@ -132,12 +132,12 @@
   [id] {
     scroll-margin-top: 5.5rem;
   }
-  /* 标题默认用衬线（Claude 编辑风格） */
+  /* 设计决策：页面级标题默认像素字体（文章内标题由 .prose 覆盖为衬线） */
   h1,
   h2,
   h3,
   h4 {
-    font-family: var(--font-display);
+    font-family: var(--font-pixel-family);
   }
   /* 暗色下顶部光晕：颜色随主题主色，开关由令牌 --theme-glow 控制 */
   html.dark body {
@@ -152,18 +152,43 @@
 
 /* ==================== 组件样式 ==================== */
 @layer components {
-  /* 文章正文排版 */
+  /* 文章正文排版（可读字体；标题衬线） */
   .prose {
     @apply prose-zinc dark:prose-invert;
+    font-family: var(--font-sans-family);
     --tw-prose-pre-bg: oklch(0.205 0.006 285.9);
     --tw-prose-quotes: oklch(0.552 0.016 285.938);
     --tw-prose-headings: var(--foreground);
+  }
+  .prose :where(h1, h2, h3, h4) {
+    font-family: var(--font-display-family);
   }
   .prose :where(pre):not(:where([class~='not-prose'] *)) {
     border-radius: var(--radius-lg);
   }
   .prose :where(code):not(:where([class~='not-prose'] *)) {
     @apply rounded-md px-1 py-0.5 font-medium;
+  }
+
+  /* Hero 残影（记录 · 思考 · 光影） */
+  .ghost-text {
+    animation: ghost-drift 3.6s ease-in-out infinite;
+  }
+  @keyframes ghost-drift {
+    0%,
+    100% {
+      text-shadow:
+        0 0 6px color-mix(in srgb, var(--color-primary) 55%, transparent),
+        3px 0 0 color-mix(in srgb, var(--color-primary) 28%, transparent),
+        6px 0 0 color-mix(in srgb, var(--color-primary) 12%, transparent);
+    }
+    50% {
+      text-shadow:
+        0 0 12px color-mix(in srgb, var(--color-primary) 75%, transparent),
+        4px 0 0 color-mix(in srgb, var(--color-primary) 38%, transparent),
+        8px 0 0 color-mix(in srgb, var(--color-primary) 18%, transparent),
+        13px 0 0 color-mix(in srgb, var(--color-primary) 7%, transparent);
+    }
   }
 
   /* 像素字体工具 */
@@ -644,4 +669,103 @@
 .layout-photo .lightbox-figure {
   margin-top: 2.5rem;
   margin-bottom: 2.5rem;
+}
+
+/* ==================== Live Preview（Obsidian 式编辑） ==================== */
+.cm-lp-block {
+  margin: 0.5rem 0;
+}
+.cm-lp-heading h1 {
+  font-family: var(--font-display-family);
+  font-size: 1.7em;
+  font-weight: 700;
+  margin: 0.4em 0 0.3em;
+}
+.cm-lp-heading h2 {
+  font-family: var(--font-display-family);
+  font-size: 1.45em;
+  font-weight: 700;
+  margin: 0.5em 0 0.3em;
+}
+.cm-lp-heading h3 {
+  font-family: var(--font-display-family);
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.6em 0 0.2em;
+}
+.cm-lp-heading h4 {
+  font-family: var(--font-display-family);
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.6em 0 0.2em;
+}
+.cm-lp-code pre {
+  background: oklch(0.205 0.006 285.9);
+  color: #e5e5e5;
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+  font-family: var(--font-pixel-family);
+}
+.cm-lp-code-lang {
+  font-family: var(--font-pixel-family);
+  font-size: 0.55rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+  display: inline-block;
+  margin-bottom: 0.35rem;
+}
+.cm-lp-quote blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding-left: 0.75rem;
+  color: var(--color-muted-foreground);
+  margin: 0.25rem 0;
+}
+.cm-lp-image img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  margin: 0.25rem 0;
+}
+.cm-lp-image figcaption {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+  text-align: center;
+  margin-top: 0.25rem;
+}
+.cm-lp-table table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.85em;
+  width: 100%;
+}
+.cm-lp-table th,
+.cm-lp-table td {
+  border: 1px solid var(--color-border);
+  padding: 0.3rem 0.6rem;
+}
+.cm-lp-table th {
+  background: var(--color-muted);
+}
+/* 行内渲染样式 */
+.cm-lp-strong {
+  font-weight: 700;
+}
+.cm-lp-em {
+  font-style: italic;
+}
+.cm-lp-inline-code {
+  background: var(--color-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+  font-family: var(--font-pixel-family);
+  font-size: 0.9em;
+}
+.cm-lp-del {
+  text-decoration: line-through;
+}
+.cm-lp-link {
+  color: var(--color-primary);
+  text-decoration: underline;
 }

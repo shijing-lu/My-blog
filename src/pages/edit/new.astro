@@ -1,0 +1,8 @@
+---
+/* ===== Props ===== */
+/* （新建入口，无 Props） */
+
+/* ===== Logic ===== */
+// 生成新 UUID 并进入编辑页（内容在首次自动保存时落库）
+return Astro.redirect(`/edit/${crypto.randomUUID()}`);
+---

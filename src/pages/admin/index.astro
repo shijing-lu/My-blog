@@ -1,22 +1,83 @@
 ---
 /* ===== Props ===== */
-/* （后台页无 Props，数据经服务端注入 Editor 岛） */
+/* （管理页无 Props） */
 
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
-import Editor from '@/components/admin/Editor';
 import { listArticles } from '@/lib/articles';
+import type { ArticleType } from '../../../db/types';
 
 /* ===== Logic ===== */
-/** 文章列表（序列化 meta，供侧栏渲染与选择载入） */
-const articles = (await listArticles()).map((a) => ({
-  id: a.id,
-  title: a.title,
-  type: a.type,
-  updatedAt: a.updatedAt.toISOString(),
-}));
+const articles = await listArticles();
+const TYPE_LABELS: Record<ArticleType, string> = { tech: '技术', note: '笔记', photo: '摄影' };
+
+function formatShort(date: Date): string {
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
+}
 ---
 <!-- ===== Template ===== -->
-<AdminLayout>
-  <Editor client:load articles={articles} />
+<AdminLayout title="文章管理">
+  <section class="mx-auto w-full max-w-4xl px-4 py-8">
+    <div class="flex items-end justify-between gap-4">
+      <div>
+        <p class="pixel-chip text-primary">ARTICLE MANAGER</p>
+        <h1 class="mt-1 font-display text-2xl font-semibold">文章管理</h1>
+        <p class="mt-1 text-sm text-muted-foreground">共 {articles.length} 篇 · 点击「写作」或右侧 + 新建</p>
+      </div>
+      <a href="/edit/new" class="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90">
+        + 新建
+      </a>
+    </div>
+
+    <ul class="mt-6 divide-y divide-border rounded-lg border bg-card">
+      {
+        articles.map((a) => (
+          <li class="flex items-center justify-between gap-3 px-4 py-3">
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium">{a.title || '未命名'}</p>
+              <p class="font-pixel mt-0.5 text-[0.6rem] text-muted-foreground">
+                {TYPE_LABELS[a.type]} · {formatShort(a.updatedAt)}
+              </p>
+            </div>
+            <div class="flex shrink-0 gap-2 text-xs">
+              <a
+                href={`/edit/${a.id}`}
+                class="rounded-md border border-border px-2.5 py-1 transition-colors duration-200 hover:border-primary hover:text-primary"
+              >
+                编辑
+              </a>
+              <button
+                type="button"
+                data-delete-id={a.id}
+                data-delete-title={a.title || '未命名'}
+                class="rounded-md border border-destructive/40 px-2.5 py-1 text-destructive transition-colors duration-200 hover:bg-destructive/10"
+              >
+                删除
+              </button>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
+    {
+      articles.length === 0 && (
+        <p class="mt-6 text-sm text-muted-foreground">暂无文章，点右上角「+ 新建」开始写作。</p>
+      )
+    }
+  </section>
 </AdminLayout>
+
+<script>
+  /** 删除确认 → DELETE /api/articles/[id] → 刷新 */
+  document.querySelectorAll<HTMLButtonElement>('[data-delete-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.deleteId ?? '';
+      const title = btn.dataset.deleteTitle ?? '';
+      if (!id) return;
+      if (!window.confirm(`确定删除「${title}」？此操作不可撤销。`)) return;
+      await fetch(`/api/articles/${id}`, { method: 'DELETE' });
+      window.location.reload();
+    });
+  });
+</script>

@@ -1,0 +1,34 @@
+---
+/* ===== Props ===== */
+/* （动态路由，无 Props） */
+
+/* ===== Imports ===== */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import LiveEditor from '@/components/admin/LiveEditor';
+import { getArticleById } from '@/lib/articles';
+import type { ArticleType } from '../../../db/types';
+
+/* ===== Logic ===== */
+const { id } = Astro.params;
+const article = id ? await getArticleById(id) : null;
+
+/** 初始草稿：已存在 → 载入；不存在（新文章）→ 空草稿 */
+const initial = article
+  ? {
+      id: article.id,
+      title: article.title,
+      type: article.type as ArticleType,
+      summary: article.summary,
+      tags: article.tags,
+      content: article.content,
+    }
+  : id
+    ? { id, title: '', type: 'tech' as ArticleType, summary: '', tags: [], content: '' }
+    : null;
+
+if (!initial) return Astro.redirect('/edit/new');
+---
+<!-- ===== Template ===== -->
+<AdminLayout title="写作">
+  <LiveEditor client:load initial={initial} />
+</AdminLayout>

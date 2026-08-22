@@ -52,17 +52,27 @@ const isAuthed = verifyRequest(Astro.cookies);
           <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             首页
           </a>
-          {
-            isAuthed && (
-              <a href="/admin" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
-                写作
-              </a>
-            )
-          }
           <span class="hidden text-xs text-muted-foreground/70 sm:inline">技术教程 · 学习笔记 · 随笔与摄影</span>
           <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <ThemeToggle />
           <ThemeSettings />
+          {
+            isAuthed ? (
+              <a
+                href="/edit/new"
+                class="ml-1 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+              >
+                写作
+              </a>
+            ) : (
+              <a
+                href="/login"
+                class="ml-1 rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:bg-accent"
+              >
+                登录
+              </a>
+            )
+          }
         </nav>
       </div>
     </header>
