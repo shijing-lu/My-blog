@@ -5,7 +5,7 @@
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import LiveEditor from '@/components/admin/LiveEditor';
-import { getArticleById } from '@/lib/articles';
+import { getArticleById, listArticles } from '@/lib/articles';
 import type { ArticleType } from '../../../db/types';
 
 /* ===== Logic ===== */
@@ -27,8 +27,16 @@ const initial = article
     : null;
 
 if (!initial) return Astro.redirect('/edit/new');
+
+/** 全部文章元信息（左栏资源管理器） */
+const articles = (await listArticles()).map((a) => ({
+  id: a.id,
+  title: a.title,
+  type: a.type as ArticleType,
+  updatedAt: a.updatedAt.toISOString(),
+}));
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="写作">
-  <LiveEditor client:load initial={initial} />
+  <LiveEditor client:load initial={initial} articles={articles} />
 </AdminLayout>

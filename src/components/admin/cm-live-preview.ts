@@ -39,17 +39,31 @@ function esc(value: string): string {
 /** 隐藏范围（replace 为空 widget，不占视觉空间） */
 const hide = Decoration.replace({});
 
+/** 点击渲染块 → 把光标移动到该块源码起点（Obsidian 式交互） */
+function makeClickToPos(dom: HTMLElement, pos: number): void {
+  if (pos < 0) return;
+  dom.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const view = EditorView.findFromDOM(dom);
+    if (view) {
+      view.dispatch({ selection: { anchor: pos } });
+      view.focus();
+    }
+  });
+}
+
 /** 代码块 Widget */
 class CodeWidget extends WidgetType {
   constructor(
     readonly lang: string,
     readonly code: string,
+    readonly pos: number,
   ) {
     super();
   }
 
   eq(other: CodeWidget): boolean {
-    return other.lang === this.lang && other.code === this.code;
+    return other.lang === this.lang && other.code === this.code && other.pos === this.pos;
   }
 
   toDOM(): HTMLElement {
@@ -66,6 +80,7 @@ class CodeWidget extends WidgetType {
     code.textContent = this.code;
     pre.appendChild(code);
     wrap.appendChild(pre);
+    makeClickToPos(wrap, this.pos);
     return wrap;
   }
 
@@ -79,18 +94,20 @@ class HtmlWidget extends WidgetType {
   constructor(
     readonly html: string,
     readonly className: string,
+    readonly pos: number,
   ) {
     super();
   }
 
   eq(other: HtmlWidget): boolean {
-    return other.html === this.html && other.className === this.className;
+    return other.html === this.html && other.className === this.className && other.pos === this.pos;
   }
 
   toDOM(): HTMLElement {
     const div = document.createElement('div');
     div.className = `cm-lp-block ${this.className}`;
     div.innerHTML = this.html;
+    makeClickToPos(div, this.pos);
     return div;
   }
 
@@ -104,12 +121,13 @@ class ImageWidget extends WidgetType {
   constructor(
     readonly src: string,
     readonly alt: string,
+    readonly pos: number,
   ) {
     super();
   }
 
   eq(other: ImageWidget): boolean {
-    return other.src === this.src && other.alt === this.alt;
+    return other.src === this.src && other.alt === this.alt && other.pos === this.pos;
   }
 
   toDOM(): HTMLElement {
@@ -125,6 +143,7 @@ class ImageWidget extends WidgetType {
       cap.textContent = this.alt;
       fig.appendChild(cap);
     }
+    makeClickToPos(fig, this.pos);
     return fig;
   }
 
@@ -193,7 +212,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         const from = line.from;
         const to = lines[close]!.to + 1;
         if (!intersectsSelection(sel, from, to)) {
-          items.push({ from, to, deco: Decoration.replace({ widget: new CodeWidget(fence[1] ?? '', body.join('\n')) }) });
+          items.push({ from, to, deco: Decoration.replace({ widget: new CodeWidget(fence[1] ?? '', body.join('\n'), from) }) });
         }
         for (let k = i; k <= close; k += 1) blockedLines.add(k);
         consumed = close + 1;
@@ -220,7 +239,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           const to = lines[close]!.to + 1;
           if (!intersectsSelection(sel, from, to)) {
             const html = admonitionHtml(adm[1]!, adm[2]?.trim() ?? '', body.join('\n'));
-            items.push({ from, to, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-admonition') }) });
+            items.push({ from, to, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-admonition', from) }) });
           }
           for (let k = i; k <= close; k += 1) blockedLines.add(k);
           consumed = close + 1;
@@ -240,7 +259,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         const from = line.from;
         const to = lines[j - 1]!.to + 1;
         if (!intersectsSelection(sel, from, to)) {
-          items.push({ from, to, deco: Decoration.replace({ widget: new HtmlWidget(mdToHtmlSync(rows.join('\n')), 'cm-lp-table') }) });
+          items.push({ from, to, deco: Decoration.replace({ widget: new HtmlWidget(mdToHtmlSync(rows.join('\n')), 'cm-lp-table', from) }) });
         }
         for (let k = i; k < j; k += 1) blockedLines.add(k);
         consumed = j;
@@ -257,14 +276,14 @@ function buildDecorations(view: EditorView): DecorationSet {
     if (head && !intersectsSelection(sel, line.from, line.to)) {
       const level = head[2]!.length;
       const html = `<h${level}>${esc(head[3] ?? '')}</h${level}>`;
-      items.push({ from: line.from, to: line.to + 1, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-heading') }) });
+      items.push({ from: line.from, to: line.to + 1, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-heading', line.from) }) });
       blockedLines.add(idx);
       return;
     }
     const quote = line.text.match(/^(\s*)>\s?(.*)$/);
     if (quote && !intersectsSelection(sel, line.from, line.to)) {
       const html = `<blockquote>${mdToHtmlSync(quote[2] ?? '')}</blockquote>`;
-      items.push({ from: line.from, to: line.to + 1, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-quote') }) });
+      items.push({ from: line.from, to: line.to + 1, deco: Decoration.replace({ widget: new HtmlWidget(html, 'cm-lp-quote', line.from) }) });
       blockedLines.add(idx);
     }
   });
@@ -285,7 +304,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       // 图片 ![alt](url)
       if (m[9] !== undefined && m[10] !== undefined) {
         if (!intersectsSelection(sel, fullFrom, fullTo)) {
-          items.push({ from: fullFrom, to: fullTo, deco: Decoration.replace({ widget: new ImageWidget(m[10] ?? '', m[9] ?? '') }) });
+          items.push({ from: fullFrom, to: fullTo, deco: Decoration.replace({ widget: new ImageWidget(m[10] ?? '', m[9] ?? '', fullFrom) }) });
         }
         continue;
       }

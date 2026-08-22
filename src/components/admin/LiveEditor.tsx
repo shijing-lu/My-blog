@@ -1,12 +1,13 @@
 /**
- * LiveEditor.tsx —— Obsidian 式单栏所见即所得写作页
+ * LiveEditor.tsx —— Obsidian 式写作工作区
  *
- * - 单栏 CodeMirror 6 + Live Preview 扩展（隐藏 Markdown 标记、块级渲染）；
- * - 顶部工具条：标题 / 类型 / 摘要 / 标签 / 删除 / 保存状态；
- * - 500ms 防抖自动保存 /api/save-draft（版本号防竞态、401 提示重登、beforeunload）；
- * - Ctrl/Cmd-S 手动保存；编辑器配色跟随站点主题。
+ * 三栏布局：
+ * - 左栏：全部文章（按类型分组排序），支持新建 / 打开 / 删除 / 移动（改类型）；
+ * - 中栏：单栏 CodeMirror + Live Preview（居中留白，不铺满）；
+ * - 右栏：当前文章目录（点击跳转到对应标题）。
+ * 500ms 防抖自动保存 /api/save-draft（版本防竞态、401 重登、beforeunload）；Ctrl/Cmd-S。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
@@ -32,9 +33,18 @@ export interface InitialDraft {
   content: string;
 }
 
+/** 文章元信息（左栏列表） */
+export interface ArticleMeta {
+  id: string;
+  title: string;
+  type: ArticleType;
+  updatedAt: string;
+}
+
 /** 组件 Props */
 interface LiveEditorProps {
   initial: InitialDraft;
+  articles: ArticleMeta[];
 }
 
 /** 保存状态 */
@@ -73,8 +83,8 @@ const lightChrome = EditorView.theme(
     },
     '.cm-content': {
       fontFamily: 'var(--font-sans-family)',
-      padding: '16px 0',
-      maxWidth: '46rem',
+      padding: '20px 8px',
+      maxWidth: '44rem',
       margin: '0 auto',
     },
     '.cm-gutters': {
@@ -104,9 +114,21 @@ function codeLanguages(info: string): Language | null {
   return null;
 }
 
-/** 写作页 */
-export default function LiveEditor({ initial }: LiveEditorProps): ReactElement {
+/** 从 Markdown 提取标题（行号供 CM 定位） */
+function extractToc(md: string): Array<{ text: string; line: number; level: number }> {
+  const out: Array<{ text: string; line: number; level: number }> = [];
+  md.split('\n').forEach((line, idx) => {
+    const m = line.match(/^(#{1,6})\s+(.*)$/);
+    if (m) out.push({ text: m[2]!, line: idx, level: m[1]!.length });
+  });
+  return out;
+}
+
+/** 写作工作区 */
+export default function LiveEditor({ initial, articles }: LiveEditorProps): ReactElement {
   const [draft, setDraft] = useState<InitialDraft>(initial);
+  const [list, setList] = useState<ArticleMeta[]>(articles);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
@@ -136,6 +158,12 @@ export default function LiveEditor({ initial }: LiveEditorProps): ReactElement {
       if (v === versionRef.current) {
         setSaveStatus('saved');
         setLastSaved(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+        const d = draftRef.current;
+        setList((prev) => {
+          const exists = prev.some((x) => x.id === d.id);
+          const item: ArticleMeta = { id: d.id, title: d.title || '未命名', type: d.type, updatedAt: new Date().toISOString() };
+          return exists ? prev.map((x) => (x.id === d.id ? item : x)) : [...prev, item];
+        });
       }
     } catch {
       if (v === versionRef.current) setSaveStatus('error');
@@ -173,12 +201,47 @@ export default function LiveEditor({ initial }: LiveEditorProps): ReactElement {
     return () => window.removeEventListener('beforeunload', handler);
   }, [saveStatus]);
 
-  /* ---- 删除 ---- */
-  const removeCurrent = useCallback(async (): Promise<void> => {
-    if (!window.confirm('确定删除这篇文章？此操作不可撤销。')) return;
-    await fetch(`/api/articles/${draftRef.current.id}`, { method: 'DELETE' });
-    window.location.href = '/';
+  /* ---- 打开 / 删除 / 移动 ---- */
+  const loadArticle = useCallback(async (id: string): Promise<void> => {
+    const res = await fetch(`/api/articles/${id}`);
+    if (!res.ok) return;
+    const data = (await res.json()) as { article: InitialDraft };
+    setDraft({ ...data.article, tags: data.article.tags ?? [] });
+    setSelectedId(id);
+    setSaveStatus('saved');
+    setLastSaved(null);
   }, []);
+
+  const newArticle = useCallback((): void => {
+    window.location.href = '/edit/new';
+  }, []);
+
+  const removeArticle = useCallback(async (id: string): Promise<void> => {
+    const target = list.find((x) => x.id === id);
+    if (!target) return;
+    if (!window.confirm(`确定删除「${target.title}」？此操作不可撤销。`)) return;
+    await fetch(`/api/articles/${id}`, { method: 'DELETE' });
+    setList((prev) => prev.filter((x) => x.id !== id));
+    if (selectedId === id) {
+      setSelectedId(null);
+      setDraft({ id: crypto.randomUUID(), title: '', type: 'tech', summary: '', tags: [], content: '' });
+      setSaveStatus('idle');
+      setLastSaved(null);
+    }
+  }, [list, selectedId]);
+
+  const moveArticle = useCallback(async (id: string, type: ArticleType): Promise<void> => {
+    const res = await fetch(`/api/articles/${id}`);
+    if (!res.ok) return;
+    const data = (await res.json()) as { article: InitialDraft };
+    await fetch('/api/save-draft', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...data.article, type, tags: data.article.tags ?? [] }),
+    });
+    setList((prev) => prev.map((x) => (x.id === id ? { ...x, type } : x)));
+    if (selectedId === id) setDraft((d) => ({ ...d, type }));
+  }, [selectedId]);
 
   /* ---- CodeMirror（单栏 + Live Preview） ---- */
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -231,7 +294,6 @@ export default function LiveEditor({ initial }: LiveEditorProps): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 外部值同步（仅新建/载入时触发；编辑器自身输入不重复）
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
@@ -242,90 +304,202 @@ export default function LiveEditor({ initial }: LiveEditorProps): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.content]);
 
+  /** 目录：点击跳转到 CM 对应标题行 */
+  const jumpToHeading = useCallback((line: number): void => {
+    const view = viewRef.current;
+    if (!view) return;
+    const pos = view.state.doc.line(line + 1).from;
+    view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+    view.focus();
+  }, []);
+
+  /** 当前文章目录 */
+  const toc = useMemo(() => extractToc(draft.content), [draft.content]);
+
+  /** 按类型分组（更新时间倒序） */
+  const groups = useMemo(() => {
+    const g: Record<ArticleType, ArticleMeta[]> = { tech: [], note: [], photo: [] };
+    [...list]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .forEach((a) => g[a.type]?.push(a));
+    return g;
+  }, [list]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* 工具条 */}
-      <div className="shrink-0 space-y-2 border-b bg-background px-4 py-3">
-        <div className="flex items-center gap-2">
-          <input
-            value={draft.title}
-            onChange={(e) => update('title', e.target.value)}
-            placeholder="标题"
-            className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
-          />
-          <select
-            value={draft.type}
-            onChange={(e) => update('type', e.target.value as ArticleType)}
-            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none"
-            aria-label="文章类型"
-          >
-            {ARTICLE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {TYPE_LABELS[t]}
-              </option>
-            ))}
-          </select>
+    <div className="flex h-full min-h-0">
+      {/* 左栏：全部文章（按类型分组） */}
+      <aside className="flex w-64 shrink-0 flex-col border-r bg-background">
+        <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+          <span className="pixel-chip text-muted-foreground">全部文章</span>
           <button
             type="button"
-            onClick={() => void removeCurrent()}
-            className="rounded-md border border-destructive/40 px-2.5 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
+            onClick={newArticle}
+            className="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90"
           >
-            删除
+            + 新建
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <input
-            value={draft.summary}
-            onChange={(e) => update('summary', e.target.value)}
-            placeholder="摘要（列表与搜索展示）"
-            className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 outline-none transition-colors focus-visible:border-ring"
-          />
-          <input
-            value={draft.tags.join(', ')}
-            onChange={(e) => update('tags', e.target.value.split(',').map((s) => s.trim()))}
-            placeholder="标签，逗号分隔"
-            className="w-52 rounded-md border border-input bg-background px-3 py-1.5 outline-none transition-colors focus-visible:border-ring"
-          />
+        <div className="min-h-0 flex-1 overflow-y-auto py-2">
+          {ARTICLE_TYPES.map((type) => (
+            <div key={type}>
+              <div className="pixel-chip px-3 py-1 text-muted-foreground">
+                ▾ {TYPE_LABELS[type]} · {groups[type]?.length ?? 0}
+              </div>
+              <ul className="mb-2">
+                {groups[type]?.map((a) => (
+                  <li key={a.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void loadArticle(a.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void loadArticle(a.id);
+                      }}
+                      className={`group/item flex cursor-pointer items-center gap-1 px-3 py-1.5 text-sm transition-colors duration-200 ${
+                        selectedId === a.id ? 'bg-accent' : 'hover:bg-accent/50'
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{a.title || '未命名'}</span>
+                      <span className="hidden shrink-0 items-center gap-1 group-hover/item:flex" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={a.type}
+                          onChange={(e) => void moveArticle(a.id, e.target.value as ArticleType)}
+                          className="w-14 cursor-pointer rounded border border-border bg-background px-1 py-0.5 font-pixel text-[0.55rem]"
+                          aria-label="移动分组"
+                          title="移动分组"
+                        >
+                          {ARTICLE_TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {TYPE_LABELS[t]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void removeArticle(a.id);
+                          }}
+                          className="text-destructive"
+                          aria-label="删除"
+                          title="删除"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 ${
-              saveStatus === 'saved'
-                ? 'bg-emerald-500/10 text-emerald-600'
-                : saveStatus === 'error' || saveStatus === 'expired'
-                  ? 'bg-destructive/10 text-destructive'
-                  : saveStatus === 'saving'
-                    ? 'bg-amber-500/10 text-amber-600'
-                    : 'bg-muted text-muted-foreground'
-            }`}
-          >
-            <span
-              className={`size-1.5 rounded-full ${
-                saveStatus === 'saved'
-                  ? 'bg-emerald-500'
-                  : saveStatus === 'error' || saveStatus === 'expired'
-                    ? 'bg-destructive'
-                    : saveStatus === 'saving'
-                      ? 'bg-amber-500'
-                      : 'bg-muted-foreground/40'
-              }`}
+      </aside>
+
+      {/* 中栏：编辑器（居中留白） */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* 工具条 */}
+        <div className="shrink-0 space-y-2 border-b bg-background px-4 py-3">
+          <div className="flex items-center gap-2">
+            <input
+              value={draft.title}
+              onChange={(e) => update('title', e.target.value)}
+              placeholder="标题"
+              className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
             />
-            {STATUS_TEXT[saveStatus]}
-          </span>
-          {lastSaved ? <span className="text-muted-foreground">上次保存 {lastSaved}</span> : null}
-          {saveStatus === 'expired' ? (
-            <a href="/login?next=/admin" className="text-primary underline underline-offset-2">
-              重新登录
-            </a>
-          ) : null}
-          <span className="ml-auto text-muted-foreground">所见即所得 · Ctrl/Cmd + S 保存</span>
+            <select
+              value={draft.type}
+              onChange={(e) => update('type', e.target.value as ArticleType)}
+              className="rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none"
+              aria-label="文章类型（移动分组）"
+              title="类型 = 移动分组"
+            >
+              {ARTICLE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <input
+              value={draft.summary}
+              onChange={(e) => update('summary', e.target.value)}
+              placeholder="摘要（列表与搜索展示）"
+              className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 outline-none transition-colors focus-visible:border-ring"
+            />
+            <input
+              value={draft.tags.join(', ')}
+              onChange={(e) => update('tags', e.target.value.split(',').map((s) => s.trim()))}
+              placeholder="标签，逗号分隔"
+              className="w-52 rounded-md border border-input bg-background px-3 py-1.5 outline-none transition-colors focus-visible:border-ring"
+            />
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 ${
+                saveStatus === 'saved'
+                  ? 'bg-emerald-500/10 text-emerald-600'
+                  : saveStatus === 'error' || saveStatus === 'expired'
+                    ? 'bg-destructive/10 text-destructive'
+                    : saveStatus === 'saving'
+                      ? 'bg-amber-500/10 text-amber-600'
+                      : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              <span
+                className={`size-1.5 rounded-full ${
+                  saveStatus === 'saved'
+                    ? 'bg-emerald-500'
+                    : saveStatus === 'error' || saveStatus === 'expired'
+                      ? 'bg-destructive'
+                      : saveStatus === 'saving'
+                        ? 'bg-amber-500'
+                        : 'bg-muted-foreground/40'
+                }`}
+              />
+              {STATUS_TEXT[saveStatus]}
+            </span>
+            {lastSaved ? <span className="text-muted-foreground">上次保存 {lastSaved}</span> : null}
+            {saveStatus === 'expired' ? (
+              <a href="/login?next=/admin" className="text-primary underline underline-offset-2">
+                重新登录
+              </a>
+            ) : null}
+            <span className="ml-auto text-muted-foreground">所见即所得 · Ctrl/Cmd + S 保存</span>
+          </div>
+        </div>
+
+        {/* 编辑器区：两边留白 */}
+        <div className="min-h-0 flex-1 overflow-auto bg-background px-4 lg:px-10">
+          <div ref={hostRef} className="h-full" />
         </div>
       </div>
 
-      {/* 单栏编辑器（Live Preview） */}
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <div ref={hostRef} className="h-full" />
-      </div>
+      {/* 右栏：目录 */}
+      <aside className="hidden w-56 shrink-0 border-l bg-background xl:block">
+        <div className="border-b px-3 py-2">
+          <span className="pixel-chip text-muted-foreground">目录 / TOC</span>
+        </div>
+        <div className="max-h-full overflow-y-auto py-2">
+          {toc.length === 0 ? (
+            <p className="px-3 text-xs text-muted-foreground">暂无标题 —— 用 # 开始一个标题。</p>
+          ) : (
+            toc.map((t, i) => (
+              <button
+                key={`${t.text}-${i}`}
+                type="button"
+                onClick={() => jumpToHeading(t.line)}
+                className={`block w-full truncate px-3 py-1 text-left text-sm transition-colors duration-200 hover:bg-accent ${
+                  t.level >= 3 ? 'pl-7' : ''
+                }`}
+              >
+                {t.text}
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
