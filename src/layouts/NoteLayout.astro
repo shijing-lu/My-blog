@@ -3,7 +3,7 @@
 interface Props {
   /** 文章实体 */
   article: import('../../db/types').Article;
-  /** 目录（Note 布局不使用，兼容接口） */
+  /** 目录 */
   toc: import('@/lib/mdx-plugins').TocItem[];
   /** 上一篇（更旧） */
   prev?: import('../../db/types').Article;
@@ -11,26 +11,35 @@ interface Props {
   next?: import('../../db/types').Article;
 }
 
-const { article, prev, next } = Astro.props;
+const { article, toc, prev, next } = Astro.props;
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import ArticleHeader from '@/components/article/ArticleHeader.astro';
+import ArticleToc from '@/components/article/ArticleToc.astro';
 import ArticleAside from '@/components/article/ArticleAside.astro';
 import ArticleFooter from '@/components/article/ArticleFooter.astro';
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title={article.title} description={article.summary}>
-  <section class="mx-auto w-full max-w-3xl px-4 py-10">
-    <ArticleHeader article={article} />
-    <div class="pixel-divider mt-6" />
-    {/* 简洁布局：无 TOC，突出引用与列表（样式见 .layout-note） */}
-    <div class="layout-note mt-6">
-      <slot />
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_250px]">
+      <div class="min-w-0">
+        <ArticleHeader article={article} />
+        <div class="pixel-divider mt-6" />
+        {/* 笔记布局：受限列宽 + 引用/列表强调 */}
+        <div class="layout-note mt-6 max-w-3xl">
+          <slot />
+        </div>
+        <ArticleFooter article={article} prev={prev} next={next} />
+      </div>
+      {/* 右侧：目录 + 详细信息 */}
+      <aside class="hidden lg:block">
+        <div class="sticky top-20 space-y-6">
+          <ArticleToc toc={toc} />
+          <ArticleAside article={article} />
+        </div>
+      </aside>
     </div>
-    <div class="mt-10">
-      <ArticleAside article={article} />
-    </div>
-    <ArticleFooter article={article} prev={prev} next={next} />
   </section>
 </BaseLayout>
