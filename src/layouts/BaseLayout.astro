@@ -15,7 +15,7 @@ const {
 import '../styles/global.css';
 import { ClientRouter } from 'astro:transitions';
 import ThemeToggle from '@/components/ThemeToggle.astro';
-import ThemeSettings from '@/components/ThemeSettings';
+import ThemeSettings from '@/components/ThemeSettings.astro';
 import RightToolbar from '@/components/RightToolbar.astro';
 import { buildThemeCss } from '@/themes';
 
@@ -68,8 +68,9 @@ const themeCss = buildThemeCss();
             首页
           </a>
           <span class="hidden text-xs text-muted-foreground/70 sm:inline">技术教程 · 学习笔记 · 随笔与摄影</span>
-          <ThemeSettings client:load />
+          <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <ThemeToggle />
+          <ThemeSettings />
         </nav>
       </div>
     </header>

@@ -1,0 +1,137 @@
+---
+/*
+ * ThemeSettings.astro —— 主题设置面板（原生 <dialog>，零水合依赖）
+ * Props: 无
+ * Imports: 主题注册表（渲染主题卡片）+ 客户端主题状态
+ * Logic: 打开/选择/关闭均由原生 JS 处理，选择即写入 localStorage 并全局生效
+ */
+import { themes } from '@/themes';
+
+/** 外观模式选项 */
+const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }> = [
+  { value: 'light', label: '亮色' },
+  { value: 'dark', label: '暗色' },
+  { value: 'system', label: '跟随系统' },
+];
+---
+<!-- ===== Template ===== -->
+<!-- 入口：顶部导航最右侧的调色盘按钮 -->
+<button
+  id="theme-settings-btn"
+  type="button"
+  aria-label="主题设置"
+  title="主题设置"
+  class="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-accent-foreground"
+>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
+    <circle cx="13.5" cy="6.5" r="0.5" />
+    <circle cx="17.5" cy="10.5" r="0.5" />
+    <circle cx="8.5" cy="7.5" r="0.5" />
+    <circle cx="6.5" cy="12.5" r="0.5" />
+    <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+  </svg>
+</button>
+
+<!-- 设置面板（原生 dialog） -->
+<dialog id="theme-settings-dialog" class="theme-settings" aria-labelledby="theme-settings-title">
+  <div class="settings-header">
+    <div>
+      <p class="pixel-chip text-primary">THEME SETTINGS</p>
+      <h2 id="theme-settings-title" class="mt-1 font-display text-xl font-semibold">主题设置</h2>
+      <p class="mt-0.5 text-xs text-muted-foreground">选择全局风格与外观模式，即时生效并自动记住。</p>
+    </div>
+    <button id="settings-close" type="button" aria-label="关闭" class="settings-close">×</button>
+  </div>
+
+  <div class="pixel-divider" />
+
+  <p class="settings-label">主题风格 / THEME</p>
+  <div class="settings-grid">
+    {
+      themes.map((t) => (
+        <button
+          type="button"
+          class="theme-card"
+          data-theme-card={t.id}
+          data-default={t.isDefault ? '1' : '0'}
+          aria-pressed="false"
+        >
+          <span class="theme-swatches" aria-hidden="true">
+            {t.preview.map((color) => <span style={{ backgroundColor: color }} />)}
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="theme-name">
+              {t.name}
+              {t.isDefault ? <span class="theme-default-chip">默认</span> : null}
+            </span>
+            <span class="theme-desc">{t.description}</span>
+          </span>
+          <span class="theme-active-dot" aria-hidden="true" />
+        </button>
+      ))
+    }
+  </div>
+
+  <p class="settings-label mt-5">外观模式 / MODE</p>
+  <div class="settings-modes">
+    {
+      MODES.map((m) => (
+        <button type="button" class="mode-btn" data-mode-btn={m.value} aria-pressed="false">
+          {m.label}
+        </button>
+      ))
+    }
+  </div>
+</dialog>
+
+<script>
+  import { readState, writeState, type ThemeMode } from '@/lib/theme';
+
+  const dialog = document.getElementById('theme-settings-dialog') as HTMLDialogElement | null;
+  const openBtn = document.getElementById('theme-settings-btn');
+  const closeBtn = document.getElementById('settings-close');
+
+  /** 依据当前状态刷新选中态 */
+  function render(): void {
+    const state = readState();
+    document.querySelectorAll<HTMLElement>('[data-theme-card]').forEach((card) => {
+      const id = card.dataset.themeCard ?? '';
+      const isDefault = card.dataset.default === '1';
+      const value = isDefault ? '' : id;
+      const active = state.themeId === value;
+      card.classList.toggle('active', active);
+      card.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    document.querySelectorAll<HTMLElement>('[data-mode-btn]').forEach((btn) => {
+      const active = state.mode === (btn.dataset.modeBtn as ThemeMode);
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  openBtn?.addEventListener('click', () => {
+    render();
+    dialog?.showModal();
+  });
+  closeBtn?.addEventListener('click', () => dialog?.close());
+  // 点遮罩关闭
+  dialog?.addEventListener('click', (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+  // ESC 关闭（原生 cancel 事件）
+
+  document.querySelectorAll<HTMLElement>('[data-theme-card]').forEach((card) => {
+    card.addEventListener('click', () => {
+      const isDefault = card.dataset.default === '1';
+      const id = isDefault ? '' : (card.dataset.themeCard ?? '');
+      writeState({ ...readState(), themeId: id });
+      render();
+    });
+  });
+  document.querySelectorAll<HTMLElement>('[data-mode-btn]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      writeState({ ...readState(), mode: btn.dataset.modeBtn as ThemeMode });
+      render();
+    });
+  });
+</script>
