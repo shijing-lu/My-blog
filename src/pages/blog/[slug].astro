@@ -29,8 +29,8 @@ const layoutMap = {
   photo: PhotoLayout,
 } as const;
 const ContentLayout = layoutMap[article.type] ?? NoteLayout;
-// 摄影布局需要全宽（max-w-none），其余用默认 prose 宽度
-const articleClass = article.type === 'photo' ? 'prose max-w-none' : 'prose';
+// 正文使用 max-w-none，交由布局的受限容器统一约束宽度（图片/文字/分割线等宽）
+const articleClass = 'prose max-w-none';
 ---
 <!-- ===== Template ===== -->
 <ContentLayout article={article} toc={toc} prev={prev} next={next}>

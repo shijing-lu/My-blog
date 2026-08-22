@@ -25,13 +25,15 @@ import ArticleFooter from '@/components/article/ArticleFooter.astro';
   <section class="mx-auto w-full max-w-6xl px-4 py-10">
     <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_250px]">
       <div class="min-w-0">
-        <ArticleHeader article={article} />
-        <div class="pixel-divider mt-6" />
-        {/* 笔记布局：受限列宽 + 引用/列表强调 */}
-        <div class="layout-note mt-6 max-w-3xl">
-          <slot />
+        {/* 整篇文章统一宽度：引用/列表强调由 .layout-note 提供 */}
+        <div class="max-w-3xl">
+          <ArticleHeader article={article} />
+          <div class="pixel-divider mt-6" />
+          <div class="layout-note mt-6">
+            <slot />
+          </div>
+          <ArticleFooter article={article} prev={prev} next={next} />
         </div>
-        <ArticleFooter article={article} prev={prev} next={next} />
       </div>
       {/* 右侧：目录 + 详细信息 */}
       <aside class="hidden lg:block">
