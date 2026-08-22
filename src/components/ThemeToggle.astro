@@ -1,8 +1,8 @@
 ---
 /*
- * ThemeToggle.astro —— 亮/暗主题切换按钮
+ * ThemeToggle.astro —— 快速亮/暗切换（与主题系统共享状态）
  * Props: 无
- * Imports: 无（纯原生脚本，零依赖、零网络）
+ * Imports: 客户端主题状态
  */
 ---
 <!-- ===== Template ===== -->
@@ -10,6 +10,7 @@
   id="theme-toggle"
   type="button"
   aria-label="切换亮暗主题"
+  data-mode-icon="light"
   class="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-accent-foreground"
 >
   <!-- 暗色时显示太阳（切回亮色） -->
@@ -24,24 +25,20 @@
 </button>
 
 <script>
-  /** 主题持久化：localStorage 优先，其次跟随系统 */
-  const THEME_KEY = 'my-blog-theme';
+  import { readState, writeState, isDark } from '@/lib/theme';
+
   const root = document.documentElement;
+  const apply = (): void => {
+    const state = readState();
+    root.classList.toggle('dark', isDark(state));
+  };
 
-  function applyTheme(): void {
-    const saved = localStorage.getItem(THEME_KEY);
-    const dark =
-      saved === 'dark' ||
-      (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    root.classList.toggle('dark', dark);
-  }
+  apply();
 
-  applyTheme();
-
-  const toggle = document.getElementById('theme-toggle');
-  toggle?.addEventListener('click', () => {
-    const next = root.classList.contains('dark') ? 'light' : 'dark';
-    root.classList.toggle('dark', next === 'dark');
-    localStorage.setItem(THEME_KEY, next);
+  document.getElementById('theme-toggle')?.addEventListener('click', () => {
+    const state = readState();
+    // 快速切换：亮/暗互切；当前为 system 时按随即偏好落定
+    const nextMode = isDark(state) ? 'light' : 'dark';
+    writeState({ ...state, mode: nextMode });
   });
 </script>

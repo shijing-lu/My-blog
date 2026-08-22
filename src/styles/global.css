@@ -47,6 +47,11 @@
   --chart-3: #c9a227;
   --chart-4: #8a7fbf;
   --chart-5: #c06a6a;
+  /* 字体家族基础值（主题通过 html[data-theme] 覆盖） */
+  --font-sans-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-display-family: "Lora", ui-serif, Georgia, "Songti SC", "Noto Serif SC", serif;
+  --font-pixel-family: "Silkscreen", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 /* 暗色：d-d.design 式复古暗黑终端（近黑暖色 + 陶土橙霓虹） */
@@ -106,11 +111,10 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* 字体家族 */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Lora", ui-serif, Georgia, "Songti SC", "Noto Serif SC", serif;
-  --font-pixel: "Silkscreen", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* 字体家族（引用可由主题覆盖的 *-family 变量，见 :root） */
+  --font-sans: var(--font-sans-family);
+  --font-display: var(--font-display-family);
+  --font-pixel: var(--font-pixel-family);
 }
 
 /* ==================== 基础样式 ==================== */

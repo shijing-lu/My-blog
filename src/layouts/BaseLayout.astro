@@ -15,10 +15,16 @@ const {
 import '../styles/global.css';
 import { ClientRouter } from 'astro:transitions';
 import ThemeToggle from '@/components/ThemeToggle.astro';
+import ThemeSettings from '@/components/ThemeSettings';
 import RightToolbar from '@/components/RightToolbar.astro';
+import { buildThemeCss } from '@/themes';
 
 const siteTitle = 'My Blog';
 const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
+
+/* ===== Logic ===== */
+/** 主题系统生成的全局 CSS（覆盖 :root 默认令牌） */
+const themeCss = buildThemeCss();
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -30,6 +36,23 @@ const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
     <ClientRouter />
+    <!-- 主题系统：注入各主题的 data-theme CSS，并用内联脚本首帧防闪烁 -->
+    <Fragment set:html={`<style id="theme-styles">${themeCss}</style>`} />
+    <script is:inline>
+      (function () {
+        try {
+          const s = JSON.parse(localStorage.getItem('my-blog-theme') || '{}');
+          const r = document.documentElement;
+          if (s.themeId) r.setAttribute('data-theme', s.themeId);
+          const m = s.mode || 'system';
+          const d = m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+          r.classList.toggle('dark', d);
+          r.setAttribute('data-mode', m);
+        } catch (e) {
+          document.documentElement.classList.toggle('dark', matchMedia('(prefers-color-scheme: dark)').matches);
+        }
+      })();
+    </script>
   </head>
   <body class="flex min-h-dvh flex-col">
     <header class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
@@ -45,6 +68,7 @@ const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
             首页
           </a>
           <span class="hidden text-xs text-muted-foreground/70 sm:inline">技术教程 · 学习笔记 · 随笔与摄影</span>
+          <ThemeSettings client:load />
           <ThemeToggle />
         </nav>
       </div>
