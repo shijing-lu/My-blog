@@ -244,9 +244,54 @@
     @apply rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md;
   }
 
-  /* 代码块：顶部留白给复制按钮 */
+  /* 代码块：相对定位 + 顶部留白给复制按钮（纯 CSS，规避 @apply 偶发丢弃） */
   .code-block {
+    position: relative;
     padding-top: 2.5rem;
+  }
+  /* 复制按钮：绝对定位右上，默认隐藏，悬停/聚焦显示 */
+  .code-block .copy-button {
+    position: absolute;
+    top: 0.625rem;
+    right: 0.625rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgb(255 255 255 / 0.12);
+    background-color: rgb(255 255 255 / 0.06);
+    color: rgb(212 212 216 / 0.9);
+    opacity: 0;
+    transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+  }
+  .code-block:hover .copy-button,
+  .code-block .copy-button:focus-visible {
+    opacity: 1;
+  }
+  .code-block .copy-button:hover {
+    background-color: rgb(255 255 255 / 0.16);
+    color: #fff;
+  }
+  /* 行号不可选中 */
+  .line-number {
+    user-select: none;
+    -webkit-user-select: none;
+    opacity: 0.5;
+  }
+  /* 目录项：块级 + 内边距 + 悬停高亮 */
+  .toc-link {
+    display: block;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-muted-foreground);
+    border-radius: var(--radius-md);
+    transition: color 0.2s, background-color 0.2s;
+  }
+  .toc-link:hover,
+  .toc-link[data-active='true'] {
+    background-color: var(--color-accent);
+    color: var(--color-accent-foreground);
   }
 
   /* Admonition（依据 data-admonition 用语义色带） */

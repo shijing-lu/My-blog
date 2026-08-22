@@ -6,13 +6,16 @@
  * 模块级副作用：DOM 解析完成后绑定一次（防重复绑定）。
  */
 
-/** 复制后按钮文字闪示 */
+/** 复制后：图标切到对勾并高亮 */
 function flash(btn: HTMLButtonElement): void {
-  const old = btn.textContent;
-  btn.textContent = '已复制';
+  const copyIcon = btn.querySelector('[data-icon="copy"]');
+  const checkIcon = btn.querySelector('[data-icon="check"]');
+  copyIcon?.classList.add('hidden');
+  checkIcon?.classList.remove('hidden');
   btn.classList.add('text-primary');
   window.setTimeout(() => {
-    btn.textContent = old;
+    copyIcon?.classList.remove('hidden');
+    checkIcon?.classList.add('hidden');
     btn.classList.remove('text-primary');
   }, 1200);
 }
