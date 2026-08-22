@@ -138,7 +138,7 @@ function formatShort(date?: Date): string {
                   (() => {
                     const cover = covers.get(article.id);
                     return cover ? (
-                      <img src={cover} alt="" class="post-cover-img" loading="lazy" />
+                      <img src={cover} alt="" class="post-cover-img" fetchpriority="high" />
                     ) : (
                       <>
                         <span class="post-cover-dither" aria-hidden="true" />
