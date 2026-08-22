@@ -5,6 +5,7 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { listArticles } from '@/lib/articles';
+import SearchBox from '@/components/SearchBox.astro';
 import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
@@ -107,10 +108,22 @@ function formatShort(date?: Date): string {
         <span class="pixel-chip rounded bg-muted px-2 py-1 text-muted-foreground">LATEST ARTICLES</span>
       </div>
 
+      <!-- 检索：搜索框 + 类型筛选 -->
+      <div class="mt-4">
+        <SearchBox total={articles.length} />
+      </div>
+
       <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {
           articles.map((article) => (
-            <article class="post-card overflow-hidden">
+            <article
+              class="post-card overflow-hidden"
+              data-search-card
+              data-type={article.type}
+              data-search-title={article.title.toLowerCase()}
+              data-search-summary={article.summary.toLowerCase()}
+              data-search-tags={article.tags.join(' ').toLowerCase()}
+            >
               {/* 封面：按类型着色的主题渐变 + 大字字形 + 像素类型章 */}
               <div class="post-cover" data-type={article.type}>
                 <span class="post-cover-dither" aria-hidden="true" />
@@ -143,11 +156,31 @@ function formatShort(date?: Date): string {
                   </span>
                 </div>
                 <p class="mt-2 text-sm text-muted-foreground line-clamp-2">{article.summary}</p>
+                {
+                  article.tags.length > 0 && (
+                    <div class="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-2.5">
+                      {
+                        article.tags.slice(0, 3).map((tag) => (
+                          <a
+                            href={`/tags/${encodeURIComponent(tag)}`}
+                            class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary"
+                          >
+                            {tag}
+                          </a>
+                        ))
+                      }
+                    </div>
+                  )
+                }
               </div>
             </article>
           ))
         }
       </div>
+
+      <p id="search-empty" class="mt-6 hidden text-sm text-muted-foreground">
+        未找到匹配的文章，换个关键词或类型试试。
+      </p>
 
       {
         articles.length === 0 && (

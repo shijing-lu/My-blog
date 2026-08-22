@@ -1,0 +1,57 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 文章实体 */
+  article: import('../../../db/types').Article;
+}
+
+const { article } = Astro.props;
+
+/* ===== Imports ===== */
+import { countChars, readingTime } from '@/lib/reading';
+
+/* ===== Logic ===== */
+/** 格式化时间为「YYYY-MM-DD HH:mm」 */
+function formatShort(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${min}`;
+}
+---
+<!-- ===== Template ===== -->
+<div class="rounded-lg border bg-card p-4">
+  <p class="pixel-chip mb-3 text-muted-foreground">信息 / INFO</p>
+  <dl class="space-y-2 text-sm">
+    <div class="flex items-center justify-between gap-3">
+      <dt class="text-muted-foreground">更新于</dt>
+      <dd class="font-pixel text-xs">{formatShort(article.updatedAt)}</dd>
+    </div>
+    <div class="flex items-center justify-between gap-3">
+      <dt class="text-muted-foreground">字数</dt>
+      <dd>{countChars(article.content)}</dd>
+    </div>
+    <div class="flex items-center justify-between gap-3">
+      <dt class="text-muted-foreground">阅读时长</dt>
+      <dd>约 {readingTime(article.content)} 分钟</dd>
+    </div>
+  </dl>
+  {
+    article.tags.length > 0 && (
+      <div class="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
+        {
+          article.tags.map((tag) => (
+            <a
+              href={`/tags/${encodeURIComponent(tag)}`}
+              class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
+            >
+              {tag}
+            </a>
+          ))
+        }
+      </div>
+    )
+  }
+</div>

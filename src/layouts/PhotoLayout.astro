@@ -1,0 +1,38 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 文章实体 */
+  article: import('../../db/types').Article;
+  /** 目录（Photo 布局不使用，兼容接口） */
+  toc: import('@/lib/mdx-plugins').TocItem[];
+  /** 上一篇（更旧） */
+  prev?: import('../../db/types').Article;
+  /** 下一篇（更新） */
+  next?: import('../../db/types').Article;
+}
+
+const { article, prev, next } = Astro.props;
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import ArticleHeader from '@/components/article/ArticleHeader.astro';
+import ArticleAside from '@/components/article/ArticleAside.astro';
+import ArticleFooter from '@/components/article/ArticleFooter.astro';
+---
+<!-- ===== Template ===== -->
+<BaseLayout title={article.title} description={article.summary}>
+  {/* 杂志式全宽布局：max-w-none，图片 object-cover 宽幅 + 灯箱 */}
+  <section class="layout-photo mx-auto w-full px-4 py-10 sm:px-8">
+    <div class="mx-auto max-w-5xl">
+      <ArticleHeader article={article} />
+      <div class="pixel-divider mt-6" />
+    </div>
+    <div class="mx-auto mt-6 max-w-none">
+      <slot />
+    </div>
+    <div class="mx-auto mt-12 max-w-5xl">
+      <ArticleAside article={article} />
+      <ArticleFooter article={article} prev={prev} next={next} />
+    </div>
+  </section>
+</BaseLayout>

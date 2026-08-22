@@ -1,0 +1,67 @@
+---
+/* ===== Props ===== */
+/* （动态路由，无 Props） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { listArticles } from '@/lib/articles';
+import TypeBadge from '@/components/TypeBadge.astro';
+import { countChars } from '@/lib/reading';
+
+/* ===== Logic ===== */
+const { tag } = Astro.params;
+const tagName = (tag ?? '').trim();
+
+const articles = (await listArticles()).filter((a) =>
+  a.tags.some((t) => t.toLowerCase() === tagName.toLowerCase()),
+);
+
+if (!tagName || articles.length === 0) {
+  Astro.response.status = 404;
+}
+
+/** 格式化时间为「YYYY-MM-DD HH:mm」 */
+function formatShort(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${min}`;
+}
+---
+<!-- ===== Template ===== -->
+<BaseLayout title={`标签：${tagName}`} description={`标签 ${tagName} 下的全部文章`}>
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">TAG ARCHIVE</p>
+    <h1 class="mt-3 font-display text-3xl font-semibold tracking-tight">标签：{tagName}</h1>
+    <p class="mt-2 text-sm text-muted-foreground">共 {articles.length} 篇</p>
+    <div class="pixel-divider mt-6" />
+
+    <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        articles.map((article) => (
+          <a href={`/blog/${article.slug}`} class="post-card block overflow-hidden">
+            <div class="p-4">
+              <div class="flex items-center gap-2">
+                <TypeBadge type={article.type} />
+                <time class="font-pixel text-xs text-muted-foreground" datetime={article.updatedAt.toISOString()}>
+                  {formatShort(article.updatedAt)}
+                </time>
+              </div>
+              <h2 class="mt-2.5 font-display text-lg font-semibold leading-snug">{article.title}</h2>
+              <p class="mt-1.5 text-sm text-muted-foreground line-clamp-2">{article.summary}</p>
+              <p class="mt-3 font-pixel text-xs text-primary">{countChars(article.content)} 字</p>
+            </div>
+          </a>
+        ))
+      }
+    </div>
+
+    {
+      articles.length === 0 && (
+        <p class="mt-8 text-sm text-muted-foreground">该标签下暂无文章。</p>
+      )
+    }
+  </section>
+</BaseLayout>

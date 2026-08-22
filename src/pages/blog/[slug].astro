@@ -1,0 +1,38 @@
+---
+/* ===== Props ===== */
+/* （动态路由，无 Props） */
+
+/* ===== Imports ===== */
+import { getArticleBySlug, listArticles } from '@/lib/articles';
+import { renderMdx } from '@/lib/mdx';
+import TechLayout from '@/layouts/TechLayout.astro';
+import NoteLayout from '@/layouts/NoteLayout.astro';
+import PhotoLayout from '@/layouts/PhotoLayout.astro';
+
+/* ===== Logic ===== */
+const { slug } = Astro.params;
+const article = slug ? await getArticleBySlug(slug) : null;
+if (!article) return Astro.redirect('/404');
+
+const { html, toc } = await renderMdx(article.content);
+
+// 上一篇 / 下一篇（按更新时间排序）
+const all = await listArticles();
+const idx = all.findIndex((a) => a.id === article.id);
+const next = idx > 0 ? all[idx - 1] : undefined;
+const prev = idx >= 0 && idx < all.length - 1 ? all[idx + 1] : undefined;
+
+// ★ 智能布局切换：按 article.type 映射到对应布局
+const layoutMap = {
+  tech: TechLayout,
+  note: NoteLayout,
+  photo: PhotoLayout,
+} as const;
+const ContentLayout = layoutMap[article.type] ?? NoteLayout;
+// 摄影布局需要全宽（max-w-none），其余用默认 prose 宽度
+const articleClass = article.type === 'photo' ? 'prose max-w-none' : 'prose';
+---
+<!-- ===== Template ===== -->
+<ContentLayout article={article} toc={toc} prev={prev} next={next}>
+  <article class={articleClass} set:html={html} />
+</ContentLayout>

@@ -1,0 +1,87 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 文章总数（用于计数显示） */
+  total: number;
+}
+
+const { total } = Astro.props;
+
+/* ===== Imports ===== */
+/* （无，原生 JS） */
+
+/* ===== Logic ===== */
+const TYPES: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'tech', label: '技术' },
+  { value: 'note', label: '笔记' },
+  { value: 'photo', label: '摄影' },
+];
+---
+<!-- ===== Template ===== -->
+<div id="search-box" class="rounded-lg border bg-card p-3">
+  <div class="flex items-center gap-2">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
+    <input
+      id="search-input"
+      type="search"
+      placeholder="搜索标题 / 摘要 / 标签…"
+      autocomplete="off"
+      class="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+      aria-label="搜索文章"
+    />
+    <span id="search-count" class="pixel-chip shrink-0 text-muted-foreground">{total} 篇</span>
+  </div>
+  <div class="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="类型筛选">
+    {
+      TYPES.map((t) => (
+        <button type="button" class="search-type-btn" data-type-filter={t.value}>
+          {t.label}
+        </button>
+      ))
+    }
+  </div>
+</div>
+
+<script>
+  /** 首页检索：标题/摘要/标签前端过滤 + 类型筛选（卡片带 data-search-* 属性） */
+  const input = document.getElementById('search-input') as HTMLInputElement | null;
+  const countEl = document.getElementById('search-count');
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-search-card]'));
+  const typeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-type-filter]'));
+  const emptyEl = document.getElementById('search-empty');
+  let activeType = 'all';
+
+  function apply(): void {
+    const q = (input?.value ?? '').trim().toLowerCase();
+    let visible = 0;
+    cards.forEach((card) => {
+      const title = card.dataset.searchTitle ?? '';
+      const summary = card.dataset.searchSummary ?? '';
+      const tags = card.dataset.searchTags ?? '';
+      const type = card.dataset.type ?? '';
+      const matchQuery = !q || title.includes(q) || summary.includes(q) || tags.includes(q);
+      const matchType = activeType === 'all' || type === activeType;
+      const show = matchQuery && matchType;
+      card.classList.toggle('hidden', !show);
+      if (show) visible += 1;
+    });
+    if (countEl) countEl.textContent = `${visible} / ${cards.length} 篇`;
+    if (emptyEl) emptyEl.classList.toggle('hidden', visible > 0);
+  }
+
+  input?.addEventListener('input', apply);
+  typeBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeType = btn.dataset.typeFilter ?? 'all';
+      typeBtns.forEach((b) => b.classList.toggle('active', b === btn));
+      apply();
+    });
+    if (btn.dataset.typeFilter === 'all') btn.classList.add('active');
+  });
+
+  apply();
+</script>

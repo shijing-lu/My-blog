@@ -1,0 +1,44 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 文章标题（作为 Giscus 讨论 term） */
+  title: string;
+}
+
+const { title } = Astro.props;
+
+/* ===== Imports ===== */
+/* （无） */
+---
+<!-- ===== Template ===== -->
+<div id="giscus" class="mt-14" data-giscus-term={title} />
+
+<script>
+  /** Giscus 评论：环境变量齐全才注入 client.js；未配置则静默隐藏 */
+  (function () {
+    const env = import.meta.env;
+    const repo = env.PUBLIC_GISCUS_REPO as string | undefined;
+    const repoId = env.PUBLIC_GISCUS_REPO_ID as string | undefined;
+    const category = env.PUBLIC_GISCUS_CATEGORY as string | undefined;
+    const categoryId = env.PUBLIC_GISCUS_CATEGORY_ID as string | undefined;
+    if (!repo || !repoId || !category || !categoryId) return;
+
+    const host = document.getElementById('giscus');
+    if (!host || host.dataset.loaded === '1') return;
+    host.dataset.loaded = '1';
+
+    const s = document.createElement('script');
+    s.src = 'https://giscus.app/client.js';
+    s.async = true;
+    s.crossOrigin = 'anonymous';
+    s.setAttribute('data-repo', repo);
+    s.setAttribute('data-repo-id', repoId);
+    s.setAttribute('data-category', category);
+    s.setAttribute('data-category-id', categoryId);
+    s.setAttribute('data-mapping', 'title');
+    s.setAttribute('data-term', host.getAttribute('data-giscus-term') ?? '');
+    s.setAttribute('data-theme', (env.PUBLIC_GISCUS_THEME as string | undefined) || 'preferred_color_scheme');
+    s.setAttribute('data-lang', 'zh-CN');
+    host.appendChild(s);
+  })();
+</script>

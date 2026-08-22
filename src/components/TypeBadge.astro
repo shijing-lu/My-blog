@@ -1,0 +1,24 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 文章类型 */
+  type: 'tech' | 'note' | 'photo';
+}
+
+const { type } = Astro.props;
+
+/* ===== Imports ===== */
+/* （无） */
+
+/* ===== Logic ===== */
+const typeLabels: Record<string, string> = { tech: '技术', note: '笔记', photo: '摄影' };
+const typeChipClass: Record<string, string> = {
+  tech: 'chip-tech',
+  note: 'chip-note',
+  photo: 'chip-photo',
+};
+---
+<!-- ===== Template ===== -->
+<span class={`pixel-chip rounded px-1.5 py-0.5 ${typeChipClass[type] ?? 'chip-tech'}`}>
+  {typeLabels[type] ?? type}
+</span>

@@ -1,0 +1,75 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 当前文章 */
+  article: import('../../../db/types').Article;
+  /** 上一篇（更旧） */
+  prev?: import('../../../db/types').Article;
+  /** 下一篇（更新） */
+  next?: import('../../../db/types').Article;
+}
+
+const { article, prev, next } = Astro.props;
+
+/* ===== Imports ===== */
+import GiscusComment from '@/components/GiscusComment.astro';
+
+/* ===== Logic ===== */
+/** 格式化时间为「YYYY-MM-DD HH:mm」 */
+function formatShort(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${d} ${h}:${min}`;
+}
+---
+<!-- ===== Template ===== -->
+<footer class="mt-12">
+  <!-- 页底标签 -->
+  {
+    article.tags.length > 0 && (
+      <div class="flex flex-wrap items-center gap-2 border-t border-border pt-6">
+        <span class="pixel-chip text-muted-foreground">标签</span>
+        {
+          article.tags.map((tag) => (
+            <a
+              href={`/tags/${encodeURIComponent(tag)}`}
+              class="rounded-md border border-border px-2 py-0.5 text-sm text-muted-foreground transition-colors duration-200 hover:border-primary hover:text-primary"
+            >
+              {tag}
+            </a>
+          ))
+        }
+      </div>
+    )
+  }
+
+  <!-- 上一篇 / 下一篇 -->
+  <nav class="mt-6 grid gap-3 sm:grid-cols-2" aria-label="文章导航">
+    {
+      next ? (
+        <a href={`/blog/${next.slug}`} class="post-card block p-4">
+          <span class="pixel-chip text-muted-foreground">上一篇 · {formatShort(next.updatedAt)}</span>
+          <span class="mt-1.5 block font-display text-base font-semibold leading-snug">{next.title}</span>
+        </a>
+      ) : (
+        <span aria-hidden="true" />
+      )
+    }
+    {
+      prev ? (
+        <a href={`/blog/${prev.slug}`} class="post-card block p-4 text-right">
+          <span class="pixel-chip text-muted-foreground">下一篇 · {formatShort(prev.updatedAt)}</span>
+          <span class="mt-1.5 block font-display text-base font-semibold leading-snug">{prev.title}</span>
+        </a>
+      ) : (
+        <span aria-hidden="true" />
+      )
+    }
+  </nav>
+
+  <!-- Giscus 评论 -->
+  <GiscusComment title={article.title} />
+</footer>
