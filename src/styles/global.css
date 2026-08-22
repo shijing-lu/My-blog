@@ -772,3 +772,11 @@
   color: var(--color-primary);
   text-decoration: underline;
 }
+
+/* 编辑器排版：正确的行高与行距（覆盖亮/暗两种主题） */
+.cm-content {
+  line-height: 1.8;
+}
+.cm-line {
+  line-height: 1.8;
+}

@@ -86,6 +86,8 @@ const lightChrome = EditorView.theme(
       padding: '20px 8px',
       maxWidth: '44rem',
       margin: '0 auto',
+      fontSize: '15px',
+      lineHeight: '1.8',
     },
     '.cm-gutters': {
       backgroundColor: 'transparent',
@@ -93,7 +95,7 @@ const lightChrome = EditorView.theme(
       color: 'var(--color-muted-foreground)',
     },
     '&.cm-focused': { outline: 'none' },
-    '.cm-line': { padding: '0 4px' },
+    '.cm-line': { padding: '2px 4px' },
   },
   { dark: false },
 );
