@@ -272,9 +272,9 @@
     @apply font-pixel text-[0.5rem] tracking-wider text-primary;
   }
 
-  /* 首页卡片：暖白底 + 细边，悬停上浮 + 陶土橙边 */
+  /* 首页卡片：无边框，靠封面/阴影与撕裂图片边缘构成边界 */
   .post-card {
-    @apply rounded-lg border bg-card text-card-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md;
+    @apply rounded-lg bg-card text-card-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md;
   }
 
   /* 卡片封面：按类型着色的主题渐变（随主题 chart 令牌换色） */
@@ -324,15 +324,20 @@
     position: relative;
     z-index: 1;
   }
-  /* 封面图：填满封面栏（object-cover） */
+  /* 封面图：用撕裂蒙版只对图片边界撕纸，内容保持清晰 */
   .post-cover-img {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    filter: url(#torn);
     transform: scale(1.05);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='562' viewBox='0 0 1000 562'%3E%3Cfilter id='f' x='-200' y='-130' width='1400' height='840'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.045 0.07' numOctaves='4' seed='11' result='n'/%3E%3CfeDisplacementMap in='SourceGraphic' in2='n' scale='20' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3Crect x='0' y='0' width='1000' height='562' fill='%23fff' filter='url(%23f)'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='562' viewBox='0 0 1000 562'%3E%3Cfilter id='f' x='-200' y='-130' width='1400' height='840'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.045 0.07' numOctaves='4' seed='11' result='n'/%3E%3CfeDisplacementMap in='SourceGraphic' in2='n' scale='20' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3Crect x='0' y='0' width='1000' height='562' fill='%23fff' filter='url(%23f)'/%3E%3C/svg%3E");
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   /* 代码块：相对定位 + 顶部留白给复制按钮（纯 CSS，规避 @apply 偶发丢弃） */
