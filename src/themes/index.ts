@@ -49,7 +49,7 @@ const TOKEN_VAR: Record<keyof ThemeTokens, string> = {
 /** 将一套令牌转成 CSS 变量声明串 */
 function tokensToCss(tokens: ThemeTokens): string {
   const parts = Object.keys(TOKEN_VAR)
-    .filter((k): k is keyof ThemeTokens => k in tokens)
+    .filter((k): k is keyof ThemeTokens => k in tokens && k !== 'glow')
     .map((k) => {
       const value = tokens[k];
       if (value === undefined) return '';

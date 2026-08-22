@@ -66,6 +66,7 @@ function parseTokens(raw: unknown): ThemeTokens | null {
     fontDisplay: str(t.fontDisplay) || FONT_DISPLAY,
     fontPixel: str(t.fontPixel) || FONT_PIXEL,
     radius: str(t.radius) || '0.75rem',
+    glow: t.glow === true,
   };
 }
 

@@ -139,9 +139,13 @@
   h4 {
     font-family: var(--font-display);
   }
-  /* 暗色下顶部加一层陶土橙径向光晕（d-d 霓虹质感） */
+  /* 暗色下顶部光晕：颜色随主题主色，开关由令牌 --theme-glow 控制 */
   html.dark body {
-    background-image: radial-gradient(55rem 26rem at 50% -8%, rgb(224 139 110 / 0.12), transparent 60%);
+    background-image: radial-gradient(
+      55rem 26rem at 50% -8%,
+      color-mix(in oklab, var(--color-primary) calc(var(--theme-glow, 0) * 12%), transparent),
+      transparent 60%
+    );
     background-repeat: no-repeat;
   }
 }
