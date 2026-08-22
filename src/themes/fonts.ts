@@ -14,8 +14,8 @@ export const FONT_SANS =
 export const FONT_DISPLAY =
   '"Lora", ui-serif, Georgia, "Songti SC", "Noto Serif SC", serif';
 
-/** 像素字体（Silkscreen） */
-export const FONT_PIXEL = '"Silkscreen", ui-monospace, "SFMono-Regular", Menlo, monospace';
+/** 像素字体（Silkscreen 负责拉丁；中文用自托管 Fusion Pixel） */
+export const FONT_PIXEL = '"Silkscreen", "Fusion Pixel", ui-monospace, "SFMono-Regular", Menlo, monospace';
 
 /** 等宽字体（科技/代码风） */
 export const FONT_MONO = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';

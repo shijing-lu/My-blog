@@ -188,7 +188,7 @@ function formatShort(date?: Date): string {
                     {String(article.tags.length).padStart(2, '0')} 标
                   </span>
                 </div>
-                <p class="mt-2 text-sm text-muted-foreground line-clamp-2">{article.summary}</p>
+                <p class="font-readable mt-2 text-sm text-muted-foreground line-clamp-2">{article.summary}</p>
                 {
                   article.tags.length > 0 && (
                     <div class="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-2.5">

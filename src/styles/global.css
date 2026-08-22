@@ -18,6 +18,15 @@
 @import "@fontsource/lora/700.css";
 @plugin "@tailwindcss/typography";
 
+/* 中文像素字体（Fusion Pixel，OFL 许可）：拉丁走 Silkscreen，中文用此；正文用 .font-readable 可读字体 */
+@font-face {
+  font-family: 'Fusion Pixel';
+  src: url('/fonts/fusion-pixel-10px-proportional-zh_hans.ttf.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+2E80-9FFF, U+3400-4DBF, U+F900-FAFF, U+FF00-FFEF;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 /* ==================== 主题变量 ==================== */
@@ -51,7 +60,7 @@
   --font-sans-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --font-display-family: "Lora", ui-serif, Georgia, "Songti SC", "Noto Serif SC", serif;
-  --font-pixel-family: "Silkscreen", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-pixel-family: "Silkscreen", "Fusion Pixel", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 /* 暗色：d-d.design 式复古暗黑终端（近黑暖色 + 陶土橙霓虹） */
@@ -194,6 +203,10 @@
   /* 像素字体工具 */
   .font-pixel {
     font-family: var(--font-pixel);
+  }
+  /* 可读正文字体（文章正文/摘要等长篇中文保持可读，不套像素） */
+  .font-readable {
+    font-family: var(--font-sans-family);
   }
   .pixel-chip {
     font-family: var(--font-pixel);
