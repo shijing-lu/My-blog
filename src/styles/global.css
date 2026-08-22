@@ -331,6 +331,8 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    filter: url(#torn);
+    transform: scale(1.05);
   }
 
   /* 代码块：相对定位 + 顶部留白给复制按钮（纯 CSS，规避 @apply 偶发丢弃） */
