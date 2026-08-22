@@ -1,0 +1,69 @@
+---
+/* ===== Props ===== */
+/* （首页无 Props） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { listArticles } from '@/lib/articles';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import type { ArticleType } from '../../db/types';
+
+/* ===== Logic ===== */
+const articles = await listArticles();
+
+const typeLabels: Record<ArticleType, string> = {
+  tech: '技术',
+  note: '笔记',
+  photo: '摄影',
+};
+
+const typeBadgeStyles: Record<ArticleType, string> = {
+  tech: 'bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300',
+  note: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
+  photo: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+};
+
+/** 格式化日期为「2025年1月5日」风格 */
+function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(date);
+}
+---
+<!-- ===== Template ===== -->
+<BaseLayout title="首页" description="技术教程 · 学习笔记 · 随笔与摄影 —— My Blog">
+  <section class="mx-auto w-full max-w-5xl px-4 py-10">
+    <h1 class="text-3xl font-bold tracking-tight">全部文章</h1>
+    <p class="mt-2 text-sm text-muted-foreground">共 {articles.length} 篇</p>
+
+    <div class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        articles.map((article) => (
+          <Card
+            className="transition-transform duration-200 hover:scale-[1.02] hover:shadow-lg"
+          >
+            <CardHeader>
+              <div class="flex items-center justify-between gap-2">
+                <Badge className={typeBadgeStyles[article.type]}>{typeLabels[article.type]}</Badge>
+                <time class="text-xs text-muted-foreground" datetime={article.updatedAt.toISOString()}>
+                  {formatDate(article.updatedAt)}
+                </time>
+              </div>
+              <CardTitle className="text-lg leading-snug">{article.title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p class="line-clamp-3 text-sm text-muted-foreground">{article.summary}</p>
+            </CardContent>
+          </Card>
+        ))
+      }
+    </div>
+
+    {
+      articles.length === 0 && (
+        <p class="mt-8 text-sm text-muted-foreground">
+          暂无文章 —— 请先运行 <code class="rounded bg-muted px-1.5 py-0.5">pnpm db:push:dev && pnpm db:seed</code>
+        </p>
+      )
+    }
+  </section>
+</BaseLayout>

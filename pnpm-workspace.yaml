@@ -1,0 +1,13 @@
+# 将本目录声明为独立 pnpm 工作区根
+# （避免被上级目录 C:\Users\a3129\pnpm-workspace.yaml 识别为工作区成员，
+#   确保 node_modules 与 lockfile 落在项目内，Vercel 构建亦自洽）
+packages:
+  - "."
+
+# 允许执行构建脚本的依赖（原生模块：better-sqlite3 需预编译二进制，esbuild 需平台二进制）
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

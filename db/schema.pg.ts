@@ -1,0 +1,47 @@
+/**
+ * PostgreSQL（生产环境）文章表定义 —— Drizzle pg-core
+ *
+ * 与 `schema.sqlite.ts` 保持同一字段集合，仅方言实现不同：
+ * - `tags` 用 jsonb；`type` 用 check 约束（PG 无 enum 需额外迁移）。
+ * - 时间戳用 `timestamp withTimezone`，读写均映射 `Date`。
+ */
+import { pgTable, text, timestamp, jsonb, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+
+/** articles 表（PostgreSQL 方言） */
+export const articles = pgTable(
+  'articles',
+  {
+    /** UUID 主键（由应用层 crypto.randomUUID() 生成） */
+    id: text('id').primaryKey(),
+    /** 标题 */
+    title: text('title').notNull(),
+    /** 唯一 URL 标识 */
+    slug: text('slug').notNull().unique(),
+    /** MDX 源码 */
+    content: text('content').notNull().default(''),
+    /** 文章类型 tech|note|photo（check 约束兜底） */
+    type: text('type').notNull().default('tech'),
+    /** 摘要 */
+    summary: text('summary').notNull().default(''),
+    /** 标签：jsonb 数组（应用层以 JSON 字符串写入，PG 自动解析） */
+    tags: jsonb('tags').notNull().default([]),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    /** 更新时间 */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // 数据完整性：type 仅允许三种取值
+    check('articles_type_check', sql`${table.type} in ('tech', 'note', 'photo')`),
+  ],
+);
+
+/** 行类型（插入用） */
+export type NewArticle = typeof articles.$inferInsert;
+/** 行类型（查询用） */
+export type ArticleRow = typeof articles.$inferSelect;

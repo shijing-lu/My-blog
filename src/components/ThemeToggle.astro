@@ -1,0 +1,47 @@
+---
+/*
+ * ThemeToggle.astro —— 亮/暗主题切换按钮
+ * Props: 无
+ * Imports: 无（纯原生脚本，零依赖、零网络）
+ */
+---
+<!-- ===== Template ===== -->
+<button
+  id="theme-toggle"
+  type="button"
+  aria-label="切换亮暗主题"
+  class="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-accent-foreground"
+>
+  <!-- 暗色时显示太阳（切回亮色） -->
+  <svg class="hidden size-5 dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+  </svg>
+  <!-- 亮色时显示月亮（切回暗色） -->
+  <svg class="block size-5 dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+  </svg>
+</button>
+
+<script>
+  /** 主题持久化：localStorage 优先，其次跟随系统 */
+  const THEME_KEY = 'my-blog-theme';
+  const root = document.documentElement;
+
+  function applyTheme(): void {
+    const saved = localStorage.getItem(THEME_KEY);
+    const dark =
+      saved === 'dark' ||
+      (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    root.classList.toggle('dark', dark);
+  }
+
+  applyTheme();
+
+  const toggle = document.getElementById('theme-toggle');
+  toggle?.addEventListener('click', () => {
+    const next = root.classList.contains('dark') ? 'light' : 'dark';
+    root.classList.toggle('dark', next === 'dark');
+    localStorage.setItem(THEME_KEY, next);
+  });
+</script>
