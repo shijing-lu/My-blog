@@ -14,17 +14,18 @@ const {
 /* ===== Imports ===== */
 import '../styles/global.css';
 import { ClientRouter } from 'astro:transitions';
+import ThemeHead from '@/components/ThemeHead.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import ThemeSettings from '@/components/ThemeSettings.astro';
 import RightToolbar from '@/components/RightToolbar.astro';
-import { buildThemeCss } from '@/themes';
+import { verifyRequest } from '@/lib/auth';
 
 const siteTitle = 'My Blog';
 const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
 
 /* ===== Logic ===== */
-/** 主题系统生成的全局 CSS（覆盖 :root 默认令牌） */
-const themeCss = buildThemeCss();
+/** 是否已登录（决定是否显示「写作」入口） */
+const isAuthed = verifyRequest(Astro.cookies);
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -36,35 +37,7 @@ const themeCss = buildThemeCss();
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
     <ClientRouter />
-    <!-- 主题系统：注入各主题的 data-theme CSS，并用内联脚本首帧防闪烁 -->
-    <Fragment set:html={`<style id="theme-styles">${themeCss}</style>`} />
-    <script is:inline>
-      (function () {
-        try {
-          const s = JSON.parse(localStorage.getItem('my-blog-theme') || '{}');
-          const themeId = s.themeId || '';
-          const r = document.documentElement;
-          if (themeId) r.setAttribute('data-theme', themeId);
-          // 自定义主题：若当前主题是导入的，首帧前注入其 CSS（_css 由导入时预生成）
-          const customs = JSON.parse(localStorage.getItem('my-blog-custom-themes') || '[]');
-          if (Array.isArray(customs) && themeId) {
-            const t = customs.find(function (x) { return x.id === themeId; });
-            if (t && typeof t._css === 'string') {
-              const st = document.createElement('style');
-              st.id = 'custom-theme-css';
-              st.textContent = t._css;
-              document.head.appendChild(st);
-            }
-          }
-          const m = s.mode || 'system';
-          const d = m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-          r.classList.toggle('dark', d);
-          r.setAttribute('data-mode', m);
-        } catch (e) {
-          document.documentElement.classList.toggle('dark', matchMedia('(prefers-color-scheme: dark)').matches);
-        }
-      })();
-    </script>
+    <ThemeHead />
   </head>
   <body class="flex min-h-dvh flex-col">
     <header class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
@@ -79,6 +52,13 @@ const themeCss = buildThemeCss();
           <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             首页
           </a>
+          {
+            isAuthed && (
+              <a href="/admin" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+                写作
+              </a>
+            )
+          }
           <span class="hidden text-xs text-muted-foreground/70 sm:inline">技术教程 · 学习笔记 · 随笔与摄影</span>
           <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <ThemeToggle />

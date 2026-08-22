@@ -1,0 +1,22 @@
+---
+/* ===== Props ===== */
+/* （后台页无 Props，数据经服务端注入 Editor 岛） */
+
+/* ===== Imports ===== */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import Editor from '@/components/admin/Editor';
+import { listArticles } from '@/lib/articles';
+
+/* ===== Logic ===== */
+/** 文章列表（序列化 meta，供侧栏渲染与选择载入） */
+const articles = (await listArticles()).map((a) => ({
+  id: a.id,
+  title: a.title,
+  type: a.type,
+  updatedAt: a.updatedAt.toISOString(),
+}));
+---
+<!-- ===== Template ===== -->
+<AdminLayout>
+  <Editor client:load articles={articles} />
+</AdminLayout>

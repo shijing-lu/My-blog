@@ -1,0 +1,61 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 页面标题 */
+  title?: string;
+}
+
+const { title = '后台管理' } = Astro.props;
+
+/* ===== Imports ===== */
+import '../styles/global.css';
+import ThemeHead from '@/components/ThemeHead.astro';
+import { verifyRequest } from '@/lib/auth';
+
+/* ===== Logic ===== */
+const isAuthed = verifyRequest(Astro.cookies);
+---
+<!-- ===== Template ===== -->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · My Blog</title>
+    <ThemeHead />
+  </head>
+  <body class="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+    <header class="flex h-12 shrink-0 items-center justify-between border-b px-4">
+      <a href="/" class="font-pixel text-sm tracking-wider text-primary">
+        My Blog
+      </a>
+      <nav class="flex items-center gap-3 text-sm">
+        <a href="/" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+          查看文章
+        </a>
+        {
+          isAuthed && (
+            <button id="admin-logout" type="button" class="text-muted-foreground transition-colors duration-200 hover:text-destructive">
+              退出登录
+            </button>
+          )
+        }
+      </nav>
+    </header>
+    <main class="min-h-0 flex-1">
+      <slot />
+    </main>
+  </body>
+</html>
+
+<script>
+  /** 退出登录：POST /api/logout 后回首页 */
+  document.getElementById('admin-logout')?.addEventListener('click', async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch {
+      /* 忽略网络错误，仍跳转 */
+    }
+    window.location.href = '/';
+  });
+</script>

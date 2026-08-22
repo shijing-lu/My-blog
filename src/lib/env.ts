@@ -7,16 +7,23 @@
  * - 提供默认值兜底，避免环境缺失时抛错；需要严格必填的场景请用 `requireEnv`。
  */
 
-/** 读取服务端环境变量，缺失或为空时返回 fallback */
+/**
+ * 读取服务端环境变量，缺失或为空时返回 fallback
+ *
+ * 同时检查 `import.meta.env`（Astro/Vite 从 .env 加载，含非 PUBLIC 变量）与
+ * `process.env`（Vercel 等平台注入），保证开发与生产行为一致。
+ */
 export function serverEnv(key: string, fallback = ''): string {
-  const value = process.env[key];
+  const metaValue = (import.meta.env as Record<string, unknown>)[key];
+  const fromMeta = typeof metaValue === 'string' ? metaValue : undefined;
+  const fromProcess = process.env[key];
+  const value = fromMeta && fromMeta !== '' ? fromMeta : fromProcess;
   return value !== undefined && value !== '' ? value : fallback;
 }
 
 /** 判断某服务端环境变量是否已配置（非空） */
 export function hasServerEnv(key: string): boolean {
-  const value = process.env[key];
-  return value !== undefined && value !== '';
+  return serverEnv(key) !== '';
 }
 
 /** 读取必填环境变量，缺失时抛出带说明的错误（用于启动期硬校验） */
