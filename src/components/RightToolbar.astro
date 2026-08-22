@@ -39,9 +39,9 @@ const isAuthed = verifyRequest(Astro.cookies);
 </aside>
 
 <script>
-  /** 回到顶部（平滑滚动） */
-  const toTop = document.getElementById('to-top');
-  toTop?.addEventListener('click', () => {
+  /** 回到顶部（平滑滚动）；document 委托，View Transitions 后无需重绑 */
+  document.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('#to-top')) return;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 </script>

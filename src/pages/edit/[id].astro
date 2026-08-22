@@ -5,7 +5,7 @@
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import LiveEditor from '@/components/admin/LiveEditor';
-import { getArticleById, listArticles } from '@/lib/articles';
+import { getArticleById, listArticleMeta } from '@/lib/articles';
 import type { ArticleType } from '../../../db/types';
 
 /* ===== Logic ===== */
@@ -19,17 +19,18 @@ const initial = article
       title: article.title,
       type: article.type as ArticleType,
       summary: article.summary,
+      cover: article.cover ?? '',
       tags: article.tags,
       content: article.content,
     }
   : id
-    ? { id, title: '', type: 'tech' as ArticleType, summary: '', tags: [], content: '' }
+    ? { id, title: '', type: 'tech' as ArticleType, summary: '', cover: '', tags: [], content: '' }
     : null;
 
 if (!initial) return Astro.redirect('/edit/new');
 
-/** 全部文章元信息（左栏资源管理器） */
-const articles = (await listArticles()).map((a) => ({
+/** 全部文章元信息（左栏资源管理器，不含正文） */
+const articles = (await listArticleMeta()).map((a) => ({
   id: a.id,
   title: a.title,
   type: a.type as ArticleType,

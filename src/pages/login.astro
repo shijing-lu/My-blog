@@ -58,35 +58,42 @@ const githubEnabled = isGitHubConfigured();
 </BaseLayout>
 
 <script>
-  /** 口令登录：fetch POST /api/login → 成功跳 next/admin */
-  const form = document.getElementById('login-form') as HTMLFormElement | null;
-  const passwordInput = document.getElementById('login-password') as HTMLInputElement | null;
-  const errorEl = document.getElementById('login-error');
-  const next = new URLSearchParams(window.location.search).get('next') || '/admin';
+  /** 登录后跳转目标：仅允许站内绝对路径，防止开放重定向（?next=//evil.com） */
+  function safeNext(): string {
+    const raw = new URLSearchParams(window.location.search).get('next') || '';
+    if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+    return '/admin';
+  }
 
-  form?.addEventListener('submit', async (e) => {
+  /** 口令登录：fetch POST /api/login → 成功跳 next/admin（document 委托，View Transitions 下有效） */
+  document.addEventListener('submit', (e) => {
+    const form = e.target as HTMLFormElement;
+    if (form.id !== 'login-form') return;
     e.preventDefault();
+    const errorEl = document.getElementById('login-error');
+    const passwordInput = document.getElementById('login-password') as HTMLInputElement | null;
     errorEl?.classList.add('hidden');
-    try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password: passwordInput?.value ?? '' }),
+    fetch('/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: passwordInput?.value ?? '' }),
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as { error?: string };
+        if (res.ok) {
+          window.location.href = safeNext();
+          return;
+        }
+        if (errorEl) {
+          errorEl.textContent = data.error ?? '登录失败';
+          errorEl.classList.remove('hidden');
+        }
+      })
+      .catch(() => {
+        if (errorEl) {
+          errorEl.textContent = '网络错误，请重试';
+          errorEl.classList.remove('hidden');
+        }
       });
-      const data = (await res.json()) as { error?: string };
-      if (res.ok) {
-        window.location.href = next;
-        return;
-      }
-      if (errorEl) {
-        errorEl.textContent = data.error ?? '登录失败';
-        errorEl.classList.remove('hidden');
-      }
-    } catch {
-      if (errorEl) {
-        errorEl.textContent = '网络错误，请重试';
-        errorEl.classList.remove('hidden');
-      }
-    }
   });
 </script>

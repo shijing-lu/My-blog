@@ -3,7 +3,7 @@
 /* （动态路由，无 Props） */
 
 /* ===== Imports ===== */
-import { getArticleBySlug, listArticles } from '@/lib/articles';
+import { getArticleBySlug, listArticleMeta } from '@/lib/articles';
 import { renderMdx } from '@/lib/mdx';
 import TechLayout from '@/layouts/TechLayout.astro';
 import NoteLayout from '@/layouts/NoteLayout.astro';
@@ -16,8 +16,8 @@ if (!article) return Astro.redirect('/404');
 
 const { html, toc } = await renderMdx(article.content);
 
-// 上一篇 / 下一篇（按更新时间排序）
-const all = await listArticles();
+// 上一篇 / 下一篇（按更新时间排序，仅取元信息）
+const all = await listArticleMeta();
 const idx = all.findIndex((a) => a.id === article.id);
 const next = idx > 0 ? all[idx - 1] : undefined;
 const prev = idx >= 0 && idx < all.length - 1 ? all[idx + 1] : undefined;

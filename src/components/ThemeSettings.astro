@@ -107,14 +107,10 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
     clearCustomThemeCss,
   } from '@/lib/custom-theme';
 
-  const dialog = document.getElementById('theme-settings-dialog') as HTMLDialogElement | null;
-  const openBtn = document.getElementById('theme-settings-btn');
-  const closeBtn = document.getElementById('settings-close');
-  const customList = document.getElementById('custom-themes-list');
-  const fileInput = document.getElementById('theme-file-input') as HTMLInputElement | null;
-  const importBtn = document.getElementById('theme-import-btn');
-  const templateBtn = document.getElementById('theme-template-btn');
-  const errorP = document.getElementById('theme-import-error');
+  /** 获取当前对话框元素（每次事件时重新解析，兼容 View Transitions 元素替换） */
+  function dialogEl(): HTMLDialogElement | null {
+    return document.getElementById('theme-settings-dialog') as HTMLDialogElement | null;
+  }
 
   /** HTML 转义（自定义主题名/描述来自用户 JSON） */
   function escapeHtml(value: string): string {
@@ -142,6 +138,7 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
 
   /** 渲染自定义主题卡片列表 */
   function renderCustomThemes(): void {
+    const customList = document.getElementById('custom-themes-list');
     if (!customList) return;
     customList.innerHTML = '';
     const list = getCustomThemes();
@@ -167,37 +164,13 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
         <span class="theme-active-dot" aria-hidden="true"></span>
         <button type="button" class="theme-delete" data-delete-theme="${t.id}" aria-label="删除主题" title="删除主题">×</button>
       `;
-      card.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).closest('[data-delete-theme]')) return;
-        injectCustomThemeCss(t);
-        writeState({ ...readState(), themeId: t.id });
-        render();
-      });
-      card.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          injectCustomThemeCss(t);
-          writeState({ ...readState(), themeId: t.id });
-          render();
-        }
-      });
-      card.querySelector<HTMLElement>('[data-delete-theme]')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const state = readState();
-        removeCustomTheme(t.id);
-        if (state.themeId === t.id) {
-          clearCustomThemeCss();
-          writeState({ ...state, themeId: '' });
-        }
-        renderCustomThemes();
-        render();
-      });
       customList.appendChild(card);
     });
   }
 
   /** 错误提示 */
   function showError(message: string): void {
+    const errorP = document.getElementById('theme-import-error');
     if (!errorP) return;
     errorP.textContent = message;
     errorP.classList.remove('hidden');
@@ -205,7 +178,7 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
 
   /** 导入主题文件 */
   async function importFile(file: File): Promise<void> {
-    errorP?.classList.add('hidden');
+    document.getElementById('theme-import-error')?.classList.add('hidden');
     try {
       const text = await file.text();
       const result = parseThemeJson(text);
@@ -253,38 +226,92 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
     URL.revokeObjectURL(a.href);
   }
 
-  openBtn?.addEventListener('click', () => {
-    render();
-    renderCustomThemes();
-    dialog?.showModal();
-  });
-  closeBtn?.addEventListener('click', () => dialog?.close());
-  dialog?.addEventListener('click', (e) => {
-    if (e.target === dialog) dialog.close();
-  });
-  importBtn?.addEventListener('click', () => fileInput?.click());
-  templateBtn?.addEventListener('click', downloadTemplate);
-  fileInput?.addEventListener('change', () => {
-    const file = fileInput.files?.[0];
-    if (file) void importFile(file);
-    fileInput.value = '';
-  });
+  // ---- document 级事件委托（绑定一次，View Transitions 后依然有效） ----
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
 
-  // 内置主题卡片选择（默认主题设空 id）
-  document.querySelectorAll<HTMLElement>('[data-theme-card]').forEach((card) => {
-    card.addEventListener('click', () => {
+    // 删除自定义主题（优先于卡片选中处理）
+    const del = target.closest<HTMLElement>('[data-delete-theme]');
+    if (del) {
+      const id = del.dataset.deleteTheme ?? '';
+      const state = readState();
+      removeCustomTheme(id);
+      if (state.themeId === id) {
+        clearCustomThemeCss();
+        writeState({ ...state, themeId: '' });
+      }
+      renderCustomThemes();
+      render();
+      return;
+    }
+
+    // 主题卡片选中（内置 + 自定义）
+    const card = target.closest<HTMLElement>('[data-theme-card]');
+    if (card) {
       const isDefault = card.dataset.default === '1';
       const id = isDefault ? '' : (card.dataset.themeCard ?? '');
+      if (id) {
+        const custom = getCustomThemes().find((t) => t.id === id);
+        if (custom) injectCustomThemeCss(custom);
+      }
       writeState({ ...readState(), themeId: id });
       render();
-    });
+      return;
+    }
+
+    // 外观模式三态
+    const modeBtn = target.closest<HTMLElement>('[data-mode-btn]');
+    if (modeBtn) {
+      writeState({ ...readState(), mode: modeBtn.dataset.modeBtn as ThemeMode });
+      render();
+      return;
+    }
+
+    // 打开 / 关闭面板
+    if (target.closest('#theme-settings-btn')) {
+      render();
+      renderCustomThemes();
+      dialogEl()?.showModal();
+      return;
+    }
+    if (target.closest('#settings-close')) {
+      dialogEl()?.close();
+      return;
+    }
+    // 点击遮罩（dialog 自身）关闭
+    const dlg = dialogEl();
+    if (dlg && target === dlg && dlg.open) {
+      dlg.close();
+      return;
+    }
+
+    // 下载模板 / 导入
+    if (target.closest('#theme-template-btn')) {
+      downloadTemplate();
+      return;
+    }
+    if (target.closest('#theme-import-btn')) {
+      (document.getElementById('theme-file-input') as HTMLInputElement | null)?.click();
+    }
   });
 
-  // 外观模式三态
-  document.querySelectorAll<HTMLElement>('[data-mode-btn]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      writeState({ ...readState(), mode: btn.dataset.modeBtn as ThemeMode });
-      render();
-    });
+  // 主题卡片键盘操作（Enter / 空格 → 复用点击逻辑）
+  document.addEventListener('keydown', (e) => {
+    const card = (e.target as HTMLElement).closest<HTMLElement>('[data-theme-card]');
+    if (!card) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      card.click();
+    }
+  });
+
+  // 导入文件（change 委托）
+  document.addEventListener('change', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (el.id === 'theme-file-input') {
+      const file = el.files?.[0];
+      if (file) void importFile(file);
+      el.value = '';
+    }
   });
 </script>

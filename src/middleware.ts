@@ -17,7 +17,8 @@ function isProtectedPage(pathname: string): boolean {
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/edit' ||
-    pathname.startsWith('/edit/')
+    pathname.startsWith('/edit/') ||
+    pathname === '/gallery/upload'
   );
 }
 
@@ -31,9 +32,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;
   const protectedPage = isProtectedPage(pathname);
   // 图片上传仅 POST 受保护；GET 输出图片公开
+  // 相册照片的写方法（上传/改/删）受保护；GET 列表公开
+  const isPhotosApi =
+    pathname === '/api/photos' || pathname.startsWith('/api/photos/');
   const protectedApi =
     pathname.startsWith('/api/') &&
-    (isProtectedApi(pathname) || (pathname === '/api/images' && context.request.method === 'POST'));
+    (isProtectedApi(pathname) ||
+      (pathname === '/api/images' && context.request.method === 'POST') ||
+      (isPhotosApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)));
   if (!protectedPage && !protectedApi) return next();
 
   if (verifyRequest(context.cookies)) return next();

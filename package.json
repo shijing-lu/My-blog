@@ -40,6 +40,7 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
+    "@vercel/blob": "^2.8.0",
     "astro": "^7.2.4",
     "better-sqlite3": "^13.0.3",
     "class-variance-authority": "^0.7.1",
@@ -78,6 +79,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "drizzle-kit": "^0.31.10",
+    "playwright-core": "^1.62.1",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
     "vitest": "^4.1.11"

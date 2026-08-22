@@ -355,16 +355,16 @@
     mask-repeat: no-repeat;
   }
 
-  /* 代码块：相对定位 + 顶部留白给复制按钮（纯 CSS，规避 @apply 偶发丢弃） */
+  /* 代码块：相对定位 + 少量顶部留白（复制按钮浮动贴角，不占独立空行） */
   .code-block {
     position: relative;
-    padding-top: 2.5rem;
+    padding-top: 0.4rem;
   }
   /* 复制按钮：绝对定位右上，默认隐藏，悬停/聚焦显示 */
   .code-block .copy-button {
     position: absolute;
-    top: 0.625rem;
-    right: 0.625rem;
+    top: 0.3rem;
+    right: 0.4rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -680,6 +680,55 @@
   color: var(--color-foreground);
 }
 
+/* 分页栏 */
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  color: var(--color-muted-foreground);
+  background: var(--color-card);
+  transition: border-color 0.2s, background-color 0.2s, color 0.2s;
+}
+.pagination-btn:hover {
+  background: var(--color-accent);
+  color: var(--color-foreground);
+}
+.pagination-btn-active {
+  border-color: var(--color-primary);
+  background: var(--color-accent);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.pagination-btn-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.pagination-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-left: 0.5rem;
+}
+.pagination-input {
+  width: 4rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-foreground);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.pagination-input:focus {
+  border-color: var(--color-primary);
+}
+
 /* Note 布局：突出引用块与列表 */
 .layout-note blockquote {
   border-left: 4px solid var(--color-primary);
@@ -809,4 +858,11 @@
 }
 .cm-line {
   line-height: 1.8;
+}
+
+/* 编辑器拖拽上传时的目标高亮 */
+.cm-drop-target {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+  border-radius: var(--radius-lg);
 }

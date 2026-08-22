@@ -74,7 +74,12 @@ const server = createServer(async (req, res) => {
     }
     headers.set('x-forwarded-for', '127.0.0.1');
     headers.set('x-astro-path', path);
-    const request = new Request(`http://localhost:${PORT}${path}`, { method: req.method, headers, body });
+    // 保留查询串（page / q / type 等），否则动态页与 API 拿不到参数
+    const request = new Request(`http://localhost:${PORT}${path}${url.search}`, {
+      method: req.method,
+      headers,
+      body,
+    });
     const response = await handler.fetch(request);
     res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
     res.end(Buffer.from(await response.arrayBuffer()));

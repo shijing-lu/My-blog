@@ -7,11 +7,18 @@
  * - 「光标/选区进入某块区间」时该块回显源码（可编辑），移出后恢复渲染；
  * - 所有区间保证不重叠（代码块行跳过行内渲染），构建异常有 try/catch 兜底，
  *   绝不因装饰错误冻结编辑器。
+ *
+ * 架构说明（重要）：
+ * 装饰集必须由 **StateField** 提供，而不是 ViewPlugin：
+ * 代码块/图片 Widget 的 `Decoration.replace` 范围跨越多行（含换行符），
+ * 而 CM6 规定 ViewPlugin 提供的装饰不能替换换行符
+ * （否则抛 "Decorations that replace line breaks may not be specified via plugins"，
+ *  导致 measure 循环崩溃 → React 编辑页白屏）。
  */
-import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
-import type { DecorationSet, ViewUpdate } from '@codemirror/view';
-import type { Extension } from '@codemirror/state';
-import { RangeSetBuilder } from '@codemirror/state';
+import { EditorView, Decoration, WidgetType } from '@codemirror/view';
+import type { DecorationSet } from '@codemirror/view';
+import { RangeSetBuilder, StateField } from '@codemirror/state';
+import type { EditorState, Extension } from '@codemirror/state';
 
 /** 隐藏范围（replace 为空，不占视觉空间，仍可编辑） */
 const hide = Decoration.replace({});
@@ -107,10 +114,10 @@ function selectionInside(ranges: ReadonlyArray<readonly [number, number]>, from:
 }
 
 /** 构建全部装饰 */
-function buildDecorations(view: EditorView): DecorationSet {
+function buildDecorations(state: EditorState): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
-  const doc = view.state.doc;
-  const sel = view.state.selection.ranges.map((r) => [r.from, r.to] as const);
+  const doc = state.doc;
+  const sel = state.selection.ranges.map((r) => [r.from, r.to] as const);
   const items: Array<{ from: number; to: number; deco: Decoration }> = [];
 
   const lines: Array<{ from: number; to: number; text: string }> = [];
@@ -230,33 +237,34 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
-/** Live Preview 插件（文档 / 选区 / 视口变化时重建；异常兜底为空集） */
-const livePreviewPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
+/** 安全构建装饰（异常兜底为空集，绝不冻结编辑器） */
+function safeBuild(state: EditorState): DecorationSet {
+  try {
+    return buildDecorations(state);
+  } catch {
+    return Decoration.none;
+  }
+}
 
-    constructor(view: EditorView) {
-      this.decorations = this.safeBuild(view);
-    }
-
-    update(update: ViewUpdate): void {
-      if (update.docChanged || update.selectionSet || update.viewportChanged) {
-        this.decorations = this.safeBuild(update.view);
-      }
-    }
-
-    private safeBuild(view: EditorView): DecorationSet {
-      try {
-        return buildDecorations(view);
-      } catch {
-        return Decoration.none;
-      }
-    }
+/**
+ * Live Preview 装饰字段（StateField 提供）
+ *
+ * 必须用 StateField 而非 ViewPlugin：代码块 Widget 的 Decoration.replace 范围
+ * 跨越多行（含换行符），CM6 只允许 StateField 提供这类装饰，ViewPlugin 会抛
+ * "Decorations that replace line breaks may not be specified via plugins"，
+ * 导致 new EditorView 崩溃（编辑页白屏）。
+ * 文档或选区变化时重建装饰（选区变化用于「光标进入块内回显源码」）。
+ */
+const livePreviewField = StateField.define<DecorationSet>({
+  create: (state) => safeBuild(state),
+  update: (deco, tr) => {
+    if (tr.docChanged || tr.selection) return safeBuild(tr.state);
+    return deco;
   },
-  { decorations: (v) => v.decorations },
-);
+  provide: (field) => EditorView.decorations.from(field),
+});
 
 /** 获取 Live Preview 扩展（加入编辑器 extensions） */
 export function livePreview(): Extension {
-  return livePreviewPlugin;
+  return livePreviewField;
 }

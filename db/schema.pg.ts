@@ -5,7 +5,7 @@
  * - `tags` 用 jsonb；`type` 用 check 约束（PG 无 enum 需额外迁移）。
  * - 时间戳用 `timestamp withTimezone`，读写均映射 `Date`。
  */
-import { pgTable, text, timestamp, jsonb, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, integer, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 /** articles 表（PostgreSQL 方言） */
@@ -24,6 +24,8 @@ export const articles = pgTable(
     type: text('type').notNull().default('tech'),
     /** 摘要 */
     summary: text('summary').notNull().default(''),
+    /** 手动指定的封面图 URL（可空；为空时首页回落到正文首图） */
+    cover: text('cover'),
     /** 标签：jsonb 数组（应用层以 JSON 字符串写入，PG 自动解析） */
     tags: jsonb('tags').notNull().default([]),
     /** 创建时间 */
@@ -55,6 +57,28 @@ export const images = pgTable('images', {
   /** 图片二进制 */
   data: text('data').notNull(), // base64 编码的图片二进制
   /** 创建时间 */
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
+
+/** 相册照片表（影集子系统，独立于博客文章） */
+export const photos = pgTable('photos', {
+  /** UUID 主键 */
+  id: text('id').primaryKey(),
+  /** 原图 URL（Vercel Blob 或外部图床 URL） */
+  url: text('url').notNull(),
+  /** 缩略图 URL（为空时前端用原图） */
+  thumbUrl: text('thumb_url'),
+  /** 可选标题 */
+  title: text('title').notNull().default(''),
+  /** 原图宽度（瀑布流占位防 CLS；URL 导入失败时可空） */
+  width: integer('width'),
+  /** 原图高度 */
+  height: integer('height'),
+  /** 展示日期（用户可自定义，默认当日；时间线按此排序） */
+  takenAt: timestamp('taken_at', { withTimezone: true, mode: 'date' }).notNull(),
+  /** 上传时间 */
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),

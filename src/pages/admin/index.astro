@@ -4,11 +4,11 @@
 
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
-import { listArticles } from '@/lib/articles';
+import { listArticleMeta } from '@/lib/articles';
 import type { ArticleType } from '../../../db/types';
 
 /* ===== Logic ===== */
-const articles = await listArticles();
+const articles = await listArticleMeta();
 const TYPE_LABELS: Record<ArticleType, string> = { tech: '技术', note: '笔记', photo: '摄影' };
 
 function formatShort(date: Date): string {

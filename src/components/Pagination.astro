@@ -1,0 +1,72 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** 当前页（1 起） */
+  page: number;
+  /** 总页数 */
+  totalPages: number;
+}
+
+const { page, totalPages } = Astro.props;
+
+/* ===== Imports ===== */
+import { pageWindow } from '@/lib/pagination';
+
+/* ===== Logic ===== */
+/** 页码序列（含省略号折叠） */
+const window = pageWindow(page, totalPages);
+const base = '/';
+const href = (p: number): string => `${base}?page=${p}`;
+const prevHref = page > 1 ? href(page - 1) : null;
+const nextHref = page < totalPages ? href(page + 1) : null;
+---
+<!-- ===== Template ===== -->
+<nav class="mt-8 flex flex-wrap items-center justify-center gap-2" aria-label="分页导航" data-pagination>
+  {
+    prevHref ? (
+      <a href={prevHref} class="pagination-btn" rel="prev">← 上一页</a>
+    ) : (
+      <span class="pagination-btn pagination-btn-disabled" aria-disabled="true">← 上一页</span>
+    )
+  }
+
+  {
+    window.map((item) =>
+      item === '…' ? (
+        <span class="pagination-btn pagination-btn-disabled" aria-hidden="true">…</span>
+      ) : (
+        <a
+          href={href(item)}
+          class={'pagination-btn' + (item === page ? ' pagination-btn-active' : '')}
+          aria-current={item === page ? 'page' : undefined}
+        >
+          {item}
+        </a>
+      ),
+    )
+  }
+
+  {
+    nextHref ? (
+      <a href={nextHref} class="pagination-btn" rel="next">下一页 →</a>
+    ) : (
+      <span class="pagination-btn pagination-btn-disabled" aria-disabled="true">下一页 →</span>
+    )
+  }
+
+  <!-- 跳转输入（原生 GET 表单，零 JS） -->
+  <form action="/" method="get" class="pagination-jump" aria-label="跳转页">
+    <label for="pagination-page-input" class="sr-only">跳转到第几页</label>
+    <input
+      id="pagination-page-input"
+      type="number"
+      name="page"
+      min="1"
+      max={totalPages}
+      value={page}
+      class="pagination-input"
+      placeholder="页码"
+    />
+    <button type="submit" class="pagination-btn">跳转</button>
+  </form>
+</nav>

@@ -33,11 +33,26 @@ export interface Article {
   type: ArticleType;
   /** 摘要（列表/搜索展示） */
   summary: string;
+  /** 手动指定的封面 URL（null = 未指定，回落到正文首图） */
+  cover: string | null;
   /** 标签列表 */
   tags: string[];
   /** 创建时间 */
   createdAt: Date;
   /** 更新时间 */
+  updatedAt: Date;
+}
+
+/** 文章元信息（不含 content，用于列表/侧栏等轻量场景） */
+export interface ArticleMeta {
+  id: string;
+  title: string;
+  slug: string;
+  type: ArticleType;
+  summary: string;
+  cover: string | null;
+  tags: string[];
+  createdAt: Date;
   updatedAt: Date;
 }
 
@@ -49,6 +64,39 @@ export interface ArticleUpsertInput {
   summary: string;
   tags: string[];
   content: string;
+  /** 手动指定封面 URL；空字符串视为未指定 */
+  cover?: string | null;
   /** 可选：显式指定 slug；为空则由标题自动生成 */
   slug?: string;
+}
+
+/** 相册照片完整实体 */
+export interface Photo {
+  /** UUID 主键 */
+  id: string;
+  /** 原图 URL */
+  url: string;
+  /** 缩略图 URL（null = 用原图） */
+  thumbUrl: string | null;
+  /** 可选标题 */
+  title: string;
+  /** 原图宽度（未知可为 null） */
+  width: number | null;
+  /** 原图高度 */
+  height: number | null;
+  /** 展示日期（用户自定义） */
+  takenAt: Date;
+  /** 上传时间 */
+  createdAt: Date;
+}
+
+/** 相册照片写入入参 */
+export interface NewPhoto {
+  id: string;
+  url: string;
+  thumbUrl: string | null;
+  title: string;
+  width: number | null;
+  height: number | null;
+  takenAt: Date;
 }

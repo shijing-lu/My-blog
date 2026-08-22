@@ -27,18 +27,23 @@
 <script>
   import { readState, writeState, isDark } from '@/lib/theme';
 
-  const root = document.documentElement;
+  /** 依据当前状态同步 <html> 的 dark 类（图标切换由 CSS dark: 变体处理） */
   const apply = (): void => {
-    const state = readState();
-    root.classList.toggle('dark', isDark(state));
+    document.documentElement.classList.toggle('dark', isDark(readState()));
   };
 
-  apply();
-
-  document.getElementById('theme-toggle')?.addEventListener('click', () => {
+  // document 级事件委托：点击任意 #theme-toggle 生效，
+  // View Transitions 后元素被替换也无需重新绑定
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('#theme-toggle');
+    if (!btn) return;
     const state = readState();
     // 快速切换：亮/暗互切；当前为 system 时按随即偏好落定
     const nextMode = isDark(state) ? 'light' : 'dark';
     writeState({ ...state, mode: nextMode });
   });
+
+  // 初始加载与每次 View Transition 后同步一次（head 内联脚本可能在导航时重置状态）
+  document.addEventListener('astro:page-load', apply);
+  apply();
 </script>

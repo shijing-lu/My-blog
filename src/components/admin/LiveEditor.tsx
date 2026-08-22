@@ -31,6 +31,7 @@ export interface InitialDraft {
   title: string;
   type: ArticleType;
   summary: string;
+  cover: string;
   tags: string[];
   content: string;
 }
@@ -137,6 +138,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const coverFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -212,7 +214,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     const res = await fetch(`/api/articles/${id}`);
     if (!res.ok) return;
     const data = (await res.json()) as { article: InitialDraft };
-    setDraft({ ...data.article, tags: data.article.tags ?? [] });
+    setDraft({ ...data.article, cover: data.article.cover ?? '', tags: data.article.tags ?? [] });
     setSelectedId(id);
     setSaveStatus('saved');
     setLastSaved(null);
@@ -230,7 +232,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     setList((prev) => prev.filter((x) => x.id !== id));
     if (selectedId === id) {
       setSelectedId(null);
-      setDraft({ id: crypto.randomUUID(), title: '', type: 'tech', summary: '', tags: [], content: '' });
+      setDraft({ id: crypto.randomUUID(), title: '', type: 'tech', summary: '', cover: '', tags: [], content: '' });
       setSaveStatus('idle');
       setLastSaved(null);
     }
@@ -255,6 +257,8 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
   const themeCompartment = useRef(new Compartment());
   const onChangeRef = useRef<(v: string) => void>(() => {});
   const onSaveRef = useRef(saveNow);
+  const onPasteRef = useRef<(e: ClipboardEvent) => boolean>(() => false);
+  const onDropRef = useRef<(e: DragEvent) => void>(() => {});
   onSaveRef.current = saveNow;
   onChangeRef.current = (v) => update('content', v);
 
@@ -280,6 +284,32 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
           }),
+          // 粘贴图片/图片 URL、输入全角反引号自动转 ASCII
+          EditorView.domEventHandlers({
+            paste: (event) => onPasteRef.current(event),
+            beforeinput: (event, v) => {
+              const e = event as InputEvent;
+              if (
+                e.inputType === 'insertText' &&
+                !e.isComposing &&
+                e.data &&
+                /[\uFF40\u02CB\u2035]/.test(e.data)
+              ) {
+                e.preventDefault();
+                const text = e.data.replace(/[\uFF40\u02CB\u2035]/g, '`');
+                v.dispatch({
+                  changes: {
+                    from: v.state.selection.main.from,
+                    to: v.state.selection.main.to,
+                    insert: text,
+                  },
+                  userEvent: 'input.type',
+                });
+                return true;
+              }
+              return false;
+            },
+          }),
           markdown({ base: markdownLanguage, codeLanguages }),
           livePreview(),
           themeCompartment.current.of(buildTheme(editorIsDark())),
@@ -288,6 +318,23 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     });
     viewRef.current = view;
 
+    // 拖拽上传（文件 → 上传；图片 URL → Markdown）
+    const onDragOver = (e: DragEvent): void => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      host.classList.add('cm-drop-target');
+    };
+    const onDragLeave = (): void => {
+      host.classList.remove('cm-drop-target');
+    };
+    const onDrop = (e: DragEvent): void => {
+      host.classList.remove('cm-drop-target');
+      onDropRef.current(e);
+    };
+    host.addEventListener('dragover', onDragOver);
+    host.addEventListener('dragleave', onDragLeave);
+    host.addEventListener('drop', onDrop);
+
     const observer = new MutationObserver(() => {
       view.dispatch({ effects: themeCompartment.current.reconfigure(buildTheme(editorIsDark())) });
     });
@@ -295,6 +342,9 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
 
     return () => {
       observer.disconnect();
+      host.removeEventListener('dragover', onDragOver);
+      host.removeEventListener('dragleave', onDragLeave);
+      host.removeEventListener('drop', onDrop);
       view.destroy();
       viewRef.current = null;
     };
@@ -332,43 +382,160 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     view.focus();
   }, [update]);
 
-  /** 读取本地图片 → 上传 /api/images → 在光标处插入 Markdown 图片 */
+  /** 是否形如网络图片 URL（http(s) + 图片扩展名，允许查询串） */
+  function isImageUrl(text: string): boolean {
+    return /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp|avif|svg)(?:\?\S*)?$/i.test(text.trim());
+  }
+
+  /** 从 URL 提取文件名（去扩展名/查询串，兜底 image），并清除 markdown 元字符 */
+  function nameFromUrl(url: string): string {
+    const clean = url.trim().split(/[?#]/)[0] ?? '';
+    const seg = clean.split('/').pop() ?? '';
+    const name = decodeURIComponent(seg.replace(/\.[^.]+$/, '') || 'image');
+    return name.replace(/["\[\]]/g, '');
+  }
+
+  /** 上传本地图片 → /api/images → 返回可引用的 URL（401 置登录过期并抛错） */
+  const uploadFile = useCallback(async (file: File): Promise<string> => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('read failed'));
+      reader.readAsDataURL(file);
+    });
+    const mime = dataUrl.slice(5, dataUrl.indexOf(';'));
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const res = await fetch('/api/images', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, mime, data: base64 }),
+    });
+    if (res.status === 401) {
+      setSaveStatus('expired');
+      throw new Error('LOGIN_EXPIRED');
+    }
+    const out = (await res.json()) as { url?: string; error?: string };
+    if (!out.url) throw new Error(out.error ?? '图片上传失败');
+    return out.url;
+  }, [setSaveStatus]);
+
+  /** 上传本地图片 → 在光标处插入 Markdown 图片 */
   const handleImageFile = useCallback(
     async (file: File): Promise<void> => {
       setUploading(true);
       try {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error('read failed'));
-          reader.readAsDataURL(file);
-        });
-        const mime = dataUrl.slice(5, dataUrl.indexOf(';'));
-        const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-        const res = await fetch('/api/images', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, mime, data: base64 }),
-        });
-        if (res.status === 401) {
-          setSaveStatus('expired');
-          return;
-        }
-        const out = (await res.json()) as { url?: string; error?: string };
-        if (!out.url) {
-          window.alert(out.error ?? '图片上传失败');
-          return;
-        }
+        const url = await uploadFile(file);
         const name = (file.name.replace(/\.[^.]+$/, '') || 'image').replace(/["\[\]]/g, '');
-        insertAtCursor(`![${name}](${out.url})\n`);
-      } catch {
-        window.alert('图片读取失败，请重试。');
+        insertAtCursor(`![${name}](${url})\n`);
+      } catch (err) {
+        if (err instanceof Error && err.message !== 'LOGIN_EXPIRED') window.alert(err.message);
       } finally {
         setUploading(false);
       }
     },
-    [insertAtCursor, setSaveStatus],
+    [uploadFile, insertAtCursor],
   );
+
+  /** 上传封面图 → 填入封面 URL 输入框 */
+  const handleCoverFile = useCallback(
+    async (file: File): Promise<void> => {
+      setUploading(true);
+      try {
+        const url = await uploadFile(file);
+        update('cover', url);
+      } catch (err) {
+        if (err instanceof Error && err.message !== 'LOGIN_EXPIRED') window.alert(err.message);
+      } finally {
+        setUploading(false);
+      }
+    },
+    [uploadFile, update],
+  );
+
+  /** 插入网络图片：输入 URL → 生成 Markdown 引用（编辑页与查看页均可渲染） */
+  const insertNetworkImage = useCallback((): void => {
+    const input = window.prompt('输入网络图片 URL（https://… 以图片扩展名结尾）');
+    if (!input) return;
+    const url = input.trim();
+    if (!isImageUrl(url)) {
+      window.alert('URL 需以 http(s):// 开头并以图片扩展名结尾（png/jpg/gif/webp/avif/svg）。');
+      return;
+    }
+    insertAtCursor(`![${nameFromUrl(url)}](${url})\n`);
+  }, [insertAtCursor]);
+
+  /** 粘贴处理：剪贴板图片文件 → 上传插入；图片 URL 文本 → 直接生成 Markdown */
+  const handlePaste = useCallback(
+    (event: ClipboardEvent): boolean => {
+      const items = event.clipboardData?.items;
+      if (!items) return false;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i];
+        if (!item) continue;
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length > 0) {
+        event.preventDefault();
+        for (const f of files) void handleImageFile(f);
+        return true;
+      }
+      const text = event.clipboardData.getData('text/plain') ?? '';
+      const trimmed = text.trim();
+      if (trimmed && isImageUrl(trimmed)) {
+        event.preventDefault();
+        insertAtCursor(`![${nameFromUrl(trimmed)}](${trimmed})\n`);
+        return true;
+      }
+      // 普通文本粘贴：把全角/变体反引号规范化为 ASCII（与渲染管线一致）
+      const normalized = text.replace(/[\uFF40\u02CB\u2035]/g, '`');
+      if (normalized !== text) {
+        event.preventDefault();
+        const view = viewRef.current;
+        if (view) {
+          view.dispatch({
+            changes: {
+              from: view.state.selection.main.from,
+              to: view.state.selection.main.to,
+              insert: normalized,
+            },
+            userEvent: 'input.paste',
+          });
+        }
+        return true;
+      }
+      return false;
+    },
+    [handleImageFile, insertAtCursor],
+  );
+
+  /** 拖拽处理：图片文件 → 上传插入；图片 URL → 直接生成 Markdown */
+  const handleDrop = useCallback(
+    (event: DragEvent): void => {
+      event.preventDefault();
+      const files = Array.from(event.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
+      if (files.length > 0) {
+        for (const f of files) void handleImageFile(f);
+        return;
+      }
+      const uri = (
+        event.dataTransfer?.getData('text/uri-list') ||
+        event.dataTransfer?.getData('text/plain') ||
+        ''
+      )
+        .split(/\r?\n/)[0]
+        ?.trim();
+      if (uri && isImageUrl(uri)) insertAtCursor(`![${nameFromUrl(uri)}](${uri})\n`);
+    },
+    [handleImageFile, insertAtCursor],
+  );
+
+  // 供 CodeMirror domEventHandlers 使用的实时引用（在定义之后赋值，避免 TDZ）
+  onPasteRef.current = handlePaste;
+  onDropRef.current = handleDrop;
 
   /** 当前文章目录 */
   const toc = useMemo(() => extractToc(draft.content), [draft.content]);
@@ -484,12 +651,25 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
               title="插入本地图片"
               aria-label="插入本地图片"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="size-4" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
                 <circle cx="9" cy="9" r="2" />
                 <path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21" />
               </svg>
               {uploading ? '上传中…' : '图片'}
+            </button>
+            <button
+              type="button"
+              onClick={insertNetworkImage}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
+              title="插入网络图片（https://…）"
+              aria-label="插入网络图片"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              网络图片
             </button>
             <select
               value={draft.type}
@@ -518,6 +698,46 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
               placeholder="标签，逗号分隔"
               className="w-52 rounded-md border border-input bg-background px-3 py-1.5 outline-none transition-colors focus-visible:border-ring"
             />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="pixel-chip shrink-0 text-muted-foreground">封面</span>
+            <input
+              value={draft.cover}
+              onChange={(e) => update('cover', e.target.value)}
+              placeholder="封面图 URL（留空 = 自动取正文首图）"
+              className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 outline-none transition-colors focus-visible:border-ring"
+            />
+            <input
+              ref={coverFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleCoverFile(file);
+                e.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => coverFileInputRef.current?.click()}
+              disabled={uploading}
+              className="rounded-md border border-border px-2.5 py-1.5 transition-colors duration-200 hover:border-primary hover:text-primary disabled:opacity-50"
+              title="上传封面图"
+              aria-label="上传封面图"
+            >
+              {uploading ? '上传中…' : '上传封面'}
+            </button>
+            {draft.cover ? (
+              <button
+                type="button"
+                onClick={() => update('cover', '')}
+                className="text-destructive hover:underline"
+                title="清除封面，回落到正文首图"
+              >
+                清除
+              </button>
+            ) : null}
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span

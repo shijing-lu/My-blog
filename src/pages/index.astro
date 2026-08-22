@@ -4,18 +4,33 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { listArticles } from '@/lib/articles';
 import SearchBox from '@/components/SearchBox.astro';
+import Pagination from '@/components/Pagination.astro';
+import { countArticles, listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
+import { pageInfo } from '@/lib/pagination';
 import { verifyRequest } from '@/lib/auth';
-import { extractFirstImage } from '@/lib/images';
 import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
-const articles = await listArticles();
+/** 每页文章数（3×3 网格） */
+const PAGE_SIZE = 9;
+
+const total = await countArticles();
+const rawPage = Number(Astro.url.searchParams.get('page') ?? '1');
+const info = pageInfo(rawPage, total, PAGE_SIZE);
+const articles = await listArticlePage(info.page, PAGE_SIZE);
+
 /** 是否管理员（决定卡片编辑入口等） */
 const isAuthed = verifyRequest(Astro.cookies);
-/** 文章 → 封面图（取正文第一张图，无则用主题渐变占位） */
-const covers = new Map(articles.map((a) => [a.id, extractFirstImage(a.content)]));
+/** 文章 → 封面图（手动指定优先，否则取正文第一张图，无则用主题渐变占位） */
+const covers = new Map(articles.map((a) => [a.id, resolveCover(a)]));
+
+/** 全部文章元信息（不含正文，用于标签统计与最近更新） */
+const allMeta = await listArticleMeta();
+/** 全部标签总数（去重） */
+const uniqueTags = new Set(allMeta.flatMap((a) => a.tags)).size;
+/** 最近更新时间 */
+const lastUpdated = allMeta[0]?.updatedAt;
 
 /** 文章类型 → 中文标签 */
 const typeLabels: Record<ArticleType, string> = {
@@ -51,12 +66,6 @@ const SECTIONS: ReadonlyArray<{ type: ArticleType; label: string; tagline: strin
   { type: 'photo', label: '摄影', tagline: 'FRAMES OF LIGHT' },
 ];
 
-/** 全部标签总数（去重） */
-const uniqueTags = new Set(articles.flatMap((a) => a.tags)).size;
-
-/** 最近更新时间 */
-const lastUpdated = articles[0]?.updatedAt;
-
 /** 格式化最近更新为「YYYY-MM-DD HH:mm」像素风格 */
 function formatShort(date?: Date): string {
   if (!date) return '—';
@@ -78,7 +87,7 @@ function formatShort(date?: Date): string {
     </h1>
     <p class="mt-3 max-w-2xl text-base text-muted-foreground">
       这里是我的技术教程、学习笔记与随笔摄影。
-      <span class="text-primary">私密写作，公开阅读</span> —— 共 {articles.length} 篇。
+      <span class="text-primary">私密写作，公开阅读</span> —— 共 {total} 篇。
     </p>
 
     <!-- 栏目入口（图标 + 标语） -->
@@ -91,13 +100,18 @@ function formatShort(date?: Date): string {
           </div>
         ))
       }
+      <!-- 影集入口（独立子系统） -->
+      <a href="/gallery" class="section-nav-item border bg-card">
+        <span class="text-base text-primary">影集</span>
+        <span class="tagline">GALLERY OF LIGHT</span>
+      </a>
     </div>
 
     <!-- 像素统计条 -->
     <div class="pixel-divider mt-8" />
     <div class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 font-pixel text-xs text-muted-foreground">
       <span>
-        <span class="text-primary">{articles.length}</span> ARTICLES
+        <span class="text-primary">{total}</span> ARTICLES
       </span>
       <span>
         <span class="text-primary">{uniqueTags}</span> TAGS
@@ -112,33 +126,40 @@ function formatShort(date?: Date): string {
       <div class="flex items-center gap-2.5">
         <h2 class="font-display text-2xl font-semibold">最新文章</h2>
         <span class="pixel-chip rounded bg-muted px-2 py-1 text-muted-foreground">LATEST ARTICLES</span>
-      </div>
-
-      <!-- 检索：搜索框 + 类型筛选 -->
-      <div class="mt-4">
-        <SearchBox total={articles.length} />
-      </div>
-
-      <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {
-          articles.map((article) => (
-            <article
-              class="post-card group relative overflow-hidden"
-              data-search-card
-              data-type={article.type}
-              data-search-title={article.title.toLowerCase()}
-              data-search-summary={article.summary.toLowerCase()}
-              data-search-tags={article.tags.join(' ').toLowerCase()}
-            >
+          info.totalPages > 1 && (
+            <span class="ml-auto font-pixel text-xs text-muted-foreground">
+              第 {info.page} / {info.totalPages} 页
+            </span>
+          )
+        }
+      </div>
+
+      <!-- 检索：服务端搜索 + 类型筛选 -->
+      <div class="mt-4">
+        <SearchBox total={total} />
+      </div>
+
+      <!-- 服务端分页卡片流（搜索激活时由 SearchBox 隐藏） -->
+      <div id="post-grid" class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          articles.map((article, index) => (
+            <article class="post-card group relative overflow-hidden">
               {/* 整卡链接：点击卡片任意处进入详情页（stretched-link） */}
               <a href={`/blog/${article.slug}`} class="absolute inset-0 z-0" aria-label={`阅读《${article.title || '未命名'}》`} />
-              {/* 封面：文章第一张图（无则主题渐变占位 + 大字字形 + 像素类型章） */}
+              {/* 封面：手动封面 > 正文首图 > 主题渐变占位 + 大字字形 + 像素类型章 */}
               <div class="post-cover" data-type={article.type}>
                 {
                   (() => {
                     const cover = covers.get(article.id);
                     return cover ? (
-                      <img src={cover} alt="" class="post-cover-img" fetchpriority="high" />
+                      <img
+                        src={cover}
+                        alt=""
+                        class="post-cover-img"
+                        fetchpriority={index === 0 && info.page === 1 ? 'high' : 'auto'}
+                        loading={index < 2 ? 'eager' : 'lazy'}
+                      />
                     ) : (
                       <>
                         <span class="post-cover-dither" aria-hidden="true" />
@@ -211,17 +232,20 @@ function formatShort(date?: Date): string {
         }
       </div>
 
-      <p id="search-empty" class="mt-6 hidden text-sm text-muted-foreground">
-        未找到匹配的文章，换个关键词或类型试试。
-      </p>
-
       {
-        articles.length === 0 && (
+        total === 0 && (
           <p class="mt-6 text-sm text-muted-foreground">
             暂无文章 —— 请先运行 <code class="rounded bg-muted px-1.5 py-0.5">pnpm db:push:dev && pnpm db:seed</code>
           </p>
         )
       }
+
+      <!-- 分页栏（搜索激活时由 SearchBox 隐藏） -->
+      <div id="post-pagination">
+        {
+          info.totalPages > 1 && <Pagination page={info.page} totalPages={info.totalPages} />
+        }
+      </div>
     </div>
   </section>
 </BaseLayout>

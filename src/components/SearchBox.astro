@@ -1,7 +1,7 @@
 ---
 /* ===== Props ===== */
 interface Props {
-  /** 文章总数（用于计数显示） */
+  /** 文章总数（初始计数显示） */
   total: number;
 }
 
@@ -28,8 +28,9 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     <input
       id="search-input"
       type="search"
-      placeholder="搜索标题 / 摘要 / 标签…"
+      placeholder="搜索标题 / 摘要 / 标签（全站）…"
       autocomplete="off"
+      data-total={total}
       class="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
       aria-label="搜索文章"
     />
@@ -46,42 +47,166 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
   </div>
 </div>
 
+<!-- 搜索结果容器（服务端 /api/search 返回数据后由 JS 渲染卡片） -->
+<div id="search-results" class="mt-4 grid hidden gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+<p id="search-empty" class="mt-6 hidden text-sm text-muted-foreground">
+  未找到匹配的文章，换个关键词或类型试试。
+</p>
+
 <script>
-  /** 首页检索：标题/摘要/标签前端过滤 + 类型筛选（卡片带 data-search-* 属性） */
-  const input = document.getElementById('search-input') as HTMLInputElement | null;
-  const countEl = document.getElementById('search-count');
-  const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-search-card]'));
-  const typeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-type-filter]'));
-  const emptyEl = document.getElementById('search-empty');
+  /** 全站服务端搜索：输入防抖 200ms → GET /api/search → 渲染结果卡片
+   *  - 关键词为空且类型为「全部」时回到服务端分页列表；
+   *  - 事件用 document 委托 + 每次解析元素，规避 View Transitions 后绑定失效。 */
+  const TYPE_LABELS: Record<string, string> = { tech: '技术', note: '笔记', photo: '摄影' };
+  const TYPE_GLYPH: Record<string, string> = { tech: '技', note: '记', photo: '影' };
+  const TYPE_CHIP: Record<string, string> = {
+    tech: 'chip-tech',
+    note: 'chip-note',
+    photo: 'chip-photo',
+  };
+
+  let controller: AbortController | null = null;
+  let debounceTimer: number | null = null;
   let activeType = 'all';
 
-  function apply(): void {
-    const q = (input?.value ?? '').trim().toLowerCase();
-    let visible = 0;
-    cards.forEach((card) => {
-      const title = card.dataset.searchTitle ?? '';
-      const summary = card.dataset.searchSummary ?? '';
-      const tags = card.dataset.searchTags ?? '';
-      const type = card.dataset.type ?? '';
-      const matchQuery = !q || title.includes(q) || summary.includes(q) || tags.includes(q);
-      const matchType = activeType === 'all' || type === activeType;
-      const show = matchQuery && matchType;
-      card.classList.toggle('hidden', !show);
-      if (show) visible += 1;
-    });
-    if (countEl) countEl.textContent = `${visible} / ${cards.length} 篇`;
-    if (emptyEl) emptyEl.classList.toggle('hidden', visible > 0);
+  function el<T extends HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
   }
 
-  input?.addEventListener('input', apply);
-  typeBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      activeType = btn.dataset.typeFilter ?? 'all';
-      typeBtns.forEach((b) => b.classList.toggle('active', b === btn));
-      apply();
+  function esc(value: string): string {
+    return String(value).replace(/[&<>"']/g, (c) => {
+      const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return map[c] ?? c;
     });
-    if (btn.dataset.typeFilter === 'all') btn.classList.add('active');
+  }
+
+  function formatShort(iso: string): string {
+    const d = new Date(iso);
+    const p = (n: number): string => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  function countText(n: number): string {
+    return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  }
+
+  /** 由搜索数据构建卡片 HTML（与 index.astro 静态卡片同构） */
+  function cardHtml(a: {
+    id: string;
+    title: string;
+    slug: string;
+    type: string;
+    summary: string;
+    cover: string | null;
+    tags: string[];
+    updatedAt: string;
+    charCount: number;
+  }): string {
+    const cover = a.cover
+      ? `<img src="${esc(a.cover)}" alt="" class="post-cover-img" loading="lazy">`
+      : `<span class="post-cover-dither" aria-hidden="true"></span><span class="post-cover-glyph" aria-hidden="true">${TYPE_GLYPH[a.type] ?? ''}</span>`;
+    const tagLinks = a.tags
+      .slice(0, 3)
+      .map(
+        (t) =>
+          `<a href="/tags/${encodeURIComponent(t)}" class="relative z-[1] rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary">${esc(t)}</a>`,
+      )
+      .join('');
+    return `<article class="post-card group relative overflow-hidden">
+      <a href="/blog/${esc(a.slug)}" class="absolute inset-0 z-0" aria-label="阅读《${esc(a.title || '未命名')}》"></a>
+      <div class="post-cover" data-type="${esc(a.type)}">
+        ${cover}
+        <span class="post-cover-chip pixel-chip rounded px-1.5 py-0.5 ${TYPE_CHIP[a.type] ?? 'chip-tech'}">${TYPE_LABELS[a.type] ?? a.type}</span>
+      </div>
+      <div class="p-4">
+        <div class="flex items-start justify-between gap-2">
+          <h3 class="font-display text-lg font-semibold leading-snug">${esc(a.title)}</h3>
+          <span class="shrink-0 font-pixel text-xs text-primary">${countText(a.charCount)}字</span>
+        </div>
+        <div class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+          <time class="inline-flex items-center gap-1" datetime="${esc(a.updatedAt)}">${formatShort(a.updatedAt)}</time>
+          <span class="inline-flex items-center gap-1">${String(a.tags.length).padStart(2, '0')} 标</span>
+        </div>
+        <p class="font-readable mt-2 text-sm text-muted-foreground line-clamp-2">${esc(a.summary)}</p>
+        ${a.tags.length > 0 ? `<div class="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-2.5">${tagLinks}</div>` : ''}
+      </div>
+    </article>`;
+  }
+
+  /** 回到静态（服务端分页）列表 */
+  function showStatic(total: number): void {
+    controller?.abort();
+    el('search-results')?.classList.add('hidden');
+    el('search-empty')?.classList.add('hidden');
+    el('post-grid')?.classList.remove('hidden');
+    el('post-pagination')?.classList.remove('hidden');
+    const count = el('search-count');
+    if (count) count.textContent = `${total} 篇`;
+  }
+
+  /** 触发一次搜索（q 为空且 type=all 时回静态列表） */
+  function runSearch(): void {
+    const input = el<HTMLInputElement>('search-input');
+    const q = (input?.value ?? '').trim();
+    if (!q && activeType === 'all') {
+      showStatic(Number(input?.dataset.total ?? 0));
+      return;
+    }
+    controller?.abort();
+    controller = new AbortController();
+    el('search-results')?.classList.remove('hidden');
+    el('post-grid')?.classList.add('hidden');
+    el('post-pagination')?.classList.add('hidden');
+    el('search-empty')?.classList.add('hidden');
+    const count = el('search-count');
+    if (count) count.textContent = '搜索中…';
+    fetch(`/api/search?q=${encodeURIComponent(q)}&type=${activeType}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('bad status'))))
+      .then((data: { articles: Array<Parameters<typeof cardHtml>[0]>; total: number }) => {
+        const results = el('search-results');
+        if (results) results.innerHTML = data.articles.map(cardHtml).join('');
+        if (count) count.textContent = `${data.total} 篇`;
+        el('search-empty')?.classList.toggle('hidden', data.total > 0);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (count) count.textContent = '搜索失败';
+      });
+  }
+
+  function scheduleSearch(): void {
+    if (debounceTimer) window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(runSearch, 200);
+  }
+
+  // ---- document 级委托（只绑定一次，View Transitions 后依然有效） ----
+  document.addEventListener('input', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.id === 'search-input') scheduleSearch();
   });
 
-  apply();
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-type-filter]');
+    if (!btn) return;
+    activeType = btn.dataset.typeFilter ?? 'all';
+    document.querySelectorAll<HTMLElement>('[data-type-filter]').forEach((b) => {
+      b.classList.toggle('active', b === btn);
+    });
+    runSearch();
+  });
+
+  // ---- 初始/每次 View Transition 后恢复状态 ----
+  function init(): void {
+    const input = el<HTMLInputElement>('search-input');
+    if (!input) return;
+    const total = Number(input.dataset.total ?? 0);
+    input.value = '';
+    document.querySelectorAll<HTMLElement>('[data-type-filter]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.typeFilter === 'all');
+    });
+    activeType = 'all';
+    showStatic(total);
+  }
+  document.addEventListener('astro:page-load', init);
+  init();
 </script>

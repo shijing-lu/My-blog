@@ -26,6 +26,23 @@ export interface RenderOptions {
   components?: MDXComponentMap;
 }
 
+/**
+ * 反引号变体 → ASCII 反引号（U+0060）
+ *
+ * 中文输入法 / 智能编辑器（Word、微信、Notion 等）常产生视觉上等同反引号、
+ * 但 Unicode 码位不同的字符（全角 ｀、修饰符重音符 ˋ、反向撇号 ‵ 等）。
+ * Markdown 只把 U+0060 识别为行内代码定界符，其余字符会被原样输出，
+ * 造成「行内代码渲染失败、仍然出现反引号」的观感。
+ * 这里仅映射**几乎不会在正文中作为标点使用**的变体，不触碰弯引号（‘’），
+ * 以免把正常引用的散文误判为代码定界符。
+ */
+const BACKTICK_VARIANT_RE = /[\uFF40\u02CB\u2035]/g;
+
+/** 把源码中的反引号变体统一规范化为 ASCII 反引号（不改动其余内容） */
+export function normalizeBackticks(source: string): string {
+  return source.replace(BACKTICK_VARIANT_RE, '`');
+}
+
 /** 渲染结果 */
 export interface RenderedMdx {
   /** 渲染后的 HTML（供 set:html / 预览使用） */
@@ -41,6 +58,7 @@ export interface RenderedMdx {
  * @returns 目录项数组
  */
 export async function extractToc(source: string): Promise<TocItem[]> {
+  const normalized = normalizeBackticks(source);
   const file = (await unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -48,7 +66,7 @@ export async function extractToc(source: string): Promise<TocItem[]> {
     .use(rehypeSlug)
     .use(rehypeTocCollector)
     .use(rehypeStringify)
-    .process(source)) as unknown as { data: Record<string, unknown> };
+    .process(normalized)) as unknown as { data: Record<string, unknown> };
   return (file.data.toc as TocItem[] | undefined) ?? [];
 }
 
@@ -64,8 +82,10 @@ export async function extractToc(source: string): Promise<TocItem[]> {
  */
 export async function renderMdx(source: string, options: RenderOptions = {}): Promise<RenderedMdx> {
   const merged: MDXComponentMap = { ...mdxComponents, ...(options.components ?? {}) };
+  // 反引号变体规范化：全角/修饰符变体 → ASCII，修复行内代码渲染失败
+  const normalized = normalizeBackticks(source);
 
-  const { default: Content } = await evaluate(source, {
+  const { default: Content } = await evaluate(normalized, {
     jsx,
     jsxs,
     Fragment,
@@ -79,7 +99,7 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
   } as Parameters<typeof evaluate>[1]);
 
   const html = renderToString(createElement(Content as ComponentType<{ components?: MDXComponentMap }>, { components: merged }));
-  const toc = await extractToc(source);
+  const toc = await extractToc(normalized);
 
   return { html, toc };
 }

@@ -1,8 +1,8 @@
 /**
  * 图片灯箱（原生 JS，无依赖）
  *
- * 侦测 `[data-lightbox]` 图片，点击弹出全屏预览；支持 ESC / 点击遮罩关闭、
- * ←/→ 键在全部灯箱图片间切换；说明文字取 `data-caption`。focus 基础管理。
+ * document 级事件委托：点击任意 [data-lightbox] 图片进入灯箱，
+ * View Transitions 后无需重绑；支持 ESC / 点击遮罩关闭、←/→ 切换。
  */
 
 /** 收集全部灯箱图片源 */
@@ -83,25 +83,14 @@ function openLightbox(items: Array<{ src: string; caption: string }>, index: num
   observer.observe(document.body, { childList: true });
 }
 
-/** 绑定灯箱图片点击 */
-function bindLightbox(): void {
-  document.querySelectorAll<HTMLElement>('[data-lightbox]').forEach((fig) => {
-    if (fig.dataset.bound === 'true') return;
-    fig.dataset.bound = 'true';
-    fig.addEventListener('click', (e) => {
-      e.preventDefault();
-      const items = collectItems();
-      const index = items.findIndex((_, i) => {
-        const els = Array.from(document.querySelectorAll<HTMLElement>('[data-lightbox]'));
-        return els[i] === fig;
-      });
-      openLightbox(items, index < 0 ? 0 : index);
-    });
-  });
-}
-
-if (typeof document !== 'undefined') {
-  bindLightbox();
-}
-
-export {};
+/** 文档级点击委托：打开对应图片的灯箱 */
+document.addEventListener('click', (e) => {
+  const fig = (e.target as HTMLElement).closest<HTMLElement>('[data-lightbox]');
+  if (!fig) return;
+  e.preventDefault();
+  const items = collectItems();
+  const index = Array.from(document.querySelectorAll<HTMLElement>('[data-lightbox]')).findIndex(
+    (el) => el === fig,
+  );
+  openLightbox(items, index < 0 ? 0 : index);
+});

@@ -6,9 +6,9 @@ interface Props {
   /** 目录 */
   toc: import('@/lib/mdx-plugins').TocItem[];
   /** 上一篇（更旧） */
-  prev?: import('../../db/types').Article;
+  prev?: import('../../db/types').ArticleMeta;
   /** 下一篇（更新） */
-  next?: import('../../db/types').Article;
+  next?: import('../../db/types').ArticleMeta;
 }
 
 const { article, toc, prev, next } = Astro.props;

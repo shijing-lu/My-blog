@@ -1,0 +1,350 @@
+---
+/* ===== Props ===== */
+/* （相册主页无 Props） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { countPhotos, getTimeline, listPhotos } from '@/lib/photos';
+import { verifyRequest } from '@/lib/auth';
+
+/* ===== Logic ===== */
+/** 每页照片数（与 /api/photos 默认一致） */
+const PAGE_SIZE = 30;
+
+const photos = await listPhotos(PAGE_SIZE, 0);
+const total = await countPhotos();
+const timeline = await getTimeline();
+const isAuthed = verifyRequest(Astro.cookies);
+
+/** 日期 → 本地时区 YYYY-MM-DD（与时间线聚合一致） */
+function dateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** 占位宽高比（照片宽高未知时的默认比例） */
+const FALLBACK_RATIO = '4 / 3';
+---
+<!-- ===== Template ===== -->
+<BaseLayout title="影集" description="收集好看的、有意义的照片 —— My Blog Gallery">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <!-- 页头 -->
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">GALLERY</p>
+        <h1 class="ghost-text mt-2 font-display text-3xl font-semibold tracking-tight sm:text-4xl">影集</h1>
+        <p class="mt-2 text-sm text-muted-foreground">
+          收集记录的好看与有意义的照片 —— 共 <span class="text-primary">{total}</span> 张。
+        </p>
+      </div>
+      {
+        isAuthed && (
+          <a
+            href="/gallery/upload"
+            class="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+          >
+            + 上传照片
+          </a>
+        )
+      }
+    </div>
+    <div class="pixel-divider mt-6" />
+
+    <!-- 三栏：左侧留白 | 中间瀑布流 | 右侧时间线 -->
+    <div class="mt-6 grid gap-6 lg:grid-cols-[190px_minmax(0,1fr)_170px]">
+      <!-- 左侧：预留区 -->
+      <aside class="hidden lg:block">
+        <div class="sticky top-20 rounded-lg border bg-card p-4">
+          <p class="pixel-chip mb-2 text-muted-foreground">SIDE</p>
+          <p class="text-xs leading-relaxed text-muted-foreground">
+            左侧区域预留 —— 未来可放随机照片 / 标签筛选 / 统计等。
+          </p>
+        </div>
+      </aside>
+
+      <!-- 中间：瀑布流 -->
+      <div class="min-w-0">
+        {
+          photos.length === 0 ? (
+            <div class="rounded-lg border bg-card p-10 text-center">
+              <p class="font-display text-lg font-semibold">影集还是空的</p>
+              <p class="mt-2 text-sm text-muted-foreground">
+                {
+                  isAuthed
+                    ? '点击右上角「上传照片」开始收集第一张。'
+                    : '管理员登录后可上传照片。'
+                }
+              </p>
+            </div>
+          ) : (
+            <>
+              <div id="masonry" class="grid grid-cols-2 gap-4 sm:grid-cols-3" data-offset={photos.length} data-total={total}>
+                {
+                  photos.map((p) => (
+                    <figure
+                      class="photo-card group relative overflow-hidden rounded-lg border bg-card"
+                      data-date={dateKey(p.takenAt)}
+                      data-photo-id={p.id}
+                    >
+                      <div
+                        class="photo-wrap overflow-hidden"
+                        style={`aspect-ratio: ${p.width && p.height ? `${p.width} / ${p.height}` : FALLBACK_RATIO}`}
+                        data-lightbox
+                        data-caption={p.title}
+                      >
+                        <img
+                          src={p.thumbUrl ?? p.url}
+                          alt={p.title}
+                          loading="lazy"
+                          decoding="async"
+                          class="h-full w-full cursor-zoom-in object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                        />
+                      </div>
+                      {
+                        p.title && (
+                          <figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                            {p.title}
+                          </figcaption>
+                        )
+                      }
+                    </figure>
+                  ))
+                }
+              </div>
+
+              <!-- 加载更多：滚动到底显示按钮，点击加载 -->
+              <div id="gallery-sentinel" aria-hidden="true" class="h-px" />
+              <div id="gallery-more-wrap" class="mt-8 hidden text-center">
+                <button
+                  id="load-more"
+                  type="button"
+                  class="rounded-md border border-border px-6 py-2.5 text-sm text-muted-foreground transition-colors duration-200 hover:border-primary hover:text-primary"
+                >
+                  更多
+                </button>
+              </div>
+            </>
+          )
+        }
+      </div>
+
+      <!-- 右侧：时间线（上最新下最旧） -->
+      <aside class="hidden lg:block">
+        <div class="sticky top-20 rounded-lg border bg-card p-4">
+          <p class="pixel-chip mb-2 text-muted-foreground">时间线 / TIMELINE</p>
+          {
+            timeline.length === 0 ? (
+              <p class="text-xs text-muted-foreground">暂无照片</p>
+            ) : (
+              <ul class="space-y-1.5">
+                {
+                  timeline.map((t) => (
+                    <li>
+                      <button
+                        type="button"
+                        data-timeline-date={t.date}
+                        class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
+                      >
+                        <span class="font-pixel text-[0.65rem]">{t.date}</span>
+                        <span class="shrink-0 rounded bg-muted px-1.5 text-[0.65rem]">{t.count}</span>
+                      </button>
+                    </li>
+                  ))
+                }
+              </ul>
+            )
+          }
+        </div>
+      </aside>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  /** 相册交互：瀑布流列分配 / 加载更多 / 时间线定位（原生 JS，document 委托兼容 View Transitions） */
+  const PAGE_SIZE = 30;
+  /** 首屏已渲染照片数 / 总数（init 时从 #masonry 的 data-* 读取） */
+  let offset = 0;
+  let total = 0;
+  let loading = false;
+  let done = offset >= total;
+  let observer: IntersectionObserver | null = null;
+
+  function el<T extends HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
+  }
+
+  function esc(value: string): string {
+    return String(value).replace(/[&<>"']/g, (c) => {
+      const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return map[c] ?? c;
+    });
+  }
+
+  /** 响应式列数：桌面一行三张，移动端两列 */
+  function columnCount(): number {
+    return window.innerWidth < 640 ? 2 : 3;
+  }
+
+  /** 构建照片卡片 HTML（与首屏渲染同构） */
+  function cardHtml(p: {
+    id: string;
+    url: string;
+    thumbUrl: string | null;
+    title: string;
+    width: number | null;
+    height: number | null;
+    takenAt: string;
+  }): string {
+    const date = p.takenAt.slice(0, 10);
+    const ratio = p.width && p.height ? `${p.width} / ${p.height}` : '4 / 3';
+    return `<figure class="photo-card group relative overflow-hidden rounded-lg border bg-card" data-date="${esc(date)}" data-photo-id="${esc(p.id)}">
+      <div class="photo-wrap overflow-hidden" style="aspect-ratio: ${ratio}" data-lightbox data-caption="${esc(p.title)}">
+        <img src="${esc(p.thumbUrl ?? p.url)}" alt="${esc(p.title)}" loading="lazy" decoding="async" class="h-full w-full cursor-zoom-in object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+      </div>
+      ${p.title ? `<figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">${esc(p.title)}</figcaption>` : ''}
+    </figure>`;
+  }
+
+  /** 把 HTML 卡片追加到当前最短列 */
+  function appendToShortestColumn(html: string): void {
+    const masonry = el<HTMLElement>('masonry');
+    if (!masonry) return;
+    const columns = Array.from(masonry.children) as HTMLElement[];
+    if (columns.length === 0) return;
+    let min = 0;
+    for (let i = 1; i < columns.length; i += 1) {
+      if (columns[i]!.scrollHeight < columns[min]!.scrollHeight) min = i;
+    }
+    columns[min]!.insertAdjacentHTML('beforeend', html);
+  }
+
+  /** 把已有卡片节点移动到对应列 */
+  function moveCardToShortestColumn(card: HTMLElement): void {
+    const masonry = el<HTMLElement>('masonry');
+    if (!masonry) return;
+    const columns = Array.from(masonry.children) as HTMLElement[];
+    if (columns.length === 0) return;
+    let min = 0;
+    for (let i = 1; i < columns.length; i += 1) {
+      if (columns[i]!.scrollHeight < columns[min]!.scrollHeight) min = i;
+    }
+    columns[min]!.appendChild(card);
+  }
+
+  /** 刷新「更多」按钮状态 */
+  function updateMore(): void {
+    const wrap = el('gallery-more-wrap');
+    if (!wrap) return;
+    if (done) wrap.classList.add('hidden');
+    else wrap.classList.remove('hidden');
+  }
+
+  /** 加载一页（返回是否有更多） */
+  async function loadMore(): Promise<boolean> {
+    if (loading || done) return !done;
+    loading = true;
+    const btn = el('load-more');
+    if (btn) btn.textContent = '加载中…';
+    try {
+      const res = await fetch(`/api/photos?limit=${PAGE_SIZE}&offset=${offset}`);
+      if (!res.ok) throw new Error('bad status');
+      const data = (await res.json()) as {
+        photos: Array<{
+          id: string;
+          url: string;
+          thumbUrl: string | null;
+          title: string;
+          width: number | null;
+          height: number | null;
+          takenAt: string;
+        }>;
+        total: number;
+      };
+      data.photos.forEach((p) => appendToShortestColumn(cardHtml(p)));
+      offset += data.photos.length;
+      total = data.total;
+      done = offset >= total;
+      return !done;
+    } catch {
+      if (btn) btn.textContent = '加载失败，点击重试';
+      return !done;
+    } finally {
+      loading = false;
+      const btn2 = el('load-more');
+      if (btn2 && btn2.textContent === '加载中…') btn2.textContent = '更多';
+      updateMore();
+    }
+  }
+
+  /** 时间线定位：已加载则滚动；未加载则逐页拉取直到找到或加载完 */
+  async function locateDate(date: string): Promise<void> {
+    let guard = 0;
+    while (guard < 200) {
+      const target = document.querySelector<HTMLElement>(`[data-date="${CSS.escape(date)}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      if (!(await loadMore())) return;
+      guard += 1;
+    }
+  }
+
+  /** 初始化瀑布流（每次页面加载 / View Transition 后调用） */
+  function init(): void {
+    const masonry = el<HTMLElement>('masonry');
+    if (!masonry) return; // 空相册：无瀑布流容器
+    // 状态重置（新页面 DOM，初始值来自 data-* 属性）
+    offset = Number(masonry.dataset.offset ?? 0);
+    total = Number(masonry.dataset.total ?? 0);
+    loading = false;
+    done = offset >= total;
+    // 更多按钮初始隐藏：滚动到底部哨兵进入视口时才显示
+    el('gallery-more-wrap')?.classList.add('hidden');
+    // 首次：把服务端渲染的卡片分配到列
+    const cards = Array.from(masonry.querySelectorAll<HTMLElement>('.photo-card'));
+    if (cards.length > 0 && !masonry.dataset.ready) {
+      masonry.dataset.ready = '1';
+      masonry.innerHTML = '';
+      const n = columnCount();
+      for (let i = 0; i < n; i += 1) {
+        const col = document.createElement('div');
+        // self-start：列不被 grid 拉伸等高，scrollHeight 才反映真实内容高度（否则所有照片会堆进第一列）
+        col.className = 'min-w-0 self-start';
+        masonry.appendChild(col);
+      }
+      cards.forEach((c) => moveCardToShortestColumn(c));
+    }
+    // 重建底部哨兵观察器
+    observer?.disconnect();
+    const sentinel = el('gallery-sentinel');
+    if (sentinel) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting) && !done) {
+            el('gallery-more-wrap')?.classList.remove('hidden');
+          }
+        },
+        { rootMargin: '300px' },
+      );
+      observer.observe(sentinel);
+    }
+  }
+
+  // ---- document 级事件委托（只绑定一次） ----
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-timeline-date]');
+    if (btn) {
+      void locateDate(btn.dataset.timelineDate ?? '');
+      return;
+    }
+    const more = (e.target as HTMLElement).closest<HTMLElement>('#load-more');
+    if (more) void loadMore();
+  });
+
+  document.addEventListener('astro:page-load', init);
+  init();
+</script>

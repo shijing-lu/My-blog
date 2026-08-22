@@ -21,6 +21,7 @@ export const POST: APIRoute = async ({ request }) => {
   const title = typeof body.title === 'string' ? body.title : '';
   const content = typeof body.content === 'string' ? body.content : '';
   const summary = typeof body.summary === 'string' ? body.summary : '';
+  const cover = typeof body.cover === 'string' ? body.cover : '';
   const type = body.type;
   const tagsRaw = body.tags;
 
@@ -38,6 +39,7 @@ export const POST: APIRoute = async ({ request }) => {
       title,
       type,
       summary,
+      cover,
       tags: tagsRaw as string[],
       content,
     });

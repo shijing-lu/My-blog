@@ -25,4 +25,23 @@ describe('renderMdx', () => {
     const { toc } = await renderMdx('## Alpha\n### Beta\n## Gamma');
     expect(toc.map((t) => t.text)).toEqual(['Alpha', 'Beta', 'Gamma']);
   });
+
+  it('将全角反引号（U+FF40）规范化为行内代码', async () => {
+    const { html } = await renderMdx('使用 ｀Alt｀ 键切换');
+    expect(html).toContain('<code>Alt</code>');
+    expect(html).not.toContain('｀');
+  });
+
+  it('将修饰符重音符（U+02CB）与反向撇号（U+2035）规范化', async () => {
+    const { html } = await renderMdx('a ˋbˋ c ‵d‵');
+    expect(html).toContain('<code>b</code>');
+    expect(html).toContain('<code>d</code>');
+    expect(html).not.toContain('ˋ');
+    expect(html).not.toContain('‵');
+  });
+
+  it('ASCII 反引号渲染不受影响', async () => {
+    const { html } = await renderMdx('使用 `Alt` 键切换');
+    expect(html).toContain('<code>Alt</code>');
+  });
 });

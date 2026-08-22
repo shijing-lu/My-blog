@@ -53,6 +53,9 @@ const isAuthed = verifyRequest(Astro.cookies);
           <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             首页
           </a>
+          <a href="/gallery" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+            影集
+          </a>
           <span class="hidden text-xs text-muted-foreground sm:inline">技术教程 · 学习笔记 · 随笔与摄影</span>
           <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <ThemeToggle />
@@ -95,5 +98,11 @@ const isAuthed = verifyRequest(Astro.cookies);
     </footer>
 
     <RightToolbar />
+
+    <!-- 公开页交互：代码复制按钮 + 图片灯箱（document 委托，View Transitions 下依然有效） -->
+    <script>
+      import '@/scripts/copy-button';
+      import '@/scripts/lightbox';
+    </script>
   </body>
 </html>
