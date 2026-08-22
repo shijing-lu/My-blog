@@ -13,7 +13,8 @@
     "db:push:dev": "drizzle-kit push --config=drizzle.config.sqlite.ts --force",
     "db:generate:pg": "drizzle-kit generate --config=drizzle.config.pg.ts",
     "db:migrate:pg": "drizzle-kit migrate --config=drizzle.config.pg.ts",
-    "db:seed": "tsx db/seed.ts",\n    "db:inspect": "node scripts/db-inspect.mjs"
+    "db:seed": "tsx db/seed.ts",
+    "db:inspect": "node scripts/db-inspect.mjs"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.4",
