@@ -176,7 +176,9 @@
     border-radius: var(--radius-lg);
   }
   .prose :where(code):not(:where([class~='not-prose'] *)) {
-    @apply rounded-md px-1 py-0.5 font-medium;
+    @apply rounded-md bg-muted px-1 py-0.5 text-[0.875em];
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-weight: 500;
   }
 
   /* Hero 残影（记录 · 思考 · 光影） */

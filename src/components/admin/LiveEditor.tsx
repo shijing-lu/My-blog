@@ -19,7 +19,9 @@ import { tags } from '@lezer/highlight';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { searchKeymap } from '@codemirror/search';
 import { livePreview } from './cm-live-preview';
+import { mdKeymap } from './md-keymap';
 import type { ArticleType } from '../../../db/types';
 import { ARTICLE_TYPES } from '../../../db/types';
 
@@ -270,9 +272,11 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
           keymap.of([
             ...defaultKeymap,
             ...historyKeymap,
+            ...searchKeymap,
             indentWithTab,
             { key: 'Mod-s', run: () => { void onSaveRef.current(); return true; } },
           ]),
+          mdKeymap,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
           }),
@@ -546,7 +550,9 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                 重新登录
               </a>
             ) : null}
-            <span className="ml-auto text-muted-foreground">所见即所得 · Ctrl/Cmd + S 保存</span>
+            <span className="ml-auto text-muted-foreground">
+              Ctrl/Cmd+B 加粗 · I 斜体 · K 链接 · Alt+H 标题 · S 保存
+            </span>
           </div>
         </div>
 
