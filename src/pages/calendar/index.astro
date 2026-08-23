@@ -492,7 +492,8 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       const label = a.getAttribute('aria-label');
       if (label === '上个月') a.setAttribute('href', `/calendar?month=${prev}`);
       else if (label === '下个月') a.setAttribute('href', `/calendar?month=${next}`);
-      else if (a.textContent.trim() === '今天') a.setAttribute('href', `/calendar?month=${month}&date=${today}`);
+      // 今天应跳到"今天所在月"并选中今天，而不是当前浏览月
+      else if (a.textContent.trim() === '今天') a.setAttribute('href', `/calendar?month=${today.slice(0, 7)}&date=${today}`);
     });
   }
 
