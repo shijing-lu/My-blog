@@ -396,9 +396,9 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (day.isToday) cls.push('cal-cell-today');
     if (day.date === selectedDate) cls.push('cal-cell-selected');
     const marks = [];
-    if (day.hasTodo) marks.push('<i class="cal-mark cal-mark-todo" title="有待办" />');
-    if (day.hasDiary) marks.push('<i class="cal-mark cal-mark-diary" title="有日记" />');
-    if (day.hasEvent) marks.push('<i class="cal-mark cal-mark-event" title="重要日期" />');
+    if (day.hasTodo) marks.push('<i class="cal-mark cal-mark-todo" title="有待办"></i>');
+    if (day.hasDiary) marks.push('<i class="cal-mark cal-mark-diary" title="有日记"></i>');
+    if (day.hasEvent) marks.push('<i class="cal-mark cal-mark-event" title="重要日期"></i>');
     const festival = day.festivals.length ? day.festivals[0] : '';
     return (
       `<a href="/calendar?month=${day.date.slice(0, 7)}&date=${day.date}" class="${cls.join(' ')}" aria-label="${day.date}"` +
@@ -605,13 +605,13 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const eventCount = document.querySelectorAll('#event-list [data-event-del]').length;
     let tm = marks.querySelector('.cal-mark-todo');
     if (todoCount > 0 && !tm) {
-      marks.insertAdjacentHTML('beforeend', '<i class="cal-mark cal-mark-todo" title="有待办" />');
+      marks.insertAdjacentHTML('beforeend', '<i class="cal-mark cal-mark-todo" title="有待办"></i>');
     } else if (todoCount === 0 && tm) {
       tm.remove();
     }
     let em = marks.querySelector('.cal-mark-event');
     if (eventCount > 0 && !em) {
-      marks.insertAdjacentHTML('beforeend', '<i class="cal-mark cal-mark-event" title="重要日期" />');
+      marks.insertAdjacentHTML('beforeend', '<i class="cal-mark cal-mark-event" title="重要日期"></i>');
     } else if (eventCount === 0 && em) {
       em.remove();
     }

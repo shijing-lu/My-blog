@@ -322,6 +322,38 @@
     animation: none !important;
   }
 
+  /* 全局页面切换加载指示：半透明遮罩 + 旋转圆环，转场期间覆盖页面避免卡顿画面裸露 */
+  .nav-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    background: color-mix(in srgb, var(--color-background) 45%, transparent);
+    backdrop-filter: blur(2px);
+  }
+  .nav-loader.show {
+    opacity: 1;
+  }
+  .nav-loader::before {
+    content: '';
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    animation: nav-loader-spin 0.8s linear infinite;
+  }
+  @keyframes nav-loader-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   /* 全站背景层（设置页可配：开启/图片/透明度/模糊度） */
   .site-bg {
     position: fixed;

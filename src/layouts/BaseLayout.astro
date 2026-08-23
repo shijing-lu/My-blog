@@ -57,6 +57,8 @@ const bg = await getSiteBackground();
     }
     <!-- 顶部阅读进度条（转场时保留，避免重建闪烁） -->
     <div id="scroll-progress" transition:persist="scroll-progress" class="scroll-progress" aria-hidden="true" />
+    <!-- 全局页面切换加载指示（导航开始→转场完成期间覆盖，避免卡顿画面裸露） -->
+    <div id="nav-loader" class="nav-loader" aria-hidden="true"></div>
     <!-- 暗色主题星尘粒子背景（转场时保留） -->
     <div class="stardust" transition:persist="stardust" aria-hidden="true" />
     <header transition:persist="site-header" class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
@@ -155,6 +157,20 @@ const bg = await getSiteBackground();
         },
         { threshold: 0.06 },
       );
+
+      /** 全局导航加载指示：转场 fetch 期间显示遮罩圆环，完成后隐藏 */
+      const navLoader = document.getElementById('nav-loader');
+      let loaderTimer = 0;
+      document.addEventListener('astro:before-preparation', () => {
+        window.clearTimeout(loaderTimer);
+        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 220);
+      });
+      const hideLoader = (): void => {
+        window.clearTimeout(loaderTimer);
+        navLoader?.classList.remove('show');
+      };
+      document.addEventListener('astro:after-preparation', hideLoader);
+      document.addEventListener('astro:page-load', hideLoader);
       function observeReveals(): void {
         document.querySelectorAll<HTMLElement>('.post-card, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
           if (el.classList.contains('revealed')) return;
