@@ -134,6 +134,9 @@ const bg = await getSiteBackground();
 
     <!-- 全局动效：滚动进度条 + 卡片入场动画 -->
     <script>
+      // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
+      if (!(window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound) {
+        (window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound = true;
       /** 顶部阅读进度条 */
       const progressEl = document.getElementById('scroll-progress');
       const updateProgress = (): void => {
@@ -185,6 +188,23 @@ const bg = await getSiteBackground();
       };
       document.addEventListener('astro:after-preparation', hideLoader);
       document.addEventListener('astro:page-load', hideLoader);
+
+      // 兜底：点击同源导航链接立即显示加载指示（即使 ClientRouter 事件未触发，
+      // 也能在 SPA 导航期间可靠出现转圈/进度条）
+      document.addEventListener('click', (e) => {
+        const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+        if (!link) return;
+        const target = new URL(link.href, location.href);
+        if (target.origin !== location.origin) return;
+        if (link.hasAttribute('download')) return;
+        const linkTarget = link.target;
+        if (linkTarget && linkTarget !== '_self') return;
+        window.clearTimeout(loaderTimer);
+        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 80);
+        window.clearTimeout(progressDoneTimer);
+        navProgress?.classList.remove('done');
+        navProgress?.classList.add('active');
+      }, true);
       function observeReveals(): void {
         document.querySelectorAll<HTMLElement>('.post-card, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
           if (el.classList.contains('revealed')) return;
@@ -289,6 +309,7 @@ const bg = await getSiteBackground();
           },
           { passive: true },
         );
+      }
       }
     </script>
   </body>
