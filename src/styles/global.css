@@ -266,23 +266,24 @@
     }
   }
 
-  /* 全站页面切换过渡（View Transitions：淡入 + 轻微滑动） */
+  /* 全站页面切换过渡（View Transitions：平滑交叉淡化，无位移抖动） */
   ::view-transition-old(root) {
-    animation: vt-page-out 0.35s ease;
+    animation: vt-fade-out 0.22s ease forwards;
   }
   ::view-transition-new(root) {
-    animation: vt-page-in 0.4s ease;
+    animation: vt-fade-in 0.4s ease forwards;
   }
-  @keyframes vt-page-out {
+  @keyframes vt-fade-out {
     to {
       opacity: 0;
-      transform: translateY(-10px);
     }
   }
-  @keyframes vt-page-in {
+  @keyframes vt-fade-in {
     from {
       opacity: 0;
-      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
     }
   }
 

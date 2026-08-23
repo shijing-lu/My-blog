@@ -169,7 +169,14 @@ const bg = await getSiteBackground();
       }
       document.addEventListener('astro:page-load', () => {
         updateProgress();
-        observeReveals();
+        // View Transition 切换后的页面：卡片直接显示，不再叠加播放入场动画
+        // （避免「转场淡入 + 卡片上浮」双重动画造成闪烁）
+        document
+          .querySelectorAll<HTMLElement>('.post-card, .moment-card, .photo-card, .activity-heatmap')
+          .forEach((el) => {
+            el.classList.remove('reveal');
+            el.classList.add('revealed');
+          });
       });
       observeReveals();
 
