@@ -57,7 +57,8 @@ const bg = await getSiteBackground();
     }
     <!-- 顶部阅读进度条（转场时保留，避免重建闪烁） -->
     <div id="scroll-progress" transition:persist="scroll-progress" class="scroll-progress" aria-hidden="true" />
-    <!-- 全局页面切换加载指示（导航开始→转场完成期间覆盖，避免卡顿画面裸露） -->
+    <!-- 全局页面切换加载指示：顶部进度条 + 居中转圈（导航开始→转场完成期间覆盖，避免卡顿画面裸露） -->
+    <div id="nav-progress" class="nav-progress" aria-hidden="true"></div>
     <div id="nav-loader" class="nav-loader" aria-hidden="true"></div>
     <!-- 暗色主题星尘粒子背景（转场时保留） -->
     <div class="stardust" transition:persist="stardust" aria-hidden="true" />
@@ -70,16 +71,16 @@ const bg = await getSiteBackground();
           My Blog
         </a>
         <nav class="flex items-center gap-1 text-sm" aria-label="主导航">
-          <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             首页
           </a>
-          <a href="/gallery" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/gallery" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             影集
           </a>
-          <a href="/calendar" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/calendar" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             日历
           </a>
-          <a href="/moments" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/moments" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             动态
           </a>
           <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
@@ -158,16 +159,29 @@ const bg = await getSiteBackground();
         { threshold: 0.06 },
       );
 
-      /** 全局导航加载指示：转场 fetch 期间显示遮罩圆环，完成后隐藏 */
+      /** 全局导航加载指示：顶部进度条 + 居中转圈（转场 fetch 期间显示，完成后隐藏） */
       const navLoader = document.getElementById('nav-loader');
+      const navProgress = document.getElementById('nav-progress');
       let loaderTimer = 0;
+      let progressDoneTimer = 0;
       document.addEventListener('astro:before-preparation', () => {
+        // 进度条立即开始推进（流畅感）；转圈延迟 80ms 出现（快速导航不闪烁）
         window.clearTimeout(loaderTimer);
-        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 150);
+        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 80);
+        window.clearTimeout(progressDoneTimer);
+        navProgress?.classList.remove('done');
+        navProgress?.classList.add('active');
       });
       const hideLoader = (): void => {
         window.clearTimeout(loaderTimer);
         navLoader?.classList.remove('show');
+        // 进度条填满后淡出
+        if (navProgress?.classList.contains('active')) {
+          navProgress.classList.add('done');
+          progressDoneTimer = window.setTimeout(() => {
+            navProgress.classList.remove('active', 'done');
+          }, 400);
+        }
       };
       document.addEventListener('astro:after-preparation', hideLoader);
       document.addEventListener('astro:page-load', hideLoader);

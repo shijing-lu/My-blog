@@ -268,10 +268,10 @@
 
   /* 全站页面切换过渡（View Transitions：平滑交叉淡化，无位移抖动） */
   ::view-transition-old(root) {
-    animation: vt-fade-out 0.18s ease forwards;
+    animation: vt-fade-out 0.15s ease forwards;
   }
   ::view-transition-new(root) {
-    animation: vt-fade-in 0.35s ease forwards;
+    animation: vt-fade-in 0.25s ease forwards;
   }
   @keyframes vt-fade-out {
     to {
@@ -320,6 +320,41 @@
   ::view-transition-old(vt-stardust),
   ::view-transition-new(vt-stardust) {
     animation: none !important;
+  }
+
+  /* 全局页面切换加载指示：顶部进度条（流畅动感，不遮挡内容） */
+  .nav-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 101;
+    height: 3px;
+    width: 0;
+    background: var(--color-primary);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+  }
+  .nav-progress.active {
+    opacity: 1;
+    animation: nav-progress-grow 2s cubic-bezier(0.25, 0.6, 0.35, 1) forwards;
+  }
+  .nav-progress.done {
+    animation: none;
+    width: 100%;
+    transition: width 0.25s ease, opacity 0.3s ease 0.1s;
+  }
+  .nav-progress.done {
+    opacity: 0;
+  }
+  @keyframes nav-progress-grow {
+    0% {
+      width: 0;
+    }
+    100% {
+      width: 80%;
+    }
   }
 
   /* 全局页面切换加载指示：半透明遮罩 + 旋转圆环，转场期间覆盖页面避免卡顿画面裸露 */
