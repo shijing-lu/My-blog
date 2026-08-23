@@ -268,10 +268,10 @@
 
   /* 全站页面切换过渡（View Transitions：平滑交叉淡化，无位移抖动） */
   ::view-transition-old(root) {
-    animation: vt-fade-out 0.22s ease forwards;
+    animation: vt-fade-out 0.18s ease forwards;
   }
   ::view-transition-new(root) {
-    animation: vt-fade-in 0.4s ease forwards;
+    animation: vt-fade-in 0.35s ease forwards;
   }
   @keyframes vt-fade-out {
     to {

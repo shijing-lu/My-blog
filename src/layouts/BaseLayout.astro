@@ -41,24 +41,25 @@ const bg = await getSiteBackground();
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <ClientRouter />
+    <ClientRouter fallback="swap" />
     <ThemeHead />
   </head>
   <body class="flex min-h-dvh flex-col">
     {
       bg.enabled && bg.imageUrl && (
         <div
+          transition:persist="site-bg"
           class="site-bg"
           style={`--bg-url: url('${bg.imageUrl.replace(/['\\]/g, '')}'); --bg-opacity: ${bg.opacity / 100}; --bg-blur: ${bg.blur}px`}
           aria-hidden="true"
         />
       )
     }
-    <!-- 顶部阅读进度条 -->
-    <div id="scroll-progress" class="scroll-progress" aria-hidden="true" />
-    <!-- 暗色主题星尘粒子背景 -->
-    <div class="stardust" aria-hidden="true" />
-    <header class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
+    <!-- 顶部阅读进度条（转场时保留，避免重建闪烁） -->
+    <div id="scroll-progress" transition:persist="scroll-progress" class="scroll-progress" aria-hidden="true" />
+    <!-- 暗色主题星尘粒子背景（转场时保留） -->
+    <div class="stardust" transition:persist="stardust" aria-hidden="true" />
+    <header transition:persist="site-header" class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
       <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
         <a
           href="/"
@@ -108,7 +109,7 @@ const bg = await getSiteBackground();
       <slot />
     </main>
 
-    <footer class="border-t">
+    <footer transition:persist="site-footer" class="border-t">
       <div class="mx-auto w-full max-w-6xl px-4 py-6">
         <div class="pixel-divider mb-4" />
         <p class="text-center text-sm text-muted-foreground">

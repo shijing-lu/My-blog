@@ -61,7 +61,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">CALENDAR</p>
-        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">{monthTitle}</h1>
+        <h1 id="cal-month-title" class="mt-1 font-display text-3xl font-semibold tracking-tight">{monthTitle}</h1>
         <p class="mt-1 text-sm text-muted-foreground">待办 · 日记 · 重要日期 · 农历与二十四节气</p>
       </div>
       <div class="flex items-center gap-2">
@@ -78,7 +78,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
         <div class="grid grid-cols-7 gap-1 text-center font-pixel text-[0.6rem] uppercase tracking-wider text-muted-foreground">
           {WEEK_HEAD.map((w) => <span class="py-1">{w}</span>)}
         </div>
-        <div class="mt-1 grid grid-cols-7 gap-1">
+        <div id="cal-grid" class="mt-1 grid grid-cols-7 gap-1">
           {
             grid.weeks.flat().map((day) => (
               <a
@@ -125,7 +125,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       <!-- 右侧：选中日详情 + 即将到来 -->
       <aside class="space-y-4">
         <!-- 选中日 -->
-        <div class="rounded-lg border bg-card p-4">
+        <div id="cal-selected-panel" class="rounded-lg border bg-card p-4">
           <p class="pixel-chip text-primary">SELECTED DAY</p>
           <h2 class="mt-1 font-display text-lg font-semibold">{selectedKey}</h2>
           {
@@ -254,7 +254,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
         </div>
 
         <!-- 即将到来 -->
-        <div class="rounded-lg border bg-card p-4">
+        <div id="cal-upcoming-panel" class="rounded-lg border bg-card p-4">
           <p class="pixel-chip mb-2 text-muted-foreground">即将到来 / UPCOMING</p>
           {
             upcoming.length === 0 ? (
@@ -344,6 +344,10 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     positionTooltip(cell);
   }
 
+  // View Transition 导航会重新执行本脚本；监听只注册一次（防重复绑定）
+  if (!(window as unknown as { __calendarBound?: boolean }).__calendarBound) {
+    (window as unknown as { __calendarBound?: boolean }).__calendarBound = true;
+
   document.addEventListener('mouseover', (e) => {
     const cell = (e.target as HTMLElement).closest<HTMLElement>('.cal-cell');
     if (!cell || cell === tooltipCell) return;
@@ -367,6 +371,159 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
   });
 
   // 待办勾选/删除/添加、事件添加/删除（全部局部更新，不整页刷新）
+
+  /* ---- 局部导航（点日期 / 切月份 / 点今天：fetch 聚合 API，只更新局部 DOM，不整页转场） ---- */
+
+  /** 单个日期格子 HTML（与 SSR 模板结构一致，保留 tooltip 所需 data 属性） */
+  function cellHtml(day: {
+    date: string;
+    day: number;
+    isToday: boolean;
+    isOtherMonth: boolean;
+    lunarDay: string;
+    lunarFull: string;
+    jieQi: string;
+    festivals: string[];
+    ganZhi: string;
+    shengXiao: string;
+    hasDiary: boolean;
+    hasTodo: boolean;
+    hasEvent: boolean;
+    eventTitles: string[];
+  }, selectedDate: string): string {
+    const cls = ['cal-cell'];
+    if (day.isOtherMonth) cls.push('cal-cell-other');
+    if (day.isToday) cls.push('cal-cell-today');
+    if (day.date === selectedDate) cls.push('cal-cell-selected');
+    const marks = [];
+    if (day.hasTodo) marks.push('<i class="cal-mark cal-mark-todo" title="有待办" />');
+    if (day.hasDiary) marks.push('<i class="cal-mark cal-mark-diary" title="有日记" />');
+    if (day.hasEvent) marks.push('<i class="cal-mark cal-mark-event" title="重要日期" />');
+    const festival = day.festivals.length ? day.festivals[0] : '';
+    return (
+      `<a href="/calendar?month=${day.date.slice(0, 7)}&date=${day.date}" class="${cls.join(' ')}" aria-label="${day.date}"` +
+      ` data-lunar="${esc(day.lunarFull)}" data-ganzhi="${esc(day.ganZhi)}年 · 属${esc(day.shengXiao)}"` +
+      ` data-festivals="${esc(day.festivals.join('、'))}" data-events="${esc(day.eventTitles.join('、'))}">` +
+      `<span class="cal-day-num">${day.day}</span>` +
+      (day.jieQi
+        ? `<span class="cal-tag cal-tag-jieqi">${esc(day.jieQi)}</span>`
+        : !day.isOtherMonth
+          ? `<span class="cal-lunar">${esc(day.lunarDay)}</span>`
+          : '') +
+      (festival ? `<span class="cal-tag cal-tag-festival">${esc(festival)}</span>` : '') +
+      `<span class="cal-marks" aria-hidden="true">${marks.join('')}</span></a>`
+    );
+  }
+
+  /** 右侧「选中日」面板 HTML（与 SSR 结构一致，容器 id 保持以便增删逻辑复用） */
+  function selectedPanelHtml(sel: {
+    date: string;
+    lunarFull: string;
+    jieQi: string;
+    ganZhi: string;
+    shengXiao: string;
+    festivals: string[];
+    hasDiary: boolean;
+    todos: { id: string; text: string; done: boolean }[];
+    events: { id: string; title: string; lunar: boolean; lunarDate: string | null; repeat: boolean }[];
+  }, authed: boolean): string {
+    let html = '<p class="pixel-chip text-primary">SELECTED DAY</p>';
+    html += `<h2 class="mt-1 font-display text-lg font-semibold">${esc(sel.date)}</h2>`;
+    html += '<div class="mt-2 space-y-1 text-xs text-muted-foreground">';
+    html += `<p>农历 ${esc(sel.lunarFull)}${sel.jieQi ? ` · ${esc(sel.jieQi)}` : ''}</p>`;
+    html += `<p>${esc(sel.ganZhi)}年 · 属${esc(sel.shengXiao)}</p>`;
+    if (sel.festivals.length) html += `<p class="text-primary">${esc(sel.festivals.join('、'))}</p>`;
+    html += '</div>';
+    if (authed) {
+      html += `<a href="/calendar/diary?date=${sel.date}" class="mt-3 block rounded-md border border-border px-3 py-1.5 text-center text-sm transition-colors hover:border-primary hover:text-primary">${sel.hasDiary ? '查看 / 编辑当日日记' : '写当日日记'}</a>`;
+      html += '<div class="mt-4 border-t border-border pt-3"><p class="pixel-chip mb-2 text-muted-foreground">待办 / TODO</p>';
+      html += '<ul id="todo-list" class="space-y-1">';
+      for (const t of sel.todos) html += todoLi(t);
+      html += '</ul>';
+      html += `<form id="todo-add-form" class="mt-2 flex gap-1.5" data-date="${sel.date}">`;
+      html += '<input id="todo-add-input" type="text" placeholder="添加待办…" maxlength="200" class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring" />';
+      html += '<button type="submit" class="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">+</button></form></div>';
+    }
+    html += '<div class="mt-4 border-t border-border pt-3"><p class="pixel-chip mb-2 text-muted-foreground">重要日期</p>';
+    if (sel.events.length) {
+      html += '<ul id="event-list" class="space-y-1.5">';
+      for (const ev of sel.events) html += eventLi(ev);
+      html += '</ul>';
+    } else {
+      html += '<p id="event-empty" class="text-xs text-muted-foreground">无</p>';
+    }
+    if (authed) {
+      html += `<form id="event-add-form" class="mt-2 flex flex-wrap gap-1.5" data-date="${sel.date}">`;
+      html += '<input id="event-add-title" type="text" placeholder="纪念日/生日…" maxlength="200" class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring" />';
+      html += '<label class="flex items-center gap-1 text-xs text-muted-foreground"><input id="event-add-lunar" type="checkbox" class="size-3 accent-[var(--color-primary)]" />农历</label>';
+      html += '<input id="event-add-lunar-date" type="text" placeholder="MM-DD" maxlength="5" title="农历月日，如 08-15；闰月填 -08-15" class="hidden w-16 rounded-md border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring" />';
+      html += '<label class="flex items-center gap-1 text-xs text-muted-foreground"><input id="event-add-repeat" type="checkbox" class="size-3 accent-[var(--color-primary)]" />每年</label>';
+      html += '<button type="submit" class="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground">添加</button></form>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  /** 右侧「即将到来」面板 HTML */
+  function upcomingPanelHtml(list: { id: string; title: string; date: string; days: number; countdown: string }[]): string {
+    if (!list.length) return '<p class="text-xs text-muted-foreground">未来 30 天没有重要日期。</p>';
+    let html = '<ul class="space-y-1.5">';
+    for (const u of list) {
+      html += `<li class="flex items-center justify-between gap-2 text-sm ${u.days <= 7 ? 'text-primary' : 'text-muted-foreground'}">`;
+      html += `<a href="/calendar?month=${u.date.slice(0, 7)}&date=${u.date}" class="hover:text-primary">${esc(u.title)}</a>`;
+      html += `<span class="shrink-0 font-pixel text-[0.6rem]">${esc(u.countdown)}</span></li>`;
+    }
+    html += '</ul>';
+    return html;
+  }
+
+  /** 用聚合 API 数据刷新页面局部内容 */
+  function applyCalendarData(data: {
+    monthTitle: string;
+    grid: Parameters<typeof cellHtml>[0][];
+    selected: Parameters<typeof selectedPanelHtml>[0];
+    upcoming: Parameters<typeof upcomingPanelHtml>[0];
+  }): void {
+    const title = document.getElementById('cal-month-title');
+    if (title) title.textContent = data.monthTitle;
+    const gridEl = document.getElementById('cal-grid');
+    if (gridEl) {
+      gridEl.innerHTML = data.grid.map((d) => cellHtml(d, data.selected.date)).join('');
+    }
+    const selEl = document.getElementById('cal-selected-panel');
+    if (selEl) selEl.innerHTML = selectedPanelHtml(data.selected, tooltipAuthed);
+    const upEl = document.getElementById('cal-upcoming-panel');
+    if (upEl) upEl.innerHTML = upcomingPanelHtml(data.upcoming);
+  }
+
+  /** 局部导航：fetch 聚合 API → 更新局部 DOM → 同步 URL（可选 pushState） */
+  async function navigateCalendar(href: string, push = true): Promise<void> {
+    const url = new URL(href, location.href);
+    const params = new URLSearchParams();
+    const m = url.searchParams.get('month');
+    const d = url.searchParams.get('date');
+    if (m) params.set('month', m);
+    if (d) params.set('date', d);
+    const qs = params.toString();
+    const target = `/calendar${qs ? `?${qs}` : ''}`;
+    if (target === location.pathname + location.search) return;
+    try {
+      const res = await fetch(`/api/calendar-month${qs ? `?${qs}` : ''}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      applyCalendarData(data);
+      if (push) history.pushState({}, '', target);
+    } catch {
+      /* 网络异常忽略（保持原页面） */
+    }
+  }
+
+  /** 浏览器前进/后退恢复视图（不重复 push） */
+  window.addEventListener('popstate', () => {
+    const params = new URLSearchParams(location.search);
+    const qs = params.toString();
+    void navigateCalendar(`/calendar${qs ? `?${qs}` : ''}`, false);
+  });
 
   /* ---- 局部 DOM 更新辅助 ---- */
 
@@ -443,30 +600,40 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     return document.querySelector<HTMLElement>('#todo-add-form')?.dataset.date ?? '';
   }
 
-  // 待办勾选（局部更新样式，不刷新）
+  // 注意：以下监听均用捕获阶段（第三个参数 true），先于 ClientRouter 的
+  // document 冒泡监听执行 —— 导航类点击/表单提交在此 preventDefault 后，
+  // ClientRouter 看到 defaultPrevented 即跳过，不会触发整页转场。
+
+  // 待办勾选 / 农历开关（局部更新，不刷新）
   document.addEventListener('change', async (e) => {
     const target = e.target as HTMLInputElement;
     const id = target.dataset.todoToggle;
-    if (!id) return;
-    try {
-      const res = await fetch(`/api/todos/${id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ done: target.checked }),
-      });
-      if (!res.ok) throw new Error('保存失败');
-      const span = target.closest('li')?.querySelector('span');
-      if (span) {
-        span.classList.toggle('line-through', target.checked);
-        span.classList.toggle('text-muted-foreground', target.checked);
+    if (id) {
+      try {
+        const res = await fetch(`/api/todos/${id}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ done: target.checked }),
+        });
+        if (!res.ok) throw new Error('保存失败');
+        const span = target.closest('li')?.querySelector('span');
+        if (span) {
+          span.classList.toggle('line-through', target.checked);
+          span.classList.toggle('text-muted-foreground', target.checked);
+        }
+      } catch {
+        target.checked = !target.checked;
+        window.alert('操作失败，请重试');
       }
-    } catch {
-      target.checked = !target.checked;
-      window.alert('操作失败，请重试');
+      return;
     }
-  });
+    if (target.id === 'event-add-lunar') {
+      const lunarDateInput = document.getElementById('event-add-lunar-date') as HTMLInputElement | null;
+      if (lunarDateInput) lunarDateInput.classList.toggle('hidden', !target.checked);
+    }
+  }, true);
 
-  // 待办删除 / 事件删除（局部移除，不刷新）
+  // 待办删除 / 事件删除（局部移除）+ 导航（点日期/月份/今天 → 局部更新）
   document.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
     const todoDel = target.closest<HTMLElement>('[data-todo-del]');
@@ -494,8 +661,15 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       } catch {
         window.alert('删除失败，请重试');
       }
+      return;
     }
-  });
+    // 导航类：日期格子 / 上/下月 / 今天 —— 局部更新，不整页转场
+    const nav = target.closest<HTMLElement>('.cal-cell, .cal-nav-btn');
+    if (nav && nav.getAttribute('href')) {
+      e.preventDefault();
+      void navigateCalendar(nav.getAttribute('href') as string);
+    }
+  }, true);
 
   // 待办添加（局部插入，不刷新）
   document.addEventListener('submit', async (e) => {
@@ -520,18 +694,9 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     } catch {
       window.alert('添加失败，请重试');
     }
-  });
+  }, true);
 
-  // 农历开关：显示/隐藏农历月日输入
-  document.addEventListener('change', (e) => {
-    const target = e.target as HTMLInputElement;
-    if (target.id === 'event-add-lunar') {
-      const lunarDateInput = document.getElementById('event-add-lunar-date') as HTMLInputElement | null;
-      if (lunarDateInput) lunarDateInput.classList.toggle('hidden', !target.checked);
-    }
-  });
-
-  // 重要日期添加
+  // 重要日期添加（局部插入，不刷新）
   document.addEventListener('submit', async (e) => {
     const form = e.target as HTMLFormElement;
     if (form.id !== 'event-add-form') return;
@@ -572,5 +737,6 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     } catch {
       window.alert('添加失败，请重试');
     }
-  });
+  }, true);
+  }
 </script>
