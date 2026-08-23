@@ -477,8 +477,29 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     return html;
   }
 
+  /** 月份位移："2026-09" + delta → "2026-10"（Date 自动处理跨年） */
+  function shiftMonth(month: string, delta: number): string {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(y ?? 2000, (m ?? 1) - 1 + delta, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /** 更新上/下月、"今天"按钮的 href（否则按钮指向旧月份，无法连续切换） */
+  function updateNavButtons(month: string, today: string): void {
+    const prev = shiftMonth(month, -1);
+    const next = shiftMonth(month, 1);
+    document.querySelectorAll('.cal-nav-btn').forEach((a) => {
+      const label = a.getAttribute('aria-label');
+      if (label === '上个月') a.setAttribute('href', `/calendar?month=${prev}`);
+      else if (label === '下个月') a.setAttribute('href', `/calendar?month=${next}`);
+      else if (a.textContent.trim() === '今天') a.setAttribute('href', `/calendar?month=${month}&date=${today}`);
+    });
+  }
+
   /** 用聚合 API 数据刷新页面局部内容 */
   function applyCalendarData(data: {
+    month: string;
+    today: string;
     monthTitle: string;
     grid: Parameters<typeof cellHtml>[0][];
     selected: Parameters<typeof selectedPanelHtml>[0];
@@ -494,6 +515,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (selEl) selEl.innerHTML = selectedPanelHtml(data.selected, tooltipAuthed);
     const upEl = document.getElementById('cal-upcoming-panel');
     if (upEl) upEl.innerHTML = upcomingPanelHtml(data.upcoming);
+    updateNavButtons(data.month, data.today);
   }
 
   /** 局部导航：fetch 聚合 API → 更新局部 DOM → 同步 URL（可选 pushState） */
@@ -506,7 +528,8 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (d) params.set('date', d);
     const qs = params.toString();
     const target = `/calendar${qs ? `?${qs}` : ''}`;
-    if (target === location.pathname + location.search) return;
+    // 仅手动导航（push）时跳过「重复点击同一链接」；popstate 恢复必须无条件更新
+    if (push && target === location.pathname + location.search) return;
     try {
       const res = await fetch(`/api/calendar-month${qs ? `?${qs}` : ''}`);
       if (!res.ok) return;

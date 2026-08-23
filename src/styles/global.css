@@ -287,6 +287,41 @@
     }
   }
 
+  /* 最小更新原则：常驻元素（背景/header/footer/进度条/粒子）不参与转场动画，
+     整个页面切换期间保持静止显示——内容没变的绝不动画、绝不重绘 */
+  .site-bg {
+    view-transition-name: vt-site-bg;
+  }
+  header {
+    view-transition-name: vt-site-header;
+  }
+  footer {
+    view-transition-name: vt-site-footer;
+  }
+  #scroll-progress {
+    view-transition-name: vt-scroll-progress;
+  }
+  .stardust {
+    view-transition-name: vt-stardust;
+  }
+  ::view-transition-group(vt-site-bg),
+  ::view-transition-old(vt-site-bg),
+  ::view-transition-new(vt-site-bg),
+  ::view-transition-group(vt-site-header),
+  ::view-transition-old(vt-site-header),
+  ::view-transition-new(vt-site-header),
+  ::view-transition-group(vt-site-footer),
+  ::view-transition-old(vt-site-footer),
+  ::view-transition-new(vt-site-footer),
+  ::view-transition-group(vt-scroll-progress),
+  ::view-transition-old(vt-scroll-progress),
+  ::view-transition-new(vt-scroll-progress),
+  ::view-transition-group(vt-stardust),
+  ::view-transition-old(vt-stardust),
+  ::view-transition-new(vt-stardust) {
+    animation: none !important;
+  }
+
   /* 全站背景层（设置页可配：开启/图片/透明度/模糊度） */
   .site-bg {
     position: fixed;
