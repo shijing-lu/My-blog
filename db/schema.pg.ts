@@ -5,7 +5,7 @@
  * - `tags` 用 jsonb；`type` 用 check 约束（PG 无 enum 需额外迁移）。
  * - 时间戳用 `timestamp withTimezone`，读写均映射 `Date`。
  */
-import { pgTable, text, timestamp, jsonb, integer, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, integer, boolean, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 /** articles 表（PostgreSQL 方言） */
@@ -80,6 +80,82 @@ export const photos = pgTable('photos', {
   takenAt: timestamp('taken_at', { withTimezone: true, mode: 'date' }).notNull(),
   /** 上传时间 */
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
+
+/** 站点设置 KV 表（如首页 Hero 诗词轮播配置） */
+export const settings = pgTable('settings', {
+  /** 配置键 */
+  key: text('key').primaryKey(),
+  /** JSON 值 */
+  value: text('value').notNull(),
+  /** 更新时间 */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
+
+/** 日历：待办（私密，仅管理员） */
+export const todos = pgTable('todos', {
+  id: text('id').primaryKey(),
+  /** 所属日期 YYYY-MM-DD */
+  date: text('date').notNull(),
+  /** 待办内容 */
+  text: text('text').notNull(),
+  /** 是否完成 */
+  done: boolean('done').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
+
+/** 日历：日记（私密，仅管理员，一人一天一篇） */
+export const diaryEntries = pgTable('diary_entries', {
+  id: text('id').primaryKey(),
+  /** 日记日期 YYYY-MM-DD（唯一，一天一篇） */
+  date: text('date').notNull().unique(),
+  /** 标题 */
+  title: text('title').notNull().default(''),
+  /** Markdown 正文 */
+  content: text('content').notNull().default(''),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
+
+/** 日历：重要日期（公开显示，可每年重复，可农历） */
+export const calendarEvents = pgTable('calendar_events', {
+  id: text('id').primaryKey(),
+  /** 事件标题 */
+  title: text('title').notNull(),
+  /** 阳历日期 YYYY-MM-DD（lunar 为 false 时使用） */
+  date: text('date').notNull(),
+  /** 是否每年重复（生日/纪念日） */
+  repeat: boolean('repeat').notNull().default(false),
+  /** 是否农历日期（如农历生日） */
+  lunar: boolean('lunar').notNull().default(false),
+  /** 农历月日："MM-DD"（如 08-15），闰月用 "-MM-DD" 前缀负号 */
+  lunarDate: text('lunar_date'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
+
+/** 动态（动态圈，公开浏览；评论/点赞预留，后续独立表） */
+export const moments = pgTable('moments', {
+  id: text('id').primaryKey(),
+  /** 文字内容（可为空，但需有媒体） */
+  content: text('content').notNull().default(''),
+  /** 媒体 JSON：[{type:'image'|'gif'|'video', url, poster?}] */
+  media: text('media').notNull().default('[]'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
 });

@@ -50,6 +50,7 @@
     "giscus": "^1.6.0",
     "github-slugger": "^2.0.0",
     "lucide-react": "^1.33.0",
+    "lunar-javascript": "^1.7.7",
     "mdast-util-mdx-jsx": "^3.2.0",
     "postgres": "^3.4.9",
     "radix-ui": "^1.6.7",

@@ -1,0 +1,54 @@
+---
+/* ===== Props ===== */
+/* （日记编辑页；URL 参数 date=YYYY-MM-DD，中间件保护） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import DiaryEditor from '@/components/admin/DiaryEditor';
+import { getDiaryByDate } from '@/lib/calendar-data';
+
+/* ===== Logic ===== */
+const date = Astro.url.searchParams.get('date') ?? '';
+const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
+if (!valid) return Astro.redirect('/calendar');
+
+const diary = await getDiaryByDate(date);
+const [y, m, d] = date.split('-').map(Number);
+const dateLabel = `${y} 年 ${m} 月 ${d} 日`;
+---
+<!-- ===== Template ===== -->
+<BaseLayout title={`日记 · ${date}`} description="每日日记">
+  <section class="mx-auto w-full max-w-3xl px-4 py-10">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">DIARY</p>
+        <h1 class="mt-1 font-display text-2xl font-semibold tracking-tight">{dateLabel}</h1>
+      </div>
+      <a href={`/calendar?date=${date}`} class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+        ← 返回日历
+      </a>
+    </div>
+    <div class="pixel-divider mt-5" />
+
+    <div class="mt-6 rounded-lg border bg-card p-5">
+      <input
+        id="diary-title"
+        type="text"
+        value={diary?.title ?? ''}
+        placeholder="日记标题（可选）"
+        maxlength="200"
+        class="w-full rounded-md border border-input bg-background px-3 py-2 text-lg font-medium outline-none transition-colors focus-visible:border-ring"
+      />
+      <div class="mt-3 overflow-hidden rounded-md border border-input">
+        <DiaryEditor client:load initialContent={diary?.content ?? ''} date={date} />
+      </div>
+      <p class="mt-2 text-xs text-muted-foreground">
+        所见即所得：输入 <code class="rounded bg-muted px-1">## 标题</code> 回车即实时渲染为二级标题 · Ctrl/Cmd + S 保存
+      </p>
+      <div class="mt-4 flex items-center gap-3">
+        <span id="diary-status" class="text-xs text-emerald-600"></span>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+

@@ -100,3 +100,70 @@ export interface NewPhoto {
   height: number | null;
   takenAt: Date;
 }
+
+/** 日历：待办 */
+export interface Todo {
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  text: string;
+  done: boolean;
+  createdAt: Date;
+}
+
+/** 日历：日记（一天一篇） */
+export interface DiaryEntry {
+  id: string;
+  /** YYYY-MM-DD（唯一） */
+  date: string;
+  title: string;
+  /** Markdown 正文 */
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 日历：重要日期 */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** 阳历日期 YYYY-MM-DD（lunar 为 false 时使用） */
+  date: string;
+  /** 是否每年重复 */
+  repeat: boolean;
+  /** 是否农历日期 */
+  lunar: boolean;
+  /** 农历月日 "MM-DD"（闰月 "-MM-DD"） */
+  lunarDate: string | null;
+  createdAt: Date;
+}
+
+/** 动态媒体项 */
+export interface MomentMedia {
+  /** image | gif | video */
+  type: 'image' | 'gif' | 'video';
+  /** 媒体 URL（图片/GIF 为本站 /api/images/…，视频为外链） */
+  url: string;
+  /** 视频封面（可选） */
+  poster?: string | null;
+}
+
+/** 动态（动态圈） */
+export interface Moment {
+  id: string;
+  /** 文字内容（可为空但需有媒体） */
+  content: string;
+  /** 媒体列表 */
+  media: MomentMedia[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 动态写入入参 */
+export interface NewMoment {
+  id: string;
+  content: string;
+  media: MomentMedia[];
+  createdAt: Date;
+  updatedAt: Date;
+}

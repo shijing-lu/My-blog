@@ -1,0 +1,179 @@
+---
+/* ===== Props ===== */
+/* （无） */
+
+/* ===== Imports ===== */
+import { buildHeatmap } from '@/lib/heatmap';
+import { listArticles } from '@/lib/articles';
+
+/* ===== Logic ===== */
+/** 文章数据（含 createdAt/updatedAt/content） */
+const articles = await listArticles();
+/** 热力图数据（最近 12 个月） */
+const data = buildHeatmap(articles, new Date(), 12);
+
+/** 数量 → 颜色档位 0-4 */
+function level(count: number): number {
+  if (count === 0) return 0;
+  if (count === 1) return 1;
+  if (count <= 3) return 2;
+  if (count <= 5) return 3;
+  return 4;
+}
+
+/** 每列顶部月份标签：若该列某天是某月 1 号，则在该列标出月份缩写 */
+const monthLabels: string[] = data.weeks.map((week) => {
+  const first = week.find((d) => d.date.endsWith('-01'));
+  if (!first) return '';
+  const m = new Date(`${first.date}T12:00:00`);
+  return m.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+});
+
+/* ---- 折线图（月度聚合） ---- */
+const CHART_W = 260;
+const CHART_H = 120;
+const PAD = 10;
+const maxTotal = Math.max(1, ...data.monthly.map((m) => m.total));
+const points = data.monthly.map((m, i) => {
+  const denom = Math.max(1, data.monthly.length - 1);
+  const x = PAD + (i * (CHART_W - PAD * 2)) / denom;
+  const y = CHART_H - PAD - (m.total / maxTotal) * (CHART_H - PAD * 2);
+  return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)), total: m.total };
+});
+const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+const areaPath =
+  points.length > 1
+    ? `M${points[0]!.x},${points[0]!.y} ` +
+      points.slice(1).map((p) => `L${p.x},${p.y}`).join(' ') +
+      ` L${points[points.length - 1]!.x},${CHART_H - PAD} L${points[0]!.x},${CHART_H - PAD} Z`
+    : '';
+const monthShort = (month: string): string => {
+  const [y, m] = month.split('-');
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-US', { month: 'short' }).toUpperCase();
+};
+const firstMonth = data.monthly[0] ? monthShort(data.monthly[0]!.month) : '';
+const lastMonth = data.monthly[data.monthly.length - 1] ? monthShort(data.monthly[data.monthly.length - 1]!.month) : '';
+const peakIdx = data.monthly.reduce((best, m, i) => (m.total > data.monthly[best]!.total ? i : best), 0);
+const peakTotal = data.monthly[peakIdx]?.total ?? 0;
+---
+<!-- ===== Template ===== -->
+<div class="activity-heatmap mt-8 rounded-lg border bg-card p-5">
+  <!-- 顶部统计条 -->
+  <div class="flex flex-wrap items-baseline gap-x-10 gap-y-2">
+    <div class="flex items-baseline gap-2">
+      <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Posts</span>
+      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.posts}>0</span>
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Days</span>
+      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.days}>0</span>
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Words</span>
+      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.words}>0</span>
+    </div>
+    {
+      peakTotal > 0 && (
+        <div class="ml-auto text-right">
+          <p class="font-pixel text-[0.55rem] uppercase tracking-wider text-muted-foreground">Peak Month</p>
+          <p class="font-pixel text-xs text-primary">{monthShort(data.monthly[peakIdx]!.month)} · {peakTotal}</p>
+        </div>
+      )
+    }
+  </div>
+
+  <div class="flex flex-col gap-6 lg:flex-row">
+    <!-- 逐日热力格 -->
+    <div class="min-w-0 flex-1">
+      <div class="mb-1 flex h-3">
+        {monthLabels.map((label) => (
+          <span class="w-[11px] shrink-0 text-[0.5rem] leading-none text-muted-foreground">
+            {label}
+          </span>
+        ))}
+      </div>
+      <div class="overflow-x-auto">
+        <div class="flex w-max gap-[2px]">
+          {data.weeks.map((week) => (
+            <div class="flex flex-col gap-[2px]">
+              {week.map((day) => (
+                <div
+                 
+                  class={`heat-cell heat-${level(day.count)}`}
+                  title={day.count > 0 ? `${day.date}：${day.count} 篇` : day.date}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <!-- 图例 -->
+      <div class="mt-3 flex items-center gap-1.5 text-[0.6rem] text-muted-foreground">
+        <span class="mr-1">图例</span>
+        <span class="heat-cell heat-0" />
+        <span>无</span>
+        <span class="heat-cell heat-1" />
+        <span>1</span>
+        <span class="heat-cell heat-2" />
+        <span>2-3</span>
+        <span class="heat-cell heat-3" />
+        <span>4-5</span>
+        <span class="heat-cell heat-4" />
+        <span>6+</span>
+      </div>
+    </div>
+
+    <!-- 月度写作量折线图 -->
+    <div class="shrink-0 lg:w-64">
+      <p class="pixel-chip mb-2 text-muted-foreground">月度写作量 / MONTHLY</p>
+      <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} class="w-full" role="img" aria-label="月度写作量折线图">
+        <path d={areaPath} fill="var(--color-primary)" opacity="0.14" />
+        <path d={linePath} fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        {points.map((p) => (
+          <circle cx={p.x} cy={p.y} r="3" fill="var(--color-primary)" />
+        ))}
+      </svg>
+      <div class="mt-1 flex justify-between text-[0.55rem] text-muted-foreground">
+        <span>{firstMonth}</span>
+        <span>{lastMonth}</span>
+      </div>
+      <p class="mt-2 text-[0.6rem] text-muted-foreground">
+        最近 12 个月写作活动分布（每日 = 当天有发布/更新的文章数）。
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  /** 统计数字滚动动画（进入视口时从 0 滚到目标值） */
+  const nums = Array.from(document.querySelectorAll<HTMLElement>('.stat-num'));
+  const targets = nums.map((el) => Number(el.dataset.num ?? 0));
+
+  function animate(el: HTMLElement, target: number): void {
+    const duration = 1600;
+    const start = performance.now();
+    const fmt = (n: number): string => n.toLocaleString();
+    const tick = (t: number): void => {
+      const p = Math.min(1, (t - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+      el.textContent = fmt(Math.round(target * eased));
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = fmt(target);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const idx = nums.indexOf(entry.target as HTMLElement);
+          if (idx >= 0) animate(entry.target as HTMLElement, targets[idx]!);
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.3 },
+  );
+  nums.forEach((el) => observer.observe(el));
+</script>

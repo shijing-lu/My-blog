@@ -24,8 +24,23 @@ function dateKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-/** 占位宽高比（照片宽高未知时的默认比例） */
-const FALLBACK_RATIO = '4 / 3';
+/** 按日期分组（photos 已按 takenAt 倒序，组序与组内顺序均保持） */
+interface PhotoGroup {
+  date: string;
+  photos: Array<(typeof photos)[number]>;
+}
+const groups: PhotoGroup[] = [];
+const groupMap = new Map<string, PhotoGroup>();
+photos.forEach((p) => {
+  const key = dateKey(p.takenAt);
+  let g = groupMap.get(key);
+  if (!g) {
+    g = { date: key, photos: [] };
+    groupMap.set(key, g);
+    groups.push(g);
+  }
+  g.photos.push(p);
+});
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="影集" description="收集好看的、有意义的照片 —— My Blog Gallery">
@@ -80,36 +95,48 @@ const FALLBACK_RATIO = '4 / 3';
             </div>
           ) : (
             <>
-              <div id="masonry" class="grid grid-cols-2 gap-4 sm:grid-cols-3" data-offset={photos.length} data-total={total}>
+              <div id="gallery-groups" class="space-y-8" data-offset={photos.length} data-total={total}>
                 {
-                  photos.map((p) => (
-                    <figure
-                      class="photo-card group relative overflow-hidden rounded-lg border bg-card"
-                      data-date={dateKey(p.takenAt)}
-                      data-photo-id={p.id}
-                    >
-                      <div
-                        class="photo-wrap overflow-hidden"
-                        style={`aspect-ratio: ${p.width && p.height ? `${p.width} / ${p.height}` : FALLBACK_RATIO}`}
-                        data-lightbox
-                        data-caption={p.title}
-                      >
-                        <img
-                          src={p.thumbUrl ?? p.url}
-                          alt={p.title}
-                          loading="lazy"
-                          decoding="async"
-                          class="h-full w-full cursor-zoom-in object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                        />
+                  groups.map((g) => (
+                    <section class="gallery-group" data-date={g.date}>
+                      <div class="gallery-date-divider">
+                        <span class="gallery-date-label">{g.date}</span>
+                        <span class="gallery-date-count">{g.photos.length} 张</span>
                       </div>
-                      {
-                        p.title && (
-                          <figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                            {p.title}
-                          </figcaption>
-                        )
-                      }
-                    </figure>
+                      <div class="masonry mt-4 grid grid-cols-2 gap-0 sm:grid-cols-3">
+                        {
+                          g.photos.map((p) => (
+                            <figure
+                              class="photo-card group relative overflow-hidden bg-card"
+                              data-date={dateKey(p.takenAt)}
+                              data-photo-id={p.id}
+                            >
+                              <div
+                                class="photo-wrap overflow-hidden"
+                                style={p.width && p.height ? `aspect-ratio: ${p.width} / ${p.height}` : undefined}
+                                data-lightbox
+                                data-caption={p.title}
+                              >
+                                <img
+                                  src={p.thumbUrl ?? p.url}
+                                  alt={p.title}
+                                  loading="lazy"
+                                  decoding="async"
+                                  class="block w-full cursor-zoom-in object-cover"
+                                />
+                              </div>
+                              {
+                                p.title && (
+                                  <figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                                    {p.title}
+                                  </figcaption>
+                                )
+                              }
+                            </figure>
+                          ))
+                        }
+                      </div>
+                    </section>
                   ))
                 }
               </div>
@@ -188,7 +215,7 @@ const FALLBACK_RATIO = '4 / 3';
     return window.innerWidth < 640 ? 2 : 3;
   }
 
-  /** 构建照片卡片 HTML（与首屏渲染同构） */
+  /** 构建照片卡片 HTML（与首屏渲染同构；无宽高时按图片自然比例，保持参差） */
   function cardHtml(p: {
     id: string;
     url: string;
@@ -199,20 +226,38 @@ const FALLBACK_RATIO = '4 / 3';
     takenAt: string;
   }): string {
     const date = p.takenAt.slice(0, 10);
-    const ratio = p.width && p.height ? `${p.width} / ${p.height}` : '4 / 3';
-    return `<figure class="photo-card group relative overflow-hidden rounded-lg border bg-card" data-date="${esc(date)}" data-photo-id="${esc(p.id)}">
-      <div class="photo-wrap overflow-hidden" style="aspect-ratio: ${ratio}" data-lightbox data-caption="${esc(p.title)}">
-        <img src="${esc(p.thumbUrl ?? p.url)}" alt="${esc(p.title)}" loading="lazy" decoding="async" class="h-full w-full cursor-zoom-in object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+    const ratioStyle = p.width && p.height ? `style="aspect-ratio: ${p.width} / ${p.height}"` : '';
+    return `<figure class="photo-card group relative overflow-hidden bg-card" data-date="${esc(date)}" data-photo-id="${esc(p.id)}">
+      <div class="photo-wrap overflow-hidden" ${ratioStyle} data-lightbox data-caption="${esc(p.title)}">
+        <img src="${esc(p.thumbUrl ?? p.url)}" alt="${esc(p.title)}" loading="lazy" decoding="async" class="block w-full cursor-zoom-in object-cover" />
       </div>
       ${p.title ? `<figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">${esc(p.title)}</figcaption>` : ''}
     </figure>`;
   }
 
-  /** 把 HTML 卡片追加到当前最短列 */
-  function appendToShortestColumn(html: string): void {
-    const masonry = el<HTMLElement>('masonry');
-    if (!masonry) return;
-    const columns = Array.from(masonry.children) as HTMLElement[];
+  /** 确保 masonry 容器已建好瀑布流列（用 ready 标记，避免误判照片为列） */
+  function ensureColumns(masonry: HTMLElement): void {
+    if (masonry.dataset.ready === '1') return;
+    const n = columnCount();
+    for (let i = 0; i < n; i += 1) {
+      const col = document.createElement('div');
+      col.className = 'min-w-0 self-start';
+      masonry.appendChild(col);
+    }
+    masonry.dataset.ready = '1';
+  }
+
+  /** 取 masonry 下真正的瀑布流列（过滤未分配的照片等非列子元素） */
+  function columnsOf(masonry: HTMLElement): HTMLElement[] {
+    return Array.from(masonry.children).filter(
+      (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('self-start'),
+    );
+  }
+
+  /** 把 HTML 卡片追加到 masonry 的最短列 */
+  function appendToShortestColumn(masonry: HTMLElement, html: string): void {
+    ensureColumns(masonry);
+    const columns = columnsOf(masonry);
     if (columns.length === 0) return;
     let min = 0;
     for (let i = 1; i < columns.length; i += 1) {
@@ -221,17 +266,35 @@ const FALLBACK_RATIO = '4 / 3';
     columns[min]!.insertAdjacentHTML('beforeend', html);
   }
 
-  /** 把已有卡片节点移动到对应列 */
-  function moveCardToShortestColumn(card: HTMLElement): void {
-    const masonry = el<HTMLElement>('masonry');
-    if (!masonry) return;
-    const columns = Array.from(masonry.children) as HTMLElement[];
+  /** 把已有卡片节点移动到 masonry 的最短列 */
+  function moveCardToShortestColumn(masonry: HTMLElement, card: HTMLElement): void {
+    ensureColumns(masonry);
+    const columns = columnsOf(masonry);
     if (columns.length === 0) return;
     let min = 0;
     for (let i = 1; i < columns.length; i += 1) {
       if (columns[i]!.scrollHeight < columns[min]!.scrollHeight) min = i;
     }
     columns[min]!.appendChild(card);
+  }
+
+  /** 按日期把照片插入对应分组（无则新建分组，更旧日期追加到末尾） */
+  function insertPhoto(html: string, date: string): void {
+    const container = el<HTMLElement>('gallery-groups');
+    if (!container) return;
+    let section = container.querySelector<HTMLElement>(`.gallery-group[data-date="${CSS.escape(date)}"]`);
+    if (!section) {
+      section = document.createElement('section');
+      section.className = 'gallery-group';
+      section.dataset.date = date;
+      section.innerHTML = `<div class="gallery-date-divider"><span class="gallery-date-label">${esc(date)}</span><span class="gallery-date-count"></span></div><div class="masonry mt-4 grid grid-cols-2 gap-0 sm:grid-cols-3"></div>`;
+      container.appendChild(section);
+    }
+    const masonry = section.querySelector<HTMLElement>('.masonry');
+    if (!masonry) return;
+    appendToShortestColumn(masonry, html);
+    const count = section.querySelector('.gallery-date-count');
+    if (count) count.textContent = `${masonry.querySelectorAll('.photo-card').length} 张`;
   }
 
   /** 刷新「更多」按钮状态 */
@@ -263,7 +326,7 @@ const FALLBACK_RATIO = '4 / 3';
         }>;
         total: number;
       };
-      data.photos.forEach((p) => appendToShortestColumn(cardHtml(p)));
+      data.photos.forEach((p) => insertPhoto(cardHtml(p), p.takenAt.slice(0, 10)));
       offset += data.photos.length;
       total = data.total;
       done = offset >= total;
@@ -295,29 +358,23 @@ const FALLBACK_RATIO = '4 / 3';
 
   /** 初始化瀑布流（每次页面加载 / View Transition 后调用） */
   function init(): void {
-    const masonry = el<HTMLElement>('masonry');
-    if (!masonry) return; // 空相册：无瀑布流容器
+    const container = el<HTMLElement>('gallery-groups');
+    if (!container) return; // 空相册：无分组容器
     // 状态重置（新页面 DOM，初始值来自 data-* 属性）
-    offset = Number(masonry.dataset.offset ?? 0);
-    total = Number(masonry.dataset.total ?? 0);
+    offset = Number(container.dataset.offset ?? 0);
+    total = Number(container.dataset.total ?? 0);
     loading = false;
     done = offset >= total;
     // 更多按钮初始隐藏：滚动到底部哨兵进入视口时才显示
     el('gallery-more-wrap')?.classList.add('hidden');
-    // 首次：把服务端渲染的卡片分配到列
-    const cards = Array.from(masonry.querySelectorAll<HTMLElement>('.photo-card'));
-    if (cards.length > 0 && !masonry.dataset.ready) {
-      masonry.dataset.ready = '1';
-      masonry.innerHTML = '';
-      const n = columnCount();
-      for (let i = 0; i < n; i += 1) {
-        const col = document.createElement('div');
-        // self-start：列不被 grid 拉伸等高，scrollHeight 才反映真实内容高度（否则所有照片会堆进第一列）
-        col.className = 'min-w-0 self-start';
-        masonry.appendChild(col);
-      }
-      cards.forEach((c) => moveCardToShortestColumn(c));
-    }
+    // 首次：把服务端渲染的卡片分配到各组的列
+    container.querySelectorAll<HTMLElement>('.masonry').forEach((masonry) => {
+      if (masonry.dataset.ready === '1') return;
+      const cards = Array.from(masonry.querySelectorAll<HTMLElement>('.photo-card'));
+      if (cards.length === 0) return;
+      ensureColumns(masonry); // 建列并标记 ready
+      cards.forEach((c) => moveCardToShortestColumn(masonry, c));
+    });
     // 重建底部哨兵观察器
     observer?.disconnect();
     const sentinel = el('gallery-sentinel');

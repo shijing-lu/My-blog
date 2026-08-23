@@ -1,0 +1,403 @@
+---
+/* ===== Props ===== */
+/* （设置页无 Props，中间件保护 /admin/*） */
+
+/* ===== Imports ===== */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
+import { getSiteBackground } from '@/lib/background';
+
+/* ===== Logic ===== */
+/** 读取各类设置：目前为诗词轮播 + 站点背景（架构预留：后续在此追加分区） */
+const heroSettings = serializeSettings(await getHeroQuoteSettings());
+const heroJson = JSON.stringify(heroSettings);
+const bg = await getSiteBackground();
+---
+<!-- ===== Template ===== -->
+<AdminLayout title="设置">
+  <section class="mx-auto h-full w-full max-w-3xl overflow-y-auto px-4 py-8">
+    <div>
+      <p class="pixel-chip text-primary">SETTINGS</p>
+      <h1 class="mt-1 font-display text-2xl font-semibold">站点设置</h1>
+      <p class="mt-1 text-sm text-muted-foreground">集中管理站点可自定义项，保存后全站生效。</p>
+    </div>
+
+    <!-- 分区导航（可扩展：新增设置项时在此加 tab） -->
+    <nav class="mt-5 flex flex-wrap gap-2" aria-label="设置分区">
+      <a href="#hero-quotes" class="settings-tab active">诗词轮播</a>
+      <a href="#site-background" class="settings-tab">站点背景</a>
+    </nav>
+
+    <!-- 诗词轮播分区 -->
+    <section id="hero-quotes" class="mt-4 rounded-lg border bg-card p-5" data-settings={heroJson}>
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">HERO QUOTES</p>
+          <h2 class="mt-1 font-medium">首页诗词轮播</h2>
+        </div>
+        <a href="/" class="text-xs text-muted-foreground hover:text-primary">查看效果 →</a>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        首页 Hero 大字的古诗/名言：逐字闪烁出现，全部显示后停留，再倒序逐字还原并轮播到下一条。
+      </p>
+
+      <div class="mt-5 grid grid-cols-2 gap-3">
+        <label class="block text-xs font-medium text-muted-foreground">
+          逐字间隔（毫秒）
+          <input
+            id="s-char-ms"
+            type="number"
+            min="60"
+            max="3000"
+            step="10"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          默认停留（毫秒）
+          <input
+            id="s-pause-ms"
+            type="number"
+            min="0"
+            max="120000"
+            step="100"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+      </div>
+
+      <p class="settings-label mt-5">诗词列表 / QUOTES</p>
+      <p class="text-xs text-muted-foreground">每行一条；「停留(ms)」留空则用上方默认停留。</p>
+      <div id="s-quotes" class="mt-2 space-y-1.5"></div>
+      <button id="s-add" type="button" class="settings-mini-btn mt-2">+ 添加诗词</button>
+
+      <p id="s-status" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
+
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <span id="s-saved-hint" class="text-xs text-emerald-600"></span>
+        <button
+          id="s-save"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          保存并应用
+        </button>
+      </div>
+    </section>
+
+    <!-- 站点背景分区 -->
+    <section id="site-background" class="mt-4 rounded-lg border bg-card p-5" data-bg={JSON.stringify(bg)}>
+      <p class="pixel-chip text-primary">SITE BACKGROUND</p>
+      <h2 class="mt-1 font-medium">全站背景</h2>
+      <p class="mt-1 text-xs text-muted-foreground">
+        给整个博客铺一层背景图（所有公开页），可调整透明度与模糊度；关闭后恢复默认纯色。
+      </p>
+
+      <div class="mt-5 flex items-center gap-3">
+        <label class="flex items-center gap-2 text-sm">
+          <input id="bg-enabled" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
+          开启背景层
+        </label>
+      </div>
+
+      <label class="mt-4 block text-xs font-medium text-muted-foreground">
+        背景图 URL（http(s) 或站内路径，建议大尺寸图片）
+        <input
+          id="bg-image"
+          type="url"
+          placeholder="https://example.com/background.jpg"
+          class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+        />
+      </label>
+
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <input id="bg-file" type="file" accept="image/*" class="hidden" />
+        <button
+          id="bg-upload"
+          type="button"
+          class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
+        >
+          上传本地背景图
+        </button>
+        <span id="bg-upload-status" class="text-xs text-muted-foreground">自动压缩（宽 ≤1920px）并填入上方 URL 框</span>
+      </div>
+
+      <div class="mt-4 grid grid-cols-2 gap-6">
+        <label class="block text-xs font-medium text-muted-foreground">
+          透明度（0-100%）
+          <input id="bg-opacity" type="range" min="0" max="100" step="5" class="mt-2 w-full accent-[var(--color-primary)]" />
+          <span id="bg-opacity-val" class="font-pixel text-primary"></span>
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          模糊度（0-24px）
+          <input id="bg-blur" type="range" min="0" max="24" step="1" class="mt-2 w-full accent-[var(--color-primary)]" />
+          <span id="bg-blur-val" class="font-pixel text-primary"></span>
+        </label>
+      </div>
+
+      <p id="bg-status" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
+
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <span id="bg-saved-hint" class="text-xs text-emerald-600"></span>
+        <a href="/" target="_blank" class="text-xs text-muted-foreground hover:text-primary">预览首页 →</a>
+        <button
+          id="bg-save"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          保存并应用
+        </button>
+      </div>
+    </section>
+  </section>
+</AdminLayout>
+
+<script>
+  /** 站点设置页：诗词轮播配置（增删/调速/保存）。配置来自服务端注入 data-settings。 */
+
+  interface QuoteConfig {
+    text: string;
+    pauseMs?: number;
+  }
+  interface HeroSettings {
+    quotes: QuoteConfig[];
+    charIntervalMs: number;
+    defaultPauseMs: number;
+  }
+
+  function esc(value: string): string {
+    return String(value).replace(/[&<>"']/g, (c) => {
+      const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return map[c] ?? c;
+    });
+  }
+
+  /** 读取服务端注入的初始配置 */
+  function readInitial(): HeroSettings {
+    const el = document.getElementById('hero-quotes');
+    const raw = el?.dataset.settings;
+    if (raw) {
+      try {
+        return JSON.parse(raw) as HeroSettings;
+      } catch {
+        /* 兜底 */
+      }
+    }
+    return { quotes: [], charIntervalMs: 420, defaultPauseMs: 4200 };
+  }
+
+  const initial = readInitial();
+  const list = document.getElementById('s-quotes') as HTMLDivElement | null;
+  const charMs = document.getElementById('s-char-ms') as HTMLInputElement | null;
+  const pauseMs = document.getElementById('s-pause-ms') as HTMLInputElement | null;
+
+  /** 创建一行诗词编辑行 */
+  function createRow(q?: { text: string; pauseMs?: number }): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = 'qs-row flex items-center gap-1.5';
+    row.innerHTML = `
+      <input type="text" class="qs-text min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring" placeholder="诗词内容" value="${esc(q?.text ?? '')}">
+      <input type="number" class="qs-pause w-20 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring" min="0" step="100" placeholder="停留ms" value="${q?.pauseMs ?? ''}">
+      <button type="button" class="qs-del shrink-0 rounded-md px-2 py-1 text-sm text-destructive hover:bg-destructive/10" title="删除" aria-label="删除该条">×</button>`;
+    return row;
+  }
+
+  function renderRows(quotes: QuoteConfig[]): void {
+    if (!list) return;
+    list.innerHTML = '';
+    quotes.forEach((q) => list.appendChild(createRow(q)));
+  }
+
+  function collectQuotes(): QuoteConfig[] {
+    if (!list) return [];
+    const out: QuoteConfig[] = [];
+    list.querySelectorAll<HTMLElement>('.qs-row').forEach((row) => {
+      const text = row.querySelector<HTMLInputElement>('.qs-text')?.value.trim() ?? '';
+      if (!text) return;
+      const pauseRaw = row.querySelector<HTMLInputElement>('.qs-pause')?.value ?? '';
+      out.push({ text, pauseMs: pauseRaw === '' ? undefined : Number(pauseRaw) });
+    });
+    return out;
+  }
+
+  function setStatus(message: string, kind: 'error' | 'saved'): void {
+    const status = document.getElementById('s-status');
+    const hint = document.getElementById('s-saved-hint');
+    if (!status || !hint) return;
+    if (kind === 'error') {
+      status.textContent = message;
+      status.classList.remove('hidden');
+      hint.textContent = '';
+    } else {
+      status.classList.add('hidden');
+      hint.textContent = message;
+      window.setTimeout(() => { hint.textContent = ''; }, 2000);
+    }
+  }
+
+  async function save(): Promise<void> {
+    const quotes = collectQuotes();
+    if (quotes.length === 0) {
+      setStatus('至少保留一条诗词', 'error');
+      return;
+    }
+    try {
+      const body: HeroSettings = {
+        quotes,
+        charIntervalMs: Number(charMs?.value) || 420,
+        defaultPauseMs: Number(pauseMs?.value) || 4200,
+      };
+      const res = await fetch('/api/quote-settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('保存失败');
+      setStatus('已保存并应用', 'saved');
+    } catch {
+      setStatus('保存失败，请重试', 'error');
+    }
+  }
+
+  // 回显初始配置
+  if (charMs) charMs.value = String(initial.charIntervalMs);
+  if (pauseMs) pauseMs.value = String(initial.defaultPauseMs);
+  renderRows(initial.quotes);
+
+  // 事件绑定（admin 页全页加载，无需 View Transitions 兼容）
+  document.getElementById('s-add')?.addEventListener('click', () => list?.appendChild(createRow()));
+  document.getElementById('s-save')?.addEventListener('click', () => void save());
+  document.addEventListener('click', (e) => {
+    const del = (e.target as HTMLElement).closest<HTMLElement>('.qs-del');
+    if (del) del.closest<HTMLElement>('.qs-row')?.remove();
+  });
+
+  // ---------- 站点背景表单 ----------
+  interface SiteBackground {
+    enabled: boolean;
+    imageUrl: string;
+    opacity: number;
+    blur: number;
+  }
+
+  const bgSection = document.getElementById('site-background');
+  const bgInitial: SiteBackground = bgSection?.dataset.bg
+    ? (JSON.parse(bgSection.dataset.bg) as SiteBackground)
+    : { enabled: false, imageUrl: '', opacity: 50, blur: 0 };
+  const bgEnabled = document.getElementById('bg-enabled') as HTMLInputElement | null;
+  const bgImage = document.getElementById('bg-image') as HTMLInputElement | null;
+  const bgOpacity = document.getElementById('bg-opacity') as HTMLInputElement | null;
+  const bgBlur = document.getElementById('bg-blur') as HTMLInputElement | null;
+  const bgOpacityVal = document.getElementById('bg-opacity-val');
+  const bgBlurVal = document.getElementById('bg-blur-val');
+
+  function updateBgSliders(): void {
+    if (bgOpacity && bgOpacityVal) bgOpacityVal.textContent = `${bgOpacity.value}%`;
+    if (bgBlur && bgBlurVal) bgBlurVal.textContent = `${bgBlur.value}px`;
+  }
+  if (bgEnabled) bgEnabled.checked = bgInitial.enabled;
+  if (bgImage) bgImage.value = bgInitial.imageUrl;
+  if (bgOpacity) bgOpacity.value = String(bgInitial.opacity);
+  if (bgBlur) bgBlur.value = String(bgInitial.blur);
+  updateBgSliders();
+  bgOpacity?.addEventListener('input', updateBgSliders);
+  bgBlur?.addEventListener('input', updateBgSliders);
+
+  /** 压缩本地图片为 JPEG base64（宽 ≤1920） */
+  async function compressImage(file: File): Promise<string> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('读取失败'));
+      reader.readAsDataURL(file);
+    });
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('图片读取失败'));
+      image.src = dataUrl;
+    });
+    const scale = Math.min(1, 1920 / img.naturalWidth);
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 不可用');
+    ctx.drawImage(img, 0, 0, w, h);
+    let q = 0.85;
+    let b64 = canvas.toDataURL('image/jpeg', q).split(',')[1] ?? '';
+    while (b64.length > 3.5 * 1024 * 1024 && q > 0.4) {
+      q -= 0.1;
+      b64 = canvas.toDataURL('image/jpeg', q).split(',')[1] ?? '';
+    }
+    return b64;
+  }
+
+  // 上传本地背景图 → /api/images → 填入 URL 框
+  document.getElementById('bg-upload')?.addEventListener('click', () => {
+    (document.getElementById('bg-file') as HTMLInputElement | null)?.click();
+  });
+  document.getElementById('bg-file')?.addEventListener('change', async (e) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const status = document.getElementById('bg-upload-status');
+    if (status) status.textContent = '上传中…';
+    try {
+      const base64 = await compressImage(file);
+      const res = await fetch('/api/images', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, mime: 'image/jpeg', data: base64 }),
+      });
+      if (!res.ok) throw new Error('上传失败');
+      const out = (await res.json()) as { url?: string; error?: string };
+      if (!out.url) throw new Error(out.error ?? '上传失败');
+      if (bgImage) bgImage.value = out.url;
+      if (bgEnabled) bgEnabled.checked = true;
+      if (status) status.textContent = '✓ 已上传，点击「保存并应用」生效';
+    } catch (err) {
+      if (status) status.textContent = err instanceof Error ? err.message : '上传失败';
+    } finally {
+      input.value = '';
+    }
+  });
+
+  document.getElementById('bg-save')?.addEventListener('click', async () => {
+    const status = document.getElementById('bg-status');
+    const hint = document.getElementById('bg-saved-hint');
+    const imageUrl = (bgImage?.value ?? '').trim();
+    if (bgEnabled?.checked && !imageUrl) {
+      if (status) {
+        status.textContent = '开启背景需要填写图片 URL';
+        status.classList.remove('hidden');
+      }
+      return;
+    }
+    try {
+      const res = await fetch('/api/background', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          enabled: bgEnabled?.checked ?? false,
+          imageUrl,
+          opacity: Number(bgOpacity?.value) || 50,
+          blur: Number(bgBlur?.value) || 0,
+        }),
+      });
+      if (!res.ok) throw new Error('保存失败');
+      if (status) status.classList.add('hidden');
+      if (hint) {
+        hint.textContent = '已保存并应用';
+        window.setTimeout(() => { hint.textContent = ''; }, 2000);
+      }
+    } catch {
+      if (status) {
+        status.textContent = '保存失败，请重试';
+        status.classList.remove('hidden');
+      }
+    }
+  });
+</script>

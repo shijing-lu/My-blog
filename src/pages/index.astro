@@ -4,6 +4,8 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import HeroQuote from '@/components/HeroQuote.astro';
+import ActivityHeatmap from '@/components/ActivityHeatmap.astro';
 import SearchBox from '@/components/SearchBox.astro';
 import Pagination from '@/components/Pagination.astro';
 import { countArticles, listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
@@ -59,11 +61,17 @@ function countChars(markdown: string): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-/** 栏目入口（d-d 式：图标 + 标签 + 英文标语） */
-const SECTIONS: ReadonlyArray<{ type: ArticleType; label: string; tagline: string }> = [
-  { type: 'tech', label: '技术', tagline: 'THE ESSENCE OF TECH' },
-  { type: 'note', label: '笔记', tagline: 'MARGIN OF THOUGHT' },
-  { type: 'photo', label: '摄影', tagline: 'FRAMES OF LIGHT' },
+/** 栏目入口（已替换为社交图标，见模板） */
+
+/** 社交链接 */
+const SOCIALS: ReadonlyArray<{
+  key: 'github' | 'bilibili' | 'sinaweibo';
+  href: string;
+  label: string;
+}> = [
+  { key: 'github', href: 'https://github.com/shijing-lu', label: 'GitHub' },
+  { key: 'bilibili', href: 'https://space.bilibili.com/3493293975406955?spm_id_from=333.1007.0.0', label: 'Bilibili' },
+  { key: 'sinaweibo', href: 'https://www.weibo.com/u/7843516472', label: '微博' },
 ];
 
 /** 格式化最近更新为「YYYY-MM-DD HH:mm」像素风格 */
@@ -82,30 +90,35 @@ function formatShort(date?: Date): string {
   <section class="mx-auto w-full max-w-6xl px-4 py-10">
     <!-- Hero -->
     <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">Personal Knowledge Base</p>
-    <h1 class="ghost-text mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-      记录 · 思考 · 光影
-    </h1>
+    <HeroQuote />
     <p class="mt-3 max-w-2xl text-base text-muted-foreground">
-      这里是我的技术教程、学习笔记与随笔摄影。
-      <span class="text-primary">私密写作，公开阅读</span> —— 共 {total} 篇。
+      全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。
     </p>
 
-    <!-- 栏目入口（图标 + 标语） -->
+    <!-- 社交入口（GitHub / Bilibili / 微信 / 微博） -->
     <div class="mt-8 flex flex-wrap gap-3">
       {
-        SECTIONS.map((s) => (
-          <div class="section-nav-item border bg-card">
-            <span class="text-base text-primary">{typeLabels[s.type]}</span>
-            <span class="tagline">{s.tagline}</span>
-          </div>
+        SOCIALS.map((s) => (
+          <a
+            href={s.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="social-link"
+            title={s.label}
+            aria-label={s.label}
+          >
+            <span class={`social-icon icon-${s.key}`} aria-hidden="true" />
+          </a>
         ))
       }
-      <!-- 影集入口（独立子系统） -->
-      <a href="/gallery" class="section-nav-item border bg-card">
-        <span class="text-base text-primary">影集</span>
-        <span class="tagline">GALLERY OF LIGHT</span>
-      </a>
+      <!-- 微信：点击弹出好友二维码 -->
+      <button type="button" id="wechat-btn" class="social-link" title="微信" aria-label="微信">
+        <span class="social-icon icon-wechat" aria-hidden="true" />
+      </button>
     </div>
+
+    <!-- 文章活跃热力图 + 月度写作量 -->
+    <ActivityHeatmap />
 
     <!-- 像素统计条 -->
     <div class="pixel-divider mt-8" />
@@ -248,4 +261,50 @@ function formatShort(date?: Date): string {
       </div>
     </div>
   </section>
+
+  <!-- 微信好友二维码弹窗 -->
+  <dialog id="wechat-dialog" class="wechat-dialog" aria-labelledby="wechat-dialog-title">
+    <div class="settings-header">
+      <div>
+        <p class="pixel-chip text-primary">WECHAT</p>
+        <h2 id="wechat-dialog-title" class="mt-1 font-display text-lg font-semibold">微信好友</h2>
+      </div>
+      <button id="wechat-close" type="button" aria-label="关闭" class="settings-close">×</button>
+    </div>
+    <img
+      id="wechat-qr"
+      src="/qrcodes/wechat.png"
+      alt="微信二维码"
+      class="mx-auto mt-4 w-44 rounded-lg border border-border"
+    />
+    <p id="wechat-qr-fallback" class="mt-4 hidden text-xs text-muted-foreground">
+      二维码待上传 —— 请将图片放到 <code class="font-mono">public/qrcodes/wechat.png</code>。
+    </p>
+  </dialog>
 </BaseLayout>
+
+<script>
+  /** 微信二维码弹窗（document 委托） */
+  const wechatDialog = (): HTMLDialogElement | null =>
+    document.getElementById('wechat-dialog') as HTMLDialogElement | null;
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#wechat-btn')) {
+      wechatDialog()?.showModal();
+      return;
+    }
+    if (target.closest('#wechat-close')) {
+      wechatDialog()?.close();
+    }
+  });
+  // 二维码图片不存在时显示占位提示
+  document.addEventListener('astro:page-load', () => {
+    const img = document.getElementById('wechat-qr') as HTMLImageElement | null;
+    if (!img) return;
+    img.onerror = () => {
+      img.classList.add('hidden');
+      document.getElementById('wechat-qr-fallback')?.classList.remove('hidden');
+    };
+    if (img.complete && img.naturalWidth === 0) img.onerror?.(new Event('error'));
+  });
+</script>

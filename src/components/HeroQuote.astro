@@ -1,0 +1,144 @@
+---
+/* ===== Props ===== */
+/* （无） */
+
+/* ===== Imports ===== */
+import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
+import { verifyRequest } from '@/lib/auth';
+
+/* ===== Logic ===== */
+/** 服务端读取配置（DB 优先，未配置用内置默认） */
+const settings = await getHeroQuoteSettings();
+/** 仅管理员显示「管理诗词」入口（跳转设置页） */
+const isAuthed = verifyRequest(Astro.cookies);
+const firstQuote = settings.quotes[0]?.text ?? '';
+const settingsJson = JSON.stringify(serializeSettings(settings));
+---
+<!-- ===== Template ===== -->
+<div class="relative mt-4">
+  <h1
+    id="hero-quote"
+    class="ghost-text pr-10 text-6xl font-semibold tracking-tight sm:text-7xl"
+    data-settings={settingsJson}
+  >
+    {firstQuote}
+  </h1>
+  {
+    isAuthed && (
+      <a
+        href="/admin/settings"
+        aria-label="管理诗词"
+        title="管理诗词"
+        class="absolute right-0 top-1 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground opacity-60 transition-colors duration-200 hover:bg-accent hover:text-primary hover:opacity-100"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4" aria-hidden="true">
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+      </a>
+    )
+  }
+</div>
+
+<script>
+  /** 首页 Hero 古诗词轮播（配置驱动；管理在 /admin/settings）
+   *  - 配置来源：服务端注入（data-settings），DB 可在线修改；
+   *  - 效果：逐字闪烁出现 → 全部显示后停留 → 倒序逐字还原 → 下一条。 */
+
+  interface QuoteConfig {
+    text: string;
+    pauseMs?: number;
+  }
+  interface HeroSettings {
+    quotes: QuoteConfig[];
+    charIntervalMs: number;
+    defaultPauseMs: number;
+  }
+
+  /** 每个字动画时长（与 global.css keyframes 一致） */
+  const CHAR_ANIM_MS = 1100;
+  /** 兜底配置（data-settings 缺失/损坏时） */
+  const FALLBACK: HeroSettings = { quotes: [], charIntervalMs: 480, defaultPauseMs: 4600 };
+
+  let timers: number[] = [];
+  let current = 0;
+  let currentSettings: HeroSettings = readSettings();
+
+  function readSettings(): HeroSettings {
+    const el = document.getElementById('hero-quote');
+    const raw = el?.dataset.settings;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Partial<HeroSettings>;
+        if (Array.isArray(parsed.quotes) && typeof parsed.charIntervalMs === 'number') {
+          return parsed as HeroSettings;
+        }
+      } catch {
+        /* 解析失败走兜底 */
+      }
+    }
+    return FALLBACK;
+  }
+
+  function clearTimers(): void {
+    timers.forEach((t) => window.clearTimeout(t));
+    timers = [];
+  }
+
+  function later(fn: () => void, ms: number): void {
+    timers.push(window.setTimeout(fn, ms));
+  }
+
+  function play(): void {
+    const el = document.getElementById('hero-quote');
+    if (!el || currentSettings.quotes.length === 0) return;
+    clearTimers();
+
+    const quote = currentSettings.quotes[current % currentSettings.quotes.length]!;
+    const chars = Array.from(quote.text);
+    el.textContent = '';
+
+    const spans = chars.map((ch) => {
+      const s = document.createElement('span');
+      s.className = 'hero-char';
+      s.textContent = ch;
+      el.appendChild(s);
+      return s;
+    });
+
+    const interval = currentSettings.charIntervalMs;
+
+    // 1) 逐字闪烁出现（每字闪一次）
+    chars.forEach((_, i) => {
+      later(() => {
+        spans[i]?.classList.add('hero-char-in');
+      }, i * interval);
+    });
+
+    const totalIn = chars.length * interval + CHAR_ANIM_MS;
+    const pause = quote.pauseMs ?? currentSettings.defaultPauseMs;
+
+    // 2) 全部显示后停留，再倒序逐字还原
+    later(() => {
+      chars.forEach((_, i) => {
+        const idx = chars.length - 1 - i;
+        later(() => {
+          spans[idx]?.classList.remove('hero-char-in');
+          spans[idx]?.classList.add('hero-char-out');
+        }, i * interval);
+      });
+      later(() => {
+        current = (current + 1) % currentSettings.quotes.length;
+        play();
+      }, chars.length * interval + CHAR_ANIM_MS);
+    }, totalIn + pause);
+  }
+
+  // 初始加载与每次 View Transition 后重播（配置来自服务端注入的 data-settings）
+  document.addEventListener('astro:page-load', () => {
+    currentSettings = readSettings();
+    current = 0;
+    play();
+  });
+  play();
+</script>

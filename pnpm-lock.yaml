@@ -110,6 +110,9 @@ importers:
       lucide-react:
         specifier: ^1.33.0
         version: 1.33.0(react@19.2.8)
+      lunar-javascript:
+        specifier: ^1.7.7
+        version: 1.7.7
       mdast-util-mdx-jsx:
         specifier: ^3.2.0
         version: 3.2.0(supports-color@7.1.0)
@@ -3318,6 +3321,9 @@ packages:
     resolution: {integrity: sha512-MTRwMy0ZlL8Ur/vOAiJ9XGHE+kFPC7brq6MxAm0GiGXEBj0qy0jA/pG4N675oSzciO/UCdX8T+5yUQdmDeTLxg==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  lunar-javascript@1.7.7:
+    resolution: {integrity: sha512-u/KYiwPIBo/0bT+WWfU7qO1d+aqeB90Tuy4ErXenr2Gam0QcWeezUvtiOIyXR7HbVnW2I1DKfU0NBvzMZhbVQw==}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -7574,6 +7580,8 @@ snapshots:
   lucide-react@1.33.0(react@19.2.8):
     dependencies:
       react: 19.2.8
+
+  lunar-javascript@1.7.7: {}
 
   magic-string@0.30.21:
     dependencies:

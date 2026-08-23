@@ -84,3 +84,79 @@ export const photos = sqliteTable('photos', {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+/** 站点设置 KV 表（如首页 Hero 诗词轮播配置） */
+export const settings = sqliteTable('settings', {
+  /** 配置键 */
+  key: text('key').primaryKey(),
+  /** JSON 值 */
+  value: text('value').notNull(),
+  /** 更新时间 */
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/** 日历：待办（私密，仅管理员） */
+export const todos = sqliteTable('todos', {
+  id: text('id').primaryKey(),
+  /** 所属日期 YYYY-MM-DD */
+  date: text('date').notNull(),
+  /** 待办内容 */
+  text: text('text').notNull(),
+  /** 是否完成 */
+  done: integer('done', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/** 日历：日记（私密，仅管理员，一人一天一篇） */
+export const diaryEntries = sqliteTable('diary_entries', {
+  id: text('id').primaryKey(),
+  /** 日记日期 YYYY-MM-DD（唯一，一天一篇） */
+  date: text('date').notNull().unique(),
+  /** 标题 */
+  title: text('title').notNull().default(''),
+  /** Markdown 正文 */
+  content: text('content').notNull().default(''),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/** 日历：重要日期（公开显示，可每年重复，可农历） */
+export const calendarEvents = sqliteTable('calendar_events', {
+  id: text('id').primaryKey(),
+  /** 事件标题 */
+  title: text('title').notNull(),
+  /** 阳历日期 YYYY-MM-DD（lunar 为 false 时使用） */
+  date: text('date').notNull(),
+  /** 是否每年重复（生日/纪念日） */
+  repeat: integer('repeat', { mode: 'boolean' }).notNull().default(false),
+  /** 是否农历日期（如农历生日） */
+  lunar: integer('lunar', { mode: 'boolean' }).notNull().default(false),
+  /** 农历月日："MM-DD"（如 08-15），闰月用 "-MM-DD" 前缀负号 */
+  lunarDate: text('lunar_date'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/** 动态（动态圈，公开浏览；评论/点赞预留，后续独立表） */
+export const moments = sqliteTable('moments', {
+  id: text('id').primaryKey(),
+  /** 文字内容（可为空，但需有媒体） */
+  content: text('content').notNull().default(''),
+  /** 媒体 JSON：[{type:'image'|'gif'|'video', url, poster?}] */
+  media: text('media').notNull().default('[]'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

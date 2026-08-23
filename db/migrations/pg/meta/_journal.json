@@ -15,6 +15,34 @@
       "when": 1787429723754,
       "tag": "0001_mysterious_emma_frost",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787443049788,
+      "tag": "0002_common_the_initiative",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787446916244,
+      "tag": "0003_petite_wind_dancer",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787447927235,
+      "tag": "0004_bitter_lady_ursula",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787449128202,
+      "tag": "0005_narrow_slapstick",
+      "breakpoints": true
     }
   ]
 }

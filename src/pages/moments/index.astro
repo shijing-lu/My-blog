@@ -1,0 +1,437 @@
+---
+/* ===== Props ===== */
+/* （动态页无 Props） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { formatRelativeTime, listMoments } from '@/lib/moments';
+import { getProfile } from '@/lib/profile';
+import { verifyRequest } from '@/lib/auth';
+
+/* ===== Logic ===== */
+const PAGE_SIZE = 20;
+const moments = await listMoments(PAGE_SIZE, 0);
+const profile = await getProfile();
+const isAuthed = verifyRequest(Astro.cookies);
+const now = new Date();
+const avatarSrc = profile.avatar || '';
+const nickname = profile.nickname || '博主';
+
+/** 媒体渲染：图片/GIF 进网格灯箱；视频 B站/YouTube 嵌 iframe，直链 video */
+function renderMedia(media: Array<{ type: 'image' | 'gif' | 'video'; url: string; poster?: string | null }>): string {
+  const images = media.filter((m) => m.type === 'image' || m.type === 'gif');
+  const videos = media.filter((m) => m.type === 'video');
+  let html = '';
+  if (images.length > 0) {
+    const gridClass = images.length === 1 ? 'moment-grid-single' : images.length === 2 ? 'moment-grid-two' : 'moment-grid';
+    html += `<div class="${gridClass}">${images
+      .map(
+        (m) =>
+          `<figure class="moment-media overflow-hidden rounded-lg border border-border" data-lightbox data-caption="">
+            <img src="${m.url}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" />
+          </figure>`,
+      )
+      .join('')}</div>`;
+  }
+  if (videos.length > 0) {
+    html += `<div class="mt-2 space-y-2">${videos.map((v) => renderVideo(v.url)).join('')}</div>`;
+  }
+  return html;
+}
+
+/** 视频渲染：识别 B站/YouTube → iframe；直链 → video */
+function renderVideo(url: string): string {
+  const bili = url.match(/bilibili\.com\/video\/(BV[\w]+)/);
+  if (bili) {
+    return `<div class="moment-video-wrap"><iframe src="https://player.bilibili.com/player.html?bvid=${bili[1]}&autoplay=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
+  }
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+  if (yt) {
+    return `<div class="moment-video-wrap"><iframe src="https://www.youtube.com/embed/${yt[1]}" frameborder="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
+  }
+  return `<div class="moment-video-wrap"><video src="${url}" controls preload="metadata" playsinline class="w-full"></video></div>`;
+}
+---
+<!-- ===== Template ===== -->
+<BaseLayout title="动态" description="随手记录，分享生活 —— My Blog Moments">
+  <section class="mx-auto w-full max-w-2xl px-4 py-10">
+    <!-- 头部 -->
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">MOMENTS</p>
+        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">动态</h1>
+        <p class="mt-1 text-sm text-muted-foreground">随手记录，分享生活</p>
+      </div>
+      <div class="flex items-center gap-3">
+        {avatarSrc ? (
+          <img src={avatarSrc} alt={nickname} class="size-10 rounded-full border border-border object-cover" />
+        ) : (
+          <span class="inline-flex size-10 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
+            {nickname.slice(0, 1)}
+          </span>
+        )}
+        <span class="text-sm font-medium">{nickname}</span>
+      </div>
+    </div>
+    <div class="pixel-divider mt-5" />
+
+    <!-- 发布框（管理员） -->
+    {
+      isAuthed && (
+        <div class="mt-6 rounded-lg border bg-card p-4">
+          <textarea
+            id="moment-content"
+            rows="3"
+            maxlength="2000"
+            placeholder="记录点什么…（支持文字 + 图片/GIF + 视频链接）"
+            class="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+          <div id="moment-media-preview" class="mt-2 grid grid-cols-4 gap-2"></div>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <input id="moment-file" type="file" accept="image/*" multiple class="hidden" />
+            <button id="moment-upload" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary">
+              图片 / GIF
+            </button>
+            <input
+              id="moment-video-url"
+              type="url"
+              placeholder="视频链接（B站/YouTube/直链 mp4）"
+              class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs outline-none focus-visible:border-ring"
+            />
+            <button id="moment-video-add" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary">
+              添加视频
+            </button>
+            <button
+              id="moment-publish"
+              type="button"
+              class="ml-auto rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              发布
+            </button>
+          </div>
+          <p id="moment-status" class="mt-2 text-xs text-destructive"></p>
+        </div>
+      )
+    }
+
+    <!-- 动态流 -->
+    <div id="moment-stream" class="mt-4 space-y-4" data-offset={moments.length}>
+      {
+        moments.length === 0 ? (
+          <div class="rounded-lg border bg-card p-10 text-center">
+            <p class="font-display text-lg font-semibold">还没有动态</p>
+            <p class="mt-2 text-sm text-muted-foreground">{isAuthed ? '在上面记录第一条吧。' : '博主还没有发布动态。'}</p>
+          </div>
+        ) : (
+          moments.map((m) => (
+            <article class="moment-card rounded-lg border bg-card p-4">
+              <div class="flex items-start gap-3">
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt={nickname} class="size-10 shrink-0 rounded-full border border-border object-cover" />
+                ) : (
+                  <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
+                    {nickname.slice(0, 1)}
+                  </span>
+                )}
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium">{nickname}</span>
+                    <time class="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt, now)}</time>
+                    {
+                      isAuthed && (
+                        <button type="button" data-moment-del={m.id} class="ml-auto text-xs text-destructive opacity-0 transition-opacity hover:underline group-hover:opacity-100" aria-label="删除动态">
+                          删除
+                        </button>
+                      )
+                    }
+                  </div>
+                  {m.content ? <p class="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p> : null}
+                  <div class="mt-2" set:html={renderMedia(m.media)} />
+                </div>
+              </div>
+              <!-- 评论/点赞预留位（后续实现） -->
+            </article>
+          ))
+        )
+      }
+    </div>
+
+    <!-- 加载更多 -->
+    <div id="moment-sentinel" aria-hidden="true" class="h-px" />
+    <div id="moment-more-wrap" class="mt-6 hidden text-center">
+      <button id="moment-more" type="button" class="rounded-md border border-border px-6 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+        更多
+      </button>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  /** 动态页交互：发布（图片/GIF 上传 + 视频链接）、加载更多、删除（管理员） */
+
+  const PAGE_SIZE = 20;
+  let offset = 0;
+  let loading = false;
+  let done = false;
+
+  function el<T extends HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
+  }
+
+  function esc(value: string): string {
+    return String(value).replace(/[&<>"']/g, (c) => {
+      const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return map[c] ?? c;
+    });
+  }
+
+  // ---------- 发布 ----------
+  interface PendingMedia {
+    type: 'image' | 'gif' | 'video';
+    url: string;
+  }
+  const pendingMedia: PendingMedia[] = [];
+
+  function renderPending(): void {
+    const box = el('moment-media-preview');
+    if (!box) return;
+    box.innerHTML = '';
+    pendingMedia.forEach((m) => {
+      const d = document.createElement('div');
+      d.className = 'relative aspect-square overflow-hidden rounded-md border border-border';
+      if (m.type === 'video') {
+        d.innerHTML = `<span class="absolute inset-0 flex items-center justify-center bg-muted text-[0.6rem] text-muted-foreground">视频</span>`;
+      } else {
+        d.innerHTML = `<img src="${esc(m.url)}" class="h-full w-full object-cover" alt="">`;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'absolute right-0.5 top-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-xs text-white';
+      btn.textContent = '×';
+      btn.addEventListener('click', () => {
+        const i = pendingMedia.indexOf(m);
+        if (i >= 0) pendingMedia.splice(i, 1);
+        renderPending();
+      });
+      d.appendChild(btn);
+      box.appendChild(d);
+    });
+  }
+
+  /** 压缩图片（宽 ≤1600，JPEG）；GIF 保持原样 */
+  async function prepareImage(file: File): Promise<{ base64: string; mime: string }> {
+    if (file.type === 'image/gif') {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('读取失败'));
+        reader.readAsDataURL(file);
+      });
+      const b64 = dataUrl.split(',')[1] ?? '';
+      if (b64.length > 3.5 * 1024 * 1024) throw new Error('GIF 超过 3MB 限制');
+      return { base64: b64, mime: 'image/gif' };
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('读取失败'));
+      reader.readAsDataURL(file);
+    });
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('图片读取失败'));
+      image.src = dataUrl;
+    });
+    const scale = Math.min(1, 1600 / img.naturalWidth);
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 不可用');
+    ctx.drawImage(img, 0, 0, w, h);
+    return { base64: canvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? '', mime: 'image/jpeg' };
+  }
+
+  async function uploadFile(file: File): Promise<string> {
+    const { base64, mime } = await prepareImage(file);
+    const res = await fetch('/api/images', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, mime, data: base64 }),
+    });
+    if (!res.ok) throw new Error('上传失败');
+    const out = (await res.json()) as { url?: string; error?: string };
+    if (!out.url) throw new Error(out.error ?? '上传失败');
+    return out.url;
+  }
+
+  async function publish(): Promise<void> {
+    const status = el('moment-status');
+    const content = (el<HTMLTextAreaElement>('moment-content')?.value ?? '').trim();
+    if (content === '' && pendingMedia.length === 0) {
+      if (status) status.textContent = '写点什么，或添加媒体';
+      return;
+    }
+    const btn = el<HTMLButtonElement>('moment-publish');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '发布中…';
+    }
+    try {
+      const res = await fetch('/api/moments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content, media: pendingMedia }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? '发布失败');
+      window.location.reload();
+    } catch (err) {
+      if (status) status.textContent = err instanceof Error ? err.message : '发布失败';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '发布';
+      }
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#moment-upload')) {
+      (el<HTMLInputElement>('moment-file'))?.click();
+      return;
+    }
+    if (target.closest('#moment-video-add')) {
+      const input = el<HTMLInputElement>('moment-video-url');
+      const url = (input?.value ?? '').trim();
+      if (!/^https?:\/\/\S+$/.test(url)) {
+        if (el('moment-status')) el('moment-status')!.textContent = '请输入合法的视频链接';
+        return;
+      }
+      pendingMedia.push({ type: 'video', url });
+      if (input) input.value = '';
+      renderPending();
+      return;
+    }
+    if (target.closest('#moment-publish')) {
+      void publish();
+    }
+  });
+
+  document.addEventListener('change', (e) => {
+    const input = e.target as HTMLInputElement;
+    if (input.id !== 'moment-file') return;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    void (async () => {
+      for (const f of files) {
+        try {
+          const url = await uploadFile(f);
+          pendingMedia.push({ type: f.type === 'image/gif' ? 'gif' : 'image', url });
+        } catch (err) {
+          if (el('moment-status')) el('moment-status')!.textContent = err instanceof Error ? err.message : '上传失败';
+        }
+        renderPending();
+      }
+    })();
+  });
+
+  // 初始 offset（服务端注入）
+  offset = Number(el('moment-stream')?.dataset.offset ?? 0);
+  done = offset < PAGE_SIZE;
+
+  // ---------- 加载更多 / 删除 ----------
+  function videoHtml(url: string): string {
+    const bili = url.match(/bilibili\.com\/video\/(BV[\w]+)/);
+    if (bili) return `<div class="moment-video-wrap"><iframe src="https://player.bilibili.com/player.html?bvid=${bili[1]}&autoplay=0" scrolling="no" border="0" frameborder="no" allowfullscreen="true" loading="lazy"></iframe></div>`;
+    const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+    if (yt) return `<div class="moment-video-wrap"><iframe src="https://www.youtube.com/embed/${yt[1]}" frameborder="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
+    return `<div class="moment-video-wrap"><video src="${esc(url)}" controls preload="metadata" playsinline class="w-full"></video></div>`;
+  }
+
+  function cardHtml(m: {
+    id: string;
+    content: string;
+    media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>;
+    createdAt: string;
+  }): string {
+    const images = m.media.filter((x) => x.type === 'image' || x.type === 'gif');
+    const videos = m.media.filter((x) => x.type === 'video');
+    let mediaHtml = '';
+    if (images.length > 0) {
+      const cls = images.length === 1 ? 'moment-grid-single' : images.length === 2 ? 'moment-grid-two' : 'moment-grid';
+      mediaHtml += `<div class="${cls}">${images
+        .map((x) => `<figure class="moment-media overflow-hidden rounded-lg border border-border" data-lightbox data-caption=""><img src="${esc(x.url)}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" /></figure>`)
+        .join('')}</div>`;
+    }
+    if (videos.length > 0) mediaHtml += `<div class="mt-2 space-y-2">${videos.map((v) => videoHtml(v.url)).join('')}</div>`;
+    return `<article class="moment-card group rounded-lg border bg-card p-4">
+      <div class="flex items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium"></span>
+            <time class="text-xs text-muted-foreground"></time>
+            <button type="button" data-moment-del="${esc(m.id)}" class="ml-auto text-xs text-destructive opacity-0 transition-opacity hover:underline group-hover:opacity-100" aria-label="删除动态">删除</button>
+          </div>
+          ${m.content ? `<p class="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">${esc(m.content)}</p>` : ''}
+          <div class="mt-2">${mediaHtml}</div>
+        </div>
+      </div>
+    </article>`;
+  }
+
+  async function loadMore(): Promise<void> {
+    if (loading || done) return;
+    loading = true;
+    const btn = el<HTMLButtonElement>('moment-more');
+    if (btn) btn.textContent = '加载中…';
+    try {
+      const res = await fetch(`/api/moments?limit=${PAGE_SIZE}&offset=${offset}`);
+      if (!res.ok) throw new Error('bad status');
+      const data = (await res.json()) as { moments: Array<{ id: string; content: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; createdAt: string }> };
+      const stream = el('moment-stream');
+      data.moments.forEach((m) => {
+        if (stream) stream.insertAdjacentHTML('beforeend', cardHtml(m));
+      });
+      offset += data.moments.length;
+      done = data.moments.length < PAGE_SIZE;
+      if (done) el('moment-more-wrap')?.classList.add('hidden');
+      if (stream && data.moments.length === 0) {
+        // 空 → 隐藏按钮
+        el('moment-more-wrap')?.classList.add('hidden');
+      }
+    } catch {
+      if (btn) btn.textContent = '加载失败，点击重试';
+    } finally {
+      loading = false;
+      if (btn && btn.textContent === '加载中…') btn.textContent = '更多';
+    }
+  }
+
+  // 删除动态（document 委托）
+  document.addEventListener('click', async (e) => {
+    const del = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-del]');
+    if (!del) return;
+    if (!window.confirm('确定删除这条动态？')) return;
+    await fetch(`/api/moments/${del.dataset.momentDel}`, { method: 'DELETE' });
+    del.closest<HTMLElement>('.moment-card')?.remove();
+  });
+
+  // 底部哨兵 → 显示「更多」
+  const sentinel = el('moment-sentinel');
+  if (sentinel) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting) && !done) {
+          el('moment-more-wrap')?.classList.remove('hidden');
+        }
+      },
+      { rootMargin: '300px' },
+    );
+    observer.observe(sentinel);
+  }
+  el('moment-more')?.addEventListener('click', () => void loadMore());
+</script>

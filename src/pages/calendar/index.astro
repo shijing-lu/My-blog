@@ -1,0 +1,463 @@
+---
+/* ===== Props ===== */
+/* （日历主页无 Props；URL 参数：month=YYYY-MM、date=YYYY-MM-DD） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { buildMonthGrid, countdownText, dateKey, nextOccurrence } from '@/lib/calendar';
+import { getDiaryByDate, listDiaryDates, listEvents, listTodos } from '@/lib/calendar-data';
+import { verifyRequest } from '@/lib/auth';
+
+/* ===== Logic ===== */
+const isAuthed = verifyRequest(Astro.cookies);
+const now = new Date();
+const todayKey = dateKey(now);
+
+/** 解析 URL 参数：month（默认当前月）、date（默认今天） */
+const rawMonth = Astro.url.searchParams.get('month') ?? '';
+let year = now.getFullYear();
+let month = now.getMonth() + 1;
+if (/^\d{4}-\d{2}$/.test(rawMonth)) {
+  year = Number(rawMonth.slice(0, 4));
+  month = Number(rawMonth.slice(5, 7));
+}
+const rawDate = Astro.url.searchParams.get('date') ?? '';
+const selectedKey = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayKey;
+
+/** 数据（重要日期公开；待办/日记仅登录） */
+const events = await listEvents();
+const todos = isAuthed ? await listTodos() : [];
+const diaryDates = isAuthed ? new Set(await listDiaryDates()) : new Set<string>();
+
+/** 月网格 */
+const grid = buildMonthGrid(year, month, { today: now, todos, events, diaryDates });
+/** 选中日 */
+const selectedDay = grid.weeks.flat().find((d) => d.date === selectedKey);
+const selectedDiary = isAuthed && selectedKey ? await getDiaryByDate(selectedKey) : null;
+
+/** 上下月链接（Date 自动处理跨年） */
+const prevMonth = new Date(year, month - 2, 1);
+const nextMonth = new Date(year, month, 1);
+const prevKey = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+const nextKey = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
+const monthTitle = `${year} 年 ${month} 月`;
+
+/** 即将到来：未来 30 天内的重要日期（按剩余天数升序） */
+const upcoming = events
+  .map((e) => ({ ...e, next: nextOccurrence(e.date, e.repeat, now, e.lunar ? e.lunarDate : null) }))
+  .filter((x): x is typeof x & { next: NonNullable<typeof x.next> } => {
+    const n = x.next;
+    return n !== null && n.days <= 30;
+  })
+  .sort((a, b) => a.next!.days - b.next!.days);
+
+/** 周表头 */
+const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
+---
+<!-- ===== Template ===== -->
+<BaseLayout title="日历" description="待办 · 日记 · 重要日期 · 农历节气 —— My Blog Calendar">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <!-- 头部 -->
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">CALENDAR</p>
+        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">{monthTitle}</h1>
+        <p class="mt-1 text-sm text-muted-foreground">待办 · 日记 · 重要日期 · 农历与二十四节气</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href={`/calendar?month=${prevKey}`} class="cal-nav-btn" aria-label="上个月">←</a>
+        <a href={`/calendar?month=${dateKey(now).slice(0, 7)}&date=${todayKey}`} class="cal-nav-btn">今天</a>
+        <a href={`/calendar?month=${nextKey}`} class="cal-nav-btn" aria-label="下个月">→</a>
+      </div>
+    </div>
+    <div class="pixel-divider mt-5" />
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <!-- 月视图 -->
+      <div class="min-w-0">
+        <div class="grid grid-cols-7 gap-1 text-center font-pixel text-[0.6rem] uppercase tracking-wider text-muted-foreground">
+          {WEEK_HEAD.map((w) => <span class="py-1">{w}</span>)}
+        </div>
+        <div class="mt-1 grid grid-cols-7 gap-1">
+          {
+            grid.weeks.flat().map((day) => (
+              <a
+                href={`/calendar?month=${day.date.slice(0, 7)}&date=${day.date}`}
+                class={`cal-cell ${day.isOtherMonth ? 'cal-cell-other' : ''} ${day.isToday ? 'cal-cell-today' : ''} ${day.date === selectedKey ? 'cal-cell-selected' : ''}`}
+                aria-label={day.date}
+                data-lunar={day.lunarFull}
+                data-ganzhi={`${day.ganZhi}年 · 属${day.shengXiao}`}
+                data-festivals={day.festivals.length ? day.festivals.join('、') : ''}
+                data-events={day.events.length ? day.events.map((ev) => `${ev.title}${ev.repeat ? '（每年）' : ''}`).join('、') : ''}
+              >
+                <span class="cal-day-num">{day.day}</span>
+                {
+                  day.jieQi && <span class="cal-tag cal-tag-jieqi">{day.jieQi}</span>
+                }
+                {
+                  !day.jieQi && !day.isOtherMonth && <span class="cal-lunar">{day.lunarDay}</span>
+                }
+                {
+                  day.festivals.length > 0 && (
+                    <span class="cal-tag cal-tag-festival">{day.festivals[0]}</span>
+                  )
+                }
+                <span class="cal-marks" aria-hidden="true">
+                  {day.todos.length > 0 && <i class="cal-mark cal-mark-todo" title="有待办" />}
+                  {day.hasDiary && <i class="cal-mark cal-mark-diary" title="有日记" />}
+                  {day.events.length > 0 && <i class="cal-mark cal-mark-event" title="重要日期" />}
+                </span>
+              </a>
+            ))
+          }
+        </div>
+        <p class="mt-2 text-xs text-muted-foreground">
+          <span class="inline-flex items-center gap-1"><i class="cal-mark cal-mark-todo" /> 待办</span>
+          <span class="ml-3 inline-flex items-center gap-1"><i class="cal-mark cal-mark-diary" /> 日记</span>
+          <span class="ml-3 inline-flex items-center gap-1"><i class="cal-mark cal-mark-event" /> 重要日期</span>
+          <span class="ml-3 text-muted-foreground">悬停任意日期可预览</span>
+        </p>
+      </div>
+
+      <!-- 日期悬浮预览卡 -->
+      <div id="cal-tooltip" class="cal-tooltip hidden" role="tooltip" data-authed={isAuthed ? '1' : '0'}></div>
+
+      <!-- 右侧：选中日详情 + 即将到来 -->
+      <aside class="space-y-4">
+        <!-- 选中日 -->
+        <div class="rounded-lg border bg-card p-4">
+          <p class="pixel-chip text-primary">SELECTED DAY</p>
+          <h2 class="mt-1 font-display text-lg font-semibold">{selectedKey}</h2>
+          {
+            selectedDay && (
+              <div class="mt-2 space-y-1 text-xs text-muted-foreground">
+                <p>农历 {selectedDay.lunarFull}{selectedDay.jieQi ? ` · ${selectedDay.jieQi}` : ''}</p>
+                <p>{selectedDay.ganZhi}年 · 属{selectedDay.shengXiao}</p>
+                {
+                  selectedDay.festivals.length > 0 && (
+                    <p class="text-primary">{selectedDay.festivals.join('、')}</p>
+                  )
+                }
+              </div>
+            )
+          }
+
+          <!-- 日记入口（管理员） -->
+          {
+            isAuthed && (
+              <a
+                href={`/calendar/diary?date=${selectedKey}`}
+                class="mt-3 block rounded-md border border-border px-3 py-1.5 text-center text-sm transition-colors hover:border-primary hover:text-primary"
+              >
+                {selectedDiary ? '查看 / 编辑当日日记' : '写当日日记'}
+              </a>
+            )
+          }
+
+          <!-- 待办（管理员） -->
+          {
+            isAuthed && (
+              <div class="mt-4 border-t border-border pt-3">
+                <p class="pixel-chip mb-2 text-muted-foreground">待办 / TODO</p>
+                <ul class="space-y-1">
+                  {
+                    selectedDay?.todos.map((t) => (
+                      <li class="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={t.done}
+                          data-todo-toggle={t.id}
+                          class="size-3.5 accent-[var(--color-primary)]"
+                          aria-label="完成待办"
+                        />
+                        <span class={t.done ? 'text-muted-foreground line-through' : ''}>{t.text}</span>
+                        <button type="button" data-todo-del={t.id} class="ml-auto text-xs text-destructive hover:underline" aria-label="删除待办">×</button>
+                      </li>
+                    ))
+                  }
+                </ul>
+                <form id="todo-add-form" class="mt-2 flex gap-1.5" data-date={selectedKey}>
+                  <input
+                    id="todo-add-input"
+                    type="text"
+                    placeholder="添加待办…"
+                    maxlength="200"
+                    class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring"
+                  />
+                  <button type="submit" class="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">+</button>
+                </form>
+              </div>
+            )
+          }
+
+          <!-- 重要日期（公开） -->
+          <div class="mt-4 border-t border-border pt-3">
+            <p class="pixel-chip mb-2 text-muted-foreground">重要日期</p>
+            {
+              selectedDay?.events.length ? (
+                <ul class="space-y-1.5">
+                  {
+                    selectedDay.events.map((e) => (
+                      <li class="flex items-center gap-2 text-sm">
+                        <span class="text-primary">◆</span>
+                        <span>{e.title}</span>
+                        {e.lunar && e.lunarDate && (
+                          <span class="text-[0.6rem] text-muted-foreground">
+                            农历 {e.lunarDate.startsWith('-') ? `闰${e.lunarDate.slice(1)}` : e.lunarDate}
+                          </span>
+                        )}
+                        {e.repeat && <span class="text-[0.6rem] text-muted-foreground">每年</span>}
+                        {
+                          isAuthed && (
+                            <button type="button" data-event-del={e.id} class="ml-auto text-xs text-destructive hover:underline">×</button>
+                          )
+                        }
+                      </li>
+                    ))
+                  }
+                </ul>
+              ) : (
+                <p class="text-xs text-muted-foreground">无</p>
+              )
+            }
+            {
+              isAuthed && (
+                <form id="event-add-form" class="mt-2 flex flex-wrap gap-1.5" data-date={selectedKey}>
+                  <input
+                    id="event-add-title"
+                    type="text"
+                    placeholder="纪念日/生日…"
+                    maxlength="200"
+                    class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring"
+                  />
+                  <label class="flex items-center gap-1 text-xs text-muted-foreground">
+                    <input id="event-add-lunar" type="checkbox" class="size-3 accent-[var(--color-primary)]" />
+                    农历
+                  </label>
+                  <input
+                    id="event-add-lunar-date"
+                    type="text"
+                    placeholder="MM-DD"
+                    maxlength="5"
+                    title="农历月日，如 08-15；闰月填 -08-15"
+                    class="hidden w-16 rounded-md border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
+                  />
+                  <label class="flex items-center gap-1 text-xs text-muted-foreground">
+                    <input id="event-add-repeat" type="checkbox" class="size-3 accent-[var(--color-primary)]" />
+                    每年
+                  </label>
+                  <button type="submit" class="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground">添加</button>
+                </form>
+              )
+            }
+          </div>
+        </div>
+
+        <!-- 即将到来 -->
+        <div class="rounded-lg border bg-card p-4">
+          <p class="pixel-chip mb-2 text-muted-foreground">即将到来 / UPCOMING</p>
+          {
+            upcoming.length === 0 ? (
+              <p class="text-xs text-muted-foreground">未来 30 天没有重要日期。</p>
+            ) : (
+              <ul class="space-y-1.5">
+                {
+                  upcoming.map((e) => (
+                    <li
+                      class={`flex items-center justify-between gap-2 text-sm ${e.next.days <= 7 ? 'text-primary' : 'text-muted-foreground'}`}
+                    >
+                      <a href={`/calendar?month=${e.next.date.slice(0, 7)}&date=${e.next.date}`} class="hover:text-primary">
+                        {e.title}
+                      </a>
+                      <span class="shrink-0 font-pixel text-[0.6rem]">{countdownText(e.next.days)}</span>
+                    </li>
+                  ))
+                }
+              </ul>
+            )
+          }
+        </div>
+      </aside>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  /** 日历交互：日期悬浮预览（停留 2s 显示当日信息，管理员含日记）+ 待办/事件管理 */
+
+  function esc(value: string): string {
+    return String(value).replace(/[&<>"']/g, (c) => {
+      const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return map[c] ?? c;
+    });
+  }
+
+  /* ---- 日期悬浮预览 ---- */
+  const calTooltip = document.getElementById('cal-tooltip');
+  const tooltipAuthed = calTooltip?.dataset.authed === '1';
+  let tooltipTimer: number | null = null;
+  let tooltipCell: HTMLElement | null = null;
+
+  function positionTooltip(cell: HTMLElement): void {
+    if (!calTooltip) return;
+    calTooltip.classList.remove('hidden');
+    const rect = cell.getBoundingClientRect();
+    const t = calTooltip.getBoundingClientRect();
+    let left = rect.left + rect.width / 2 - t.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - t.width - 8));
+    let top = rect.top - t.height - 8;
+    if (top < 8) top = rect.bottom + 8;
+    calTooltip.style.left = `${left}px`;
+    calTooltip.style.top = `${top}px`;
+  }
+
+  async function buildTooltip(cell: HTMLElement): Promise<void> {
+    if (!calTooltip) return;
+    const date = cell.getAttribute('aria-label') ?? '';
+    const lunar = cell.dataset.lunar ?? '';
+    const ganzhi = cell.dataset.ganzhi ?? '';
+    const festivals = cell.dataset.festivals ?? '';
+    const events = cell.dataset.events ?? '';
+    const parts = [
+      `<p class="cal-tip-date">${date}</p>`,
+      `<p>农历 ${lunar}</p>`,
+      `<p>${esc(ganzhi)}</p>`,
+    ];
+    if (festivals) parts.push(`<p class="cal-tip-festival">🎉 ${esc(festivals)}</p>`);
+    if (events) parts.push(`<p class="cal-tip-event">◆ ${esc(events)}</p>`);
+    let diaryHtml = '';
+    if (tooltipAuthed && date) {
+      try {
+        const res = await fetch(`/api/diary?date=${date}`);
+        const data = (await res.json()) as { diary: { title: string; content: string } | null };
+        if (data.diary) {
+          const text = data.diary.content.replace(/\s+/g, ' ').trim().slice(0, 80);
+          diaryHtml = `<div class="cal-tip-diary"><p class="cal-tip-diary-title">📖 ${esc(data.diary.title || '日记')}</p><p>${esc(text)}${data.diary.content.length > 80 ? '…' : ''}</p></div>`;
+        } else {
+          diaryHtml = `<div class="cal-tip-diary cal-tip-empty">当日无日记</div>`;
+        }
+      } catch {
+        /* 忽略 */
+      }
+    }
+    calTooltip.innerHTML = parts.join('') + diaryHtml;
+    positionTooltip(cell);
+  }
+
+  document.addEventListener('mouseover', (e) => {
+    const cell = (e.target as HTMLElement).closest<HTMLElement>('.cal-cell');
+    if (!cell || cell === tooltipCell) return;
+    tooltipCell = cell;
+    if (tooltipTimer) window.clearTimeout(tooltipTimer);
+    tooltipTimer = window.setTimeout(() => {
+      void buildTooltip(cell);
+    }, 2000);
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    if (!tooltipCell) return;
+    const rel = e.relatedTarget as HTMLElement | null;
+    if (rel && (tooltipCell.contains(rel) || rel.closest?.('.cal-cell') === tooltipCell)) return;
+    tooltipCell = null;
+    if (tooltipTimer) {
+      window.clearTimeout(tooltipTimer);
+      tooltipTimer = null;
+    }
+    calTooltip?.classList.add('hidden');
+  });
+
+  // 待办勾选/删除/添加、事件添加/删除、农历开关（原有逻辑）
+  function reload(): void {
+    window.location.reload();
+  }
+
+
+  // 待办勾选
+  document.addEventListener('change', async (e) => {
+    const target = e.target as HTMLInputElement;
+    const id = target.dataset.todoToggle;
+    if (!id) return;
+    await fetch(`/api/todos/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ done: target.checked }),
+    });
+    reload();
+  });
+
+  // 待办删除 / 事件删除
+  document.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+    const todoDel = target.closest<HTMLElement>('[data-todo-del]');
+    if (todoDel) {
+      if (!window.confirm('删除这条待办？')) return;
+      await fetch(`/api/todos/${todoDel.dataset.todoDel}`, { method: 'DELETE' });
+      reload();
+      return;
+    }
+    const eventDel = target.closest<HTMLElement>('[data-event-del]');
+    if (eventDel) {
+      if (!window.confirm('删除这个重要日期？')) return;
+      await fetch(`/api/calendar-events/${eventDel.dataset.eventDel}`, { method: 'DELETE' });
+      reload();
+    }
+  });
+
+  // 待办添加
+  document.addEventListener('submit', async (e) => {
+    const form = e.target as HTMLFormElement;
+    if (form.id !== 'todo-add-form') return;
+    e.preventDefault();
+    const date = form.dataset.date ?? '';
+    const input = form.querySelector<HTMLInputElement>('#todo-add-input');
+    const text = input?.value.trim() ?? '';
+    if (!text) return;
+    await fetch('/api/todos', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ date, text }),
+    });
+    reload();
+  });
+
+  // 农历开关：显示/隐藏农历月日输入
+  document.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.id === 'event-add-lunar') {
+      const lunarDateInput = document.getElementById('event-add-lunar-date') as HTMLInputElement | null;
+      if (lunarDateInput) lunarDateInput.classList.toggle('hidden', !target.checked);
+    }
+  });
+
+  // 重要日期添加
+  document.addEventListener('submit', async (e) => {
+    const form = e.target as HTMLFormElement;
+    if (form.id !== 'event-add-form') return;
+    e.preventDefault();
+    const date = form.dataset.date ?? '';
+    const title = form.querySelector<HTMLInputElement>('#event-add-title')?.value.trim() ?? '';
+    const repeat = (form.querySelector<HTMLInputElement>('#event-add-repeat')?.checked ?? false) as boolean;
+    const lunar = (form.querySelector<HTMLInputElement>('#event-add-lunar')?.checked ?? false) as boolean;
+    if (!title) return;
+    const payload: { title: string; date: string; repeat: boolean; lunar: boolean; lunarDate?: string } = {
+      title,
+      date,
+      repeat,
+      lunar,
+    };
+    if (lunar) {
+      const lunarDate = form.querySelector<HTMLInputElement>('#event-add-lunar-date')?.value.trim() ?? '';
+      if (!/^-?\d{2}-\d{2}$/.test(lunarDate)) {
+        window.alert('农历日期格式需为 MM-DD（闰月 -MM-DD），如 08-15');
+        return;
+      }
+      payload.lunarDate = lunarDate;
+    }
+    await fetch('/api/calendar-events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    reload();
+  });
+</script>

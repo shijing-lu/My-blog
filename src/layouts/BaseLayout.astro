@@ -18,7 +18,9 @@ import ThemeHead from '@/components/ThemeHead.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import ThemeSettings from '@/components/ThemeSettings.astro';
 import RightToolbar from '@/components/RightToolbar.astro';
+import ProfileDialog from '@/components/ProfileDialog.astro';
 import { verifyRequest } from '@/lib/auth';
+import { getSiteBackground } from '@/lib/background';
 
 const siteTitle = 'My Blog';
 const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
@@ -26,6 +28,8 @@ const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
 /* ===== Logic ===== */
 /** 是否已登录（决定是否显示「写作」入口） */
 const isAuthed = verifyRequest(Astro.cookies);
+/** 全站背景配置（是否开启/图片/透明度/模糊度，设置页可配） */
+const bg = await getSiteBackground();
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -41,6 +45,19 @@ const isAuthed = verifyRequest(Astro.cookies);
     <ThemeHead />
   </head>
   <body class="flex min-h-dvh flex-col">
+    {
+      bg.enabled && bg.imageUrl && (
+        <div
+          class="site-bg"
+          style={`--bg-url: url('${bg.imageUrl.replace(/['\\]/g, '')}'); --bg-opacity: ${bg.opacity / 100}; --bg-blur: ${bg.blur}px`}
+          aria-hidden="true"
+        />
+      )
+    }
+    <!-- 顶部阅读进度条 -->
+    <div id="scroll-progress" class="scroll-progress" aria-hidden="true" />
+    <!-- 暗色主题星尘粒子背景 -->
+    <div class="stardust" aria-hidden="true" />
     <header class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
       <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
         <a
@@ -56,10 +73,16 @@ const isAuthed = verifyRequest(Astro.cookies);
           <a href="/gallery" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             影集
           </a>
-          <span class="hidden text-xs text-muted-foreground sm:inline">技术教程 · 学习笔记 · 随笔与摄影</span>
+          <a href="/calendar" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+            日历
+          </a>
+          <a href="/moments" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+            动态
+          </a>
           <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <ThemeToggle />
           <ThemeSettings />
+          <ProfileDialog isAuthed={isAuthed} />
           {
             isAuthed ? (
               <a
@@ -103,6 +126,132 @@ const isAuthed = verifyRequest(Astro.cookies);
     <script>
       import '@/scripts/copy-button';
       import '@/scripts/lightbox';
+    </script>
+
+    <!-- 全局动效：滚动进度条 + 卡片入场动画 -->
+    <script>
+      /** 顶部阅读进度条 */
+      const progressEl = document.getElementById('scroll-progress');
+      const updateProgress = (): void => {
+        if (!progressEl) return;
+        const h = document.documentElement.scrollHeight - window.innerHeight;
+        const p = h > 0 ? (window.scrollY / h) * 100 : 0;
+        progressEl.style.width = `${p}%`;
+      };
+      window.addEventListener('scroll', updateProgress, { passive: true });
+      window.addEventListener('resize', updateProgress);
+      updateProgress();
+
+      /** 卡片入场动画：进入视口渐入上浮 */
+      const revealObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('revealed');
+              revealObserver.unobserve(entry.target);
+            }
+          });
+        },
+        { threshold: 0.06 },
+      );
+      function observeReveals(): void {
+        document.querySelectorAll<HTMLElement>('.post-card, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
+          if (el.classList.contains('revealed')) return;
+          if (!el.classList.contains('reveal')) el.classList.add('reveal');
+          revealObserver.observe(el);
+          // 兜底：1.2s 内未触发 revealed 也强制显示（防 IO 失效导致内容隐藏）
+          window.setTimeout(() => {
+            if (el.classList.contains('reveal') && !el.classList.contains('revealed')) {
+              el.classList.add('revealed');
+            }
+          }, 1200);
+        });
+      }
+      document.addEventListener('astro:page-load', () => {
+        updateProgress();
+        observeReveals();
+      });
+      observeReveals();
+
+      /** 按钮点击波纹（document 委托，View Transitions 后依然有效） */
+      document.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLElement>('button, .ripple');
+        if (!btn) return;
+        const rect = btn.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        const span = document.createElement('span');
+        span.className = 'ripple-wave';
+        span.style.width = span.style.height = `${size}px`;
+        span.style.left = `${e.clientX - rect.left - size / 2}px`;
+        span.style.top = `${e.clientY - rect.top - size / 2}px`;
+        btn.appendChild(span);
+        span.addEventListener('animationend', () => span.remove());
+      });
+
+      /** 流星划过 / 点击烟花 / 滑动流星特效（prefers-reduced-motion 时关闭） */
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const PARTICLE_COLORS = ['var(--color-primary)', 'var(--color-chart-3)', 'var(--color-chart-4)', '#ffffff'];
+
+        /** 生成一颗流星点（fixed 定位，0.6s 后自动清除） */
+        function spawnMeteor(x: number, y: number, drift: number): void {
+          const span = document.createElement('span');
+          span.className = 'meteor';
+          const size = 4 + Math.random() * 5;
+          span.style.width = `${size}px`;
+          span.style.height = `${size}px`;
+          span.style.left = `${x + (Math.random() - 0.5) * 8}px`;
+          span.style.top = `${y + (Math.random() - 0.5) * 8}px`;
+          span.style.setProperty('--dx', `${drift * (Math.random() - 0.5) * 2}px`);
+          span.style.setProperty('--dy', `${drift * (Math.random() - 0.5) * 2}px`);
+          span.style.background = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)]!;
+          document.body.appendChild(span);
+          span.addEventListener('animationend', () => span.remove());
+        }
+
+        /** 鼠标划过：流星拖尾 */
+        let lastMeteor = 0;
+        document.addEventListener('mousemove', (e) => {
+          const now = performance.now();
+          if (now - lastMeteor < 40) return; // 40ms 节流
+          lastMeteor = now;
+          for (let i = 0; i < 3; i += 1) spawnMeteor(e.clientX, e.clientY, 22);
+        });
+
+        /** 点击：烟花散开 */
+        document.addEventListener('click', (e) => {
+          for (let i = 0; i < 12; i += 1) {
+            const span = document.createElement('span');
+            span.className = 'firework-particle';
+            const size = 3 + Math.random() * 3;
+            span.style.width = `${size}px`;
+            span.style.height = `${size}px`;
+            span.style.left = `${e.clientX}px`;
+            span.style.top = `${e.clientY}px`;
+            const angle = (Math.PI * 2 * i) / 12 + (Math.random() - 0.5) * 0.3;
+            const dist = 30 + Math.random() * 40;
+            span.style.setProperty('--dx', `${Math.cos(angle) * dist}px`);
+            span.style.setProperty('--dy', `${Math.sin(angle) * dist}px`);
+            span.style.background = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)]!;
+            document.body.appendChild(span);
+            span.addEventListener('animationend', () => span.remove());
+          }
+        });
+
+        /** 滑动（滚动）页面：视口内随机散落流星 */
+        let lastScrollFx = 0;
+        document.addEventListener(
+          'scroll',
+          () => {
+            const now = performance.now();
+            if (now - lastScrollFx < 130) return; // 130ms 节流
+            lastScrollFx = now;
+            for (let i = 0; i < 2; i += 1) {
+              spawnMeteor(Math.random() * window.innerWidth, Math.random() * window.innerHeight, 30);
+            }
+          },
+          { passive: true },
+        );
+      }
     </script>
   </body>
 </html>
