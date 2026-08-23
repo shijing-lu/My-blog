@@ -7,19 +7,26 @@
 import type { APIRoute } from 'astro';
 import { getDiaryByDate, upsertDiary } from '@/lib/calendar-data';
 import { json } from '@/lib/api';
+import { renderMarkdownHtml } from '@/lib/mdx';
 
 export const prerender = false;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** GET：读取当日日记 */
+/** GET：读取当日日记（含渲染后的 HTML，供悬浮预览） */
 export const GET: APIRoute = async ({ url }) => {
   const date = url.searchParams.get('date') ?? '';
   if (!DATE_RE.test(date)) return json({ error: '日期格式不合法' }, 400);
   const diary = await getDiaryByDate(date);
   if (!diary) return json({ diary: null });
   return json({
-    diary: { id: diary.id, date: diary.date, title: diary.title, content: diary.content },
+    diary: {
+      id: diary.id,
+      date: diary.date,
+      title: diary.title,
+      content: diary.content,
+      contentHtml: await renderMarkdownHtml(diary.content),
+    },
   });
 };
 

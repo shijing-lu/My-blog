@@ -529,6 +529,64 @@
 .cal-tip-empty {
   color: var(--color-muted-foreground);
 }
+/* 悬浮预览里渲染后的日记（Markdown → HTML），限制高度滚动 */
+.cal-tip-diary-content {
+  margin-top: 0.3rem;
+  max-height: 9rem;
+  overflow-y: auto;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+.cal-tip-diary-content > :first-child {
+  margin-top: 0;
+}
+.cal-tip-diary-content > :last-child {
+  margin-bottom: 0;
+}
+.cal-tip-diary-content h1,
+.cal-tip-diary-content h2,
+.cal-tip-diary-content h3,
+.cal-tip-diary-content h4 {
+  margin: 0.4rem 0 0.2rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+  line-height: 1.3;
+}
+.cal-tip-diary-content p {
+  margin: 0.25rem 0;
+}
+.cal-tip-diary-content ul,
+.cal-tip-diary-content ol {
+  margin: 0.25rem 0;
+  padding-left: 1.1rem;
+}
+.cal-tip-diary-content li {
+  margin: 0.1rem 0;
+}
+.cal-tip-diary-content code {
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  background: var(--color-muted);
+  font-size: 0.85em;
+}
+.cal-tip-diary-content pre {
+  margin: 0.3rem 0;
+  padding: 0.4rem;
+  border-radius: 4px;
+  background: var(--color-muted);
+  overflow-x: auto;
+}
+.cal-tip-diary-content pre code {
+  background: transparent;
+  padding: 0;
+}
+.cal-tip-diary-content blockquote {
+  margin: 0.3rem 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--color-border);
+  color: var(--color-muted-foreground);
+}
 
 /* 动态媒体网格 */
 .moment-grid {
@@ -1071,7 +1129,8 @@
 .theme-settings,
 .quote-settings,
 .wechat-dialog,
-.profile-dialog {
+.profile-dialog,
+.all-events-dialog {
   /* margin:auto 保证屏幕居中（Tailwind preflight 会覆盖原生 dialog 的居中） */
   margin: auto;
   width: min(92vw, 26rem);
@@ -1092,14 +1151,16 @@
 .theme-settings::backdrop,
 .quote-settings::backdrop,
 .wechat-dialog::backdrop,
-.profile-dialog::backdrop {
+.profile-dialog::backdrop,
+.all-events-dialog::backdrop {
   background: rgb(0 0 0 / 0.45);
   backdrop-filter: blur(2px);
 }
 .theme-settings[open],
 .quote-settings[open],
 .wechat-dialog[open],
-.profile-dialog[open] {
+.profile-dialog[open],
+.all-events-dialog[open] {
   animation: dialog-in 0.18s ease-out;
 }
 @keyframes dialog-in {

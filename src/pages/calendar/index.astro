@@ -255,7 +255,16 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 
         <!-- 即将到来 -->
         <div id="cal-upcoming-panel" class="rounded-lg border bg-card p-4">
-          <p class="pixel-chip mb-2 text-muted-foreground">即将到来 / UPCOMING</p>
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <p class="pixel-chip text-muted-foreground">即将到来 / UPCOMING</p>
+            <button
+              id="all-events-btn"
+              type="button"
+              class="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              全部重要日期
+            </button>
+          </div>
           {
             upcoming.length === 0 ? (
               <p class="text-xs text-muted-foreground">未来 30 天没有重要日期。</p>
@@ -280,6 +289,18 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       </aside>
     </div>
   </section>
+
+  <!-- 全部重要日期弹窗 -->
+  <dialog id="all-events-dialog" class="all-events-dialog w-full max-w-lg rounded-lg border border-border bg-card p-0 text-foreground">
+    <div class="flex items-center justify-between border-b border-border px-5 py-4">
+      <div>
+        <p class="pixel-chip text-primary">ALL EVENTS</p>
+        <h2 class="mt-1 font-display text-lg font-semibold">全部重要日期</h2>
+      </div>
+      <button id="all-events-close" type="button" aria-label="关闭" class="settings-close">×</button>
+    </div>
+    <div id="all-events-list" class="max-h-[60vh] overflow-y-auto p-5"></div>
+  </dialog>
 </BaseLayout>
 
 <script>
@@ -329,10 +350,10 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (tooltipAuthed && date) {
       try {
         const res = await fetch(`/api/diary?date=${date}`);
-        const data = (await res.json()) as { diary: { title: string; content: string } | null };
+        const data = (await res.json()) as { diary: { title: string; contentHtml: string } | null };
         if (data.diary) {
-          const text = data.diary.content.replace(/\s+/g, ' ').trim().slice(0, 80);
-          diaryHtml = `<div class="cal-tip-diary"><p class="cal-tip-diary-title">📖 ${esc(data.diary.title || '日记')}</p><p>${esc(text)}${data.diary.content.length > 80 ? '…' : ''}</p></div>`;
+          // 服务端渲染后的 HTML（Markdown → HTML），悬浮框内限制高度滚动
+          diaryHtml = `<div class="cal-tip-diary"><p class="cal-tip-diary-title">📖 ${esc(data.diary.title || '日记')}</p><div class="cal-tip-diary-content">${data.diary.contentHtml}</div></div>`;
         } else {
           diaryHtml = `<div class="cal-tip-diary cal-tip-empty">当日无日记</div>`;
         }
@@ -477,6 +498,62 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     return html;
   }
 
+  /* ---- 全部重要日期弹窗 ---- */
+
+  /** 全部事件列表 HTML（含倒计时/状态） */
+  function allEventsHtml(list: {
+    id: string;
+    title: string;
+    lunar: boolean;
+    lunarDate: string | null;
+    repeat: boolean;
+    nextDate: string | null;
+    days: number | null;
+    status: 'today' | 'soon' | 'later' | 'past';
+  }[]): string {
+    if (!list.length) return '<p class="text-xs text-muted-foreground">暂无重要日期。</p>';
+    let html = '<ul class="space-y-2">';
+    for (const e of list) {
+      const lunarTag =
+        e.lunar && e.lunarDate
+          ? `<span class="text-[0.6rem] text-muted-foreground">农历 ${e.lunarDate.startsWith('-') ? `闰${e.lunarDate.slice(1)}` : e.lunarDate}</span>`
+          : '';
+      const repeatTag = e.repeat ? '<span class="text-[0.6rem] text-muted-foreground">每年</span>' : '';
+      let statusTag = '';
+      if (e.status === 'today') statusTag = '<span class="font-semibold text-primary">今天</span>';
+      else if (e.status === 'soon') statusTag = `<span class="font-semibold text-primary">还有 ${e.days} 天</span>`;
+      else if (e.status === 'later') statusTag = `<span class="text-muted-foreground">还有 ${e.days} 天</span>`;
+      else statusTag = '<span class="text-muted-foreground">已过</span>';
+      const nextDate = e.nextDate ? `<span class="text-xs text-muted-foreground">${e.nextDate}</span>` : '';
+      html += `<li class="flex flex-wrap items-center gap-2 text-sm">
+        <span class="text-primary">◆</span><span>${esc(e.title)}</span>${lunarTag}${repeatTag}
+        <span class="ml-auto flex items-center gap-2">${nextDate}${statusTag}</span></li>`;
+    }
+    html += '</ul>';
+    return html;
+  }
+
+  /** 打开「全部重要日期」弹窗（fetch 聚合 API 拿 allEvents，局部渲染） */
+  async function openAllEvents(): Promise<void> {
+    const dialog = document.getElementById('all-events-dialog') as HTMLDialogElement | null;
+    if (!dialog) return;
+    const list = document.getElementById('all-events-list');
+    if (list) list.innerHTML = '<p class="text-xs text-muted-foreground">加载中…</p>';
+    dialog.showModal();
+    try {
+      const params = new URLSearchParams();
+      const m = new URL(location.href).searchParams.get('month');
+      if (m) params.set('month', m);
+      const qs = params.toString();
+      const res = await fetch(`/api/calendar-month${qs ? `?${qs}` : ''}`);
+      if (!res.ok) throw new Error('加载失败');
+      const data = await res.json();
+      if (list) list.innerHTML = allEventsHtml(data.allEvents ?? []);
+    } catch {
+      if (list) list.innerHTML = '<p class="text-xs text-destructive">加载失败，请重试</p>';
+    }
+  }
+
   /** 月份位移："2026-09" + delta → "2026-10"（Date 自动处理跨年） */
   function shiftMonth(month: string, delta: number): string {
     const [y, m] = month.split('-').map(Number);
@@ -484,8 +561,18 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  /** 更新上/下月、"今天"按钮的 href（否则按钮指向旧月份，无法连续切换） */
-  function updateNavButtons(month: string, today: string): void {
+  /** 本地时区的"今天"（YYYY-MM-DD）。服务器（Vercel UTC）算的今天可能与用户差一天，
+   *  故"今天"相关一律用浏览器本地日期 */
+  function localDateKey(d = new Date()): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /** 更新上/下月、"今天"按钮的 href（"今天"用本地时区，避免服务器 UTC 差一天） */
+  function updateNavButtons(month: string): void {
+    const today = localDateKey();
     const prev = shiftMonth(month, -1);
     const next = shiftMonth(month, 1);
     document.querySelectorAll('.cal-nav-btn').forEach((a) => {
@@ -516,7 +603,12 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (selEl) selEl.innerHTML = selectedPanelHtml(data.selected, tooltipAuthed);
     const upEl = document.getElementById('cal-upcoming-panel');
     if (upEl) upEl.innerHTML = upcomingPanelHtml(data.upcoming);
-    updateNavButtons(data.month, data.today);
+    updateNavButtons(data.month);
+    // 修正"今天"高亮：服务器(UTC)渲染的 isToday 可能与本地差一天
+    const today = localDateKey();
+    document.querySelectorAll('#cal-grid .cal-cell').forEach((c) => {
+      c.classList.toggle('cal-cell-today', c.getAttribute('aria-label') === today);
+    });
   }
 
   /** 局部导航：fetch 聚合 API → 更新局部 DOM → 同步 URL（可选 pushState） */
@@ -548,6 +640,10 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const qs = params.toString();
     void navigateCalendar(`/calendar${qs ? `?${qs}` : ''}`, false);
   });
+
+  // 初始修正："今天"按钮 href 用本地今天（SSR 渲染的是服务器 UTC 今天，可能差一天）
+  const initMonth = new URL(location.href).searchParams.get('month');
+  if (initMonth) updateNavButtons(initMonth);
 
   /* ---- 局部 DOM 更新辅助 ---- */
 
@@ -687,11 +783,30 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       }
       return;
     }
+    // 全部重要日期弹窗：打开/关闭
+    const allEventsBtn = target.closest<HTMLElement>('#all-events-btn');
+    if (allEventsBtn) {
+      e.preventDefault();
+      void openAllEvents();
+      return;
+    }
+    const allEventsClose = target.closest<HTMLElement>('#all-events-close');
+    if (allEventsClose) {
+      e.preventDefault();
+      (document.getElementById('all-events-dialog') as HTMLDialogElement | null)?.close();
+      return;
+    }
     // 导航类：日期格子 / 上/下月 / 今天 —— 局部更新，不整页转场
     const nav = target.closest<HTMLElement>('.cal-cell, .cal-nav-btn');
     if (nav && nav.getAttribute('href')) {
       e.preventDefault();
-      void navigateCalendar(nav.getAttribute('href') as string);
+      // "今天"按钮：用客户端本地今天（时区修正），不依赖按钮 href（可能陈旧/UTC）
+      if (nav.textContent.trim() === '今天') {
+        const today = localDateKey();
+        void navigateCalendar(`/calendar?month=${today.slice(0, 7)}&date=${today}`);
+      } else {
+        void navigateCalendar(nav.getAttribute('href') as string);
+      }
     }
   }, true);
 

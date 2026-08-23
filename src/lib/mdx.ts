@@ -43,6 +43,22 @@ export function normalizeBackticks(source: string): string {
   return source.replace(BACKTICK_VARIANT_RE, '`');
 }
 
+/**
+ * 纯 Markdown → HTML（轻量管线，无 JSX 组件）
+ *
+ * 用于日记悬浮预览等"只需渲染成 HTML"的场景，比 evaluate 轻量得多。
+ * 输出为完整 HTML 文档片段（含 h1-h6 / p / ul / code 等标签）。
+ */
+export async function renderMarkdownHtml(source: string): Promise<string> {
+  const file = await unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype)
+    .use(rehypeStringify)
+    .process(source);
+  return String(file);
+}
+
 /** 渲染结果 */
 export interface RenderedMdx {
   /** 渲染后的 HTML（供 set:html / 预览使用） */

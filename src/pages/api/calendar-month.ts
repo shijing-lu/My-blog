@@ -102,6 +102,28 @@ export const GET: APIRoute = async ({ url, cookies }) => {
     .filter((x) => x.next !== null && x.next.days <= 30)
     .sort((a, b) => a.next!.days - b.next!.days);
 
+  // 全部重要日期（含下一次发生与倒计时状态）——"查看全部"弹窗用
+  const allEvents = events
+    .map((e) => {
+      const next = nextOccurrence(e.date, e.repeat, now, e.lunar ? e.lunarDate : null);
+      return {
+        id: e.id,
+        title: e.title,
+        lunar: e.lunar,
+        lunarDate: e.lunarDate,
+        repeat: e.repeat,
+        nextDate: next?.date ?? null,
+        days: next?.days ?? null,
+        // 状态：today=今天 soon=7天内 later=未来 past=已过（单次）
+        status: next === null ? 'past' : next.days <= 0 ? 'today' : next.days <= 7 ? 'soon' : 'later',
+      };
+    })
+    .sort((a, b) => {
+      if (a.status === 'past' && b.status !== 'past') return 1;
+      if (a.status !== 'past' && b.status === 'past') return -1;
+      return (a.days ?? 9999) - (b.days ?? 9999);
+    });
+
   return json({
     month: `${year}-${String(month).padStart(2, '0')}`,
     monthTitle: `${year} 年 ${month} 月`,
@@ -134,5 +156,6 @@ export const GET: APIRoute = async ({ url, cookies }) => {
       days: e.next!.days,
       countdown: countdownText(e.next!.days),
     })),
+    allEvents,
   });
 };
