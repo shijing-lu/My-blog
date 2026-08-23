@@ -58,9 +58,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
       (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
       (isMomentsApi && ['POST', 'DELETE'].includes(context.request.method)) ||
       (pathname === '/api/profile' && context.request.method === 'PUT'));
-  if (!protectedPage && !protectedApi) return withNoCache(await next());
+  if (!protectedPage && !protectedApi) return withCachePolicy(await next(), context.request);
 
-  if (verifyRequest(context.cookies)) return withNoCache(await next());
+  if (verifyRequest(context.cookies)) return withCachePolicy(await next(), context.request);
 
   if (protectedApi) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
@@ -72,15 +72,24 @@ export const onRequest = defineMiddleware(async (context, next) => {
 });
 
 /**
- * HTML 响应禁用缓存：防止浏览器/代理缓存旧页面 HTML 后引用已被新构建
- * 替换/删除的 JS chunk（会导致 React 岛 / CodeMirror 编辑器脚本 404 而不渲染）。
+ * HTML 响应缓存策略（区分预取与普通导航）：
+ * - 预取请求（Sec-Purpose/Purpose: prefetch，由 hover 预取触发）：
+ *   允许浏览器短缓存（60s），点击导航时 fetch 命中缓存 → 消除页面切换卡顿；
+ * - 普通导航：no-store，防止浏览器缓存旧页面 HTML 后引用已被新构建
+ *   替换/删除的 JS chunk（会导致 React 岛 / CodeMirror 编辑器脚本 404 而不渲染）。
  * 静态资源（/_astro/*.js 带 hash）仍由平台长缓存，不受影响。
  */
-function withNoCache(response: Response): Response {
+function withCachePolicy(response: Response, request: Request): Response {
   const type = response.headers.get('content-type') ?? '';
   if (!type.includes('text/html')) return response;
   const headers = new Headers(response.headers);
-  headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const isPrefetch =
+    request.headers.get('sec-purpose') === 'prefetch' || request.headers.get('purpose') === 'prefetch';
+  if (isPrefetch) {
+    headers.set('Cache-Control', 'private, max-age=60');
+  } else {
+    headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

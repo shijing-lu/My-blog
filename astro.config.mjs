@@ -24,6 +24,12 @@ export default defineConfig({
   output: 'server',
   adapter: vercel(),
   integrations: [react()],
+  // 页面切换预取：悬停链接时提前请求新页面（含 SSR），点击时近乎零等待，
+  // 消除 View Transition 的"点击→等待服务端渲染→出现"卡顿；慢连接自动禁用
+  prefetch: {
+    prefetchAll: true,
+    defaultStrategy: 'hover',
+  },
   vite: {
     plugins: [tailwindcss()],
     resolve: {

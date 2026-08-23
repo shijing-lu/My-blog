@@ -163,7 +163,7 @@ const bg = await getSiteBackground();
       let loaderTimer = 0;
       document.addEventListener('astro:before-preparation', () => {
         window.clearTimeout(loaderTimer);
-        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 220);
+        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 150);
       });
       const hideLoader = (): void => {
         window.clearTimeout(loaderTimer);
