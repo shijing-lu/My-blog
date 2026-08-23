@@ -255,16 +255,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 
         <!-- 即将到来 -->
         <div id="cal-upcoming-panel" class="rounded-lg border bg-card p-4">
-          <div class="mb-2 flex items-center justify-between gap-2">
-            <p class="pixel-chip text-muted-foreground">即将到来 / UPCOMING</p>
-            <button
-              id="all-events-btn"
-              type="button"
-              class="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-            >
-              全部重要日期
-            </button>
-          </div>
+          <p class="pixel-chip mb-2 text-muted-foreground">即将到来 / UPCOMING</p>
           {
             upcoming.length === 0 ? (
               <p class="text-xs text-muted-foreground">未来 30 天没有重要日期。</p>
@@ -286,6 +277,14 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
             )
           }
         </div>
+        <!-- 全部重要日期按钮（放在面板外，避免局部更新被替换） -->
+        <button
+          id="all-events-btn"
+          type="button"
+          class="w-full rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+        >
+          全部重要日期
+        </button>
       </aside>
     </div>
   </section>
@@ -500,7 +499,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 
   /* ---- 全部重要日期弹窗 ---- */
 
-  /** 全部事件列表 HTML（含倒计时/状态） */
+  /** 全部事件列表 HTML（含倒计时/状态；管理员可删除） */
   function allEventsHtml(list: {
     id: string;
     title: string;
@@ -510,7 +509,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     nextDate: string | null;
     days: number | null;
     status: 'today' | 'soon' | 'later' | 'past';
-  }[]): string {
+  }[], authed: boolean): string {
     if (!list.length) return '<p class="text-xs text-muted-foreground">暂无重要日期。</p>';
     let html = '<ul class="space-y-2">';
     for (const e of list) {
@@ -525,9 +524,12 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       else if (e.status === 'later') statusTag = `<span class="text-muted-foreground">还有 ${e.days} 天</span>`;
       else statusTag = '<span class="text-muted-foreground">已过</span>';
       const nextDate = e.nextDate ? `<span class="text-xs text-muted-foreground">${e.nextDate}</span>` : '';
+      const delBtn = authed
+        ? `<button type="button" data-all-event-del="${e.id}" class="text-xs text-destructive hover:underline" aria-label="删除">×</button>`
+        : '';
       html += `<li class="flex flex-wrap items-center gap-2 text-sm">
         <span class="text-primary">◆</span><span>${esc(e.title)}</span>${lunarTag}${repeatTag}
-        <span class="ml-auto flex items-center gap-2">${nextDate}${statusTag}</span></li>`;
+        <span class="ml-auto flex items-center gap-2">${nextDate}${statusTag}${delBtn}</span></li>`;
     }
     html += '</ul>';
     return html;
@@ -548,9 +550,24 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       const res = await fetch(`/api/calendar-month${qs ? `?${qs}` : ''}`);
       if (!res.ok) throw new Error('加载失败');
       const data = await res.json();
-      if (list) list.innerHTML = allEventsHtml(data.allEvents ?? []);
+      if (list) list.innerHTML = allEventsHtml(data.allEvents ?? [], tooltipAuthed);
     } catch {
       if (list) list.innerHTML = '<p class="text-xs text-destructive">加载失败，请重试</p>';
+    }
+  }
+
+  /** 弹窗内删除重要日期：DELETE → 刷新弹窗列表 + 主日历视图 */
+  async function deleteAllEvent(id: string): Promise<void> {
+    if (!window.confirm('删除这个重要日期？')) return;
+    try {
+      const res = await fetch(`/api/calendar-events/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('删除失败');
+      void openAllEvents(); // 弹窗保持打开，刷新列表
+      const params = new URLSearchParams(location.search);
+      const qs = params.toString();
+      void navigateCalendar(`/calendar${qs ? `?${qs}` : ''}`, false); // 主视图同步（不 push）
+    } catch {
+      window.alert('删除失败，请重试');
     }
   }
 
@@ -788,6 +805,13 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (allEventsBtn) {
       e.preventDefault();
       void openAllEvents();
+      return;
+    }
+    // 弹窗内删除重要日期
+    const allEventDel = target.closest<HTMLElement>('[data-all-event-del]');
+    if (allEventDel) {
+      e.preventDefault();
+      void deleteAllEvent(allEventDel.dataset.allEventDel as string);
       return;
     }
     const allEventsClose = target.closest<HTMLElement>('#all-events-close');
