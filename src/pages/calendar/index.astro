@@ -159,7 +159,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
             isAuthed && (
               <div class="mt-4 border-t border-border pt-3">
                 <p class="pixel-chip mb-2 text-muted-foreground">待办 / TODO</p>
-                <ul class="space-y-1">
+                <ul id="todo-list" class="space-y-1">
                   {
                     selectedDay?.todos.map((t) => (
                       <li class="flex items-center gap-2 text-sm">
@@ -195,7 +195,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
             <p class="pixel-chip mb-2 text-muted-foreground">重要日期</p>
             {
               selectedDay?.events.length ? (
-                <ul class="space-y-1.5">
+                <ul id="event-list" class="space-y-1.5">
                   {
                     selectedDay.events.map((e) => (
                       <li class="flex items-center gap-2 text-sm">
@@ -217,7 +217,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
                   }
                 </ul>
               ) : (
-                <p class="text-xs text-muted-foreground">无</p>
+                <p id="event-empty" class="text-xs text-muted-foreground">无</p>
               )
             }
             {
@@ -366,44 +366,138 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     calTooltip?.classList.add('hidden');
   });
 
-  // 待办勾选/删除/添加、事件添加/删除、农历开关（原有逻辑）
-  function reload(): void {
-    window.location.reload();
+  // 待办勾选/删除/添加、事件添加/删除（全部局部更新，不整页刷新）
+
+  /* ---- 局部 DOM 更新辅助 ---- */
+
+  /** 待办列表项 HTML */
+  function todoLi(todo: { id: string; text: string; done: boolean }): string {
+    const doneCls = todo.done ? ' text-muted-foreground line-through' : '';
+    return `<li class="flex items-center gap-2 text-sm">
+      <input type="checkbox" ${todo.done ? 'checked ' : ''}data-todo-toggle="${todo.id}" class="size-3.5 accent-[var(--color-primary)]" aria-label="完成待办" />
+      <span class="${doneCls.trim()}">${esc(todo.text)}</span>
+      <button type="button" data-todo-del="${todo.id}" class="ml-auto text-xs text-destructive hover:underline" aria-label="删除待办">×</button>
+    </li>`;
+  }
+
+  /** 事件列表项 HTML */
+  function eventLi(event: { id: string; title: string; lunar: boolean; lunarDate: string | null; repeat: boolean }): string {
+    let html = `<li class="flex items-center gap-2 text-sm"><span class="text-primary">◆</span><span>${esc(event.title)}</span>`;
+    if (event.lunar && event.lunarDate) {
+      html += `<span class="text-[0.6rem] text-muted-foreground">农历 ${event.lunarDate.startsWith('-') ? `闰${event.lunarDate.slice(1)}` : event.lunarDate}</span>`;
+    }
+    if (event.repeat) html += `<span class="text-[0.6rem] text-muted-foreground">每年</span>`;
+    html += `<button type="button" data-event-del="${event.id}" class="ml-auto text-xs text-destructive hover:underline">×</button></li>`;
+    return html;
+  }
+
+  /** 事件列表容器：无列表时把「无」占位替换成 ul */
+  function ensureEventList(): HTMLElement | null {
+    const empty = document.getElementById('event-empty');
+    if (empty) {
+      const ul = document.createElement('ul');
+      ul.id = 'event-list';
+      ul.className = 'space-y-1.5';
+      empty.replaceWith(ul);
+    }
+    return document.getElementById('event-list');
+  }
+
+  /** 事件列表空时还原「无」占位 */
+  function pruneEventList(): void {
+    const ul = document.getElementById('event-list');
+    if (ul && !ul.querySelector('[data-event-del]')) {
+      const p = document.createElement('p');
+      p.id = 'event-empty';
+      p.className = 'text-xs text-muted-foreground';
+      p.textContent = '无';
+      ul.replaceWith(p);
+    }
+  }
+
+  /** 同步日历格子上「有待办 / 重要日期」小点标记 */
+  function syncCellMarks(date: string): void {
+    const cell = document.querySelector<HTMLElement>(`.cal-cell[aria-label="${date}"]`);
+    if (!cell) return;
+    const marks = cell.querySelector('.cal-marks');
+    if (!marks) return;
+    const todoCount = document.querySelectorAll('#todo-list [data-todo-toggle]').length;
+    const eventCount = document.querySelectorAll('#event-list [data-event-del]').length;
+    let tm = marks.querySelector('.cal-mark-todo');
+    if (todoCount > 0 && !tm) {
+      marks.insertAdjacentHTML('beforeend', '<i class="cal-mark cal-mark-todo" title="有待办" />');
+    } else if (todoCount === 0 && tm) {
+      tm.remove();
+    }
+    let em = marks.querySelector('.cal-mark-event');
+    if (eventCount > 0 && !em) {
+      marks.insertAdjacentHTML('beforeend', '<i class="cal-mark cal-mark-event" title="重要日期" />');
+    } else if (eventCount === 0 && em) {
+      em.remove();
+    }
   }
 
 
-  // 待办勾选
+  /** 当前选中日（从表单 data-date 读取） */
+  function formDate(): string {
+    return document.querySelector<HTMLElement>('#todo-add-form')?.dataset.date ?? '';
+  }
+
+  // 待办勾选（局部更新样式，不刷新）
   document.addEventListener('change', async (e) => {
     const target = e.target as HTMLInputElement;
     const id = target.dataset.todoToggle;
     if (!id) return;
-    await fetch(`/api/todos/${id}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ done: target.checked }),
-    });
-    reload();
+    try {
+      const res = await fetch(`/api/todos/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ done: target.checked }),
+      });
+      if (!res.ok) throw new Error('保存失败');
+      const span = target.closest('li')?.querySelector('span');
+      if (span) {
+        span.classList.toggle('line-through', target.checked);
+        span.classList.toggle('text-muted-foreground', target.checked);
+      }
+    } catch {
+      target.checked = !target.checked;
+      window.alert('操作失败，请重试');
+    }
   });
 
-  // 待办删除 / 事件删除
+  // 待办删除 / 事件删除（局部移除，不刷新）
   document.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
     const todoDel = target.closest<HTMLElement>('[data-todo-del]');
     if (todoDel) {
       if (!window.confirm('删除这条待办？')) return;
-      await fetch(`/api/todos/${todoDel.dataset.todoDel}`, { method: 'DELETE' });
-      reload();
+      try {
+        const res = await fetch(`/api/todos/${todoDel.dataset.todoDel}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('删除失败');
+        todoDel.closest('li')?.remove();
+        syncCellMarks(formDate());
+      } catch {
+        window.alert('删除失败，请重试');
+      }
       return;
     }
     const eventDel = target.closest<HTMLElement>('[data-event-del]');
     if (eventDel) {
       if (!window.confirm('删除这个重要日期？')) return;
-      await fetch(`/api/calendar-events/${eventDel.dataset.eventDel}`, { method: 'DELETE' });
-      reload();
+      try {
+        const res = await fetch(`/api/calendar-events/${eventDel.dataset.eventDel}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('删除失败');
+        eventDel.closest('li')?.remove();
+        pruneEventList();
+        syncCellMarks(formDate());
+      } catch {
+        window.alert('删除失败，请重试');
+      }
     }
   });
 
-  // 待办添加
+  // 待办添加（局部插入，不刷新）
   document.addEventListener('submit', async (e) => {
     const form = e.target as HTMLFormElement;
     if (form.id !== 'todo-add-form') return;
@@ -412,12 +506,20 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const input = form.querySelector<HTMLInputElement>('#todo-add-input');
     const text = input?.value.trim() ?? '';
     if (!text) return;
-    await fetch('/api/todos', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ date, text }),
-    });
-    reload();
+    try {
+      const res = await fetch('/api/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ date, text }),
+      });
+      if (!res.ok) throw new Error('添加失败');
+      const data = (await res.json()) as { todo: { id: string; text: string; done: boolean } };
+      document.getElementById('todo-list')?.insertAdjacentHTML('beforeend', todoLi(data.todo));
+      if (input) input.value = '';
+      syncCellMarks(date);
+    } catch {
+      window.alert('添加失败，请重试');
+    }
   });
 
   // 农历开关：显示/隐藏农历月日输入
@@ -453,11 +555,22 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       }
       payload.lunarDate = lunarDate;
     }
-    await fetch('/api/calendar-events', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    reload();
+    try {
+      const res = await fetch('/api/calendar-events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('添加失败');
+      const data = (await res.json()) as {
+        event: { id: string; title: string; lunar: boolean; lunarDate: string | null; repeat: boolean };
+      };
+      ensureEventList()?.insertAdjacentHTML('beforeend', eventLi(data.event));
+      const titleInput = form.querySelector<HTMLInputElement>('#event-add-title');
+      if (titleInput) titleInput.value = '';
+      syncCellMarks(form.dataset.date ?? '');
+    } catch {
+      window.alert('添加失败，请重试');
+    }
   });
 </script>
