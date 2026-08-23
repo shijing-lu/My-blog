@@ -281,9 +281,13 @@ const bg = await getSiteBackground();
   }
 
   const bgSection = document.getElementById('site-background');
-  const bgInitial: SiteBackground = bgSection?.dataset.bg
-    ? (JSON.parse(bgSection.dataset.bg) as SiteBackground)
-    : { enabled: false, imageUrl: '', opacity: 50, blur: 0 };
+  // 解析失败时兜底默认值，避免中断后续初始化（checkbox/slider）
+  let bgInitial: SiteBackground = { enabled: false, imageUrl: '', opacity: 50, blur: 0 };
+  try {
+    if (bgSection?.dataset.bg) bgInitial = JSON.parse(bgSection.dataset.bg) as SiteBackground;
+  } catch {
+    /* dataset.bg 损坏时用默认 */
+  }
   const bgEnabled = document.getElementById('bg-enabled') as HTMLInputElement | null;
   const bgImage = document.getElementById('bg-image') as HTMLInputElement | null;
   const bgOpacity = document.getElementById('bg-opacity') as HTMLInputElement | null;
@@ -377,14 +381,17 @@ const bg = await getSiteBackground();
       return;
     }
     try {
+      // Number(...) || 50 会把 0 误判为缺省 → 用 Number.isFinite 判断，允许 opacity=0 / blur=0
+      const rawOpacity = Number(bgOpacity?.value);
+      const rawBlur = Number(bgBlur?.value);
       const res = await fetch('/api/background', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           enabled: bgEnabled?.checked ?? false,
           imageUrl,
-          opacity: Number(bgOpacity?.value) || 50,
-          blur: Number(bgBlur?.value) || 0,
+          opacity: Number.isFinite(rawOpacity) ? rawOpacity : 50,
+          blur: Number.isFinite(rawBlur) ? rawBlur : 0,
         }),
       });
       if (!res.ok) throw new Error('保存失败');
