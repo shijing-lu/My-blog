@@ -13,6 +13,7 @@ import MarkdownEditor from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import type { ArticleType } from '../../../db/types';
 import { ARTICLE_TYPES } from '../../../db/types';
+import { compressImageForUpload } from '../../lib/client-image-upload';
 
 /** 初始草稿（服务端注入） */
 export interface InitialDraft {
@@ -190,14 +191,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     async (file: File): Promise<void> => {
       setUploading(true);
       try {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error('read failed'));
-          reader.readAsDataURL(file);
-        });
-        const mime = dataUrl.slice(5, dataUrl.indexOf(';'));
-        const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        const { base64, mime } = await compressImageForUpload(file);
         const res = await fetch('/api/images', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

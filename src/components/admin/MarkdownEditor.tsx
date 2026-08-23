@@ -20,6 +20,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { searchKeymap } from '@codemirror/search';
 import { livePreview } from './cm-live-preview';
 import { mdKeymap } from './md-keymap';
+import { compressImageForUpload } from '../../lib/client-image-upload';
 
 /** 对外暴露的编辑器句柄 */
 export interface MarkdownEditorHandle {
@@ -131,16 +132,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   onChangeRef.current = (v) => onChange?.(v);
   onSaveRef.current = onSave;
 
-  /** 上传本地图片 → /api/images → URL */
+  /** 上传本地图片 → /api/images → URL（自动压缩避免超 Vercel 4.5MB 限制） */
   const uploadFile = useCallback(async (file: File): Promise<string> => {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error('read failed'));
-      reader.readAsDataURL(file);
-    });
-    const mime = dataUrl.slice(5, dataUrl.indexOf(';'));
-    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const { base64, mime } = await compressImageForUpload(file);
     const res = await fetch('/api/images', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

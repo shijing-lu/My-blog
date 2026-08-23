@@ -118,6 +118,7 @@ const profileJson = JSON.stringify(profile);
 </dialog>
 
 <script>
+  import { compressImageForUpload } from '../lib/client-image-upload';
   /** 个人中心悬浮框：打开/关闭/查看↔编辑/头像上传/保存（document 委托，兼容 View Transitions） */
 
   function dialogEl(): HTMLDialogElement | null {
@@ -190,38 +191,16 @@ const profileJson = JSON.stringify(profile);
     }
   }
 
-  /** 压缩并上传头像 → 填入头像 URL 框 */
+  /** 压缩并上传头像 → 填入头像 URL 框（头像小图 512px，含降质兜底） */
   async function uploadAvatar(file: File): Promise<void> {
     const status = document.getElementById('profile-avatar-status');
     if (status) status.textContent = '上传中…';
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error('读取失败'));
-        reader.readAsDataURL(file);
-      });
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error('图片读取失败'));
-        image.src = dataUrl;
-      });
-      const size = Math.min(512, Math.max(img.naturalWidth, img.naturalHeight));
-      const scale = size / Math.max(img.naturalWidth, img.naturalHeight);
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas 不可用');
-      ctx.drawImage(img, 0, 0, w, h);
-      const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? '';
+      const { base64, mime } = await compressImageForUpload(file, { maxDimension: 512 });
       const res = await fetch('/api/images', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, mime: 'image/jpeg', data: base64 }),
+        body: JSON.stringify({ filename: file.name, mime, data: base64 }),
       });
       if (!res.ok) throw new Error('上传失败');
       const out = (await res.json()) as { url?: string; error?: string };

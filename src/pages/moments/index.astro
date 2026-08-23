@@ -167,6 +167,7 @@ function renderVideo(url: string): string {
 </BaseLayout>
 
 <script>
+  import { compressImageForUpload } from '../../lib/client-image-upload';
   /** 动态页交互：发布（图片/GIF 上传 + 视频链接）、加载更多、删除（管理员） */
 
   const PAGE_SIZE = 20;
@@ -220,39 +221,7 @@ function renderVideo(url: string): string {
 
   /** 压缩图片（宽 ≤1600，JPEG）；GIF 保持原样 */
   async function prepareImage(file: File): Promise<{ base64: string; mime: string }> {
-    if (file.type === 'image/gif') {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error('读取失败'));
-        reader.readAsDataURL(file);
-      });
-      const b64 = dataUrl.split(',')[1] ?? '';
-      if (b64.length > 3.5 * 1024 * 1024) throw new Error('GIF 超过 3MB 限制');
-      return { base64: b64, mime: 'image/gif' };
-    }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error('读取失败'));
-      reader.readAsDataURL(file);
-    });
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('图片读取失败'));
-      image.src = dataUrl;
-    });
-    const scale = Math.min(1, 1600 / img.naturalWidth);
-    const w = Math.max(1, Math.round(img.naturalWidth * scale));
-    const h = Math.max(1, Math.round(img.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 不可用');
-    ctx.drawImage(img, 0, 0, w, h);
-    return { base64: canvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? '', mime: 'image/jpeg' };
+    return compressImageForUpload(file, { maxDimension: 1600 });
   }
 
   async function uploadFile(file: File): Promise<string> {
