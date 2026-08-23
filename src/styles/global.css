@@ -357,7 +357,8 @@
     }
   }
 
-  /* 全局页面切换加载指示：半透明遮罩 + 旋转圆环，转场期间覆盖页面避免卡顿画面裸露 */
+  /* 全局页面切换加载指示：半透明遮罩 + 旋转圆环，覆盖 fetch 与 DOM 交换全过程，
+     交换完成后淡出——转圈作为过渡遮罩掩盖突兀的页面替换 */
   .nav-loader {
     position: fixed;
     inset: 0;
@@ -367,9 +368,9 @@
     justify-content: center;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.18s ease;
-    background: color-mix(in srgb, var(--color-background) 45%, transparent);
-    backdrop-filter: blur(2px);
+    transition: opacity 0.25s ease;
+    background: color-mix(in srgb, var(--color-background) 62%, transparent);
+    backdrop-filter: blur(5px);
   }
   .nav-loader.show {
     opacity: 1;

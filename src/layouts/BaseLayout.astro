@@ -162,22 +162,36 @@ const bg = await getSiteBackground();
         { threshold: 0.06 },
       );
 
-      /** 全局导航加载指示：顶部进度条 + 居中转圈（转场 fetch 期间显示，完成后隐藏） */
+      /** 全局导航加载指示：点击立即出现转圈+进度条，覆盖 fetch 与 DOM 交换全过程，
+       *  交换完成(after-swap)后至少再显示 250ms 才淡出——转圈作为过渡遮罩，
+       *  让用户明确感知"在加载"，掩盖突兀的页面替换 */
       const navLoader = document.getElementById('nav-loader');
       const navProgress = document.getElementById('nav-progress');
-      let loaderTimer = 0;
+      const MIN_LOADER_MS = 400;
+      let minHideTimer = 0;
+      let staleTimer = 0;
       let progressDoneTimer = 0;
-      document.addEventListener('astro:before-preparation', () => {
-        // 进度条立即开始推进（流畅感）；转圈延迟 80ms 出现（快速导航不闪烁）
-        window.clearTimeout(loaderTimer);
-        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 80);
-        window.clearTimeout(progressDoneTimer);
+      const showLoader = (): void => {
+        window.clearTimeout(minHideTimer);
+        window.clearTimeout(staleTimer);
+        if (navLoader) navLoader.dataset.shownAt = String(Date.now());
+        navLoader?.classList.add('show');
         navProgress?.classList.remove('done');
         navProgress?.classList.add('active');
-      });
+        // 兜底：3s 内无导航事件（误触/同页链接）则强制隐藏
+        staleTimer = window.setTimeout(() => {
+          navLoader?.classList.remove('show');
+          navProgress?.classList.remove('active');
+        }, 3000);
+      };
       const hideLoader = (): void => {
-        window.clearTimeout(loaderTimer);
-        navLoader?.classList.remove('show');
+        window.clearTimeout(staleTimer);
+        const shownAt = Number(navLoader?.dataset.shownAt ?? 0);
+        const elapsed = shownAt ? Date.now() - shownAt : 0;
+        const remain = Math.max(0, MIN_LOADER_MS - elapsed);
+        minHideTimer = window.setTimeout(() => {
+          navLoader?.classList.remove('show');
+        }, remain);
         // 进度条填满后淡出
         if (navProgress?.classList.contains('active')) {
           navProgress.classList.add('done');
@@ -186,7 +200,9 @@ const bg = await getSiteBackground();
           }, 400);
         }
       };
-      document.addEventListener('astro:after-preparation', hideLoader);
+      // 导航开始（fetch 前）→ 显示；DOM 交换完成 → 至少转满 250ms 后淡出
+      document.addEventListener('astro:before-preparation', showLoader);
+      document.addEventListener('astro:after-swap', hideLoader);
       document.addEventListener('astro:page-load', hideLoader);
 
       // 兜底：点击同源导航链接立即显示加载指示（即使 ClientRouter 事件未触发，
@@ -199,11 +215,7 @@ const bg = await getSiteBackground();
         if (link.hasAttribute('download')) return;
         const linkTarget = link.target;
         if (linkTarget && linkTarget !== '_self') return;
-        window.clearTimeout(loaderTimer);
-        loaderTimer = window.setTimeout(() => navLoader?.classList.add('show'), 80);
-        window.clearTimeout(progressDoneTimer);
-        navProgress?.classList.remove('done');
-        navProgress?.classList.add('active');
+        showLoader();
       }, true);
       function observeReveals(): void {
         document.querySelectorAll<HTMLElement>('.post-card, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
