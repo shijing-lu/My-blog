@@ -58,9 +58,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
       (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
       (isMomentsApi && ['POST', 'DELETE'].includes(context.request.method)) ||
       (pathname === '/api/profile' && context.request.method === 'PUT'));
-  if (!protectedPage && !protectedApi) return next();
+  if (!protectedPage && !protectedApi) return withNoCache(await next());
 
-  if (verifyRequest(context.cookies)) return next();
+  if (verifyRequest(context.cookies)) return withNoCache(await next());
 
   if (protectedApi) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
@@ -70,3 +70,20 @@ export const onRequest = defineMiddleware(async (context, next) => {
   }
   return context.redirect(`/login?next=${encodeURIComponent(pathname)}`);
 });
+
+/**
+ * HTML 响应禁用缓存：防止浏览器/代理缓存旧页面 HTML 后引用已被新构建
+ * 替换/删除的 JS chunk（会导致 React 岛 / CodeMirror 编辑器脚本 404 而不渲染）。
+ * 静态资源（/_astro/*.js 带 hash）仍由平台长缓存，不受影响。
+ */
+function withNoCache(response: Response): Response {
+  const type = response.headers.get('content-type') ?? '';
+  if (!type.includes('text/html')) return response;
+  const headers = new Headers(response.headers);
+  headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
