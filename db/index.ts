@@ -16,12 +16,10 @@ import postgres from 'postgres';
 import { drizzle as drizzlePostgresJs } from 'drizzle-orm/postgres-js';
 import * as sqliteSchema from './schema.sqlite';
 import * as pgSchema from './schema.pg';
+import { isPostgres } from './dialect';
 
 /** 数据库连接串（默认本地 SQLite 开发库） */
 const DATABASE_URL: string = process.env.DATABASE_URL ?? 'file:./data/blog.db';
-
-/** 是否为 PostgreSQL（生产） */
-export const isPostgres: boolean = /^postgres(ql)?:\/\//.test(DATABASE_URL);
 
 /** 对外统一数据库句柄类型（以 sqlite schema 为准，两方言形状一致） */
 export type BlogDb = BetterSQLite3Database<typeof sqliteSchema>;
@@ -37,6 +35,7 @@ export function getDb(): BlogDb {
   if (cached) return cached;
   if (isPostgres) {
     // 生产：postgres.js 客户端 + pg schema（形状一致，cast 收口处）
+    // 时间戳序列化由 schema.sqlite 的 timestampMs 列处理（PG 模式输出 ISO 字符串）
     const client = postgres(DATABASE_URL, { max: 5 });
     cached = drizzlePostgresJs(client, { schema: pgSchema }) as unknown as BlogDb;
   } else {

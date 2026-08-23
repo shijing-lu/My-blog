@@ -6,8 +6,27 @@
  * - 时间戳用 `integer(timestamp_ms)`，读写均映射 `Date`。
  * - `$defaultFn` 在客户端（Node）生成时间，保证与 PG 的 defaultNow 语义一致。
  */
-import { sqliteTable, text, integer, check } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, check, customType } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
+import { isPostgres } from './dialect';
+
+/**
+ * 双方言时间戳列：读写映射 Date，存储按方言区分
+ * - SQLite：毫秒整数（integer）
+ * - PostgreSQL：ISO 字符串（PG timestamp 列接受 ISO；postgres.js 驱动对
+ *   number 参数会抛 ERR_INVALID_ARG_TYPE，故必须给字符串）
+ */
+const timestampMs = customType<{ data: Date; driverData: string | number | Date }>({
+  dataType() {
+    return 'integer';
+  },
+  toDriver(value: Date) {
+    return isPostgres ? value.toISOString() : value.getTime();
+  },
+  fromDriver(value: string | number | Date) {
+    return value instanceof Date ? value : new Date(value);
+  },
+});
 
 /** articles 表（SQLite 方言） */
 export const articles = sqliteTable(
@@ -30,11 +49,11 @@ export const articles = sqliteTable(
     /** 标签：JSON 编码的 string[] */
     tags: text('tags').notNull().default('[]'),
     /** 创建时间（epoch 毫秒） */
-    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
     /** 更新时间（epoch 毫秒） */
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    updatedAt: timestampMs('updated_at')
       .notNull()
       .$defaultFn(() => new Date()),
   },
@@ -58,7 +77,7 @@ export const images = sqliteTable('images', {
   /** 图片二进制 */
   data: text('data').notNull(), // base64 编码的图片二进制
   /** 创建时间 */
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
 });
@@ -78,9 +97,9 @@ export const photos = sqliteTable('photos', {
   /** 原图高度 */
   height: integer('height'),
   /** 展示日期（用户可自定义，默认当日；时间线按此排序） */
-  takenAt: integer('taken_at', { mode: 'timestamp_ms' }).notNull(),
+  takenAt: timestampMs('taken_at').notNull(),
   /** 上传时间 */
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
 });
@@ -92,7 +111,7 @@ export const settings = sqliteTable('settings', {
   /** JSON 值 */
   value: text('value').notNull(),
   /** 更新时间 */
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestampMs('updated_at')
     .notNull()
     .$defaultFn(() => new Date()),
 });
@@ -106,7 +125,7 @@ export const todos = sqliteTable('todos', {
   text: text('text').notNull(),
   /** 是否完成 */
   done: integer('done', { mode: 'boolean' }).notNull().default(false),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
 });
@@ -120,10 +139,10 @@ export const diaryEntries = sqliteTable('diary_entries', {
   title: text('title').notNull().default(''),
   /** Markdown 正文 */
   content: text('content').notNull().default(''),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestampMs('updated_at')
     .notNull()
     .$defaultFn(() => new Date()),
 });
@@ -141,7 +160,7 @@ export const calendarEvents = sqliteTable('calendar_events', {
   lunar: integer('lunar', { mode: 'boolean' }).notNull().default(false),
   /** 农历月日："MM-DD"（如 08-15），闰月用 "-MM-DD" 前缀负号 */
   lunarDate: text('lunar_date'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
 });
@@ -153,10 +172,10 @@ export const moments = sqliteTable('moments', {
   content: text('content').notNull().default(''),
   /** 媒体 JSON：[{type:'image'|'gif'|'video', url, poster?}] */
   media: text('media').notNull().default('[]'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+  createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+  updatedAt: timestampMs('updated_at')
     .notNull()
     .$defaultFn(() => new Date()),
 });
