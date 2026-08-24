@@ -41,6 +41,6 @@ try {
   console.log(`✅ 子集化完成: ${out}  (${Math.round(subset.length / 1024)} KB，原 ${Math.round(buf.length / 1024 / 1024)}MB)`);
   console.log('把这个 .subset.woff2 上传到设置页即可');
 } catch (err) {
-  console.error('子集化失败: ' + (err as Error).message);
+  console.error('子集化失败: ' + (err instanceof Error ? err.message : String(err)));
   process.exit(1);
 }
