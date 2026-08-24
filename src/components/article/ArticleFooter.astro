@@ -12,8 +12,7 @@ interface Props {
 const { article, prev, next } = Astro.props;
 
 /* ===== Imports ===== */
-import LikeButton from '@/components/interact/LikeButton';
-import Comments from '@/components/interact/Comments.astro';
+import Comments from '@/components/interact/Comments';
 import { countLikes } from '@/lib/likes';
 
 /* ===== Logic ===== */
@@ -74,11 +73,6 @@ function formatShort(date: Date): string {
     }
   </nav>
 
-  <!-- 点赞 -->
-  <div class="mt-8 flex justify-center">
-    <LikeButton client:load targetType="article" targetId={article.id} initialCount={likeCount} />
-  </div>
-
-  <!-- 评论（Twikoo） -->
-  <Comments targetType="article" targetId={article.id} />
+  <!-- 点赞 + 评论（自建评论区，点赞在评论按钮旁） -->
+  <Comments client:load targetType="article" targetId={article.id} initialCount={likeCount} />
 </footer>

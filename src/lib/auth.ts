@@ -11,8 +11,10 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import type { AstroCookies } from 'astro';
 import { serverEnv, isProd } from '@/lib/env';
 
-/** 会话 Cookie 名 */
+/** 会话 Cookie 名（管理员） */
 export const SESSION_COOKIE = 'admin_session';
+/** 会话 Cookie 名（GitHub 登录用户，评论/点赞身份） */
+export const USER_SESSION_COOKIE = 'user_session';
 /** OAuth state Cookie 名 */
 export const OAUTH_STATE_COOKIE = 'oauth_state';
 /** 会话时长：7 天 */
@@ -91,6 +93,52 @@ export function verifyRequest(cookies: AstroCookies): boolean {
   return verifySessionToken(cookies.get(SESSION_COOKIE)?.value);
 }
 
+/* ---------------- GitHub 登录用户会话（评论/点赞身份，与管理员隔离） ---------------- */
+
+/** 签发用户会话令牌（载荷含本站 github_user id） */
+export function signUserSession(githubUserId: string): string {
+  return signPayload({ uid: githubUserId, exp: Date.now() + SESSION_TTL_MS });
+}
+
+/** 校验用户会话令牌，返回本站 github_user id；无效返回 null */
+export function verifyUserSessionToken(token: string | undefined | null): string | null {
+  if (!token) return null;
+  const [payload, sig] = token.split('.');
+  if (!payload || !sig) return null;
+  if (hmac(payload) !== sig) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+      uid?: unknown;
+      exp?: unknown;
+    };
+    if (typeof data.uid !== 'string' || typeof data.exp !== 'number' || data.exp <= Date.now()) return null;
+    return data.uid;
+  } catch {
+    return null;
+  }
+}
+
+/** 从请求 Cookie 获取当前 GitHub 用户 id（未登录返回 null） */
+export function getCurrentUserId(cookies: AstroCookies): string | null {
+  return verifyUserSessionToken(cookies.get(USER_SESSION_COOKIE)?.value);
+}
+
+/** 设置用户会话 Cookie（HttpOnly；生产 Secure） */
+export function setUserSessionCookie(cookies: AstroCookies, githubUserId: string): void {
+  cookies.set(USER_SESSION_COOKIE, signUserSession(githubUserId), {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
+    path: '/',
+  });
+}
+
+/** 清除用户会话 Cookie */
+export function clearUserSessionCookie(cookies: AstroCookies): void {
+  cookies.delete(USER_SESSION_COOKIE, { path: '/' });
+}
+
 /** 口令比对（timing-safe，双方均做哈希以等长比较） */
 export function checkPassword(input: string): boolean {
   const expected = serverEnv('ADMIN_PASSWORD');
@@ -110,13 +158,26 @@ export function verifyOAuthState(state: string | undefined | null): boolean {
   return verifySignedPayload(state);
 }
 
-/** 生成 GitHub 授权地址 */
+/** 生成 GitHub 授权地址（管理员登录） */
 export function gitHubAuthUrl(state: string): string {
   const clientId = serverEnv('GITHUB_CLIENT_ID');
   const site = serverEnv('PUBLIC_SITE_URL') || 'http://localhost:4321';
   const qs = new URLSearchParams({
     client_id: clientId,
     redirect_uri: `${site}/api/auth/github/callback`,
+    scope: 'read:user',
+    state,
+  });
+  return `https://github.com/login/oauth/authorize?${qs.toString()}`;
+}
+
+/** 生成 GitHub 授权地址（访客登录，用于评论/点赞；独立回调，不查白名单） */
+export function gitHubUserAuthUrl(state: string): string {
+  const clientId = serverEnv('GITHUB_CLIENT_ID');
+  const site = serverEnv('PUBLIC_SITE_URL') || 'http://localhost:4321';
+  const qs = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: `${site}/api/auth/user/github/callback`,
     scope: 'read:user',
     state,
   });
@@ -139,13 +200,26 @@ export async function exchangeGitHubCode(code: string): Promise<string> {
   return data.access_token;
 }
 
-/** 用 token 取 GitHub 用户 */
-export async function fetchGitHubUser(token: string): Promise<{ login: string }> {
+/** 用 token 取 GitHub 用户（含 id/头像/昵称） */
+export async function fetchGitHubUser(
+  token: string,
+): Promise<{ id: number; login: string; name: string | null; avatar_url: string | null }> {
   const res = await fetch('https://api.github.com/user', {
     headers: { authorization: `Bearer ${token}`, accept: 'application/json', 'user-agent': 'my-blog' },
   });
   if (!res.ok) throw new Error('GitHub 用户信息获取失败');
-  return (await res.json()) as { login: string };
+  const data = (await res.json()) as {
+    id: number;
+    login: string;
+    name?: string | null;
+    avatar_url?: string | null;
+  };
+  return {
+    id: data.id,
+    login: data.login,
+    name: data.name ?? null,
+    avatar_url: data.avatar_url ?? null,
+  };
 }
 
 /** 是否允许该 GitHub 登录（与 ADMIN_GITHUB_LOGIN 不区分大小写比对） */

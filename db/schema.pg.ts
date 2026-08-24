@@ -5,7 +5,7 @@
  * - `tags` 用 jsonb；`type` 用 check 约束（PG 无 enum 需额外迁移）。
  * - 时间戳用 `timestamp withTimezone`，读写均映射 `Date`。
  */
-import { pgTable, text, timestamp, jsonb, integer, boolean, check, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, integer, boolean, check, unique, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 /** articles 表（PostgreSQL 方言） */
@@ -182,5 +182,58 @@ export const likes = pgTable(
   (table) => [
     // 同一目标 + 同类型 + 同一身份仅一条 → toggle 天然幂等（赞/取消）
     unique('likes_target_user_unique').on(table.targetType, table.targetId, table.userType, table.userIdent),
+  ],
+);
+
+/** GitHub 登录用户（评论/点赞身份，信息缓存自 GitHub API） */
+export const githubUsers = pgTable('github_users', {
+  /** UUID 主键 */
+  id: text('id').primaryKey(),
+  /** GitHub 用户 ID（唯一） */
+  githubId: integer('github_id').notNull().unique(),
+  /** GitHub 用户名 */
+  login: text('login').notNull(),
+  /** 显示昵称（GitHub name，可能为空） */
+  name: text('name').notNull().default(''),
+  /** 头像 URL */
+  avatarUrl: text('avatar_url').notNull().default(''),
+  /** 首次登录时间 */
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
+
+/** 评论（文章/动态通用，支持嵌套回复；作者可为匿名或 GitHub 登录） */
+export const comments = pgTable(
+  'comments',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 目标类型：article | moment */
+    targetType: text('target_type').notNull(),
+    /** 目标 id（文章 id 或动态 id） */
+    targetId: text('target_id').notNull(),
+    /** 回复的父评论 id（null = 顶级评论） */
+    parentId: text('parent_id'),
+    /** 评论内容（纯文本，前端转义） */
+    content: text('content').notNull().default(''),
+    /** 作者类型：anonymous | github */
+    authorType: text('author_type').notNull().default('anonymous'),
+    /** 匿名昵称（GitHub 作者为空） */
+    authorName: text('author_name').notNull().default(''),
+    /** GitHub 用户（本站 id，可空） */
+    githubUserId: text('github_user_id'),
+    /** 点赞数（冗余计数，"最热"排序用；点赞去重由 likes 表保证） */
+    likeCount: integer('like_count').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // 按目标取评论（分页/排序）
+    index('comments_target_idx').on(table.targetType, table.targetId, table.createdAt),
+    // 按父评论取回复
+    index('comments_parent_idx').on(table.parentId),
   ],
 );

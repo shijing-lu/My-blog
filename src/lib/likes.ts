@@ -11,9 +11,9 @@ import { likes } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type { Like, LikeTargetType, LikeUserType } from '../../db/types';
 
-/** 校验目标类型 */
+/** 校验目标类型（article | moment | comment） */
 export function isLikeTargetType(value: unknown): value is LikeTargetType {
-  return value === 'article' || value === 'moment';
+  return value === 'article' || value === 'moment' || value === 'comment';
 }
 
 /** 校验点赞者类型 */

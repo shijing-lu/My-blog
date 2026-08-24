@@ -168,8 +168,8 @@ export interface NewMoment {
   updatedAt: Date;
 }
 
-/** 点赞目标类型：文章 / 动态 */
-export type LikeTargetType = 'article' | 'moment';
+/** 点赞目标类型：文章 / 动态 / 评论 */
+export type LikeTargetType = 'article' | 'moment' | 'comment';
 
 /** 点赞者类型：匿名（浏览器指纹）/ GitHub 登录 */
 export type LikeUserType = 'anonymous' | 'github';
@@ -192,5 +192,51 @@ export interface NewLike {
   targetId: string;
   userType: LikeUserType;
   userIdent: string;
+  createdAt: Date;
+}
+
+/** GitHub 登录用户（评论/点赞身份） */
+export interface GithubUser {
+  /** 本站 UUID */
+  id: string;
+  /** GitHub 用户 ID */
+  githubId: number;
+  /** GitHub 用户名 */
+  login: string;
+  /** 显示昵称 */
+  name: string;
+  /** 头像 URL */
+  avatarUrl: string;
+  createdAt: Date;
+}
+
+/** 评论目标类型（与点赞一致） */
+export type CommentTargetType = 'article' | 'moment';
+
+/** 评论（含嵌套回复；作者匿名或 GitHub） */
+export interface Comment {
+  id: string;
+  targetType: CommentTargetType;
+  targetId: string;
+  /** 回复的父评论 id（null = 顶级） */
+  parentId: string | null;
+  content: string;
+  authorType: 'anonymous' | 'github';
+  authorName: string;
+  githubUserId: string | null;
+  likeCount: number;
+  createdAt: Date;
+}
+
+/** 评论入参 */
+export interface NewComment {
+  id: string;
+  targetType: CommentTargetType;
+  targetId: string;
+  parentId: string | null;
+  content: string;
+  authorType: 'anonymous' | 'github';
+  authorName: string;
+  githubUserId: string | null;
   createdAt: Date;
 }

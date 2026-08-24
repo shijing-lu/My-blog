@@ -1,13 +1,13 @@
 /**
- * LikeButton.tsx —— 内容点赞按钮（React 岛，文章/动态复用）
+ * LikeButton.tsx —— 内容点赞按钮（React 岛，文章/动态/评论 复用）
  *
- * - 身份：匿名（浏览器指纹）/ GitHub 登录（Twikoo token 哈希）分开计数；
+ * - 匿名：浏览器指纹；GitHub 登录：由服务端 user_session 识别（前端只传指纹）；
  * - 普通访客看到总和；管理员（summary 返回拆分字段）看到「总 / 匿名 / GitHub」三组；
  * - 点击 toggle 幂等（赞↔取消）、乐观更新、失败回滚；样式与博客主题统一。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Heart } from 'lucide-react';
-import { getLikeIdentity } from '../../lib/like-fingerprint';
+import { getLikeFingerprint } from '../../lib/like-fingerprint';
 
 interface LikeButtonProps {
   /** 目标类型：article | moment */
@@ -43,13 +43,7 @@ export default function LikeButton({ targetType, targetId, initialCount = 0, siz
 
   useEffect(() => {
     mounted.current = true;
-    const { userType, userIdent } = getLikeIdentity();
-    const qs = new URLSearchParams({
-      targetType,
-      targetId,
-      userType,
-      userIdent,
-    });
+    const qs = new URLSearchParams({ targetType, targetId, fingerprint: getLikeFingerprint() });
     fetch(`/api/likes/summary?${qs.toString()}`)
       .then((r) => (r.ok ? (r.json() as Promise<Summary>) : null))
       .then((data) => {
@@ -79,11 +73,10 @@ export default function LikeButton({ targetType, targetId, initialCount = 0, siz
     setLiked(!prevLiked);
     setTotal(prevLiked ? Math.max(0, prevTotal - 1) : prevTotal + 1);
     try {
-      const { userType, userIdent } = getLikeIdentity();
       const res = await fetch('/api/likes/toggle', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ targetType, targetId, userType, userIdent }),
+        body: JSON.stringify({ targetType, targetId, fingerprint: getLikeFingerprint() }),
       });
       if (!res.ok) throw new Error('toggle failed');
       const data = (await res.json()) as { liked: boolean; count: number };
