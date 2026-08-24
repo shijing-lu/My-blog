@@ -42,3 +42,14 @@ declare module 'twikoo' {
   };
   export default twikoo;
 }
+
+/** CDN 加载的 twikoo.nocss.js 暴露到 window 的全局对象 */
+declare global {
+  interface Window {
+    twikoo?: {
+      init: (options: import('twikoo').TwikooInitOptions) => Promise<void>;
+      updateConfig: (config: import('twikoo').TwikooUpdateConfig) => Promise<void>;
+      reload: (el?: string | HTMLElement) => Promise<void>;
+    };
+  }
+}

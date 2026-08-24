@@ -21,6 +21,8 @@ interface Props {
 const { targetType, targetId, collapsible = false, initialCount = 0 } = Astro.props;
 const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${targetId}`;
 ---
+<!-- 静态引入 Twikoo CSS（nocss 版不注入样式，避免 Astro ClientRouter 导航后动态注入的 CSS 被移除而样式崩） -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/twikoo@1.7.19/dist/twikoo.css" />
 
 {
   collapsible ? (
@@ -48,8 +50,6 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
 }
 
 <script>
-  import twikoo from 'twikoo';
-
   // 幂等守卫：View Transition 重执行本脚本时只绑定一次
   if (!(window as unknown as { __twikooBound?: boolean }).__twikooBound) {
     (window as unknown as { __twikooBound?: boolean }).__twikooBound = true;
@@ -63,22 +63,52 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
         return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
       }
 
+      /** Twikoo 全局对象类型（CDN 加载的 nocss 版） */
+      type TwikooGlobal = {
+        init: (o: { el: HTMLElement; envId: string; path?: string; lang?: string; theme?: string }) => Promise<void>;
+        updateConfig: (c: { theme?: string }) => Promise<void>;
+      };
+      function getTwikoo(): TwikooGlobal | null {
+        return (window as unknown as { twikoo?: TwikooGlobal }).twikoo ?? null;
+      }
+
+      /** 动态加载 twikoo.nocss.js（无 CSS 版，样式由上方静态 <link> 提供，避免导航后被误删） */
+      let loading: Promise<void> | null = null;
+      function loadTwikoo(): Promise<void> {
+        if (getTwikoo()) return Promise.resolve();
+        if (!loading) {
+          loading = new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/twikoo@1.7.19/dist/twikoo.nocss.js';
+            s.onload = () => setTimeout(resolve, 100);
+            s.onerror = () => reject(new Error('twikoo load failed'));
+            document.head.appendChild(s);
+          });
+        }
+        return loading;
+      }
+
       /** 初始化单个评论容器（懒加载幂等） */
-      function initContainer(el: HTMLElement): void {
+      async function initContainer(el: HTMLElement): Promise<void> {
         if (el.dataset.twikooLoaded === '1') return;
         el.dataset.twikooLoaded = '1';
-        void twikoo.init({
-          el,
-          envId,
-          path: el.dataset.threadPath ?? '/',
-          lang: 'zh-CN',
-          theme: currentTheme(),
-        });
+        try {
+          await loadTwikoo();
+          await getTwikoo()?.init({
+            el,
+            envId,
+            path: el.dataset.threadPath ?? '/',
+            lang: 'zh-CN',
+            theme: currentTheme(),
+          });
+        } catch {
+          /* 忽略 */
+        }
       }
 
       // 非折叠容器：立即初始化
       document.querySelectorAll<HTMLElement>('[data-twikoo]').forEach((el) => {
-        initContainer(el);
+        void initContainer(el);
       });
 
       // 折叠容器：点击"评论"展开并懒加载
@@ -88,12 +118,12 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
         const body = btn.parentElement?.querySelector<HTMLElement>('[data-twikoo]');
         if (!body) return;
         body.classList.toggle('hidden');
-        if (!body.classList.contains('hidden')) initContainer(body);
+        if (!body.classList.contains('hidden')) void initContainer(body);
       });
 
       // 主题切换同步（.dark class 变化 → Twikoo 更新主题）
       const mo = new MutationObserver(() => {
-        void twikoo.updateConfig({ theme: currentTheme() });
+        void getTwikoo()?.updateConfig({ theme: currentTheme() });
       });
       mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     })();
