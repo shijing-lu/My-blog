@@ -1,0 +1,136 @@
+---
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { getArticleBySlug } from '@/lib/articles';
+import { renderMdx } from '@/lib/mdx';
+import MindMapViewer from '@/components/mindmap/MindMapViewer';
+import { collectMindmapRefs, listMindmaps, parseMindmapData } from '@/lib/mindmaps';
+
+/* ===== Logic ===== */
+const { slug } = Astro.params;
+const article = slug ? await getArticleBySlug(slug) : null;
+if (!article) return Astro.redirect('/404');
+
+const { html, blockMap } = await renderMdx(article.content);
+const maps = await listMindmaps(article.id, true);
+const panels = maps
+  .map((m) => ({ id: m.id, title: m.title, data: parseMindmapData(m.data ?? '') }))
+  .filter((m) => m.data !== null);
+// 没有导图 → 回文章页
+if (panels.length === 0) return Astro.redirect(`/blog/${slug}`);
+
+// 被引用段落：anchorId → 导图节点 uid（取第一张图，学习页聚焦主图）
+const refMap = collectMindmapRefs(panels[0]!.data);
+const refMapJson = JSON.stringify(Object.fromEntries(refMap));
+const blockMapJson = JSON.stringify(blockMap);
+---
+<BaseLayout title={`${article.title} · 学习模式`} description={article.summary}>
+  <div class="mx-auto w-full max-w-7xl px-4 py-6">
+    <!-- 顶栏 -->
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="min-w-0">
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">LEARN MODE</p>
+        <h1 class="mt-1 truncate font-display text-xl font-semibold sm:text-2xl">{article.title}</h1>
+        <p class="mt-0.5 text-xs text-muted-foreground">左文右图 · 点导图节点跳段落 · 选中文段可加引用</p>
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <button
+          id="learn-review"
+          type="button"
+          class="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+          title="折叠全部子节点，先回忆再展开验证"
+        >
+          🎴 复习模式
+        </button>
+        <a
+          href={`/blog/${slug}`}
+          class="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+        >
+          退出学习 →
+        </a>
+      </div>
+    </div>
+
+    <!-- 移动端 Tab -->
+    <div class="mt-3 flex gap-1.5 text-xs lg:hidden">
+      <button type="button" data-learn-tab="article" class="rounded-full bg-primary/10 px-3 py-1.5 text-primary">文章</button>
+      <button type="button" data-learn-tab="map" class="rounded-full border border-border px-3 py-1.5 text-muted-foreground">导图</button>
+    </div>
+
+    <!-- 双栏（桌面并排 / 移动端 Tab 切换） -->
+    <div class="mt-4 grid gap-5 lg:grid-cols-2">
+      <div
+        id="learn-article-pane"
+        class="min-w-0 scroll-smooth lg:max-h-[calc(100dvh-13.5rem)] lg:overflow-y-auto lg:border-r lg:border-border lg:pr-5"
+      >
+        <article class="prose max-w-none" set:html={html} />
+      </div>
+      <div id="learn-map-pane" class="hidden min-h-[55dvh] lg:block">
+        <div class="h-[55dvh] rounded-lg border border-border bg-card/40 p-1 lg:h-[calc(100dvh-13.5rem)]">
+          {
+            panels.map((p, i) => (
+              <div data-learn-map={p.id} class={i === 0 ? 'h-full' : 'hidden h-full'}>
+                <MindMapViewer client:load mode="learn" data={p.data} blockMap={JSON.parse(blockMapJson)} />
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+    <!-- 被引用锚点映射（供脚本标记文章段落） -->
+    <div id="learn-refmap" data-refmap={refMapJson} class="hidden" aria-hidden="true" />
+  </div>
+</BaseLayout>
+
+<script>
+  /** 学习模式：被引用段落标记 + 反跳导图节点 + 复习模式 + 移动端 Tab */
+  const refMap = JSON.parse((document.getElementById('learn-refmap') as HTMLElement).dataset.refmap ?? '{}') as Record<string, string>;
+
+  /** 给被引用段落加标记 + 点击反跳导图节点 */
+  function markRefs(): void {
+    const uids = new Set(Object.values(refMap));
+    if (uids.size === 0) return;
+    document.querySelectorAll<HTMLElement>('[id^="para-"]').forEach((el) => {
+      const uid = refMap[el.id];
+      if (!uid) return;
+      el.classList.add('mind-ref');
+      el.title = '已引用到导图，点击定位节点';
+      el.addEventListener('click', () => {
+        window.dispatchEvent(new CustomEvent('mindmap-focus-node', { detail: { uid } }));
+        // 移动端切到导图
+        if (window.innerWidth < 1024) switchTab('map');
+      });
+    });
+  }
+
+  /** 移动端 Tab 切换 */
+  function switchTab(tab: 'article' | 'map'): void {
+    const articlePaneEl = document.getElementById('learn-article-pane');
+    const mapPaneEl = document.getElementById('learn-map-pane');
+    if (!articlePaneEl || !mapPaneEl) return;
+    const isMap = tab === 'map';
+    articlePaneEl.classList.toggle('hidden', isMap);
+    mapPaneEl.classList.toggle('hidden', !isMap);
+    document.querySelectorAll<HTMLElement>('[data-learn-tab]').forEach((b) => {
+      const active = b.dataset.learnTab === tab;
+      b.classList.toggle('bg-primary/10', active);
+      b.classList.toggle('text-primary', active);
+      b.classList.toggle('border-transparent', active);
+      b.classList.toggle('border-border', !active);
+      b.classList.toggle('text-muted-foreground', !active);
+    });
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  document.addEventListener('click', (e) => {
+    const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-learn-tab]');
+    if (tab && tab.dataset.learnTab) switchTab(tab.dataset.learnTab as 'article' | 'map');
+    if ((e.target as HTMLElement).closest('#learn-review')) {
+      window.dispatchEvent(new Event('mindmap-review'));
+    }
+  });
+
+  // 渲染完成后标记引用段落（View Transition 后也执行）
+  markRefs();
+  document.addEventListener('astro:page-load', markRefs);
+</script>

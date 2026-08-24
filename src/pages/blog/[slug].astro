@@ -67,6 +67,13 @@ const blockMapJson = JSON.stringify(blockMap);
           class="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl translate-x-full flex-col border-l border-border bg-background shadow-xl transition-transform duration-300 ease-out"
         >
           <div class="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
+            <a
+              href={`/learn/${slug}`}
+              class="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              title="左文右图双栏学习"
+            >
+              📖 学习模式
+            </a>
             <span class="font-medium">思维导图</span>
             {
               mapPanels.length > 1 && (

@@ -3,11 +3,26 @@
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import MindMapEditor from '@/components/mindmap/MindMapEditor';
 import { getMindmap } from '@/lib/mindmaps';
+import { getArticleById } from '@/lib/articles';
+import { renderMdx } from '@/lib/mdx';
 
 /* ===== Logic ===== */
 const { id } = Astro.params;
 const map = id ? await getMindmap(id) : null;
 if (!map) return Astro.redirect('/admin/mindmaps');
+
+/** 绑定文章的块级锚点映射（失效引用检测用） */
+let articleBlockMap: Record<string, { type: string; text: string }> = {};
+if (map.articleId) {
+  const article = await getArticleById(map.articleId);
+  if (article) {
+    try {
+      articleBlockMap = (await renderMdx(article.content)).blockMap;
+    } catch {
+      articleBlockMap = {};
+    }
+  }
+}
 ---
 <AdminLayout title="导图编辑器">
   <div class="flex h-full min-h-0 flex-col">
@@ -61,6 +76,7 @@ if (!map) return Astro.redirect('/admin/mindmaps');
         mapId={map.id}
         initialTitle={map.title}
         initialData={map.data}
+        blockMap={articleBlockMap}
       />
     </div>
   </div>

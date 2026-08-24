@@ -114,6 +114,9 @@ export function addMindmapRefNode(
 
   const newNode: RefNode = {
     data: {
+      // 预生成 uid（simple-mind-map 渲染时对缺 uid 节点会补，但为让学习页
+      // 能稳定通过 DB 数据定位聚焦，这里显式生成）
+      uid: randomUUID(),
       text: input.text.slice(0, 80),
       anchorId: input.anchorId,
       snippet: input.snippet.slice(0, 500),
@@ -138,6 +141,22 @@ function findMindmapNode(node: RefNode, id: string): RefNode | null {
     if (hit) return hit;
   }
   return null;
+}
+
+/** 收集导图树中所有片段引用节点：anchorId → uid（学习页文章段落反跳定位用） */
+export function collectMindmapRefs(data: unknown): Map<string, string> {
+  const map = new Map<string, string>();
+  const walk = (node: RefNode | undefined): void => {
+    if (!node) return;
+    const d = node.data;
+    if (typeof d?.anchorId === 'string' && typeof d?.uid === 'string') {
+      map.set(d.anchorId, d.uid);
+    }
+    (node.children ?? []).forEach(walk);
+  };
+  const tree = data as { root?: RefNode } | null;
+  walk(tree?.root);
+  return map;
 }
 
 /** 删除导图 */
