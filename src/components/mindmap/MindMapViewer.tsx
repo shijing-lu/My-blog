@@ -43,7 +43,8 @@ interface DropData {
 
 /** simple-mind-map 节点实例子集（渲染层操作） */
 interface NodeLike {
-  getRectInSvg?: () => { left: number; right: number; top: number; bottom: number };
+  /** SVG group 元素（getBoundingClientRect 直接给视口坐标，无需坐标换算） */
+  group?: { node?: SVGElement };
   highlight?: () => void;
   closeHighlight?: () => void;
   getData?: () => { data?: { text?: string } };
@@ -153,21 +154,20 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
       setHover(null);
     }
 
-    /** 鼠标坐标 → 命中的节点 uid（无命中返回 null） */
+    /** 鼠标坐标 → 命中的节点 uid（视口坐标直接比较；命中多个时取面积最小 = 最精确） */
     function findNodeAt(clientX: number, clientY: number): string | null {
-      const container = containerRef.current;
-      if (!container) return null;
-      const rect = container.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
       const cache = nodeCache();
+      let best: { uid: string; area: number } | null = null;
       for (const uid of Object.keys(cache)) {
-        const r = cache[uid]?.getRectInSvg?.();
-        if (r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-          return uid;
+        const el = cache[uid]?.group?.node as SVGElement | undefined;
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r && clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+          const area = r.width * r.height;
+          if (!best || area < best.area) best = { uid, area };
         }
       }
-      return null;
+      return best?.uid ?? null;
     }
 
     function nodeTitle(uid: string | null): string {
@@ -175,14 +175,16 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
       return nodeCache()[uid]?.getData?.().data?.text?.slice(0, 20) || '该节点';
     }
 
-    /** 拖拽经过画布：感应节点 + 高亮（节流） */
+    /** 拖拽经过画布：感应节点 + 高亮（节流 50ms，但始终用最新鼠标坐标） */
+    let lastDragPos = { x: 0, y: 0 };
     function onDragOver(e: DragEvent): void {
       if (!mmRef.current) return;
       e.preventDefault();
+      lastDragPos = { x: e.clientX, y: e.clientY };
       if (throttleTimer.current) return;
       throttleTimer.current = window.setTimeout(() => {
         throttleTimer.current = 0;
-        const uid = findNodeAt(e.clientX, e.clientY);
+        const uid = findNodeAt(lastDragPos.x, lastDragPos.y);
         setHover(uid);
       }, 50);
     }
@@ -198,7 +200,8 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
       if (!mmRef.current) return;
       e.preventDefault();
       clearHover();
-      const targetUid = hoverUidRef.current;
+      // 用最新坐标立即确认目标节点（节流可能滞后，drop 时实时算一次最准）
+      const targetUid = findNodeAt(e.clientX, e.clientY);
       hoverUidRef.current = null;
       // 选区信息：dragstart 时由文章页写入 window.__mindmapDragRef
       const dragRef = (window as unknown as { __mindmapDragRef?: { anchorId?: string; snippet?: string } })
