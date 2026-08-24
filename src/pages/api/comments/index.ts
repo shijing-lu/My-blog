@@ -82,8 +82,10 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     parentId = body.parentId.trim();
     const parent = await getCommentById(parentId);
     if (!parent) return json({ error: '回复的评论不存在' }, 400);
-    // 回复的父评论必须是顶级评论（限制 2 层）
-    if (parent.parentId) return json({ error: '仅支持回复一级评论' }, 400);
+    // 任意层级可回复（展示时统一归并到顶级评论下平铺）
+    if (parent.targetType !== body.targetType || parent.targetId !== targetId) {
+      return json({ error: '回复的评论不属于该内容' }, 400);
+    }
   }
 
   const githubUserId = getCurrentUserId(cookies);

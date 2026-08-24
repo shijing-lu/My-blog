@@ -113,6 +113,27 @@ export async function addFont(input: { familyName: string; mime: string; dataBas
   return rows[0] as BlogFont;
 }
 
+/** 保存上传的字体（Vercel Blob 直传，data 存公开 URL） */
+export async function addFontBlob(input: { familyName: string; mime: string; url: string; size: number }): Promise<BlogFont> {
+  const rows = await db
+    .insert(fonts)
+    .values({
+      id: randomUUID(),
+      familyName: input.familyName,
+      mime: input.mime,
+      data: input.url,
+      size: input.size,
+      createdAt: new Date(),
+    })
+    .returning();
+  return rows[0] as BlogFont;
+}
+
+/** 判断字体 data 是否为 Blob URL（而非 base64） */
+export function isBlobFontData(data: string): boolean {
+  return typeof data === 'string' && data.startsWith('http');
+}
+
 /** 列出全部自定义字体（不含 data，列表用） */
 export async function listFontsMeta(): Promise<Omit<BlogFont, 'data'>[]> {
   const rows = await db
@@ -163,9 +184,13 @@ function choiceStack(choice: FontChoice, customFonts: BlogFont[]): string {
   return DEFAULT_SANS;
 }
 
-/** 自定义字体的 @font-face 片段 */
+/** 自定义字体的 @font-face 片段（Blob 字体直链 URL；base64 字体走 /api/fonts/[id]） */
 function fontFaceCss(font: BlogFont): string {
   const format = font.mime.includes('woff2') ? 'woff2' : font.mime.includes('ttf') ? 'truetype' : font.mime.includes('otf') ? 'opentype' : 'woff2';
+  if (isBlobFontData(font.data)) {
+    const url = font.data.replace(/"/g, '\\"');
+    return `@font-face{font-family:"${font.familyName}";src:url("${url}") format("${format}");font-display:swap;}`;
+  }
   return `@font-face{font-family:"${font.familyName}";src:url("/api/fonts/${font.id}") format("${format}");font-display:swap;}`;
 }
 
@@ -173,13 +198,17 @@ function fontFaceCss(font: BlogFont): string {
  * 生成全局字体覆盖 CSS（仅当用户手动设置过字体时由 BaseLayout 注入）
  *
  * 手动设置优先级高于主题：主题字体通过 `html[data-theme='id']`（特异性 0,1,1）
- * 覆盖 --font-sans-family / --font-display-family，因此这里用 `html` + `!important`
- * 压过所有主题（含运行时注入的自定义主题 CSS）。
- * 像素装饰字体 --font-pixel-family 保持主题特色不变。
+ * 覆盖三个字体变量，因此这里用 `html` + `!important` 压过所有主题
+ * （含运行时注入的自定义主题 CSS）。
+ * - --font-sans-family：文章字体（正文 .prose）
+ * - --font-display-family + --font-pixel-family：「其他字体」——标题/UI/评论/动态/
+ *   界面默认文字/像素装饰全部统一为所选字体。
+ * 未手动设置时不注入本 CSS，界面跟随主题自带字体（body/h1-h4 默认用
+ * --font-pixel-family：claude-pixel/terminal=像素、graphite=等宽等）。
  */
 export function buildFontCss(fonts: SiteFonts, customFonts: BlogFont[]): string {
   const faces = customFonts.map((f) => fontFaceCss(f)).join('');
   const article = choiceStack(fonts.article, customFonts);
   const ui = choiceStack(fonts.ui, customFonts);
-  return `${faces}html{--font-sans-family:${article} !important;--font-display-family:${ui} !important;}`;
+  return `${faces}html{--font-sans-family:${article} !important;--font-display-family:${ui} !important;--font-pixel-family:${ui} !important;}`;
 }

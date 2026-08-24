@@ -5,7 +5,8 @@
  * - 默认展开「前 6 条最热」评论，"更多"加载剩余；
  * - "N 条评论"旁折叠/展开按钮（折叠全部 / 展开默认 6 条）；
  * - "评论"按钮展开/折叠编辑区（匿名：昵称+内容；GitHub 登录：自动身份，无网址字段）；
- * - 每条评论可点赞（幂等取消）、可回复（嵌套一层）、作者/管理员可删除；
+ * - 每条评论可点赞（幂等取消）、可回复（任意层级，展示统一归并到顶级下平铺，
+ *   回复非顶级评论时显示 "回复 @xxx"）、作者/管理员可删除；
  * - GitHub 登录：评论区提供入口，登录后以头像+昵称评论；
  * - 排序切换：最热 / 最新。
  */
@@ -28,6 +29,8 @@ interface CommentItem {
   mine: boolean;
   createdAt: string;
   replies?: CommentItem[];
+  /** 被回复者名字（回复非顶级评论时显示） */
+  replyToName?: string;
 }
 
 interface CommentsProps {
@@ -109,6 +112,11 @@ function CommentRow({
             {item.authorType === 'github' && (
               <span className="rounded bg-primary/10 px-1 py-px text-[0.6rem] text-primary">GitHub</span>
             )}
+            {item.replyToName && (
+              <span className="text-muted-foreground">
+                回复 @<span className="text-primary">{item.replyToName}</span>
+              </span>
+            )}
             <time className="text-muted-foreground">{timeAgo(item.createdAt)}</time>
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{item.content}</p>
@@ -124,15 +132,14 @@ function CommentRow({
               <Heart className={`size-3.5 ${item.liked ? 'fill-current' : ''}`} aria-hidden="true" />
               <span className="tabular-nums">{item.likeCount > 0 ? item.likeCount : ''}</span>
             </button>
-            {!isReply && (
-              <button
-                type="button"
-                onClick={() => onReply(item)}
-                className="rounded-full px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-primary"
-              >
-                回复
-              </button>
-            )}
+            {/* 任意评论可回复（含回复的回复；展示统一归并到顶级下平铺） */}
+            <button
+              type="button"
+              onClick={() => onReply(item)}
+              className="rounded-full px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-primary"
+            >
+              回复
+            </button>
             {item.mine && (
               <button
                 type="button"
@@ -147,8 +154,8 @@ function CommentRow({
         </div>
       </div>
 
-      {/* 回复编辑区（仅当正在回复本条且为顶级评论） */}
-      {!isReply && replyToId === item.id && (
+      {/* 回复编辑区（正在回复本条时显示，任意层级） */}
+      {replyToId === item.id && (
         <div className="mt-2 pl-10">
           <textarea
             value={replyText}

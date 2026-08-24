@@ -103,8 +103,8 @@ const hasManualFonts = await hasManualFontSettings();
       <p class="pixel-chip text-primary">FONTS</p>
       <h2 class="mt-1 font-medium">全局字体</h2>
       <p class="mt-1 text-xs text-muted-foreground">
-        两种字体：<strong>文章字体</strong>用于文章正文；<strong>其他字体</strong>用于其余所有内容（标题、导航、按钮、评论、动态、UI 等）。
-        手动设置后全站优先于主题；未设置时跟随当前主题字体（切换主题即换字体）。
+        两种字体：<strong>文章字体</strong>用于文章正文；<strong>其他字体</strong>用于其余所有内容（标题、导航、按钮、评论、动态、UI 等，含像素装饰）。
+        手动设置后全站优先于主题；<strong>恢复跟随主题</strong>后回到主题自带界面字体（默认主题为像素风格，切换主题即换字体）。
       </p>
 
       <!-- 手动/跟随主题状态 + 操作 -->
@@ -162,6 +162,7 @@ const hasManualFonts = await hasManualFontSettings();
       <!-- 导入自定义字体 -->
       <div class="mt-4 rounded-md border border-dashed border-border p-3">
         <p class="text-xs font-medium text-muted-foreground">导入自定义字体</p>
+        <p class="mt-0.5 text-xs text-muted-foreground/70">≤3MB 存站内；更大文件（最高 30MB，如全量中文字体）自动走 Vercel Blob 直传，不经过服务器限制。</p>
         <div class="mt-2 flex flex-wrap items-center gap-2">
           <input id="font-file" type="file" accept=".woff2,.ttf,.otf,font/*" class="hidden" />
           <button
@@ -618,13 +619,21 @@ const hasManualFonts = await hasManualFontSettings();
     if (fontFileName && fontFile?.files?.[0]) fontFileName.textContent = fontFile.files[0].name;
   });
 
-  /** 上传字体 */
+  /** 上传字体（≤3MB base64 存站内；>3MB 走 Vercel Blob 直传） */
   const fontStatus = document.getElementById('font-status') as HTMLParagraphElement | null;
-  function setFontStatus(msg: string): void {
-    if (fontStatus) {
-      fontStatus.textContent = msg;
-      fontStatus.classList.remove('hidden');
-    }
+  const MAX_BLOB_BYTES = 30 * 1024 * 1024;
+  function setFontStatus(msg: string, kind: 'error' | 'info' = 'error'): void {
+    if (!fontStatus) return;
+    fontStatus.textContent = msg;
+    fontStatus.classList.remove('hidden');
+    fontStatus.classList.toggle('text-destructive', kind === 'error');
+  }
+  function mimeFromName(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase() ?? '';
+    if (ext === 'ttf') return 'font/ttf';
+    if (ext === 'otf') return 'font/otf';
+    if (ext === 'woff') return 'font/woff';
+    return 'font/woff2';
   }
   document.getElementById('font-upload')?.addEventListener('click', async () => {
     const file = fontFile?.files?.[0];
@@ -638,29 +647,71 @@ const hasManualFonts = await hasManualFontSettings();
       setFontStatus('请填写字体名称');
       return;
     }
-    if (file.size > 3 * 1024 * 1024) {
-      setFontStatus('字体文件不能超过 3MB（Vercel 函数硬上限 4.5MB）；更大字体请用子集化脚本 scripts/subset-font.mjs');
+    if (file.size > MAX_BLOB_BYTES) {
+      setFontStatus('字体文件不能超过 30MB（Vercel Blob 直传上限）');
       return;
     }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error('读取失败'));
-      reader.readAsDataURL(file);
-    });
-    const mime = dataUrl.slice(5, dataUrl.indexOf(';')) || 'font/woff2';
-    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-    const res = await fetch('/api/fonts', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ familyName: name, mime, data: base64 }),
-    });
-    const d = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) {
-      setFontStatus(d.error ?? '上传失败');
+    const mime = file.type || mimeFromName(file.name);
+
+    // ≤3MB：base64 经函数上传（无需 Blob）
+    if (file.size <= 3 * 1024 * 1024) {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('读取失败'));
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      const res = await fetch('/api/fonts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ familyName: name, mime, data: base64 }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setFontStatus(d.error ?? '上传失败');
+        return;
+      }
+      window.location.reload();
       return;
     }
-    window.location.reload();
+
+    // >3MB：Vercel Blob 客户端直传（文件不经过函数请求体，绕过 4.5MB 限制）
+    try {
+      setFontStatus('获取上传凭证…', 'info');
+      const res = await fetch('/api/fonts/upload-url', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mime, filename: file.name }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string; pathname?: string; token?: string; contentType?: string };
+      if (!res.ok || !d.token || !d.pathname) {
+        setFontStatus(d.error ?? '获取上传凭证失败');
+        return;
+      }
+      const { put } = await import('@vercel/blob/client');
+      setFontStatus('上传中 0%…', 'info');
+      const blob = await put(d.pathname, file, {
+        access: 'public',
+        token: d.token,
+        contentType: d.contentType,
+        multipart: true,
+        onUploadProgress: (p) => setFontStatus(`上传中 ${Math.round(p.percentage)}%…`, 'info'),
+      });
+      const rec = await fetch('/api/fonts/record', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ familyName: name, url: blob.url, mime: d.contentType, size: file.size }),
+      });
+      const rd = (await rec.json().catch(() => ({}))) as { error?: string };
+      if (!rec.ok) {
+        setFontStatus(rd.error ?? '记录失败');
+        return;
+      }
+      window.location.reload();
+    } catch (err) {
+      setFontStatus(err instanceof Error ? err.message : '上传失败');
+    }
   });
 
   /** 保存字体设置 */

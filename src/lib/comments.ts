@@ -37,8 +37,10 @@ export interface CommentItem {
   liked: boolean;
   mine: boolean;
   createdAt: Date;
-  /** 回复列表（仅顶级评论带） */
+  /** 回复列表（仅顶级评论带：该顶级下全部后代，按时间平铺） */
   replies?: CommentItem[];
+  /** 被回复者名字（回复非顶级评论时显示 "回复 @xxx"） */
+  replyToName?: string;
 }
 
 /** 顶层评论总条数 */
@@ -110,7 +112,7 @@ export async function listComments(
   const hasMore = tops.length > pageSize;
   const topList = tops.slice(0, pageSize);
 
-  // 全部回复（一次取全，按 parent_id 分组）
+  // 全部回复（一次取全，按 parent_id 分组；可任意层嵌套，展示时归并平铺）
   const allReplies = await db
     .select()
     .from(comments)
@@ -135,12 +137,38 @@ export async function listComments(
   // mine：仅 GitHub 用户自己的评论（匿名评论不提供删除）
   const viewerUid = viewer?.githubUserId ?? null;
 
+  // 评论 id → 展示名（用于 "回复 @xxx"）
+  const displayNameOf = (c: CommentRowLike): string => {
+    if (c.authorType === 'github' && c.githubUserId) {
+      const gh = ghMap.get(c.githubUserId);
+      if (gh) return gh.login;
+    }
+    return c.authorName || '匿名';
+  };
+  const nameOf = new Map<string, string>();
+  [...topList, ...allReplies].forEach((c) => nameOf.set(c.id, displayNameOf(c)));
+
+  /** 收集某顶级评论的全部后代（任意深度），按时间升序平铺 */
+  const collectReplies = (rootId: string): CommentRowLike[] => {
+    const out: CommentRowLike[] = [];
+    const queue: CommentRowLike[] = [...(repliesByParent.get(rootId) ?? [])];
+    while (queue.length > 0) {
+      const r = queue.shift()!;
+      out.push(r);
+      queue.push(...(repliesByParent.get(r.id) ?? []));
+    }
+    return out.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  };
+
   const total = await countTopComments(targetType, targetId);
   const result: CommentItem[] = topList.map((c) => {
     const item = toItem(c, likedIds.has(c.id), viewerUid !== null && c.githubUserId === viewerUid, ghMap);
-    item.replies = (repliesByParent.get(c.id) ?? []).map((r) =>
-      toItem(r, likedIds.has(r.id), viewerUid !== null && r.githubUserId === viewerUid, ghMap),
-    );
+    item.replies = collectReplies(c.id).map((r) => {
+      const it = toItem(r, likedIds.has(r.id), viewerUid !== null && r.githubUserId === viewerUid, ghMap);
+      // 回复对象不是顶级时，标注被回复者
+      if (r.parentId && r.parentId !== c.id) it.replyToName = nameOf.get(r.parentId);
+      return it;
+    });
     return item;
   });
 
@@ -210,10 +238,19 @@ export async function getCommentById(id: string): Promise<Comment | null> {
   return (rows[0] as Comment | undefined) ?? null;
 }
 
-/** 删除评论及其全部回复 */
+/** 删除评论及其全部后代（任意嵌套深度） */
 export async function deleteComment(id: string): Promise<void> {
-  await db.delete(comments).where(eq(comments.id, id));
-  await db.delete(comments).where(eq(comments.parentId, id));
+  const ids: string[] = [id];
+  const queue = [id];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    const rows = await db.select({ id: comments.id }).from(comments).where(eq(comments.parentId, cur));
+    for (const r of rows) {
+      ids.push(r.id);
+      queue.push(r.id);
+    }
+  }
+  await db.delete(comments).where(inArray(comments.id, ids));
 }
 
 /** 评论点赞 toggle：likes 表去重 + 同步 like_count（应用层计算，跨方言兼容） */
