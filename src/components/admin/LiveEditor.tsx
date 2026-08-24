@@ -206,6 +206,46 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     }
   }, []);
 
+  /** 从编辑器选中文本添加引用节点（snippet 引用，无锚点；发布后按文本匹配定位） */
+  const addRefFromEditor = useCallback(async (): Promise<void> => {
+    const text = editorRef.current?.getSelectionText() ?? '';
+    if (!text) {
+      window.alert('请先在编辑器里选中一段文字，再点「＋ 引用选区」');
+      return;
+    }
+    if (!mapInfo) {
+      window.alert('请先创建思维导图');
+      return;
+    }
+    const name = window.prompt('引用名称（节点显示用，不是粘贴全文）', text.slice(0, 30));
+    if (name === null) return;
+    const title = name.trim();
+    if (!title) return;
+    setMapLoading(true);
+    try {
+      const res = await fetch(`/api/mindmaps/${mapInfo.id}/refs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: title, snippet: text.slice(0, 500) }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        window.alert(d.error ?? '添加引用失败');
+        return;
+      }
+      // 重新拉取数据刷新画布（initialData 变化 → 编辑器重新挂载显示新节点）
+      const full = await fetch(`/api/mindmaps/${mapInfo.id}`);
+      const fd = (await full.json()) as { map?: { data: unknown } };
+      const nextData = fd.map?.data;
+      if (nextData !== undefined) setMapInfo((prev) => (prev ? { ...prev, data: JSON.stringify(nextData) } : prev));
+      window.alert('已添加引用节点');
+    } catch {
+      window.alert('添加引用失败');
+    } finally {
+      setMapLoading(false);
+    }
+  }, [mapInfo]);
+
   /* ---- 打开 / 删除 / 移动 ---- */
   const loadArticle = useCallback(async (id: string): Promise<void> => {
     const res = await fetch(`/api/articles/${id}`);
@@ -500,7 +540,19 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
           {mapOpen && (
             <div className="flex w-[46%] min-w-0 shrink-0 flex-col border-l">
               <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-1.5 text-xs">
-                <span className="font-medium">思维导图</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="font-medium">思维导图</span>
+                  {mapInfo && (
+                    <button
+                      type="button"
+                      onClick={() => void addRefFromEditor()}
+                      className="shrink-0 rounded-full border border-border px-2 py-0.5 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                      title="先在编辑器选中一段文字，再点击添加引用节点"
+                    >
+                      ＋ 引用选区
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <span className="truncate">{mapLoading ? '加载中…' : mapInfo ? mapInfo.title : '未创建'}</span>
                   <button type="button" onClick={() => setMapOpen(false)} className="transition-colors hover:text-foreground">

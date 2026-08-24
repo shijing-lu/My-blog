@@ -28,6 +28,8 @@ export interface MarkdownEditorHandle {
   insertAtCursor(text: string): void;
   /** 跳转到指定行（0 起，用于目录定位） */
   jumpToLine(line: number): void;
+  /** 获取当前选中的文本（无选区返回空串；供「加入导图引用」用） */
+  getSelectionText(): string;
 }
 
 /** 组件 Props */
@@ -167,7 +169,20 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     view.focus();
   }, []);
 
-  useImperativeHandle(ref, () => ({ insertAtCursor, jumpToLine }), [insertAtCursor, jumpToLine]);
+  /** 获取当前选中的文本（思维导图引用用） */
+  const getSelectionText = useCallback((): string => {
+    const view = viewRef.current;
+    if (!view) return '';
+    const sel = view.state.selection.main;
+    if (sel.empty) return '';
+    return view.state.sliceDoc(sel.from, sel.to).trim();
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({ insertAtCursor, jumpToLine, getSelectionText }),
+    [insertAtCursor, jumpToLine, getSelectionText],
+  );
 
   /** 上传图片并插入 Markdown */
   const handleImageFile = useCallback(

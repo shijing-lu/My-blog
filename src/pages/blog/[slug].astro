@@ -129,13 +129,23 @@ const blockMapJson = JSON.stringify(blockMap);
           </button>
         </div>
 
-        {/* 选择目标导图 */}
+        {/* 选择目标导图 + 引用命名 */}
         <dialog id="mindmap-pick-dialog" class="w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
-          <h3 class="font-medium">添加到思维导图</h3>
+          <h3 class="font-medium">添加引用到思维导图</h3>
           <p id="mindmap-pick-snippet" class="mt-1 line-clamp-2 text-xs text-muted-foreground"></p>
+          <label class="mt-3 block text-xs font-medium text-muted-foreground">
+            引用名称（节点显示用，不是粘贴全文）
+            <input
+              id="mindmap-pick-name"
+              type="text"
+              maxlength="80"
+              placeholder="给这个引用起个名字"
+              class="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
+            />
+          </label>
           <select
             id="mindmap-pick-select"
-            class="mt-3 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
+            class="mt-2 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
           >
             {mapPanels.map((m) => <option value={m.id}>{m.title}</option>)}
           </select>
@@ -192,8 +202,7 @@ const blockMapJson = JSON.stringify(blockMap);
     if (e.key === 'Escape') setDrawer(false);
   });
 
-  // 导图节点跳转文章段落（viewer 派发）：收起抽屉让文章可见（移动端全屏时）
-  window.addEventListener('mindmap-navigate', () => setDrawer(false));
+  // 导图节点跳转文章段落（viewer 直接滚动，不收起抽屉）
 
   // 多图切换
   document.addEventListener('click', (e) => {
@@ -273,10 +282,12 @@ const blockMapJson = JSON.stringify(blockMap);
   });
   window.addEventListener('scroll', hideSnippetBar, { passive: true });
 
-  // 「加入导图」→ 打开选择弹层
+  // 「加入导图」→ 打开选择弹层（默认引用名称 = 选中文本摘要）
+  const pickNameInput = document.getElementById('mindmap-pick-name') as HTMLInputElement | null;
   snippetAddBtn?.addEventListener('click', () => {
     if (!pickDialog || !pendingRef || !pickSnippet) return;
     pickSnippet.textContent = `「${pendingRef.text}…」`;
+    if (pickNameInput) pickNameInput.value = pendingRef.text.slice(0, 30);
     pickStatus?.classList.add('hidden');
     pickDialog.showModal();
   });
@@ -286,11 +297,19 @@ const blockMapJson = JSON.stringify(blockMap);
     if (!pendingRef || !pickSelect) return;
     const mapId = pickSelect.value;
     if (!mapId) return;
+    const name = (pickNameInput?.value ?? '').trim();
+    if (!name) {
+      if (pickStatus) {
+        pickStatus.textContent = '请填写引用名称';
+        pickStatus.classList.remove('hidden');
+      }
+      return;
+    }
     try {
       const res = await fetch(`/api/mindmaps/${mapId}/refs`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(pendingRef),
+        body: JSON.stringify({ ...pendingRef, text: name }),
       });
       const d = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -346,11 +365,16 @@ const blockMapJson = JSON.stringify(blockMap);
     if (!mapId || !pendingDragRef) return;
     const ref = pendingDragRef;
     pendingDragRef = null;
+    // 给引用起名（不是粘贴全文）
+    const name = window.prompt('引用名称（节点显示用，不是粘贴全文）', ref.text.slice(0, 30));
+    if (name === null) return;
+    const title = name.trim();
+    if (!title) return;
     try {
       const res = await fetch(`/api/mindmaps/${mapId}/refs`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(ref),
+        body: JSON.stringify({ ...ref, text: title }),
       });
       if (!res.ok) return;
       const toast = document.createElement('div');

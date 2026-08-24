@@ -31,7 +31,9 @@ export const POST: APIRoute = async ({ params, request, cookies }) => {
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   const anchorId = typeof body.anchorId === 'string' ? body.anchorId.trim() : '';
   const snippet = typeof body.snippet === 'string' ? body.snippet.trim() : '';
-  if (!text || !anchorId) return json({ error: '缺少片段文本或锚点' }, 400);
+  if (!text) return json({ error: '缺少引用名称' }, 400);
+  // 锚点（文章页引用）或片段文本（编辑页引用）至少其一
+  if (!anchorId && !snippet) return json({ error: '缺少引用内容' }, 400);
   const parentId = typeof body.parentId === 'string' && body.parentId.trim() ? body.parentId.trim() : null;
 
   try {
@@ -41,7 +43,7 @@ export const POST: APIRoute = async ({ params, request, cookies }) => {
     const next = addMindmapRefNode(data, {
       parentId,
       text: text.slice(0, MAX_TEXT),
-      anchorId,
+      anchorId: anchorId || undefined,
       snippet: snippet.slice(0, MAX_SNIPPET),
     });
     const updated = await updateMindmap(id, { data: stringifyMindmapData(next) });

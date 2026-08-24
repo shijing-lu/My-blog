@@ -26,24 +26,33 @@ interface Props {
   mapId?: string;
 }
 
-/** 导航到文章锚点（含失效兜底）；返回是否定位成功 */
-function jumpToAnchor(anchorId: string, blockMap: Record<string, BlockInfo>): boolean {
+/** 导航到文章锚点/片段（anchorId 优先，否则用 snippet 在块摘要中模糊匹配） */
+function jumpToBlock(
+  anchorId: string | undefined,
+  snippet: string | undefined,
+  blockMap: Record<string, BlockInfo>,
+): boolean {
   const flash = (el: HTMLElement): void => {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('mind-anchor-flash');
     window.setTimeout(() => el.classList.remove('mind-anchor-flash'), 2200);
   };
-  const el = document.getElementById(anchorId);
-  if (el) {
-    flash(el);
-    return true;
+  // 1) 锚点直接定位
+  if (anchorId) {
+    const el = document.getElementById(anchorId);
+    if (el) {
+      flash(el);
+      return true;
+    }
   }
-  // 锚点失效（文章改过）：用块摘要包含匹配兜底
-  const info = blockMap[anchorId];
-  if (info && info.text) {
+  // 2) 锚点失效 / 无锚点（编辑页创建的 snippet 引用）：用片段文本模糊匹配块摘要
+  const source = (anchorId ? blockMap[anchorId]?.text : undefined) ?? snippet ?? '';
+  const key = source.replace(/[#*`>\[\]()]/g, '').trim().slice(0, 20);
+  if (key) {
     const entries = Object.entries(blockMap);
-    const key = info.text.slice(0, 20);
-    const hit = entries.find(([, v]) => v.text.includes(key)) ?? entries.find(([, v]) => key.includes(v.text.slice(0, 10)));
+    const hit =
+      entries.find(([, v]) => v.text.includes(key)) ??
+      entries.find(([, v]) => key.includes(v.text.slice(0, 10)));
     if (hit) {
       const target = document.getElementById(hit[0]);
       if (target) {
@@ -76,18 +85,17 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
         layout: typeof full.layout === 'string' ? full.layout : undefined,
         theme: typeof full.theme?.template === 'string' ? full.theme.template : undefined,
         readonly: true,
+        // 展开/收起按钮始终显示（默认 hover 才显示，根节点不显示是库设计）
+        alwaysShowExpandBtn: true,
         // 默认滚轮行为（move）：普通滚轮上下移动，按住 Ctrl 滚轮放大缩小
       });
       mm = instance;
       mmRef.current = mm;
       mm.on('node_click', (node) => {
-        const anchorId = (node as { nodeData?: { data?: { anchorId?: string } } })?.nodeData?.data?.anchorId;
-        if (!anchorId) return;
-        // 移动端抽屉全屏：先派发导航事件让页面收起抽屉，再延迟滚动
-        window.dispatchEvent(new Event('mindmap-navigate'));
-        window.setTimeout(() => {
-          jumpToAnchor(anchorId, blockMap);
-        }, 260);
+        const d = (node as { nodeData?: { data?: { anchorId?: string; snippet?: string } } })?.nodeData?.data;
+        if (!d) return;
+        // 只滚动文章跳转，不收起抽屉
+        jumpToBlock(d.anchorId, d.snippet, blockMap);
       });
       ro = new ResizeObserver(() => mm?.resize());
       ro.observe(containerRef.current);

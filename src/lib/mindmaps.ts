@@ -130,7 +130,7 @@ interface RefNode {
 
 export function addMindmapRefNode(
   data: unknown,
-  input: { parentId: string | null; text: string; anchorId: string; snippet: string },
+  input: { parentId: string | null; text: string; anchorId?: string; snippet: string },
 ): unknown {
   const tree = data as { root?: RefNode } | null;
   const root = tree?.root;
@@ -142,8 +142,8 @@ export function addMindmapRefNode(
       // 能稳定通过 DB 数据定位聚焦，这里显式生成）
       uid: randomUUID(),
       text: input.text.slice(0, 80),
-      anchorId: input.anchorId,
-      snippet: input.snippet.slice(0, 500),
+      ...(input.anchorId ? { anchorId: input.anchorId } : {}),
+      ...(input.snippet ? { snippet: input.snippet.slice(0, 500) } : {}),
       expand: true,
     },
     children: [],
