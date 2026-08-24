@@ -35,8 +35,14 @@ export function getDb(): BlogDb {
   if (cached) return cached;
   if (isPostgres) {
     // 生产：postgres.js 客户端 + pg schema（形状一致，cast 收口处）
-    // 时间戳序列化由 schema.sqlite 的 timestampMs 列处理（PG 模式输出 ISO 字符串）
-    const client = postgres(DATABASE_URL, { max: 5 });
+    // Vercel Serverless 每个函数实例各持一个连接池；Prisma Postgres 的
+    // prisma_migration 角色连接数限制极严，池上限调小 + 空闲快速回收，
+    // 避免并发实例 × 池大小导致 "too many connections for role"
+    const client = postgres(DATABASE_URL, {
+      max: 2,
+      idle_timeout: 15,
+      connect_timeout: 10,
+    });
     cached = drizzlePostgresJs(client, { schema: pgSchema }) as unknown as BlogDb;
   } else {
     // 开发：better-sqlite3 + WAL 模式
