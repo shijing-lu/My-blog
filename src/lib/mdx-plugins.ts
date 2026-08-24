@@ -29,6 +29,48 @@ export interface TocItem {
   level: 2 | 3;
 }
 
+/** 块级锚点条目（思维导图节点引用段落用） */
+export interface BlockAnchorItem {
+  /** 块标签（p/li/pre/blockquote/h2 等） */
+  type: string;
+  /** 文本摘要（前 60 字，用于失效兜底定位） */
+  text: string;
+}
+
+/** 块级锚点映射：para-N → 块信息 */
+export type BlockAnchorMap = Record<string, BlockAnchorItem>;
+
+/** 需要加锚点的块级标签（思维导图「片段引用」的定位粒度） */
+const BLOCK_ANCHOR_TAGS = new Set([
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'p', 'li', 'pre', 'blockquote', 'table', 'ul', 'ol', 'figure',
+]);
+
+/**
+ * rehype 插件：给文章块级元素加稳定锚点 id（para-1, para-2, …）。
+ * 必须与渲染 HTML 用同一管线（本插件加入 rehypePlugins 由 evaluate 执行），
+ * 服务端再从渲染结果收集 blockMap（见 mdx.ts collectBlockMapFromHtml）。
+ */
+export function rehypeBlockAnchors() {
+  return (tree: HastRoot) => {
+    let n = 0;
+    const walk = (node: Element | HastRoot): void => {
+      if (node.type === 'element') {
+        if (BLOCK_ANCHOR_TAGS.has(node.tagName)) {
+          n += 1;
+          node.properties = { ...(node.properties ?? {}), id: `para-${n}` };
+        }
+        if (Array.isArray(node.children)) {
+          node.children.forEach((child) => walk(child as Element));
+        }
+      } else if (Array.isArray(node.children)) {
+        node.children.forEach((child) => walk(child as Element));
+      }
+    };
+    walk(tree);
+  };
+}
+
 /** 便捷类型：含可选 name/children 的节点 */
 type DirectiveNode = Node & { name?: string; children?: Node[] };
 
@@ -115,9 +157,10 @@ export function rehypeTocCollector() {
 /** remark 插件数组（evaluate 与预览共用） */
 export const remarkPlugins = [remarkGfm, remarkDirective, remarkDirectiveToJsx];
 
-/** rehype 插件数组：slug → autolink → prism（行号） */
+/** rehype 插件数组：slug → autolink → prism（行号）→ 块锚点（思维导图引用） */
 export const rehypePlugins = [
   rehypeSlug,
   rehypeAutolinkHeadings,
   [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
+  rehypeBlockAnchors,
 ];

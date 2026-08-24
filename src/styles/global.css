@@ -1574,8 +1574,7 @@
   border-radius: var(--radius-lg);
 }
 
-/* ==================== 暗色模式文章正文强制浅色 ==================== */
-/* prose-invert 依赖 --tw-prose-invert-* 变量链，个别场景可能解析失败导致正文偏深；
+/* ==================== 暗色模式文章正文强制浅色 ==================== *//* prose-invert 依赖 --tw-prose-invert-* 变量链，个别场景可能解析失败导致正文偏深；
    此规则 unlayered（优先于 @layer 内规则），显式保证暗色下正文接近白色、清晰可读 */
 :is(.dark) .prose {
   color: oklch(0.9 0.008 285);
@@ -1593,4 +1592,19 @@
   --tw-prose-th-borders: oklch(0.42 0.01 285);
   --tw-prose-td-borders: oklch(0.3 0.01 285);
   --tw-prose-pre-bg: oklch(0.24 0.006 285);
+}
+
+/* ==================== 思维导图锚点跳转高亮 ==================== */
+/* 点击导图节点跳转文章段落时的闪烁提示 */
+.mind-anchor-flash {
+  animation: mind-anchor-flash 2s ease-out;
+  border-radius: 4px;
+}
+@keyframes mind-anchor-flash {
+  0% {
+    background: color-mix(in oklab, var(--color-primary) 35%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
 }

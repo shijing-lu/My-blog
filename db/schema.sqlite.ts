@@ -275,3 +275,30 @@ export const fonts = sqliteTable('fonts', {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+/** 思维导图（绑定文章或独立；data 为 simple-mind-map 全量 JSON） */
+export const mindmaps = sqliteTable(
+  'mindmaps',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 导图标题 */
+    title: text('title').notNull(),
+    /** 绑定文章 id（null = 独立导图） */
+    articleId: text('article_id'),
+    /** simple-mind-map 全量数据 JSON（layout/root/theme/view + 节点锚点） */
+    data: text('data').notNull(),
+    /** 创建时间 */
+    createdAt: timestampMs('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+    /** 更新时间 */
+    updatedAt: timestampMs('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    // 按文章查导图
+    index('mindmaps_article_idx').on(table.articleId),
+  ],
+);

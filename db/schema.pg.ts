@@ -255,3 +255,30 @@ export const fonts = pgTable('fonts', {
     .notNull()
     .defaultNow(),
 });
+
+/** 思维导图（绑定文章或独立；data 为 simple-mind-map 全量 JSON） */
+export const mindmaps = pgTable(
+  'mindmaps',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 导图标题 */
+    title: text('title').notNull(),
+    /** 绑定文章 id（null = 独立导图） */
+    articleId: text('article_id'),
+    /** simple-mind-map 全量数据 JSON（layout/root/theme/view + 节点锚点） */
+    data: text('data').notNull(),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    /** 更新时间 */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // 按文章查导图
+    index('mindmaps_article_idx').on(table.articleId),
+  ],
+);

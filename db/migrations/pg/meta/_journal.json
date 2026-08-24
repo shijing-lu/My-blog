@@ -71,6 +71,13 @@
       "when": 1787800000000,
       "tag": "0009_fonts",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787588301197,
+      "tag": "0010_thankful_nick_fury",
+      "breakpoints": true
     }
   ]
 }

@@ -266,3 +266,25 @@ export interface SiteFonts {
   article: FontChoice;
   ui: FontChoice;
 }
+
+/** 思维导图（绑定文章或独立；data 为 simple-mind-map 全量 JSON 字符串） */
+export interface Mindmap {
+  id: string;
+  /** 导图标题 */
+  title: string;
+  /** 绑定文章 id（null = 独立导图） */
+  articleId: string | null;
+  /** simple-mind-map 全量数据 JSON（layout/root/theme/view + 节点锚点） */
+  data: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 思维导图元信息（列表用，不含 data） */
+export interface MindmapMeta {
+  id: string;
+  title: string;
+  articleId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}

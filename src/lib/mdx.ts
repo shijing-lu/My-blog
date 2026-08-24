@@ -17,7 +17,8 @@ import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
 import rehypeSlug from 'rehype-slug';
 import rehypeStringify from 'rehype-stringify';
-import { remarkPlugins, rehypePlugins, rehypeTocCollector, type TocItem } from './mdx-plugins';
+import rehypeParse from 'rehype-parse';
+import { remarkPlugins, rehypePlugins, rehypeTocCollector, type TocItem, type BlockAnchorMap, type BlockAnchorItem } from './mdx-plugins';
 import { mdxComponents, type MDXComponentMap } from '@/components/mdx/registry';
 
 /** 渲染选项 */
@@ -65,6 +66,8 @@ export interface RenderedMdx {
   html: string;
   /** 文章目录（h2/h3） */
   toc: TocItem[];
+  /** 块级锚点映射（para-N → 块信息；思维导图片段引用用） */
+  blockMap: BlockAnchorMap;
 }
 
 /**
@@ -86,15 +89,58 @@ export async function extractToc(source: string): Promise<TocItem[]> {
   return (file.data.toc as TocItem[] | undefined) ?? [];
 }
 
+/** 递归提取元素文本（跳过 autolink 锚点子节点） */
+function elementText(node: { type: string; tagName?: string; value?: unknown; children?: unknown[] }): string {
+  if (node.type === 'text') return String(node.value ?? '');
+  if (node.type === 'element' && node.tagName === 'a') return '';
+  if (Array.isArray(node.children)) {
+    return node.children
+      .map((c) => elementText(c as { type: string; tagName?: string; value?: unknown; children?: unknown[] }))
+      .join('');
+  }
+  return '';
+}
+
+/**
+ * 从渲染后的 HTML 收集块级锚点映射（para-N → 块信息）。
+ *
+ * 与 evaluate 共用同一份 HTML（rehypePlugins 已含 rehypeBlockAnchors），
+ * 保证映射与页面实际元素 100% 一致（不依赖独立管线的插件差异）。
+ */
+export function collectBlockMapFromHtml(html: string): BlockAnchorMap {
+  const tree = unified().use(rehypeParse, { fragment: true }).parse(html) as unknown as {
+    type: string;
+    tagName?: string;
+    properties?: Record<string, unknown>;
+    children?: unknown[];
+  };
+  const map: BlockAnchorMap = {};
+  const walk = (node: { type: string; tagName?: string; properties?: Record<string, unknown>; children?: unknown[] }): void => {
+    if (node.type === 'element') {
+      const id = node.properties?.id;
+      if (typeof id === 'string' && id.startsWith('para-')) {
+        const item: BlockAnchorItem = { type: node.tagName ?? '', text: elementText(node).trim().slice(0, 60) };
+        map[id] = item;
+      }
+      if (Array.isArray(node.children)) node.children.forEach((c) => walk(c as typeof node));
+    } else if (Array.isArray(node.children)) {
+      node.children.forEach((c) => walk(c as typeof node));
+    }
+  };
+  walk(tree);
+  return map;
+}
+
 /**
  * 渲染 MDX 源码为 HTML（服务端）
  *
  * - 通过 `evaluate` 以 react/jsx-runtime 编译，配合 `useMDXComponents` 使用组件注册表；
- * - 结果经 `renderToString` 转为 HTML 字符串，可与自定义组件映射合并。
+ * - 结果经 `renderToString` 转为 HTML 字符串，可与自定义组件映射合并；
+ * - 同时返回块级锚点映射（思维导图片段引用定位用）。
  *
  * @param source MDX 源码
  * @param options 渲染选项
- * @returns { html, toc }
+ * @returns { html, toc, blockMap }
  */
 export async function renderMdx(source: string, options: RenderOptions = {}): Promise<RenderedMdx> {
   const merged: MDXComponentMap = { ...mdxComponents, ...(options.components ?? {}) };
@@ -116,8 +162,9 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
 
   const html = renderToString(createElement(Content as ComponentType<{ components?: MDXComponentMap }>, { components: merged }));
   const toc = await extractToc(normalized);
+  const blockMap = collectBlockMapFromHtml(html);
 
-  return { html, toc };
+  return { html, toc, blockMap };
 }
 
 export { mdxComponents };

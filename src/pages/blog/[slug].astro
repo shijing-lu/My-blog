@@ -8,13 +8,15 @@ import { renderMdx } from '@/lib/mdx';
 import TechLayout from '@/layouts/TechLayout.astro';
 import NoteLayout from '@/layouts/NoteLayout.astro';
 import PhotoLayout from '@/layouts/PhotoLayout.astro';
+import MindMapViewer from '@/components/mindmap/MindMapViewer';
+import { listMindmaps, parseMindmapData } from '@/lib/mindmaps';
 
 /* ===== Logic ===== */
 const { slug } = Astro.params;
 const article = slug ? await getArticleBySlug(slug) : null;
 if (!article) return Astro.redirect('/404');
 
-const { html, toc } = await renderMdx(article.content);
+const { html, toc, blockMap } = await renderMdx(article.content);
 
 // 上一篇 / 下一篇（按更新时间排序，仅取元信息）
 const all = await listArticleMeta();
@@ -31,8 +33,120 @@ const layoutMap = {
 const ContentLayout = layoutMap[article.type] ?? NoteLayout;
 // 正文使用 max-w-none，交由布局的受限容器统一约束宽度（图片/文字/分割线等宽）
 const articleClass = 'prose max-w-none';
+
+// 关联思维导图（SSR 注入完整数据，抽屉免二次请求）
+const maps = await listMindmaps(article.id, true);
+const mapPanels = maps
+  .map((m) => ({
+    id: m.id,
+    title: m.title,
+    data: parseMindmapData(m.data ?? ''),
+  }))
+  .filter((m) => m.data !== null);
+const blockMapJson = JSON.stringify(blockMap);
 ---
 <!-- ===== Template ===== -->
 <ContentLayout article={article} toc={toc} prev={prev} next={next}>
+  {
+    mapPanels.length > 0 && (
+      <div>
+        {/* 入口按钮 */}
+        <button
+          id="mindmap-open"
+          type="button"
+          class="mb-4 inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-xs text-muted-foreground transition-all duration-150 hover:border-primary/50 hover:text-primary"
+        >
+          <span aria-hidden="true">🧭</span>
+          思维导图{mapPanels.length > 1 ? `（${mapPanels.length}）` : ''}
+        </button>
+
+        {/* 右侧抽屉（桌面）/ 全屏弹层（移动端） */}
+        <div
+          id="mindmap-drawer"
+          aria-hidden="true"
+          class="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl translate-x-full flex-col border-l border-border bg-background shadow-xl transition-transform duration-300 ease-out"
+        >
+          <div class="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
+            <span class="font-medium">思维导图</span>
+            {
+              mapPanels.length > 1 && (
+                <div class="flex min-w-0 items-center gap-1 overflow-x-auto text-xs">
+                  {mapPanels.map((m, i) => (
+                    <button
+                      type="button"
+                      data-map-tab={m.id}
+                      class={`shrink-0 rounded-full px-2.5 py-1 transition-colors ${i === 0 ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                    >
+                      {m.title}
+                    </button>
+                  ))}
+                </div>
+              )
+            }
+            <button
+              id="mindmap-close"
+              type="button"
+              aria-label="关闭思维导图"
+              class="ml-auto inline-flex size-7 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              ×
+            </button>
+          </div>
+          <div class="min-h-0 flex-1">
+            {mapPanels.map((m, i) => (
+              <div data-map-panel={m.id} class={i === 0 ? 'h-full' : 'hidden h-full'}>
+                <MindMapViewer client:load data={m.data} blockMap={JSON.parse(blockMapJson)} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
   <article class={articleClass} set:html={html} />
 </ContentLayout>
+
+<script>
+  /** 思维导图抽屉：打开/关闭/多图切换；导图节点跳转时收起（移动端） */
+  const drawer = document.getElementById('mindmap-drawer');
+  const openBtn = document.getElementById('mindmap-open');
+  const closeBtn = document.getElementById('mindmap-close');
+
+  function setDrawer(open: boolean): void {
+    if (!drawer) return;
+    drawer.classList.toggle('translate-x-full', !open);
+    drawer.setAttribute('aria-hidden', String(!open));
+    if (open) {
+      // 打开抽屉时确保视口高度正确（画布 resize）
+      window.dispatchEvent(new Event('resize'));
+    }
+  }
+
+  openBtn?.addEventListener('click', () => setDrawer(true));
+  closeBtn?.addEventListener('click', () => setDrawer(false));
+
+  // 点击抽屉外（右侧文章区域）关闭：仅在桌面宽度时绑定到遮罩层效果
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setDrawer(false);
+  });
+
+  // 导图节点跳转文章段落（viewer 派发）：收起抽屉让文章可见（移动端全屏时）
+  window.addEventListener('mindmap-navigate', () => setDrawer(false));
+
+  // 多图切换
+  document.addEventListener('click', (e) => {
+    const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-map-tab]');
+    if (!tab) return;
+    const id = tab.dataset.mapTab;
+    document.querySelectorAll<HTMLElement>('[data-map-panel]').forEach((panel) => {
+      panel.classList.toggle('hidden', panel.dataset.mapPanel !== id);
+    });
+    document.querySelectorAll<HTMLElement>('[data-map-tab]').forEach((t) => {
+      const active = t.dataset.mapTab === id;
+      t.classList.toggle('bg-primary/10', active);
+      t.classList.toggle('text-primary', active);
+      t.classList.toggle('text-muted-foreground', !active);
+    });
+    window.dispatchEvent(new Event('resize'));
+  });
+</script>
