@@ -64,7 +64,14 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
 
       /** Twikoo 全局对象类型（CDN 加载的 nocss 版） */
       type TwikooGlobal = {
-        init: (o: { el: HTMLElement; envId: string; path?: string; lang?: string; theme?: string }) => Promise<void>;
+        init: (o: {
+          el: HTMLElement;
+          envId: string;
+          path?: string;
+          lang?: string;
+          theme?: string;
+          pageSize?: number;
+        }) => Promise<void>;
       };
       function getTwikoo(): TwikooGlobal | null {
         return (window as unknown as { twikoo?: TwikooGlobal }).twikoo ?? null;
@@ -98,6 +105,8 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
             path: el.dataset.threadPath ?? '/',
             lang: 'zh-CN',
             theme: currentTheme(),
+            // 每页条数（优先由 Twikoo 后端 serverConfig 控制；此处作为前端兜底）
+            pageSize: 6,
           });
         } catch {
           /* 忽略 */

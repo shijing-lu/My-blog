@@ -390,9 +390,34 @@
     }
   }
 
+  /* ==================== Twikoo 评论区样式覆盖（匹配博客主题） ==================== */
+  /* 评论字号与动态文字一致（text-sm=14px）或更小 */
+  .tk-content,
+  .tk-comment {
+    font-size: 14px !important;
+    line-height: 1.75 !important;
+  }
+  .tk-comment .tk-content {
+    font-size: 14px !important;
+  }
+  .tk-nick-link,
+  .tk-comment .tk-nick {
+    font-size: 13px !important;
+  }
+  /* 隐藏访客面板的「网址」输入框（管理后台未隐藏时的兜底；placeholder 匹配） */
+  .tk-meta-input .el-input:has(input[placeholder*="网址"]),
+  .tk-meta-input .el-input:has(input[placeholder*="链接"]),
+  .tk-meta-input .el-input:has(input[placeholder*="Website"]),
+  .tk-meta-input .el-input:has(input[placeholder*="Link"]) {
+    display: none !important;
+  }
+  /* 评论正文高度限制更友好（配合"加载更多"） */
+  .tk-content {
+    max-height: 400px;
+  }
+
   /* 全站背景层（设置页可配：开启/图片/透明度/模糊度） */
-  .site-bg {
-    position: fixed;
+  .site-bg {    position: fixed;
     inset: 0;
     z-index: -1; /* 置于正文内容之下、body 背景之上 */
     pointer-events: none;
