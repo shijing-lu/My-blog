@@ -53,7 +53,7 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
         data: data as MindMapData | undefined,
         layout: 'logicalStructure',
         theme: 'default',
-        mousewheelAction: 'zoom',
+        // 默认滚轮行为（move）：普通滚轮上下移动，按住 Ctrl 滚轮放大缩小
       });
       mm = instance;
       mmRef.current = mm;

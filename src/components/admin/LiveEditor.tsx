@@ -485,47 +485,50 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
           </div>
         </div>
 
-        {/* 所见即所得编辑器（复用 MarkdownEditor） */}
-        <MarkdownEditor
-          ref={editorRef}
-          initialContent={draft.content}
-          onChange={(c) => update('content', c)}
-          onSave={() => void saveNow()}
-          className="min-h-0 flex-1"
-        />
+        {/* 工作区：编辑器 + 思维导图 左右分栏 */}
+        <div className="flex min-h-0 flex-1">
+          {/* 所见即所得编辑器（复用 MarkdownEditor） */}
+          <MarkdownEditor
+            ref={editorRef}
+            initialContent={draft.content}
+            onChange={(c) => update('content', c)}
+            onSave={() => void saveNow()}
+            className="min-h-0 min-w-0 flex-1"
+          />
 
-        {/* 导图面板：边写文章边编辑思维导图 */}
-        {mapOpen && (
-          <div className="flex h-[42%] min-h-0 shrink-0 flex-col border-t">
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-1.5 text-xs">
-              <span className="font-medium">思维导图</span>
-              <div className="flex items-center gap-3 text-muted-foreground">
-                <span className="truncate">{mapLoading ? '加载中…' : mapInfo ? mapInfo.title : '未创建'}</span>
-                <button type="button" onClick={() => setMapOpen(false)} className="transition-colors hover:text-foreground">
-                  收起
-                </button>
-              </div>
-            </div>
-            <div className="min-h-0 flex-1">
-              {mapLoading ? (
-                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">加载中…</div>
-              ) : mapInfo ? (
-                <MindMapEditor mapId={mapInfo.id} initialTitle={mapInfo.title} initialData={mapInfo.data} />
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <span>{mapError || '这篇文章还没有思维导图'}</span>
-                  <button
-                    type="button"
-                    onClick={() => void createMap()}
-                    className="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90"
-                  >
-                    + 创建思维导图
+          {/* 导图面板：边写文章边编辑思维导图（右栏） */}
+          {mapOpen && (
+            <div className="flex w-[46%] min-w-0 shrink-0 flex-col border-l">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-1.5 text-xs">
+                <span className="font-medium">思维导图</span>
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <span className="truncate">{mapLoading ? '加载中…' : mapInfo ? mapInfo.title : '未创建'}</span>
+                  <button type="button" onClick={() => setMapOpen(false)} className="transition-colors hover:text-foreground">
+                    收起
                   </button>
                 </div>
-              )}
+              </div>
+              <div className="min-h-0 flex-1">
+                {mapLoading ? (
+                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">加载中…</div>
+                ) : mapInfo ? (
+                  <MindMapEditor mapId={mapInfo.id} initialTitle={mapInfo.title} initialData={mapInfo.data} />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+                    <span>{mapError || '这篇文章还没有思维导图'}</span>
+                    <button
+                      type="button"
+                      onClick={() => void createMap()}
+                      className="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+                    >
+                      + 创建思维导图
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* 右栏：目录 */}

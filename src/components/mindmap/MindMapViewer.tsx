@@ -73,7 +73,7 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
         readonly: true,
         layout: 'logicalStructure',
         theme: 'default',
-        mousewheelAction: 'zoom',
+        // 默认滚轮行为（move）：普通滚轮上下移动，按住 Ctrl 滚轮放大缩小
       });
       mm = instance;
       mmRef.current = mm;
