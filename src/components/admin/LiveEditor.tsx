@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import MarkdownEditor from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
+import MindMapEditor from '../mindmap/MindMapEditor';
 import type { ArticleType } from '../../../db/types';
 import { ARTICLE_TYPES } from '../../../db/types';
 import { compressImageForUpload } from '../../lib/client-image-upload';
@@ -74,6 +75,11 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
   const [uploading, setUploading] = useState(false);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  // 导图面板（边写文章边编辑思维导图）
+  const [mapOpen, setMapOpen] = useState(false);
+  const [mapInfo, setMapInfo] = useState<{ id: string; title: string; data: string } | null>(null);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [mapError, setMapError] = useState('');
 
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -143,6 +149,62 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [saveStatus]);
+
+  /** 导图面板：打开时加载该文章的思维导图（无则显示创建入口） */
+  useEffect(() => {
+    if (!mapOpen) return;
+    let cancelled = false;
+    setMapLoading(true);
+    setMapError('');
+    void (async () => {
+      try {
+        const res = await fetch(`/api/mindmaps?articleId=${encodeURIComponent(draft.id)}`);
+        const d = (await res.json()) as { maps?: { id: string; title: string }[] };
+        const list = d.maps ?? [];
+        if (list.length > 0) {
+          const full = await fetch(`/api/mindmaps/${list[0]!.id}`);
+          const fd = (await full.json()) as { map?: { id: string; title: string; data: unknown } };
+          if (fd.map && !cancelled) {
+            setMapInfo({ id: fd.map.id, title: fd.map.title, data: JSON.stringify(fd.map.data) });
+          }
+        } else if (!cancelled) {
+          setMapInfo(null);
+        }
+      } catch {
+        if (!cancelled) setMapError('加载思维导图失败');
+      } finally {
+        if (!cancelled) setMapLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mapOpen, draft.id]);
+
+  /** 为当前文章创建思维导图 */
+  const createMap = useCallback(async (): Promise<void> => {
+    setMapLoading(true);
+    setMapError('');
+    try {
+      const res = await fetch('/api/mindmaps', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: draftRef.current.title || '思维导图', articleId: draftRef.current.id }),
+      });
+      const d = (await res.json()) as { map?: { id: string; title: string } };
+      if (!res.ok || !d.map) {
+        setMapError('创建失败，请重试');
+        return;
+      }
+      const full = await fetch(`/api/mindmaps/${d.map.id}`);
+      const fd = (await full.json()) as { map?: { id: string; title: string; data: unknown } };
+      if (fd.map) setMapInfo({ id: fd.map.id, title: fd.map.title, data: JSON.stringify(fd.map.data) });
+    } catch {
+      setMapError('创建失败，请重试');
+    } finally {
+      setMapLoading(false);
+    }
+  }, []);
 
   /* ---- 打开 / 删除 / 移动 ---- */
   const loadArticle = useCallback(async (id: string): Promise<void> => {
@@ -408,6 +470,18 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                 重新登录
               </a>
             ) : null}
+            <button
+              type="button"
+              onClick={() => setMapOpen((o) => !o)}
+              className={`ml-auto rounded-md border px-2.5 py-1 transition-colors duration-200 ${
+                mapOpen
+                  ? 'border-primary/60 bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-primary/50 hover:text-primary'
+              }`}
+              title="展开/收起思维导图面板"
+            >
+              🧭 导图
+            </button>
           </div>
         </div>
 
@@ -419,6 +493,39 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
           onSave={() => void saveNow()}
           className="min-h-0 flex-1"
         />
+
+        {/* 导图面板：边写文章边编辑思维导图 */}
+        {mapOpen && (
+          <div className="flex h-[42%] min-h-0 shrink-0 flex-col border-t">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-1.5 text-xs">
+              <span className="font-medium">思维导图</span>
+              <div className="flex items-center gap-3 text-muted-foreground">
+                <span className="truncate">{mapLoading ? '加载中…' : mapInfo ? mapInfo.title : '未创建'}</span>
+                <button type="button" onClick={() => setMapOpen(false)} className="transition-colors hover:text-foreground">
+                  收起
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1">
+              {mapLoading ? (
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">加载中…</div>
+              ) : mapInfo ? (
+                <MindMapEditor mapId={mapInfo.id} initialTitle={mapInfo.title} initialData={mapInfo.data} />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <span>{mapError || '这篇文章还没有思维导图'}</span>
+                  <button
+                    type="button"
+                    onClick={() => void createMap()}
+                    className="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+                  >
+                    + 创建思维导图
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 右栏：目录 */}

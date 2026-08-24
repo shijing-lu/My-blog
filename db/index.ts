@@ -18,8 +18,8 @@ import * as sqliteSchema from './schema.sqlite';
 import * as pgSchema from './schema.pg';
 import { isPostgres } from './dialect';
 
-/** 数据库连接串（默认本地 SQLite 开发库） */
-const DATABASE_URL: string = process.env.DATABASE_URL ?? 'file:./data/blog.db';
+/** 数据库连接串（默认本地 SQLite 开发库；空串视为未配置，回退 SQLite） */
+const DATABASE_URL: string = process.env.DATABASE_URL?.trim() || 'file:./data/blog.db';
 
 /** 对外统一数据库句柄类型（以 sqlite schema 为准，两方言形状一致） */
 export type BlogDb = BetterSQLite3Database<typeof sqliteSchema>;

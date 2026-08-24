@@ -67,13 +67,6 @@ const blockMapJson = JSON.stringify(blockMap);
           class="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl translate-x-full flex-col border-l border-border bg-background shadow-xl transition-transform duration-300 ease-out"
         >
           <div class="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
-            <a
-              href={`/learn/${slug}`}
-              class="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-              title="左文右图双栏学习"
-            >
-              📖 学习模式
-            </a>
             <span class="font-medium">思维导图</span>
             {
               mapPanels.length > 1 && (
@@ -102,7 +95,7 @@ const blockMapJson = JSON.stringify(blockMap);
           <div class="min-h-0 flex-1">
             {mapPanels.map((m, i) => (
               <div data-map-panel={m.id} class={i === 0 ? 'h-full' : 'hidden h-full'}>
-                <MindMapViewer client:load data={m.data} blockMap={JSON.parse(blockMapJson)} />
+                <MindMapViewer client:load mapId={m.id} data={m.data} blockMap={JSON.parse(blockMapJson)} />
               </div>
             ))}
           </div>
@@ -169,6 +162,12 @@ const blockMapJson = JSON.stringify(blockMap);
   const openBtn = document.getElementById('mindmap-open');
   const closeBtn = document.getElementById('mindmap-close');
 
+  /** 打开/关闭抽屉（按钮 toggle，点一下开、再点一下关） */
+  function toggleDrawer(): void {
+    const isOpen = drawer ? !drawer.classList.contains('translate-x-full') : false;
+    setDrawer(!isOpen);
+  }
+
   function setDrawer(open: boolean): void {
     if (!drawer) return;
     drawer.classList.toggle('translate-x-full', !open);
@@ -179,7 +178,7 @@ const blockMapJson = JSON.stringify(blockMap);
     }
   }
 
-  openBtn?.addEventListener('click', () => setDrawer(true));
+  openBtn?.addEventListener('click', toggleDrawer);
   closeBtn?.addEventListener('click', () => setDrawer(false));
 
   // 点击抽屉外（右侧文章区域）关闭：仅在桌面宽度时绑定到遮罩层效果
@@ -304,11 +303,58 @@ const blockMapJson = JSON.stringify(blockMap);
       toast.textContent = '已加入导图，可在「思维导图」中查看';
       document.body.appendChild(toast);
       window.setTimeout(() => toast.remove(), 2200);
+      window.dispatchEvent(new CustomEvent('mindmap-refresh', { detail: { mapId } }));
     } catch {
       if (pickStatus) {
         pickStatus.textContent = '添加失败，请重试';
         pickStatus.classList.remove('hidden');
       }
+    }
+  });
+
+  // ---------- 拖拽选中片段 → 导图引用节点 ----------
+  let pendingDragRef: { text: string; anchorId: string; snippet: string } | null = null;
+  document.addEventListener('dragstart', (e) => {
+    const t = e.target as HTMLElement;
+    if (!t.closest('.prose')) return;
+    const ref = collectSelection();
+    if (ref) pendingDragRef = ref;
+  });
+  document.addEventListener('dragover', (e) => {
+    const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-map-panel]');
+    if (panel) {
+      e.preventDefault();
+      panel.classList.add('mindmap-drop-hover');
+    }
+  });
+  document.addEventListener('dragleave', (e) => {
+    const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-map-panel]');
+    if (panel) panel.classList.remove('mindmap-drop-hover');
+  });
+  document.addEventListener('drop', async (e) => {
+    const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-map-panel]');
+    if (!panel) return;
+    e.preventDefault();
+    panel.classList.remove('mindmap-drop-hover');
+    const mapId = panel.dataset.mapPanel;
+    if (!mapId || !pendingDragRef) return;
+    const ref = pendingDragRef;
+    pendingDragRef = null;
+    try {
+      const res = await fetch(`/api/mindmaps/${mapId}/refs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(ref),
+      });
+      if (!res.ok) return;
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-background px-4 py-2 text-xs shadow-lg';
+      toast.textContent = '已拖入导图（引用节点）';
+      document.body.appendChild(toast);
+      window.setTimeout(() => toast.remove(), 2200);
+      window.dispatchEvent(new CustomEvent('mindmap-refresh', { detail: { mapId } }));
+    } catch {
+      /* 忽略 */
     }
   });
 </script>
