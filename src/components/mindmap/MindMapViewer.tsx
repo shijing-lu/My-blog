@@ -2,12 +2,15 @@
  * MindMapViewer.tsx —— 思维导图只读查看器（文章页抽屉）
  *
  * - readonly 渲染（同一 simple-mind-map 数据格式，与编辑器一致）；
- * - 点击带锚点（node.data.anchorId）的节点 → 先派发 mindmap-navigate（页面收起
- *   移动端全屏抽屉），再平滑滚动文章对应段落并闪烁高亮；锚点失效用 blockMap
- *   摘要包含匹配兜底；
- * - 监听 mindmap-refresh：外部新增引用节点后重新拉取数据刷新画布。
+ * - 点击带锚点（anchorId）或片段（snippet）的节点 → 平滑滚动文章对应段落并闪烁
+ *   高亮（不收起抽屉）；
+ * - 支持从文章拖拽选中片段到画布：
+ *   - dragover 实时感应鼠标落在哪个节点 → 该节点边框高亮（跟着鼠标切换）；
+ *   - drop 松手弹出命名弹框（不是粘贴全文）→ 确认后插入到目标节点下
+ *     （POST refs 带 parentId；拖到空白处则追加到根节点）；
+ * - 监听 mindmap-refresh：外部新增引用后重新拉取数据刷新画布。
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import 'simple-mind-map/dist/simpleMindMap.esm.css';
 import type MindMap from 'simple-mind-map';
 import type { MindMapData } from 'simple-mind-map';
@@ -22,8 +25,28 @@ interface Props {
   data: unknown;
   /** 文章块级锚点映射（para-N → 块信息） */
   blockMap?: Record<string, BlockInfo>;
-  /** 导图 id（mindmap-refresh 时重新拉取数据用） */
+  /** 导图 id（保存引用 / 刷新用） */
   mapId?: string;
+}
+
+/** 拖拽落点数据 */
+interface DropData {
+  /** 目标节点 uid（null = 追加到根） */
+  targetUid: string | null;
+  /** 目标节点标题（弹框提示用） */
+  targetTitle: string;
+  /** 选中的原文片段 */
+  snippet: string;
+  /** 文章段落锚点（可能为空） */
+  anchorId?: string;
+}
+
+/** simple-mind-map 节点实例子集（渲染层操作） */
+interface NodeLike {
+  getRectInSvg?: () => { left: number; right: number; top: number; bottom: number };
+  highlight?: () => void;
+  closeHighlight?: () => void;
+  getData?: () => { data?: { text?: string } };
 }
 
 /** 导航到文章锚点/片段（anchorId 优先，否则用 snippet 在块摘要中模糊匹配） */
@@ -67,11 +90,158 @@ function jumpToBlock(
 export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const mmRef = useRef<MindMap | null>(null);
+  // 拖拽悬停的节点 uid（用于高亮切换）
+  const hoverUidRef = useRef<string | null>(null);
+  const throttleTimer = useRef<number>(0);
+  // 命名弹框
+  const [dropDialog, setDropDialog] = useState<DropData | null>(null);
+  const [refName, setRefName] = useState('');
+
+  /** 确认：插入引用节点到目标节点下（走 refs API，数据库为准） */
+  const confirmDrop = async (): Promise<void> => {
+    if (!dropDialog || !mapId) return;
+    const dialog = dropDialog;
+    const name = refName.trim();
+    if (!name) return;
+    setDropDialog(null);
+    try {
+      const res = await fetch(`/api/mindmaps/${mapId}/refs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          text: name,
+          anchorId: dialog.anchorId,
+          snippet: dialog.snippet,
+          parentId: dialog.targetUid,
+        }),
+      });
+      if (!res.ok) return;
+      // 触发画布刷新（effect 内监听的 mindmap-refresh）
+      window.dispatchEvent(new CustomEvent('mindmap-refresh', { detail: { mapId } }));
+      const toastEl = document.createElement('div');
+      toastEl.className =
+        'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-background px-4 py-2 text-xs shadow-lg';
+      toastEl.textContent = `已加入「${dialog.targetTitle}」下`;
+      document.body.appendChild(toastEl);
+      window.setTimeout(() => toastEl.remove(), 2200);
+    } catch {
+      /* 忽略 */
+    }
+  };
 
   useEffect(() => {
     let disposed = false;
     let mm: MindMap | null = null;
     let ro: ResizeObserver | null = null;
+
+    /** 节点缓存（渲染实例） */
+    const nodeCache = (): Record<string, NodeLike> =>
+      (mmRef.current?.renderer as { nodeCache?: Record<string, NodeLike> } | undefined)?.nodeCache ?? {};
+
+    /** 切换悬停高亮 */
+    function setHover(uid: string | null): void {
+      if (hoverUidRef.current === uid) return;
+      const cache = nodeCache();
+      if (hoverUidRef.current && cache[hoverUidRef.current]) {
+        cache[hoverUidRef.current]?.closeHighlight?.();
+      }
+      hoverUidRef.current = uid;
+      if (uid && cache[uid]) cache[uid]?.highlight?.();
+    }
+
+    function clearHover(): void {
+      setHover(null);
+    }
+
+    /** 鼠标坐标 → 命中的节点 uid（无命中返回 null） */
+    function findNodeAt(clientX: number, clientY: number): string | null {
+      const container = containerRef.current;
+      if (!container) return null;
+      const rect = container.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const cache = nodeCache();
+      for (const uid of Object.keys(cache)) {
+        const r = cache[uid]?.getRectInSvg?.();
+        if (r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+          return uid;
+        }
+      }
+      return null;
+    }
+
+    function nodeTitle(uid: string | null): string {
+      if (!uid) return '根节点';
+      return nodeCache()[uid]?.getData?.().data?.text?.slice(0, 20) || '该节点';
+    }
+
+    /** 拖拽经过画布：感应节点 + 高亮（节流） */
+    function onDragOver(e: DragEvent): void {
+      if (!mmRef.current) return;
+      e.preventDefault();
+      if (throttleTimer.current) return;
+      throttleTimer.current = window.setTimeout(() => {
+        throttleTimer.current = 0;
+        const uid = findNodeAt(e.clientX, e.clientY);
+        setHover(uid);
+      }, 50);
+    }
+
+    function onDragLeave(e: DragEvent): void {
+      // 移到画布外才清除（子元素间移动不触发）
+      if (e.relatedTarget && containerRef.current?.contains(e.relatedTarget as Node)) return;
+      clearHover();
+    }
+
+    /** 松手：记录落点，弹命名框 */
+    function onDrop(e: DragEvent): void {
+      if (!mmRef.current) return;
+      e.preventDefault();
+      clearHover();
+      const targetUid = hoverUidRef.current;
+      hoverUidRef.current = null;
+      // 选区信息：dragstart 时由文章页写入 window.__mindmapDragRef
+      const dragRef = (window as unknown as { __mindmapDragRef?: { anchorId?: string; snippet?: string } })
+        .__mindmapDragRef;
+      const snippet = (e.dataTransfer?.getData('text/plain') || dragRef?.snippet || '').trim();
+      if (!snippet && !dragRef?.anchorId) return;
+      setDropDialog({
+        targetUid,
+        targetTitle: nodeTitle(targetUid),
+        snippet: snippet || dragRef?.snippet || '',
+        anchorId: dragRef?.anchorId,
+      });
+      setRefName((snippet || dragRef?.snippet || '').slice(0, 30));
+    }
+
+    /** 重新拉取并刷新画布（完整格式必须 setFullData） */
+    async function refreshMap(): Promise<void> {
+      if (!mapId || !mmRef.current) return;
+      try {
+        const res = await fetch(`/api/mindmaps/${mapId}`);
+        if (!res.ok) return;
+        const d = (await res.json()) as { map?: { data?: unknown } };
+        const next = d.map?.data;
+        if (!next) return;
+        const mm = mmRef.current as unknown as {
+          setFullData?: (data: unknown) => void;
+          setData?: (data: unknown) => void;
+        };
+        if (mm.setFullData) mm.setFullData(next);
+        else mm.setData?.(next);
+      } catch {
+        /* 忽略 */
+      }
+    }
+
+    function toast(msg: string): void {
+      const el = document.createElement('div');
+      el.className =
+        'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-background px-4 py-2 text-xs shadow-lg';
+      el.textContent = msg;
+      document.body.appendChild(el);
+      window.setTimeout(() => el.remove(), 2200);
+    }
 
     void (async () => {
       const mod = await import('simple-mind-map');
@@ -102,36 +272,82 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
       ro.observe(containerRef.current);
     })();
 
+    // 拖拽接收（容器级）
+    const container = containerRef.current;
+    container?.addEventListener('dragover', onDragOver);
+    container?.addEventListener('drop', onDrop);
+    container?.addEventListener('dragleave', onDragLeave);
+
     /** 外部新增引用节点后：重新拉取并刷新画布 */
     async function onRefresh(): Promise<void> {
-      if (!mapId) return;
-      try {
-        const res = await fetch(`/api/mindmaps/${mapId}`);
-        if (!res.ok) return;
-        const d = (await res.json()) as { map?: { data?: unknown } };
-        const next = d.map?.data;
-        if (!next || !mmRef.current) return;
-        // 完整格式（{ layout, root, theme, view }）必须用 setFullData 恢复；
-        // setData 只接受节点树，误用会把整个数据嵌套成根节点链（历史损坏根因）
-        const mm = mmRef.current as unknown as {
-          setFullData?: (data: unknown) => void;
-          setData?: (data: unknown) => void;
-        };
-        if (mm.setFullData) mm.setFullData(next);
-        else mm.setData?.(next);
-      } catch {
-        /* 忽略刷新失败 */
-      }
+      await refreshMap();
     }
     window.addEventListener('mindmap-refresh', onRefresh);
 
     return () => {
       disposed = true;
+      window.clearTimeout(throttleTimer.current);
       ro?.disconnect();
       mmRef.current = null;
+      clearHover();
+      container?.removeEventListener('dragover', onDragOver);
+      container?.removeEventListener('drop', onDrop);
+      container?.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('mindmap-refresh', onRefresh);
     };
   }, [data, blockMap, mapId]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
+      {/* 命名弹框（拖拽松手后弹出，不是粘贴全文） */}
+      {dropDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setDropDialog(null)}
+        >
+          <div
+            className="w-80 rounded-lg border border-border bg-card p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="给引用命名"
+          >
+            <h3 className="font-medium">添加引用</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              将添加到「{dropDialog.targetTitle}」下
+            </p>
+            <label className="mt-3 block text-xs font-medium text-muted-foreground">
+              引用名称（节点显示用，不是粘贴全文）
+              <input
+                type="text"
+                value={refName}
+                onChange={(e) => setRefName(e.target.value)}
+                maxLength={80}
+                autoFocus
+                placeholder="给这个引用起个名字"
+                className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+              />
+            </label>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDropDialog(null)}
+                className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDrop()}
+                disabled={!refName.trim()}
+                className="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                添加
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

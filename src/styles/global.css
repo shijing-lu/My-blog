@@ -1615,3 +1615,10 @@
   outline-offset: -2px;
   border-radius: var(--radius-lg);
 }
+
+/* 拖拽悬停在导图节点上的发光提示（simple-mind-map 节点为 SVG group） */
+g.smm-node-highlight rect {
+  filter: drop-shadow(0 0 5px var(--color-primary));
+  stroke: var(--color-primary) !important;
+  stroke-width: 2.5 !important;
+}

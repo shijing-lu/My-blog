@@ -338,53 +338,17 @@ const blockMapJson = JSON.stringify(blockMap);
   });
 
   // ---------- 拖拽选中片段 → 导图引用节点 ----------
-  let pendingDragRef: { text: string; anchorId: string; snippet: string } | null = null;
+  // dragstart 时把选区信息（锚点+片段）写入全局，由抽屉内 MindMapViewer 的
+  // drop 处理（感应目标节点 → 弹命名框 → 插入该节点下；空白处追加根节点）
   document.addEventListener('dragstart', (e) => {
     const t = e.target as HTMLElement;
     if (!t.closest('.prose')) return;
     const ref = collectSelection();
-    if (ref) pendingDragRef = ref;
-  });
-  document.addEventListener('dragover', (e) => {
-    const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-map-panel]');
-    if (panel) {
-      e.preventDefault();
-      panel.classList.add('mindmap-drop-hover');
-    }
-  });
-  document.addEventListener('dragleave', (e) => {
-    const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-map-panel]');
-    if (panel) panel.classList.remove('mindmap-drop-hover');
-  });
-  document.addEventListener('drop', async (e) => {
-    const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-map-panel]');
-    if (!panel) return;
-    e.preventDefault();
-    panel.classList.remove('mindmap-drop-hover');
-    const mapId = panel.dataset.mapPanel;
-    if (!mapId || !pendingDragRef) return;
-    const ref = pendingDragRef;
-    pendingDragRef = null;
-    // 给引用起名（不是粘贴全文）
-    const name = window.prompt('引用名称（节点显示用，不是粘贴全文）', ref.text.slice(0, 30));
-    if (name === null) return;
-    const title = name.trim();
-    if (!title) return;
-    try {
-      const res = await fetch(`/api/mindmaps/${mapId}/refs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...ref, text: title }),
-      });
-      if (!res.ok) return;
-      const toast = document.createElement('div');
-      toast.className = 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-background px-4 py-2 text-xs shadow-lg';
-      toast.textContent = '已拖入导图（引用节点）';
-      document.body.appendChild(toast);
-      window.setTimeout(() => toast.remove(), 2200);
-      window.dispatchEvent(new CustomEvent('mindmap-refresh', { detail: { mapId } }));
-    } catch {
-      /* 忽略 */
+    if (ref) {
+      (window as unknown as { __mindmapDragRef?: { anchorId: string; snippet: string } }).__mindmapDragRef = {
+        anchorId: ref.anchorId,
+        snippet: ref.snippet,
+      };
     }
   });
 </script>
