@@ -11,8 +11,8 @@ import { addFont, listFontsMeta } from '@/lib/fonts';
 
 export const prerender = false;
 
-// Vercel 函数请求体上限 4.5MB；base64 膨胀约 1/3 → 限制字体 ≤2MB（base64 ~2.7MB），留足余量
-const MAX_FONT_BYTES = 2 * 1024 * 1024; // 2MB
+// Vercel 函数请求体上限 4.5MB；base64 膨胀约 1/3 → 最大可安全接受 ~3.3MB，取 3MB 留余量
+const MAX_FONT_BYTES = 3 * 1024 * 1024; // 3MB
 const MAX_NAME = 100;
 
 /** GET：列表（公开元信息） */
@@ -44,7 +44,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const byteLength = Buffer.from(dataBase64, 'base64').length;
   if (byteLength === 0) return json({ error: '字体内容为空' }, 400);
   if (byteLength > MAX_FONT_BYTES) {
-    return json({ error: '字体不能超过 2MB（建议用 woff2 子集字体，如常用汉字版约几百 KB）' }, 413);
+    return json({ error: '字体不能超过 3MB（Vercel 函数请求体硬上限 4.5MB；更大字体请用子集化 scripts/subset-font.mjs）' }, 413);
   }
 
   try {
