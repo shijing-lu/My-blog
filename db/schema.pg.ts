@@ -160,7 +160,7 @@ export const moments = pgTable('moments', {
     .defaultNow(),
 });
 
-/** 点赞（文章/动态通用；匿名指纹去重，点赞可取消） */
+/** 点赞（文章/动态通用；GitHub 登录与匿名分开计数，可取消） */
 export const likes = pgTable(
   'likes',
   {
@@ -170,15 +170,17 @@ export const likes = pgTable(
     targetType: text('target_type').notNull(),
     /** 目标 id（文章 id 或动态 id） */
     targetId: text('target_id').notNull(),
-    /** 匿名指纹（浏览器 localStorage UUID，同一浏览器视为同一用户） */
-    fingerprint: text('fingerprint').notNull(),
+    /** 点赞者类型：anonymous | github */
+    userType: text('user_type').notNull().default('anonymous'),
+    /** 身份标识：匿名 = 浏览器指纹；GitHub = token 哈希（不存明文） */
+    userIdent: text('user_ident').notNull().default(''),
     /** 点赞时间 */
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
   },
   (table) => [
-    // 同一目标 + 同一指纹仅一条 → toggle 天然幂等（赞/取消）
-    unique('likes_target_fingerprint_unique').on(table.targetType, table.targetId, table.fingerprint),
+    // 同一目标 + 同类型 + 同一身份仅一条 → toggle 天然幂等（赞/取消）
+    unique('likes_target_user_unique').on(table.targetType, table.targetId, table.userType, table.userIdent),
   ],
 );

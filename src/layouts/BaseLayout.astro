@@ -19,6 +19,7 @@ import ThemeToggle from '@/components/ThemeToggle.astro';
 import ThemeSettings from '@/components/ThemeSettings.astro';
 import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
+import LoginDialog from '@/components/LoginDialog.astro';
 import { verifyRequest } from '@/lib/auth';
 import { getSiteBackground } from '@/lib/background';
 
@@ -91,17 +92,13 @@ const bg = await getSiteBackground();
             isAuthed ? (
               <a
                 href="/edit/new"
+                data-astro-reload
                 class="ml-1 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
               >
                 写作
               </a>
             ) : (
-              <a
-                href="/login"
-                class="ml-1 rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:bg-accent"
-              >
-                登录
-              </a>
+              <LoginDialog isAuthed={false} />
             )
           }
         </nav>

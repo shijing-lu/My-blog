@@ -171,13 +171,17 @@ export interface NewMoment {
 /** 点赞目标类型：文章 / 动态 */
 export type LikeTargetType = 'article' | 'moment';
 
+/** 点赞者类型：匿名（浏览器指纹）/ GitHub 登录 */
+export type LikeUserType = 'anonymous' | 'github';
+
 /** 点赞 */
 export interface Like {
   id: string;
   targetType: LikeTargetType;
   targetId: string;
-  /** 匿名指纹（浏览器 localStorage UUID） */
-  fingerprint: string;
+  userType: LikeUserType;
+  /** 身份标识：匿名 = 指纹；GitHub = token 哈希 */
+  userIdent: string;
   createdAt: Date;
 }
 
@@ -186,6 +190,7 @@ export interface NewLike {
   id: string;
   targetType: LikeTargetType;
   targetId: string;
-  fingerprint: string;
+  userType: LikeUserType;
+  userIdent: string;
   createdAt: Date;
 }

@@ -56,9 +56,8 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
 
     void (() => {
       const envId = (import.meta.env.PUBLIC_TWIKOO_ENV_ID as string | undefined) ?? '';
-      if (!envId) return;
 
-      /** 当前主题（跟随博客 .dark class） */
+      /** 当前主题（跟随博客 .dark class，init 时读取） */
       function currentTheme(): 'dark' | 'light' {
         return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
       }
@@ -66,13 +65,12 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
       /** Twikoo 全局对象类型（CDN 加载的 nocss 版） */
       type TwikooGlobal = {
         init: (o: { el: HTMLElement; envId: string; path?: string; lang?: string; theme?: string }) => Promise<void>;
-        updateConfig: (c: { theme?: string }) => Promise<void>;
       };
       function getTwikoo(): TwikooGlobal | null {
         return (window as unknown as { twikoo?: TwikooGlobal }).twikoo ?? null;
       }
 
-      /** 动态加载 twikoo.nocss.js（无 CSS 版，样式由上方静态 <link> 提供，避免导航后被误删） */
+      /** 动态加载 twikoo.nocss.js（无 CSS 版，样式由静态 <link> 提供） */
       let loading: Promise<void> | null = null;
       function loadTwikoo(): Promise<void> {
         if (getTwikoo()) return Promise.resolve();
@@ -88,9 +86,9 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
         return loading;
       }
 
-      /** 初始化单个评论容器（懒加载幂等） */
+      /** 初始化单个评论容器（懒加载幂等；env 未配置时静默） */
       async function initContainer(el: HTMLElement): Promise<void> {
-        if (el.dataset.twikooLoaded === '1') return;
+        if (!envId || el.dataset.twikooLoaded === '1') return;
         el.dataset.twikooLoaded = '1';
         try {
           await loadTwikoo();
@@ -106,12 +104,7 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
         }
       }
 
-      // 非折叠容器：立即初始化
-      document.querySelectorAll<HTMLElement>('[data-twikoo]').forEach((el) => {
-        void initContainer(el);
-      });
-
-      // 折叠容器：点击"评论"展开并懒加载
+      // 折叠容器：点击"评论"展开并懒加载（不依赖 env，未配置时也能展开/收起）
       document.addEventListener('click', (e) => {
         const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-comment-toggle]');
         if (!btn) return;
@@ -121,11 +114,12 @@ const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${target
         if (!body.classList.contains('hidden')) void initContainer(body);
       });
 
-      // 主题切换同步（.dark class 变化 → Twikoo 更新主题）
-      const mo = new MutationObserver(() => {
-        void getTwikoo()?.updateConfig({ theme: currentTheme() });
+      // 仅初始化"非折叠"容器（文章评论区）；折叠容器（动态）等点击展开时才 init，
+      // 避免同一页面多个 Twikoo 实例同时加载导致评论串/状态干扰
+      document.querySelectorAll<HTMLElement>('[data-twikoo]').forEach((el) => {
+        const isCollapsed = !!el.parentElement?.querySelector('[data-comment-toggle]');
+        if (!isCollapsed) void initContainer(el);
       });
-      mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     })();
   }
 </script>

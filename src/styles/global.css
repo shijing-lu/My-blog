@@ -1130,7 +1130,8 @@
 .quote-settings,
 .wechat-dialog,
 .profile-dialog,
-.all-events-dialog {
+.all-events-dialog,
+.login-dialog {
   /* margin:auto 保证屏幕居中（Tailwind preflight 会覆盖原生 dialog 的居中） */
   margin: auto;
   width: min(92vw, 26rem);
@@ -1140,6 +1141,9 @@
   color: var(--color-card-foreground);
   box-shadow: 0 24px 70px rgb(0 0 0 / 0.28);
   padding: 1.25rem;
+}
+.login-dialog {
+  width: min(92vw, 24rem);
 }
 .quote-settings {
   width: min(92vw, 30rem);
@@ -1152,7 +1156,8 @@
 .quote-settings::backdrop,
 .wechat-dialog::backdrop,
 .profile-dialog::backdrop,
-.all-events-dialog::backdrop {
+.all-events-dialog::backdrop,
+.login-dialog::backdrop {
   background: rgb(0 0 0 / 0.45);
   backdrop-filter: blur(2px);
 }
@@ -1160,7 +1165,8 @@
 .quote-settings[open],
 .wechat-dialog[open],
 .profile-dialog[open],
-.all-events-dialog[open] {
+.all-events-dialog[open],
+.login-dialog[open] {
   animation: dialog-in 0.18s ease-out;
 }
 @keyframes dialog-in {

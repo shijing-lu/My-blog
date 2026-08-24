@@ -1,0 +1,140 @@
+---
+/**
+ * LoginDialog.astro —— 导航栏登录弹窗（未登录时显示）
+ *
+ * - 管理员登录：密码表单 → POST /api/login → 成功跳转 next/admin；
+ * - GitHub 登录（评论/点赞）：Twikoo 评论区自带 GitHub 登录，此处引导用户前往评论区
+ *   （登录后以 GitHub 身份评论/点赞，显示头像昵称）。
+ */
+interface Props {
+  /** 是否管理员（管理员不显示登录按钮） */
+  isAuthed: boolean;
+}
+
+const { isAuthed } = Astro.props;
+---
+
+{
+  !isAuthed && (
+    <>
+      <button
+        id="login-btn"
+        type="button"
+        aria-label="登录"
+        title="登录"
+        class="ml-1 inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors duration-200 hover:border-primary hover:text-primary"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4" aria-hidden="true">
+          <path d="M15 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-4" />
+          <path d="M10 17l5-5-5-5" />
+          <path d="M15 12H3" />
+        </svg>
+        登录
+      </button>
+
+      <dialog id="login-dialog" class="login-dialog" aria-labelledby="login-title">
+        <div class="settings-header">
+          <div>
+            <p class="pixel-chip text-primary">LOGIN</p>
+            <h2 id="login-title" class="mt-1 font-display text-xl font-semibold">登录</h2>
+          </div>
+          <button id="login-close" type="button" aria-label="关闭" class="settings-close">×</button>
+        </div>
+        <div class="pixel-divider" />
+
+        <div class="space-y-5 pt-4">
+          <!-- 管理员登录 -->
+          <div>
+            <p class="text-sm font-medium">管理员登录</p>
+            <p class="mt-0.5 text-xs text-muted-foreground">作者本人进入写作台（密码由站主设置）。</p>
+            <form id="login-form-dialog" class="mt-2 space-y-2">
+              <input
+                id="login-password-dialog"
+                type="password"
+                required
+                autocomplete="current-password"
+                placeholder="ADMIN_PASSWORD"
+                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              />
+              <button
+                type="submit"
+                class="w-full rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+              >
+                登录后台
+              </button>
+              <p id="login-dialog-error" class="hidden text-xs text-destructive" role="alert"></p>
+            </form>
+          </div>
+
+          <!-- GitHub 登录（评论/点赞） -->
+          <div class="border-t border-border pt-4">
+            <p class="text-sm font-medium">GitHub 登录（评论 · 点赞）</p>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+              在任意文章或动态的评论区点击 GitHub 登录，即可用你的 GitHub 身份评论、点赞（显示头像和昵称）。
+            </p>
+            <a
+              href="/moments"
+              class="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-muted-foreground transition-colors duration-200 hover:border-primary hover:text-primary"
+            >
+              <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true">
+                <path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.09.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.7 0 0 .84-.28 2.75 1.05a9.36 9.36 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.4.2 2.44.1 2.7.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.8-4.57 5.06.36.32.68.94.68 1.9v2.81c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z" />
+              </svg>
+              去评论区用 GitHub 登录 →
+            </a>
+          </div>
+        </div>
+      </dialog>
+    </>
+  )
+}
+
+<script>
+  // 登录弹窗（document 委托，兼容 View Transitions）
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#login-btn')) {
+      (document.getElementById('login-dialog') as HTMLDialogElement | null)?.showModal();
+      return;
+    }
+    if (target.closest('#login-close')) {
+      (document.getElementById('login-dialog') as HTMLDialogElement | null)?.close();
+    }
+  });
+
+  // 管理员登录表单（与 /login 页一致）
+  function safeNext(): string {
+    const raw = new URLSearchParams(window.location.search).get('next') || '';
+    if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+    return '/admin';
+  }
+  document.addEventListener('submit', (e) => {
+    const form = e.target as HTMLFormElement;
+    if (form.id !== 'login-form-dialog') return;
+    e.preventDefault();
+    const errorEl = document.getElementById('login-dialog-error');
+    const passwordInput = document.getElementById('login-password-dialog') as HTMLInputElement | null;
+    errorEl?.classList.add('hidden');
+    fetch('/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: passwordInput?.value ?? '' }),
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as { error?: string };
+        if (res.ok) {
+          window.location.href = safeNext();
+          return;
+        }
+        if (errorEl) {
+          errorEl.textContent = data.error ?? '登录失败';
+          errorEl.classList.remove('hidden');
+        }
+      })
+      .catch(() => {
+        if (errorEl) {
+          errorEl.textContent = '网络错误，请重试';
+          errorEl.classList.remove('hidden');
+        }
+      });
+  });
+</script>
