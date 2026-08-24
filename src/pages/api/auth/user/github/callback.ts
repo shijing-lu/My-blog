@@ -1,12 +1,13 @@
 /**
  * GET /api/auth/user/github/callback —— 访客 OAuth 回调
  * 验 state → 换 token → 取 GitHub 用户 → upsert github_users → 建 user_session
- * 不检查管理员白名单；登录后跳回站点首页（评论区可显示身份）。
+ * → 跳回 next（默认 /moments）。
  */
 import type { APIRoute } from 'astro';
 import {
   exchangeGitHubCode,
   fetchGitHubUser,
+  getOAuthStateNext,
   OAUTH_STATE_COOKIE,
   setUserSessionCookie,
   verifyOAuthState,
@@ -26,6 +27,10 @@ export const GET: APIRoute = async ({ request, cookies, redirect }) => {
     return redirect('/?login=oauth-invalid');
   }
 
+  // 登录后跳回来源页（state 中 next），仅站内路径
+  const next = getOAuthStateNext(state) ?? '/moments';
+  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/moments';
+
   try {
     const token = await exchangeGitHubCode(code);
     const gh = await fetchGitHubUser(token);
@@ -36,7 +41,7 @@ export const GET: APIRoute = async ({ request, cookies, redirect }) => {
       avatarUrl: gh.avatar_url,
     });
     setUserSessionCookie(cookies, user.id);
-    return redirect('/');
+    return redirect(safeNext);
   } catch {
     return redirect('/?login=oauth-failed');
   }

@@ -465,7 +465,7 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
                 </button>
                 {!githubUser && (
                   <a
-                    href="/api/auth/user/github"
+                    href={`/api/auth/user/github?next=${encodeURIComponent(typeof window !== 'undefined' ? window.location.pathname : '/')}`}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
                   >
                     <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">

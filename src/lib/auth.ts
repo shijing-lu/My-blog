@@ -148,14 +148,36 @@ export function checkPassword(input: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** 签发 OAuth state（防 CSRF） */
-export function createOAuthState(): string {
-  return signPayload({ nonce: randomBytes(16).toString('hex'), exp: Date.now() + STATE_TTL_MS });
+/** 签发 OAuth state（防 CSRF；可选携带登录后跳转路径 next） */
+export function createOAuthState(next?: string): string {
+  const payload: Record<string, unknown> = {
+    nonce: randomBytes(16).toString('hex'),
+    exp: Date.now() + STATE_TTL_MS,
+  };
+  if (next) payload.next = next;
+  return signPayload(payload);
 }
 
 /** 校验 OAuth state */
 export function verifyOAuthState(state: string | undefined | null): boolean {
   return verifySignedPayload(state);
+}
+
+/** 解析 OAuth state 携带的 next（校验签名+过期；无效返回 null） */
+export function getOAuthStateNext(state: string | undefined | null): string | null {
+  if (!state) return null;
+  const [payload, sig] = state.split('.');
+  if (!payload || !sig || hmac(payload) !== sig) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+      next?: unknown;
+      exp?: unknown;
+    };
+    if (typeof data.exp !== 'number' || data.exp <= Date.now()) return null;
+    return typeof data.next === 'string' ? data.next : null;
+  } catch {
+    return null;
+  }
 }
 
 /** 生成 GitHub 授权地址（管理员登录） */
