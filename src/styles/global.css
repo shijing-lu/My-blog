@@ -134,7 +134,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground antialiased font-pixel;
+    @apply bg-background text-foreground antialiased;
+    /* 默认字体 =「其他字体」：标题、UI、评论、动态等所有非文章正文内容 */
+    font-family: var(--font-display-family);
   }
   html {
     scroll-behavior: smooth;
@@ -430,12 +432,12 @@
     opacity: var(--bg-opacity, 0.5);
     filter: blur(var(--bg-blur, 0px));
   }
-  /* 设计决策：页面级标题默认像素字体（文章内标题由 .prose 覆盖为衬线） */
+  /* 页面级标题默认「其他字体」（文章内标题由 .prose 覆盖为同一字体族） */
   h1,
   h2,
   h3,
   h4 {
-    font-family: var(--font-pixel-family);
+    font-family: var(--font-display-family);
   }
   /* 暗色下顶部光晕：颜色随主题主色，开关由令牌 --theme-glow 控制 */
   html.dark body {

@@ -6,7 +6,7 @@
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
 import { getSiteBackground } from '@/lib/background';
-import { getSiteFonts, listFontsMeta } from '@/lib/fonts';
+import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -15,6 +15,8 @@ const heroJson = JSON.stringify(heroSettings);
 const bg = await getSiteBackground();
 const fontSettings = await getSiteFonts();
 const customFonts = await listFontsMeta();
+/** 是否手动设置过字体（false = 跟随主题字体） */
+const hasManualFonts = await hasManualFontSettings();
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="设置">
@@ -95,13 +97,28 @@ const customFonts = await listFontsMeta();
       data-bg={JSON.stringify(bg)}
       data-fonts={JSON.stringify(fontSettings)}
       data-custom-fonts={JSON.stringify(customFonts)}
+      data-has-manual-fonts={String(hasManualFonts)}
     >
       <!-- 全局字体 -->
       <p class="pixel-chip text-primary">FONTS</p>
       <h2 class="mt-1 font-medium">全局字体</h2>
       <p class="mt-1 text-xs text-muted-foreground">
-        分别设置文章正文与标题/UI 字体；可导入自定义字体文件（woff2/ttf/otf，≤3MB）。像素装饰标签保持站点特色不变。
+        两种字体：<strong>文章字体</strong>用于文章正文；<strong>其他字体</strong>用于其余所有内容（标题、导航、按钮、评论、动态、UI 等）。
+        手动设置后全站优先于主题；未设置时跟随当前主题字体（切换主题即换字体）。
       </p>
+
+      <!-- 手动/跟随主题状态 + 操作 -->
+      <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+        <span id="font-mode-text" class="text-xs text-muted-foreground"></span>
+        <button
+          id="font-follow-theme"
+          type="button"
+          class="hidden rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
+        >
+          恢复跟随主题字体
+        </button>
+        <p id="font-mode-status" class="hidden w-full text-xs text-destructive" role="alert"></p>
+      </div>
 
       <div class="mt-4 grid gap-4 sm:grid-cols-2">
         <label class="block text-xs font-medium text-muted-foreground">
@@ -123,7 +140,7 @@ const customFonts = await listFontsMeta();
           </select>
         </label>
         <label class="block text-xs font-medium text-muted-foreground">
-          其他字体（标题/UI）
+          其他字体（标题/UI/评论/动态等所有非正文）
           <select
             id="font-ui"
             class="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
@@ -381,7 +398,7 @@ const customFonts = await listFontsMeta();
     blur: number;
   }
 
-  const bgSection = document.getElementById('site-background');
+  const bgSection = document.getElementById('appearance'); // data-bg 挂在 #appearance 上（外观分区）
   // 解析失败时兜底默认值，避免中断后续初始化（checkbox/slider）
   let bgInitial: SiteBackground = { enabled: false, imageUrl: '', opacity: 50, blur: 0 };
   try {
@@ -527,6 +544,38 @@ const customFonts = await listFontsMeta();
     }
   }
   initFontSelects();
+
+  /** 字体模式：手动设置（全站优先）或跟随主题 */
+  const fontModeText = document.getElementById('font-mode-text');
+  const fontFollowTheme = document.getElementById('font-follow-theme');
+  const fontModeStatus = document.getElementById('font-mode-status');
+  const hasManualFonts = appearanceEl?.dataset.hasManualFonts === 'true';
+  function renderFontMode(): void {
+    if (!fontModeText || !fontFollowTheme) return;
+    if (hasManualFonts) {
+      fontModeText.textContent = '当前：手动字体（全站优先于主题，切换主题仍生效）';
+      fontFollowTheme.classList.remove('hidden');
+    } else {
+      fontModeText.textContent = '当前：跟随主题字体（切换主题即更换字体）';
+      fontFollowTheme.classList.add('hidden');
+    }
+  }
+  renderFontMode();
+  function setFontModeStatus(msg: string, isError: boolean): void {
+    if (!fontModeStatus) return;
+    fontModeStatus.textContent = msg;
+    fontModeStatus.classList.toggle('hidden', !isError);
+  }
+  fontFollowTheme?.addEventListener('click', async () => {
+    if (!window.confirm('恢复跟随主题字体？将清除当前手动字体设置，全站改用当前主题自带字体。')) return;
+    try {
+      const res = await fetch('/api/fonts-settings', { method: 'DELETE' });
+      if (!res.ok) throw new Error('清除失败');
+      window.location.reload();
+    } catch {
+      setFontModeStatus('清除失败，请重试', true);
+    }
+  });
 
   /** 渲染已导入字体列表 */
   const fontList = document.getElementById('font-list') as HTMLUListElement | null;

@@ -11,9 +11,18 @@ const { title = '后台管理' } = Astro.props;
 import '../styles/global.css';
 import ThemeHead from '@/components/ThemeHead.astro';
 import { verifyRequest } from '@/lib/auth';
+import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 
 /* ===== Logic ===== */
 const isAuthed = verifyRequest(Astro.cookies);
+/** 手动字体设置（优先于主题；未设置则跟随主题）——与 BaseLayout 保持一致 */
+const hasManualFonts = await hasManualFontSettings();
+const fontSettings = await getSiteFonts();
+const customFontIds = [fontSettings.article, fontSettings.ui]
+  .filter((f) => f.type === 'custom')
+  .map((f) => f.value);
+const customFonts = await getFontsByIds(customFontIds);
+const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -24,6 +33,8 @@ const isAuthed = verifyRequest(Astro.cookies);
     <title>{title} · My Blog</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <ThemeHead />
+    {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题） */}
+    {fontCss !== '' && <style set:html={fontCss} />}
   </head>
   <body class="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
     <header class="flex h-12 shrink-0 items-center justify-between border-b px-4">

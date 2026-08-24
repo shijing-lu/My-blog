@@ -74,6 +74,26 @@ export async function saveSiteFonts(input: Partial<SiteFonts>): Promise<SiteFont
   return normalized;
 }
 
+/**
+ * 是否已手动设置字体（settings 表存在 site_fonts 记录）。
+ *
+ * 优先级规则：手动设置过 → 全站优先于主题字体；从未设置 → 跟随当前主题的字体
+ * （主题通过 html[data-theme] 覆盖 --font-sans-family / --font-display-family）。
+ */
+export async function hasManualFontSettings(): Promise<boolean> {
+  try {
+    const rows = await db.select().from(settings).where(eq(settings.key, SETTINGS_KEY)).limit(1);
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** 清除手动字体设置（恢复跟随主题字体） */
+export async function clearSiteFonts(): Promise<void> {
+  await db.delete(settings).where(eq(settings.key, SETTINGS_KEY));
+}
+
 /* ---------------- 自定义字体 ---------------- */
 
 /** 保存上传的字体（base64） */
@@ -150,13 +170,16 @@ function fontFaceCss(font: BlogFont): string {
 }
 
 /**
- * 生成全局字体覆盖 CSS（供 BaseLayout 注入 <style>）
- * 覆盖 --font-sans-family（文章字体）与 --font-display-family（其他/标题字体），
- * 像素装饰字体 --font-pixel-family 保持站点特色不变。
+ * 生成全局字体覆盖 CSS（仅当用户手动设置过字体时由 BaseLayout 注入）
+ *
+ * 手动设置优先级高于主题：主题字体通过 `html[data-theme='id']`（特异性 0,1,1）
+ * 覆盖 --font-sans-family / --font-display-family，因此这里用 `html` + `!important`
+ * 压过所有主题（含运行时注入的自定义主题 CSS）。
+ * 像素装饰字体 --font-pixel-family 保持主题特色不变。
  */
 export function buildFontCss(fonts: SiteFonts, customFonts: BlogFont[]): string {
   const faces = customFonts.map((f) => fontFaceCss(f)).join('');
   const article = choiceStack(fonts.article, customFonts);
   const ui = choiceStack(fonts.ui, customFonts);
-  return `${faces}:root{--font-sans-family:${article};--font-display-family:${ui};}`;
+  return `${faces}html{--font-sans-family:${article} !important;--font-display-family:${ui} !important;}`;
 }
