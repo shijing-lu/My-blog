@@ -237,3 +237,21 @@ export const comments = pgTable(
     index('comments_parent_idx').on(table.parentId),
   ],
 );
+
+/** 自定义字体（管理员本地导入；与 images 同模式，DB 存 base64） */
+export const fonts = pgTable('fonts', {
+  /** UUID 主键 */
+  id: text('id').primaryKey(),
+  /** 字体族名（用户填，@font-face 的 font-family） */
+  familyName: text('family_name').notNull(),
+  /** MIME（font/woff2 等） */
+  mime: text('mime').notNull(),
+  /** 字体二进制（base64） */
+  data: text('data').notNull(),
+  /** 字节数 */
+  size: integer('size').notNull().default(0),
+  /** 上传时间 */
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});

@@ -16,6 +16,8 @@
 @import "@fontsource/lora/500.css";
 @import "@fontsource/lora/600.css";
 @import "@fontsource/lora/700.css";
+@import "@fontsource/noto-serif-sc/400.css";
+@import "@fontsource/zcool-kuaile/400.css";
 @plugin "@tailwindcss/typography";
 
 /* 中文像素字体（Fusion Pixel，OFL 许可）：拉丁走 Silkscreen，中文用此；正文用 .font-readable 可读字体 */

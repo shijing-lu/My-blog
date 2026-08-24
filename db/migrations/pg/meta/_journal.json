@@ -64,6 +64,13 @@
       "when": 1787700000000,
       "tag": "0008_comments_github",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787800000000,
+      "tag": "0009_fonts",
+      "breakpoints": true
     }
   ]
 }

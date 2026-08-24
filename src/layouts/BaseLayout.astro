@@ -22,6 +22,7 @@ import ProfileDialog from '@/components/ProfileDialog.astro';
 import LoginDialog from '@/components/LoginDialog.astro';
 import { verifyRequest } from '@/lib/auth';
 import { getSiteBackground } from '@/lib/background';
+import { buildFontCss, getFontsByIds, getSiteFonts } from '@/lib/fonts';
 
 const siteTitle = 'My Blog';
 const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
@@ -31,6 +32,13 @@ const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
 const isAuthed = verifyRequest(Astro.cookies);
 /** 全站背景配置（是否开启/图片/透明度/模糊度，设置页可配） */
 const bg = await getSiteBackground();
+/** 全局字体设置（文章字体 + 其他字体，设置页可配）→ 注入 CSS 变量覆盖 */
+const fontSettings = await getSiteFonts();
+const customFontIds = [fontSettings.article, fontSettings.ui]
+  .filter((f) => f.type === 'custom')
+  .map((f) => f.value);
+const customFonts = await getFontsByIds(customFontIds);
+const fontCss = buildFontCss(fontSettings, customFonts);
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -44,6 +52,8 @@ const bg = await getSiteBackground();
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <ClientRouter fallback="swap" />
     <ThemeHead />
+    {/* 全局字体设置注入（文章字体 / 其他字体 + 自定义 @font-face） */}
+    <style set:html={fontCss} />
   </head>
   <body class="flex min-h-dvh flex-col">
     {

@@ -240,3 +240,29 @@ export interface NewComment {
   githubUserId: string | null;
   createdAt: Date;
 }
+
+/** 自定义字体（管理员本地导入） */
+export interface BlogFont {
+  id: string;
+  /** 字体族名（@font-face font-family） */
+  familyName: string;
+  mime: string;
+  /** 字体二进制（base64） */
+  data: string;
+  /** 字节数 */
+  size: number;
+  createdAt: Date;
+}
+
+/** 字体选择：system=系统字体栈 | builtin=内置字体 | custom=自定义导入字体 */
+export interface FontChoice {
+  type: 'system' | 'builtin' | 'custom';
+  /** system: 栈名（sans/serif/mono）；builtin: 内置名；custom: fonts.id */
+  value: string;
+}
+
+/** 全局字体设置（文章字体 + 其他字体） */
+export interface SiteFonts {
+  article: FontChoice;
+  ui: FontChoice;
+}
