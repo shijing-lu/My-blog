@@ -25,9 +25,14 @@ function formatShort(date: Date): string {
         <h1 class="mt-1 font-display text-2xl font-semibold">文章管理</h1>
         <p class="mt-1 text-sm text-muted-foreground">共 {articles.length} 篇 · 点击「写作」或右侧 + 新建</p>
       </div>
-      <a href="/edit/new" class="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90">
-        + 新建
-      </a>
+      <div class="flex shrink-0 items-center gap-2">
+        <a href="/admin/mindmaps" class="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors duration-200 hover:border-primary hover:text-primary">
+          🧭 思维导图
+        </a>
+        <a href="/edit/new" class="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90">
+          + 新建
+        </a>
+      </div>
     </div>
 
     <ul class="mt-6 divide-y divide-border rounded-lg border bg-card">

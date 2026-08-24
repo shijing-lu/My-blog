@@ -41,7 +41,16 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
       <a href="/" class="font-pixel text-sm tracking-wider text-primary">
         My Blog
       </a>
-      <nav class="flex items-center gap-3 text-sm">
+      <nav class="flex items-center gap-2 text-xs sm:gap-3 sm:text-sm">
+        <a href="/admin" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+          文章
+        </a>
+        <a href="/admin/mindmaps" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+          思维导图
+        </a>
+        <a href="/admin/settings" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+          设置
+        </a>
         <a href="/" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
           查看文章
         </a>
