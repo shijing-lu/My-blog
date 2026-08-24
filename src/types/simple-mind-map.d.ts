@@ -68,6 +68,11 @@ declare module 'simple-mind-map' {
     getData(withConfig?: boolean): MindMapData;
     /** 设置数据（接受 getData(true) 的全量格式） */
     setData(data: MindMapData): void;
+    /**
+     * 动态设置完整数据（getData(true) 输出：{ layout, root, theme, view }）。
+     * 注意：setData 只接受节点树，恢复完整格式必须用本方法。
+     */
+    setFullData(data: MindMapData): void;
     render(): void;
     resize(): void;
     destroy(): void;

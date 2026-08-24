@@ -11,13 +11,37 @@ import { mindmaps } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type { Mindmap, MindmapMeta } from '../../db/types';
 
-/** 解析导图 data（JSON 字符串 → 对象；损坏返回 null） */
+/** 解析导图 data（JSON 字符串 → 对象；损坏返回 null；自动修复嵌套损坏） */
 export function parseMindmapData(raw: string): unknown {
   try {
-    return JSON.parse(raw);
+    return repairMindmapData(JSON.parse(raw));
   } catch {
     return null;
   }
+}
+
+/**
+ * 修复被嵌套损坏的导图数据（历史 bug：setData 误传完整格式导致 root 链层层嵌套）。
+ *
+ * 损坏形态：`{ layout, root: { data, children, layout, root: {...} } }` ——
+ * root 链每层都含 `root` 键。取最深层 root 作为真实节点树，重建完整格式。
+ * 正常数据（root 无嵌套）原样返回。
+ */
+export function repairMindmapData(data: unknown): unknown {
+  if (!data || typeof data !== 'object') return data;
+  const d = data as { root?: unknown; layout?: unknown; theme?: unknown; view?: unknown };
+  if (!d.root || typeof d.root !== 'object') return data;
+  let node = d.root as { root?: unknown };
+  let depth = 0;
+  while (node && typeof node === 'object' && (node as { root?: unknown }).root && depth < 500) {
+    const next = (node as { root?: unknown }).root;
+    if (!next || typeof next !== 'object') break;
+    node = next as { root?: unknown };
+    depth += 1;
+  }
+  if (depth === 0) return data;
+  // 嵌套损坏：用最深层 root 重建完整格式
+  return { layout: d.layout, root: node, theme: d.theme, view: d.view };
 }
 
 /** 序列化导图 data（对象 → JSON 字符串） */

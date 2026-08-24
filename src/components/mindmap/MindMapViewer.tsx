@@ -67,12 +67,15 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
     void (async () => {
       const mod = await import('simple-mind-map');
       if (disposed || !containerRef.current) return;
+      // DB 存完整格式（getData(true) 输出）；初始化取 root + 布局/主题
+      const full = (data ?? {}) as { root?: unknown; layout?: string; theme?: { template?: string } };
+      const rootData = (full.root ?? data) as MindMapData | undefined;
       const instance = new mod.default({
         el: containerRef.current,
-        data: data as MindMapData | undefined,
+        data: rootData,
+        layout: typeof full.layout === 'string' ? full.layout : undefined,
+        theme: typeof full.theme?.template === 'string' ? full.theme.template : undefined,
         readonly: true,
-        layout: 'logicalStructure',
-        theme: 'default',
         // 默认滚轮行为（move）：普通滚轮上下移动，按住 Ctrl 滚轮放大缩小
       });
       mm = instance;
@@ -98,9 +101,15 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
         if (!res.ok) return;
         const d = (await res.json()) as { map?: { data?: unknown } };
         const next = d.map?.data;
-        if (next && mmRef.current) {
-          mmRef.current.setData(next as MindMapData);
-        }
+        if (!next || !mmRef.current) return;
+        // 完整格式（{ layout, root, theme, view }）必须用 setFullData 恢复；
+        // setData 只接受节点树，误用会把整个数据嵌套成根节点链（历史损坏根因）
+        const mm = mmRef.current as unknown as {
+          setFullData?: (data: unknown) => void;
+          setData?: (data: unknown) => void;
+        };
+        if (mm.setFullData) mm.setFullData(next);
+        else mm.setData?.(next);
       } catch {
         /* 忽略刷新失败 */
       }

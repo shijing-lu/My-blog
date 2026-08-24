@@ -48,11 +48,15 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
       } catch {
         data = undefined;
       }
+      // DB 存的是完整格式（getData(true) 输出 { layout, root, theme, view }）；
+      // 初始化需取 root 作为节点树 + 单独传布局/主题（new MindMap 的 data 只接受节点树）
+      const full = (data ?? {}) as { root?: unknown; layout?: string; theme?: { template?: string } };
+      const rootData = (full.root ?? data) as MindMapData | undefined;
       const instance = new mod.default({
         el: containerRef.current,
-        data: data as MindMapData | undefined,
-        layout: 'logicalStructure',
-        theme: 'default',
+        data: rootData,
+        layout: typeof full.layout === 'string' ? full.layout : undefined,
+        theme: typeof full.theme?.template === 'string' ? full.theme.template : undefined,
         // 默认滚轮行为（move）：普通滚轮上下移动，按住 Ctrl 滚轮放大缩小
       });
       mm = instance;
