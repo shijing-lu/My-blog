@@ -11,7 +11,8 @@ import { addFont, listFontsMeta } from '@/lib/fonts';
 
 export const prerender = false;
 
-const MAX_FONT_BYTES = 3 * 1024 * 1024; // 3MB
+// Vercel 函数请求体上限 4.5MB；base64 膨胀约 1/3 → 限制字体 ≤2MB（base64 ~2.7MB），留足余量
+const MAX_FONT_BYTES = 2 * 1024 * 1024; // 2MB
 const MAX_NAME = 100;
 
 /** GET：列表（公开元信息） */
@@ -40,8 +41,10 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const mime = typeof body.mime === 'string' && /^font\/[\w.+-]+$/.test(body.mime) ? body.mime : 'font/woff2';
   const dataBase64 = typeof body.data === 'string' ? body.data : '';
   if (!dataBase64) return json({ error: '缺少字体数据' }, 400);
-  if (Buffer.from(dataBase64, 'base64').length > MAX_FONT_BYTES) {
-    return json({ error: '字体不能超过 3MB' }, 400);
+  const byteLength = Buffer.from(dataBase64, 'base64').length;
+  if (byteLength === 0) return json({ error: '字体内容为空' }, 400);
+  if (byteLength > MAX_FONT_BYTES) {
+    return json({ error: '字体不能超过 2MB（建议用 woff2 子集字体，如常用汉字版约几百 KB）' }, 413);
   }
 
   try {

@@ -589,6 +589,10 @@ const customFonts = await listFontsMeta();
       setFontStatus('请填写字体名称');
       return;
     }
+    if (file.size > 2 * 1024 * 1024) {
+      setFontStatus('字体文件不能超过 2MB（建议用 woff2 子集字体，如常用汉字版约几百 KB）');
+      return;
+    }
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
