@@ -3,13 +3,16 @@
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import MindMapEditor from '@/components/mindmap/MindMapEditor';
 import { getMindmap } from '@/lib/mindmaps';
-import { getArticleById } from '@/lib/articles';
+import { getArticleById, listArticleMeta } from '@/lib/articles';
 import { renderMdx } from '@/lib/mdx';
 
 /* ===== Logic ===== */
 const { id } = Astro.params;
 const map = id ? await getMindmap(id) : null;
 if (!map) return Astro.redirect('/admin/mindmaps');
+
+/** 全部文章（绑定下拉） */
+const articles = await listArticleMeta();
 
 /** 绑定文章的块级锚点映射（失效引用检测用） */
 let articleBlockMap: Record<string, { type: string; text: string }> = {};
@@ -39,6 +42,18 @@ if (map.articleId) {
         placeholder="导图标题"
         class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring"
       />
+      <select
+        id="map-article"
+        class="max-w-44 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring"
+        title="绑定文章（绑定后文章页显示导图入口）"
+      >
+        <option value="">不绑定（独立导图）</option>
+        {articles.map((a) => (
+          <option value={a.id} selected={map.articleId === a.id}>
+            {a.title || '未命名'}
+          </option>
+        ))}
+      </select>
       <span id="map-save-state" class="text-xs text-muted-foreground"></span>
       <button
         id="map-export-png"
@@ -114,6 +129,17 @@ if (map.articleId) {
         showState('标题保存失败');
       }
     }, 800);
+  });
+
+  /** 绑定文章（切换即保存；不绑定 = 独立导图） */
+  document.getElementById('map-article')?.addEventListener('change', async (e) => {
+    const val = (e.target as HTMLSelectElement).value;
+    const res = await fetch(`/api/mindmaps/${location.pathname.split('/').pop()}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ articleId: val || null }),
+    });
+    showState(res.ok ? '已保存' : '绑定失败，请重试');
   });
 
   document.getElementById('map-export-png')?.addEventListener('click', () => emitExport('png'));
