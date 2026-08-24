@@ -59,6 +59,7 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
         theme: typeof full.theme?.template === 'string' ? full.theme.template : undefined,
         // 展开/收起按钮始终显示（默认 hover 才显示，根节点不显示是库设计）
         alwaysShowExpandBtn: true,
+        expandBtnSize: 14,
         // 默认滚轮行为（move）：普通滚轮上下移动，按住 Ctrl 滚轮放大缩小
       });
       mm = instance;
