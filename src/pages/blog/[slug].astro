@@ -35,7 +35,13 @@ const ContentLayout = layoutMap[article.type] ?? NoteLayout;
 const articleClass = 'prose max-w-none';
 
 // 关联思维导图（SSR 注入完整数据，抽屉免二次请求）
-const maps = await listMindmaps(article.id, true);
+// 查询失败（如数据库连接抖动）时优雅降级：文章正常显示，仅不展示导图入口
+let maps: Awaited<ReturnType<typeof listMindmaps>> = [];
+try {
+  maps = await listMindmaps(article.id, true);
+} catch (err) {
+  console.error('[blog] 加载文章思维导图失败', err);
+}
 const mapPanels = maps
   .map((m) => ({
     id: m.id,
