@@ -93,6 +93,53 @@ export async function updateMindmap(
   return (rows[0] as Mindmap | undefined) ?? null;
 }
 
+/**
+ * 在导图数据中追加「片段引用」节点（文章选中文本 → 导图）
+ *
+ * parentId 为空 → 追加到根节点下；否则追加到指定节点下。
+ * 返回修改后的完整 data（调用方负责落库）。
+ */
+interface RefNode {
+  data: Record<string, unknown>;
+  children?: RefNode[];
+}
+
+export function addMindmapRefNode(
+  data: unknown,
+  input: { parentId: string | null; text: string; anchorId: string; snippet: string },
+): unknown {
+  const tree = data as { root?: RefNode } | null;
+  const root = tree?.root;
+  if (!root) return data;
+
+  const newNode: RefNode = {
+    data: {
+      text: input.text.slice(0, 80),
+      anchorId: input.anchorId,
+      snippet: input.snippet.slice(0, 500),
+      expand: true,
+    },
+    children: [],
+  };
+
+  // 查找目标父节点（按节点 uid/id；simple-mind-map 节点 uid 存在 data 内）
+  const target = input.parentId ? findMindmapNode(root, input.parentId) : root;
+  if (!target) return data;
+  if (!Array.isArray(target.children)) target.children = [];
+  target.children.push(newNode);
+  return data;
+}
+
+/** 在导图树中按节点 id 查找（深度优先） */
+function findMindmapNode(node: RefNode, id: string): RefNode | null {
+  if (node.data && (node.data.uid === id || node.data.id === id)) return node;
+  for (const child of node.children ?? []) {
+    const hit = findMindmapNode(child, id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** 删除导图 */
 export async function deleteMindmap(id: string): Promise<void> {
   await db.delete(mindmaps).where(eq(mindmaps.id, id));

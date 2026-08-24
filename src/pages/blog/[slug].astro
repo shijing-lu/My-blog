@@ -104,6 +104,56 @@ const blockMapJson = JSON.stringify(blockMap);
     )
   }
   <article class={articleClass} set:html={html} />
+
+  {
+    mapPanels.length > 0 && (
+      <>
+        {/* 选中文本 → 加入导图（悬浮工具条） */}
+        <div
+          id="mindmap-snippet-bar"
+          aria-hidden="true"
+          class="fixed z-50 hidden -translate-x-1/2"
+        >
+          <button
+            id="mindmap-snippet-add"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-xs shadow-md transition-colors hover:border-primary/50 hover:text-primary"
+          >
+            🧭 加入导图
+          </button>
+        </div>
+
+        {/* 选择目标导图 */}
+        <dialog id="mindmap-pick-dialog" class="w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+          <h3 class="font-medium">添加到思维导图</h3>
+          <p id="mindmap-pick-snippet" class="mt-1 line-clamp-2 text-xs text-muted-foreground"></p>
+          <select
+            id="mindmap-pick-select"
+            class="mt-3 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
+          >
+            {mapPanels.map((m) => <option value={m.id}>{m.title}</option>)}
+          </select>
+          <div class="mt-3 flex items-center justify-end gap-2">
+            <button
+              id="mindmap-pick-cancel"
+              type="button"
+              class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              取消
+            </button>
+            <button
+              id="mindmap-pick-confirm"
+              type="button"
+              class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              添加
+            </button>
+          </div>
+          <p id="mindmap-pick-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+        </dialog>
+      </>
+    )
+  }
 </ContentLayout>
 
 <script>
@@ -148,5 +198,110 @@ const blockMapJson = JSON.stringify(blockMap);
       t.classList.toggle('text-muted-foreground', !active);
     });
     window.dispatchEvent(new Event('resize'));
+  });
+
+  // ---------- 选中文本 → 加入导图 ----------
+  const snippetBar = document.getElementById('mindmap-snippet-bar');
+  const snippetAddBtn = document.getElementById('mindmap-snippet-add');
+  const pickDialog = document.getElementById('mindmap-pick-dialog') as HTMLDialogElement | null;
+  const pickSelect = document.getElementById('mindmap-pick-select') as HTMLSelectElement | null;
+  const pickSnippet = document.getElementById('mindmap-pick-snippet');
+  const pickStatus = document.getElementById('mindmap-pick-status');
+  let pendingRef: { text: string; anchorId: string; snippet: string } | null = null;
+  let hideBarTimer = 0;
+
+  function hideSnippetBar(): void {
+    snippetBar?.classList.add('hidden');
+    snippetBar?.setAttribute('aria-hidden', 'true');
+  }
+
+  function hideSnippetBarSoon(): void {
+    window.clearTimeout(hideBarTimer);
+    hideBarTimer = window.setTimeout(hideSnippetBar, 200);
+  }
+
+  /** 收集选区：文本 + 所在块锚点（para-N） */
+  function collectSelection(): { text: string; anchorId: string; snippet: string } | null {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return null;
+    const text = sel.toString().trim();
+    if (!text) return null;
+    let anchor: Node | null = sel.anchorNode;
+    if (anchor?.nodeType === Node.TEXT_NODE) anchor = anchor.parentElement;
+    const block = (anchor as HTMLElement | null)?.closest?.('[id^="para-"]') as HTMLElement | null;
+    if (!block || !block.id) return null;
+    return { text: text.slice(0, 60), anchorId: block.id, snippet: text.slice(0, 500) };
+  }
+
+  document.addEventListener('mouseup', (e) => {
+    if (!snippetBar || !snippetAddBtn) return;
+    const target = e.target as HTMLElement;
+    // 点击工具条/弹层内部不触发
+    if (target.closest('#mindmap-snippet-bar') || target.closest('#mindmap-pick-dialog')) return;
+    const ref = collectSelection();
+    if (!ref) {
+      hideSnippetBarSoon();
+      return;
+    }
+    pendingRef = ref;
+    const rect = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+    snippetBar.style.left = `${rect ? rect.left + rect.width / 2 : window.innerWidth / 2}px`;
+    snippetBar.style.top = `${rect ? rect.top - 38 : 120}px`;
+    snippetBar.classList.remove('hidden');
+    snippetBar.setAttribute('aria-hidden', 'false');
+  });
+
+  // 点击非选区区域 / 滚动 → 收起工具条
+  document.addEventListener('mousedown', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#mindmap-snippet-bar') || target.closest('#mindmap-pick-dialog')) return;
+    window.clearTimeout(hideBarTimer);
+    if (!window.getSelection()?.isCollapsed) return;
+    hideSnippetBar();
+  });
+  window.addEventListener('scroll', hideSnippetBar, { passive: true });
+
+  // 「加入导图」→ 打开选择弹层
+  snippetAddBtn?.addEventListener('click', () => {
+    if (!pickDialog || !pendingRef || !pickSnippet) return;
+    pickSnippet.textContent = `「${pendingRef.text}…」`;
+    pickStatus?.classList.add('hidden');
+    pickDialog.showModal();
+  });
+
+  document.getElementById('mindmap-pick-cancel')?.addEventListener('click', () => pickDialog?.close());
+  document.getElementById('mindmap-pick-confirm')?.addEventListener('click', async () => {
+    if (!pendingRef || !pickSelect) return;
+    const mapId = pickSelect.value;
+    if (!mapId) return;
+    try {
+      const res = await fetch(`/api/mindmaps/${mapId}/refs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(pendingRef),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        if (pickStatus) {
+          pickStatus.textContent = d.error ?? '添加失败';
+          pickStatus.classList.remove('hidden');
+        }
+        return;
+      }
+      pickDialog?.close();
+      hideSnippetBar();
+      window.getSelection()?.removeAllRanges();
+      // 轻提示
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-background px-4 py-2 text-xs shadow-lg';
+      toast.textContent = '已加入导图，可在「思维导图」中查看';
+      document.body.appendChild(toast);
+      window.setTimeout(() => toast.remove(), 2200);
+    } catch {
+      if (pickStatus) {
+        pickStatus.textContent = '添加失败，请重试';
+        pickStatus.classList.remove('hidden');
+      }
+    }
   });
 </script>
