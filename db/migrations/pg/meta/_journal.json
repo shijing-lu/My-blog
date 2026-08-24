@@ -43,6 +43,13 @@
       "when": 1787449128202,
       "tag": "0005_narrow_slapstick",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787530000000,
+      "tag": "0006_brisk_rose",
+      "breakpoints": true
     }
   ]
 }

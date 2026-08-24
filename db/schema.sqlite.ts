@@ -6,7 +6,7 @@
  * - 时间戳用 `integer(timestamp_ms)`，读写均映射 `Date`。
  * - `$defaultFn` 在客户端（Node）生成时间，保证与 PG 的 defaultNow 语义一致。
  */
-import { sqliteTable, text, integer, check, customType } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, check, customType, unique } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { isPostgres } from './dialect';
 
@@ -179,3 +179,26 @@ export const moments = sqliteTable('moments', {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+/** 点赞（文章/动态通用；匿名指纹去重，点赞可取消） */
+export const likes = sqliteTable(
+  'likes',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 目标类型：article | moment */
+    targetType: text('target_type').notNull(),
+    /** 目标 id（文章 id 或动态 id） */
+    targetId: text('target_id').notNull(),
+    /** 匿名指纹（浏览器 localStorage UUID，同一浏览器视为同一用户） */
+    fingerprint: text('fingerprint').notNull(),
+    /** 点赞时间 */
+    createdAt: timestampMs('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    // 同一目标 + 同一指纹仅一条 → toggle 天然幂等（赞/取消）
+    unique('likes_target_fingerprint_unique').on(table.targetType, table.targetId, table.fingerprint),
+  ],
+);

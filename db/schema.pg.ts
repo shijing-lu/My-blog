@@ -5,7 +5,7 @@
  * - `tags` 用 jsonb；`type` 用 check 约束（PG 无 enum 需额外迁移）。
  * - 时间戳用 `timestamp withTimezone`，读写均映射 `Date`。
  */
-import { pgTable, text, timestamp, jsonb, integer, boolean, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, integer, boolean, check, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 /** articles 表（PostgreSQL 方言） */
@@ -159,3 +159,26 @@ export const moments = pgTable('moments', {
     .notNull()
     .defaultNow(),
 });
+
+/** 点赞（文章/动态通用；匿名指纹去重，点赞可取消） */
+export const likes = pgTable(
+  'likes',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 目标类型：article | moment */
+    targetType: text('target_type').notNull(),
+    /** 目标 id（文章 id 或动态 id） */
+    targetId: text('target_id').notNull(),
+    /** 匿名指纹（浏览器 localStorage UUID，同一浏览器视为同一用户） */
+    fingerprint: text('fingerprint').notNull(),
+    /** 点赞时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // 同一目标 + 同一指纹仅一条 → toggle 天然幂等（赞/取消）
+    unique('likes_target_fingerprint_unique').on(table.targetType, table.targetId, table.fingerprint),
+  ],
+);

@@ -1,0 +1,101 @@
+---
+/**
+ * Comments.astro —— 评论系统（Twikoo 现成框架）
+ *
+ * - 文章/动态复用：通过 targetType + targetId 区分独立评论线程（Twikoo path）；
+ * - 后端地址由 PUBLIC_TWIKOO_ENV_ID 提供，未配置时静默隐藏（与旧 Giscus 一致）；
+ * - collapsible 模式（动态卡片）：点击"评论"按钮才展开并懒加载评论；
+ * - 主题跟随博客 .dark class 自动切换。
+ */
+interface Props {
+  /** 目标类型：article | moment */
+  targetType: 'article' | 'moment';
+  /** 目标 id（文章 id / 动态 id） */
+  targetId: string;
+  /** 折叠模式（动态卡片用）：点击"评论"才展开加载 */
+  collapsible?: boolean;
+  /** 折叠按钮初始评论数（可选占位） */
+  initialCount?: number;
+}
+
+const { targetType, targetId, collapsible = false, initialCount = 0 } = Astro.props;
+const threadPath = `/${targetType === 'article' ? 'article' : 'moment'}/${targetId}`;
+---
+
+{
+  collapsible ? (
+    <div class="mt-3">
+      <button
+        type="button"
+        data-comment-toggle
+        data-thread-path={threadPath}
+        class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors duration-150 hover:border-primary hover:text-primary"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4" aria-hidden="true">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+        评论
+        {initialCount > 0 && <span class="tabular-nums">({initialCount})</span>}
+      </button>
+      <div class="comment-body mt-3 hidden" data-twikoo data-thread-path={threadPath}></div>
+    </div>
+  ) : (
+    <section class="mt-12 border-t border-border pt-8" aria-label="评论">
+      <p class="pixel-chip text-primary">COMMENTS</p>
+      <div class="mt-4" data-twikoo data-thread-path={threadPath}></div>
+    </section>
+  )
+}
+
+<script>
+  import twikoo from 'twikoo';
+
+  // 幂等守卫：View Transition 重执行本脚本时只绑定一次
+  if (!(window as unknown as { __twikooBound?: boolean }).__twikooBound) {
+    (window as unknown as { __twikooBound?: boolean }).__twikooBound = true;
+
+    void (() => {
+      const envId = (import.meta.env.PUBLIC_TWIKOO_ENV_ID as string | undefined) ?? '';
+      if (!envId) return;
+
+      /** 当前主题（跟随博客 .dark class） */
+      function currentTheme(): 'dark' | 'light' {
+        return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+      }
+
+      /** 初始化单个评论容器（懒加载幂等） */
+      function initContainer(el: HTMLElement): void {
+        if (el.dataset.twikooLoaded === '1') return;
+        el.dataset.twikooLoaded = '1';
+        void twikoo.init({
+          el,
+          envId,
+          path: el.dataset.threadPath ?? '/',
+          lang: 'zh-CN',
+          theme: currentTheme(),
+        });
+      }
+
+      // 非折叠容器：立即初始化
+      document.querySelectorAll<HTMLElement>('[data-twikoo]').forEach((el) => {
+        initContainer(el);
+      });
+
+      // 折叠容器：点击"评论"展开并懒加载
+      document.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-comment-toggle]');
+        if (!btn) return;
+        const body = btn.parentElement?.querySelector<HTMLElement>('[data-twikoo]');
+        if (!body) return;
+        body.classList.toggle('hidden');
+        if (!body.classList.contains('hidden')) initContainer(body);
+      });
+
+      // 主题切换同步（.dark class 变化 → Twikoo 更新主题）
+      const mo = new MutationObserver(() => {
+        void twikoo.updateConfig({ theme: currentTheme() });
+      });
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    })();
+  }
+</script>

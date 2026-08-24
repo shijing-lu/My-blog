@@ -167,3 +167,25 @@ export interface NewMoment {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/** 点赞目标类型：文章 / 动态 */
+export type LikeTargetType = 'article' | 'moment';
+
+/** 点赞 */
+export interface Like {
+  id: string;
+  targetType: LikeTargetType;
+  targetId: string;
+  /** 匿名指纹（浏览器 localStorage UUID） */
+  fingerprint: string;
+  createdAt: Date;
+}
+
+/** 点赞入参 */
+export interface NewLike {
+  id: string;
+  targetType: LikeTargetType;
+  targetId: string;
+  fingerprint: string;
+  createdAt: Date;
+}

@@ -186,6 +186,7 @@ const bg = await getSiteBackground();
       };
       const hideLoader = (): void => {
         window.clearTimeout(staleTimer);
+        window.clearTimeout(progressDoneTimer);
         const shownAt = Number(navLoader?.dataset.shownAt ?? 0);
         const elapsed = shownAt ? Date.now() - shownAt : 0;
         const remain = Math.max(0, MIN_LOADER_MS - elapsed);

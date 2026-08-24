@@ -12,9 +12,13 @@ interface Props {
 const { article, prev, next } = Astro.props;
 
 /* ===== Imports ===== */
-import GiscusComment from '@/components/GiscusComment.astro';
+import LikeButton from '@/components/interact/LikeButton';
+import Comments from '@/components/interact/Comments.astro';
+import { countLikes } from '@/lib/likes';
 
 /* ===== Logic ===== */
+/** 文章点赞数（SSR 注入，防按钮初始闪烁） */
+const likeCount = await countLikes('article', article.id);
 /** 格式化时间为「YYYY-MM-DD HH:mm」 */
 function formatShort(date: Date): string {
   const y = date.getFullYear();
@@ -70,6 +74,11 @@ function formatShort(date: Date): string {
     }
   </nav>
 
-  <!-- Giscus 评论 -->
-  <GiscusComment title={article.title} />
+  <!-- 点赞 -->
+  <div class="mt-8 flex justify-center">
+    <LikeButton client:load targetType="article" targetId={article.id} initialCount={likeCount} />
+  </div>
+
+  <!-- 评论（Twikoo） -->
+  <Comments targetType="article" targetId={article.id} />
 </footer>
