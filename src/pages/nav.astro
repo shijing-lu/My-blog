@@ -99,43 +99,45 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
 
     {
       categories.length > 0 && (
-        /* 左侧分类栏：固定在页面最左侧（贴边，独立于主体） */
-        <aside class="fixed bottom-0 left-0 top-14 z-30 hidden w-52 flex-col border-r border-border bg-background/85 p-3 backdrop-blur-md md:flex">
-          <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
-          <nav class="flex-1 space-y-0.5 overflow-y-auto text-sm" aria-label="导航分类">
-            <button
-              type="button"
-              data-cat-tab="all"
-              class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-            >
-              <span aria-hidden="true">🧭</span>
-              <span>全部网站</span>
-            </button>
-            {categories.map((c) => (
+        /* 左侧分类栏：圆角浮动小卡片（离左/上边留间隙，不贴边、不占主体宽度） */
+        <aside class="fixed left-4 top-16 z-30 hidden w-52 md:block">
+          <div class="rounded-xl border border-border bg-card/85 p-3 shadow-md backdrop-blur-md">
+            <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
+            <nav class="space-y-0.5 text-sm" aria-label="导航分类">
               <button
                 type="button"
-                data-cat-tab={c.id}
-                data-drop-cat={isAuthed ? c.id : undefined}
+                data-cat-tab="all"
                 class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-                title={isAuthed ? '拖拽网站卡片到这里即可移动' : undefined}
               >
-                {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
-                <span class="truncate">{c.name}</span>
-                <span class="ml-auto font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length}</span>
+                <span aria-hidden="true">🧭</span>
+                <span>全部网站</span>
               </button>
-            ))}
-          </nav>
-          {isAuthed && (
-            <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
-              提示：拖拽卡片到分类即可移动
-            </p>
-          )}
+              {categories.map((c) => (
+                <button
+                  type="button"
+                  data-cat-tab={c.id}
+                  data-drop-cat={isAuthed ? c.id : undefined}
+                  class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                  title={isAuthed ? '拖拽网站卡片到这里即可移动' : undefined}
+                >
+                  {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
+                  <span class="truncate">{c.name}</span>
+                  <span class="ml-auto font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length}</span>
+                </button>
+              ))}
+            </nav>
+            {isAuthed && (
+              <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
+                提示：拖拽卡片到分类即可移动
+              </p>
+            )}
+          </div>
         </aside>
       )
     }
 
-    {/* 主体内容：居中显示 */}
-    <main class="mx-auto w-full max-w-5xl px-4 py-10 md:pl-60">
+    {/* 主体内容：居中显示（宽度不变，左侧 padding 给浮动分类栏让位） */}
+    <main class="mx-auto w-full max-w-4xl px-4 py-10 md:pl-64">
       {
         categories.length === 0 ? (
           <p class="mt-10 text-center text-sm text-muted-foreground">暂无分类 —— 管理员可到后台添加。</p>
@@ -300,7 +302,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
         if (!img.dataset.stage) {
           img.dataset.stage = '1';
           img.src = img.dataset.google ?? '';
-          googleTimer = window.setTimeout(showFallback, 4000);
+          googleTimer = window.setTimeout(showFallback, 2500);
           return;
         }
         window.clearTimeout(googleTimer);

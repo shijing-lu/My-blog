@@ -9,7 +9,7 @@
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
 import { verifyRequest } from '@/lib/auth';
-import { createWebsite, deleteWebsite, updateWebsite } from '@/lib/nav';
+import { createWebsite, deleteWebsite, getWebsite, updateWebsite } from '@/lib/nav';
 import { fetchSiteMeta } from '@/lib/nav-metadata';
 
 export const prerender = false;
@@ -40,13 +40,14 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   if (!categoryId) return json({ error: '请选择分类' }, 400);
   if (!name) return json({ error: '请填写网站名' }, 400);
   if (!url) return json({ error: '请填写网址' }, 400);
-  const icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
+  let icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
   let desc = typeof body.desc === 'string' && body.desc.trim() ? body.desc.trim().slice(0, MAX_DESC) : null;
   const sort = Number.isFinite(Number(body.sort)) ? Math.max(0, Math.floor(Number(body.sort))) : 0;
-  // 简介留空时自动抓取目标站 description（失败则保持空）
-  if (!desc) {
+  // 简介/图标留空时自动抓取目标站（一次抓取拿两者）
+  if (!desc || !icon) {
     const meta = await fetchSiteMeta(url);
-    if (meta?.desc) desc = meta.desc.slice(0, MAX_DESC);
+    if (meta?.desc && !desc) desc = meta.desc.slice(0, MAX_DESC);
+    if (meta?.icon && !icon) icon = meta.icon.slice(0, MAX_ICON);
   }
   try {
     const website = await createWebsite({ categoryId, name, url, icon, desc, sort });
@@ -93,6 +94,17 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
   if (body.icon !== undefined) patch.icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
   if (body.desc !== undefined) patch.desc = typeof body.desc === 'string' && body.desc.trim() ? body.desc.trim().slice(0, MAX_DESC) : null;
   if (body.sort !== undefined && Number.isFinite(Number(body.sort))) patch.sort = Math.max(0, Math.floor(Number(body.sort)));
+  // icon 未显式提供：若原图标为空则自动抓取（补全已有站点图标）
+  if (body.icon === undefined) {
+    const existing = await getWebsite(id);
+    if (existing && !existing.icon) {
+      const targetUrl = patch.url ?? existing.url;
+      if (targetUrl) {
+        const meta = await fetchSiteMeta(targetUrl);
+        if (meta?.icon) patch.icon = meta.icon.slice(0, MAX_ICON);
+      }
+    }
+  }
   try {
     const website = await updateWebsite(id, patch);
     if (!website) return json({ error: '网站不存在' }, 404);

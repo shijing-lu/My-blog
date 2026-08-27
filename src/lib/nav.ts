@@ -53,6 +53,12 @@ export async function listSitesByCategory(categoryId: string): Promise<Website[]
     .orderBy(asc(websites.sort), asc(websites.createdAt))) as Website[];
 }
 
+/** 按 id 取网站 */
+export async function getWebsite(id: string): Promise<Website | null> {
+  const rows = await db.select().from(websites).where(eq(websites.id, id)).limit(1);
+  return (rows[0] as Website | undefined) ?? null;
+}
+
 /* ---------------- 分类 CRUD ---------------- */
 
 export async function createCategory(input: { name: string; icon: string | null; sort: number }): Promise<WebCategory> {

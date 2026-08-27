@@ -32,17 +32,38 @@ function extractDescription(html: string): string | undefined {
   return undefined;
 }
 
+/** 从 HTML 提取网站图标 URL（<link rel="icon"> / shortcut icon / apple-touch-icon），相对路径绝对化 */
+function extractIcon(html: string, base: URL): string | undefined {
+  const patterns = [
+    /<\s*link[^>]+rel\s*=\s*["'](?:shortcut\s+)?icon["'][^>]+href\s*=\s*["']([^"']+)["']/i,
+    /<\s*link[^>]+href\s*=\s*["']([^"']+)["'][^>]+rel\s*=\s*["'](?:shortcut\s+)?icon["']/i,
+    /<\s*link[^>]+rel\s*=\s*["']apple-touch-icon["'][^>]+href\s*=\s*["']([^"']+)["']/i,
+  ];
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m?.[1]) {
+      const href = m[1].trim();
+      try {
+        return new URL(href, base).toString();
+      } catch {
+        return href.startsWith('http') ? href : undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
 const MAX_BODY = 512 * 1024; // 只取前 512KB 解析
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 /**
- * 抓取网站简介
+ * 抓取网站元数据（简介 + 图标）
  *
  * @param url 目标网址
- * @returns { desc } 抓到的简介（失败返回 null）
+ * @returns { desc?, icon? } 抓到的元数据（失败返回 null）
  */
-export async function fetchSiteMeta(url: string): Promise<{ desc?: string } | null> {
+export async function fetchSiteMeta(url: string): Promise<{ desc?: string; icon?: string } | null> {
   let u: URL;
   try {
     u = new URL(url.startsWith('http') ? url : `https://${url}`);
@@ -67,8 +88,14 @@ export async function fetchSiteMeta(url: string): Promise<{ desc?: string } | nu
     }
     if (!res.ok) return null;
     const text = await res.text();
-    const desc = extractDescription(text.slice(0, MAX_BODY));
-    return desc ? { desc: desc.slice(0, 200) } : null;
+    const slice = text.slice(0, MAX_BODY);
+    const desc = extractDescription(slice);
+    const icon = extractIcon(slice, u);
+    if (!desc && !icon) return null;
+    return {
+      ...(desc ? { desc: desc.slice(0, 200) } : {}),
+      ...(icon ? { icon: icon.slice(0, 500) } : {}),
+    };
   } catch {
     return null;
   }
