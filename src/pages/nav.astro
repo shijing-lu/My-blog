@@ -75,8 +75,8 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
   <section data-authed={isAuthed ? '1' : '0'}>
     {
       categories.length > 0 && (
-        /* 移动端分类横排（吸顶） */
-        <div class="sticky top-14 z-20 flex gap-1.5 overflow-x-auto border-b border-border bg-background/85 px-4 py-2 text-xs backdrop-blur-md md:hidden">
+        /* 窄屏分类横排（吸顶）：超宽屏（1720px+）才改用左侧悬浮栏，其余一律走顶部横条 */
+        <div class="sticky top-14 z-20 flex gap-1.5 overflow-x-auto border-b border-border bg-background/85 px-4 py-2 text-xs backdrop-blur-md min-[1720px]:hidden">
           <button
             type="button"
             data-cat-tab="all"
@@ -108,8 +108,8 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
 
     {
       categories.length > 0 && (
-        /* 左侧分类栏：圆角浮动小卡片（离左/上边留间隙，不贴边、不占主体宽度） */
-        <aside class="fixed left-4 top-16 z-30 hidden w-52 md:block">
+        /* 超宽屏左侧分类栏：圆角浮动卡片，悬浮在内容区左侧留白，与内容区左边缘留 gap */
+        <aside class="fixed left-4 top-16 z-30 hidden w-52 min-[1720px]:block">
           <div class="rounded-xl border border-border bg-card/85 p-3 shadow-md backdrop-blur-md">
             <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
             <nav class="space-y-0.5 text-sm" aria-label="导航分类">
@@ -179,8 +179,8 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       )
     }
 
-    {/* 主体内容：居中显示（宽度不变，左侧 padding 给浮动分类栏让位） */}
-    <main class="mx-auto w-full max-w-4xl px-4 py-10 md:pl-64">
+    {/* 主体内容：与页脚同宽（max-w-6xl）居中，两条虚线左右对齐；分类栏独立悬浮于左侧留白 */}
+    <main class="mx-auto w-full max-w-6xl px-4 py-10">
       {
         categories.length === 0 ? (
           <div class="mt-10 text-center">
