@@ -1,16 +1,21 @@
 ---
+/* ===== Props ===== */
+/* （无） */
+
 /* ===== Imports ===== */
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
 import { verifyRequest } from '@/lib/auth';
 
 /* ===== Logic ===== */
+/** 服务端读取配置（DB 优先，未配置用内置默认） */
 const settings = await getHeroQuoteSettings();
+/** 仅管理员显示「管理诗词」入口（跳转设置页） */
 const isAuthed = verifyRequest(Astro.cookies);
 const firstQuote = settings.quotes[0]?.text ?? '';
 const settingsJson = JSON.stringify(serializeSettings(settings));
 ---
 <!-- ===== Template ===== -->
-<div class="hero-quote-wrap relative mt-4" data-hero>
+<div class="relative mt-4">
   <h1
     id="hero-quote"
     class="ghost-text pr-10 text-6xl font-semibold tracking-tight sm:text-7xl"
@@ -36,10 +41,9 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
 </div>
 
 <script>
-  /** 首页 Hero 古诗词轮播（GSAP 驱动）
-   *  - 逐字上浮淡入 + 细微旋转/缩放 → 停留 → 倒序还原 → 下一条，循环无缝；
-   *  - prefers-reduced-motion 时直接显示全部文字、不动画。 */
-  import { loadGsap, prefersReducedMotion } from '@/lib/anim';
+  /** 首页 Hero 古诗词轮播（配置驱动；管理在 /admin/settings）
+   *  - 配置来源：服务端注入（data-settings），DB 可在线修改；
+   *  - 效果：逐字闪烁出现 → 全部显示后停留 → 倒序逐字还原 → 下一条。 */
 
   interface QuoteConfig {
     text: string;
@@ -50,12 +54,15 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
     charIntervalMs: number;
     defaultPauseMs: number;
   }
+
+  /** 每个字动画时长（与 global.css keyframes 一致） */
+  const CHAR_ANIM_MS = 1100;
+  /** 兜底配置（data-settings 缺失/损坏时） */
   const FALLBACK: HeroSettings = { quotes: [], charIntervalMs: 480, defaultPauseMs: 4600 };
 
+  let timers: number[] = [];
   let current = 0;
   let currentSettings: HeroSettings = readSettings();
-  let activeTl: { kill: () => void } | null = null;
-  let nextTimer = 0;
 
   function readSettings(): HeroSettings {
     const el = document.getElementById('hero-quote');
@@ -73,16 +80,24 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
     return FALLBACK;
   }
 
-  async function play(): Promise<void> {
+  function clearTimers(): void {
+    timers.forEach((t) => window.clearTimeout(t));
+    timers = [];
+  }
+
+  function later(fn: () => void, ms: number): void {
+    timers.push(window.setTimeout(fn, ms));
+  }
+
+  function play(): void {
     const el = document.getElementById('hero-quote');
     if (!el || currentSettings.quotes.length === 0) return;
-    activeTl?.kill();
-    activeTl = null;
-    window.clearTimeout(nextTimer);
+    clearTimers();
 
     const quote = currentSettings.quotes[current % currentSettings.quotes.length]!;
     const chars = Array.from(quote.text);
     el.textContent = '';
+
     const spans = chars.map((ch) => {
       const s = document.createElement('span');
       s.className = 'hero-char';
@@ -91,63 +106,39 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
       return s;
     });
 
-    const interval = Math.max(0.06, currentSettings.charIntervalMs / 1000);
-    const pause = (quote.pauseMs ?? currentSettings.defaultPauseMs) / 1000;
+    const interval = currentSettings.charIntervalMs;
 
-    if (prefersReducedMotion()) {
-      spans.forEach((s) => {
-        s.style.opacity = '1';
-      });
-      nextTimer = window.setTimeout(() => {
-        current = (current + 1) % currentSettings.quotes.length;
-        void play();
-      }, Math.max(800, pause * 1000));
-      return;
-    }
-
-    const gsap = await loadGsap();
-    const tl = gsap.timeline({
-      onComplete: () => {
-        current = (current + 1) % currentSettings.quotes.length;
-        nextTimer = window.setTimeout(() => void play(), 200);
-      },
+    // 1) 逐字闪烁出现（每字闪一次）
+    chars.forEach((_, i) => {
+      later(() => {
+        spans[i]?.classList.add('hero-char-in');
+      }, i * interval);
     });
-    activeTl = tl;
-    // 1) 逐字进入：opacity + y + scale + 轻微旋转，错落自然
-    tl.fromTo(
-      spans,
-      { opacity: 0, y: 14, scale: 0.72, rotation: () => gsap.utils.random(-9, 9) },
-      {
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        rotation: 0,
-        duration: 0.55,
-        ease: 'back.out(1.6)',
-        stagger: interval,
-      },
-    )
-      // 2) 停留
-      .to({}, { duration: pause })
-      // 3) 倒序还原：opacity 淡出 + 上移
-      .to(
-        [...spans].reverse(),
-        {
-          opacity: 0,
-          y: -10,
-          scale: 0.8,
-          duration: 0.34,
-          ease: 'power2.in',
-          stagger: interval * 0.8,
-        },
-        '+=0.1',
-      );
+
+    const totalIn = chars.length * interval + CHAR_ANIM_MS;
+    const pause = quote.pauseMs ?? currentSettings.defaultPauseMs;
+
+    // 2) 全部显示后停留，再倒序逐字还原
+    later(() => {
+      chars.forEach((_, i) => {
+        const idx = chars.length - 1 - i;
+        later(() => {
+          spans[idx]?.classList.remove('hero-char-in');
+          spans[idx]?.classList.add('hero-char-out');
+        }, i * interval);
+      });
+      later(() => {
+        current = (current + 1) % currentSettings.quotes.length;
+        play();
+      }, chars.length * interval + CHAR_ANIM_MS);
+    }, totalIn + pause);
   }
 
+  // 初始加载与每次 View Transition 后重播（配置来自服务端注入的 data-settings）
   document.addEventListener('astro:page-load', () => {
     currentSettings = readSettings();
     current = 0;
-    void play();
+    play();
   });
-  void play();
+  play();
 </script>
