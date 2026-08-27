@@ -482,51 +482,46 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
 </BaseLayout>
 
 <script>
-  /** 沉浸学习页：番茄钟（全局状态，跨页面后台运行）+ 任务/打断 CRUD + 目标 + 遮罩 */
+  /** 沉浸学习页：番茄钟（全局状态，跨页面后台运行）+ 任务/打断 CRUD + 目标 + 遮罩
+   *  注意：View Transition 会替换 DOM 但模块脚本可能不重新执行，
+   *  因此所有交互一律用 document 委托 + 实时查询 DOM（不缓存元素引用）。 */
   import {
     durationSecFor,
-    emitTimerChange,
     freshTimerState,
     readTimerState,
     remainingSec,
     writeTimerState,
   } from '@/lib/study-timer-global';
 
-  const DATA = document.getElementById('study-data');
-  const IS_AUTHED = DATA?.dataset.authed === '1';
-  const DISTRACTIONS = JSON.parse(DATA?.dataset.distractions ?? '[]') as Array<{ id: string; type: string; note: string; createdAt: string }>;
-
-  /* ================= 番茄钟（全局状态，跨页面后台运行） ================= */
   type Mode = 'focus' | 'short' | 'long';
   let state = readTimerState() ?? freshTimerState();
   let remaining = remainingSec(state);
-  let uiTimer = 0;
-
-  const timeEl = document.getElementById('study-time');
-  const ringEl = document.getElementById('study-ring') as SVGCircleElement | null;
-  const modeLabel = document.getElementById('study-mode-label');
-  const dotsEl = document.getElementById('study-dots');
-  const startBtn = document.getElementById('study-start') as HTMLButtonElement | null;
-  const pauseBtn = document.getElementById('study-pause') as HTMLButtonElement | null;
-  const resetBtn = document.getElementById('study-reset');
-  const abandonBtn = document.getElementById('study-abandon');
-  const taskSelect = document.getElementById('study-task') as HTMLSelectElement | null;
-  const maskEl = document.getElementById('study-focus-mask');
-  const maskTime = document.getElementById('mask-time');
-  const maskLabel = document.getElementById('mask-label');
+  let maskOn = false;
 
   const MODE_TEXT: Record<Mode, string> = { focus: '专注中', short: '短休息', long: '长休息' };
   const RING_C = 2 * Math.PI * 52; // ≈326.7
 
   function persist(): void {
     writeTimerState(state);
-    emitTimerChange(state);
+  }
+
+  /** 实时查询当前 DOM 元素（View Transition 后元素被替换，必须每次重新取） */
+  function el<T extends Element = HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
   }
 
   function render(): void {
     const total = durationSecFor(state.mode, state.cfg);
     const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
     const ss = String(remaining % 60).padStart(2, '0');
+    const timeEl = el('study-time');
+    const maskTime = el('mask-time');
+    const ringEl = el<SVGCircleElement>('study-ring');
+    const modeLabel = el('study-mode-label');
+    const maskLabel = el('mask-label');
+    const dotsEl = el('study-dots');
+    const startBtn = el<HTMLButtonElement>('study-start');
+    const pauseBtn = el<HTMLButtonElement>('study-pause');
     if (timeEl) timeEl.textContent = `${mm}:${ss}`;
     if (maskTime) maskTime.textContent = `${mm}:${ss}`;
     if (ringEl) ringEl.style.strokeDashoffset = String(RING_C * (1 - remaining / total));
@@ -538,7 +533,7 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
       dotsEl.textContent = Array.from({ length: state.cfg.every }, (_, i) => (i < filled ? '●' : '○')).join('');
     }
     document.title = `${mm}:${ss} · ${MODE_TEXT[state.mode]} — My Blog`;
-    // 模式 tab 高亮
+    // 模式 tab 高亮（实时查询）
     document.querySelectorAll<HTMLButtonElement>('[data-mode-tab]').forEach((t) => {
       const active = t.dataset.modeTab === state.mode;
       t.classList.toggle('bg-primary/10', active);
@@ -546,42 +541,45 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
       t.classList.toggle('text-muted-foreground', !active);
     });
     // 按钮态
-    if (startBtn) startBtn.textContent = state.running ? '进行中' : remaining > 0 && remaining < durationSecFor(state.mode, state.cfg) ? '继续' : '开始';
+    if (startBtn) {
+      startBtn.textContent = state.running ? '进行中' : remaining > 0 && remaining < durationSecFor(state.mode, state.cfg) ? '继续' : '开始';
+    }
     if (pauseBtn) { pauseBtn.disabled = !state.running; pauseBtn.textContent = '暂停'; }
+    // 遮罩
+    const mask = el('study-focus-mask');
+    if (mask) mask.classList.toggle('flex', maskOn);
   }
 
-  /** 本地 UI 刷新（每秒重算剩余；不负责完成——完成由全局 tick 统一处理） */
-  function startUiTick(): void {
-    window.clearInterval(uiTimer);
-    uiTimer = window.setInterval(() => {
-      if (!state.running) return;
+  /** 本地 UI 刷新：基于全局状态重算剩余（完成由全局 tick 统一处理） */
+  function uiTick(): void {
+    if (!state.running) return;
+    const s = readTimerState();
+    if (s) {
+      state = s;
       remaining = remainingSec(state);
-      if (remaining <= 0) return; // 全局 tick 会推进并广播
-      render();
-    }, 250);
+    } else {
+      remaining = remainingSec(state);
+    }
+    if (remaining <= 0) return; // 全局 tick 会推进并广播
+    render();
   }
 
-  /** 从 localStorage 重新同步状态并渲染 */
-  function syncFromStorage(): void {
+  /** 从 localStorage 重新同步并渲染（开始/暂停/全局变更后） */
+  function sync(): void {
     const s = readTimerState();
     if (s) state = s;
     remaining = remainingSec(state);
     render();
   }
 
-  // 全局 tick 完成/变更时同步 UI
-  // （统一在脚本末尾注册监听，见"统计刷新"）
-
   function start(): void {
     if (state.running) return;
-    // 以暂停时剩余（或完整时长）为起点
     state.pausedRemaining = remaining;
     state.running = true;
     state.endTime = Date.now() + remaining * 1000;
     persist();
     remaining = remainingSec(state);
     render();
-    startUiTick();
   }
 
   function pause(): void {
@@ -601,94 +599,109 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     render();
   }
 
-  startBtn?.addEventListener('click', () => {
-    if (!state.running) start();
-    if ('Notification' in window && Notification.permission === 'default') {
-      void Notification.requestPermission();
-    }
-  });
-  pauseBtn?.addEventListener('click', () => { if (state.running) pause(); });
-  resetBtn?.addEventListener('click', () => reset());
-  abandonBtn?.addEventListener('click', () => {
-    if (!window.confirm('放弃当前番茄？该番茄作废，不计入统计。')) return;
-    reset();
-  });
-  document.querySelectorAll<HTMLButtonElement>('[data-mode-tab]').forEach((t) => {
-    t.addEventListener('click', () => {
+  /* ================= 事件（全部 document 委托，View Transition 后依然有效） ================= */
+
+  // 番茄钟控制
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+
+    if (target.closest('[data-mode-tab]')) {
+      const tab = target.closest<HTMLElement>('[data-mode-tab]')!;
       if (state.running && !window.confirm('切换模式将重置计时，确定？')) return;
       state = freshTimerState(state.cfg);
-      state.mode = (t.dataset.modeTab ?? 'focus') as Mode;
+      state.mode = (tab.dataset.modeTab ?? 'focus') as Mode;
       state.pausedRemaining = durationSecFor(state.mode, state.cfg);
       remaining = state.pausedRemaining;
       persist();
       render();
-    });
-  });
-
-  // 当前任务选择变化 → 记录到状态
-  taskSelect?.addEventListener('change', () => {
-    state.taskId = taskSelect.value || null;
-    persist();
-  });
-
-  /* ================= 设置弹框 ================= */
-  const settingsDialog = document.getElementById('study-settings-dialog') as HTMLDialogElement | null;
-  const cfgFocus = document.getElementById('cfg-focus') as HTMLInputElement | null;
-  const cfgShort = document.getElementById('cfg-short') as HTMLInputElement | null;
-  const cfgLong = document.getElementById('cfg-long') as HTMLInputElement | null;
-  const cfgEvery = document.getElementById('cfg-every') as HTMLInputElement | null;
-  document.getElementById('study-settings-btn')?.addEventListener('click', () => {
-    if (!settingsDialog) return;
-    if (cfgFocus) cfgFocus.value = String(state.cfg.focus);
-    if (cfgShort) cfgShort.value = String(state.cfg.short);
-    if (cfgLong) cfgLong.value = String(state.cfg.long);
-    if (cfgEvery) cfgEvery.value = String(state.cfg.every);
-    settingsDialog.showModal();
-  });
-  document.getElementById('cfg-cancel')?.addEventListener('click', () => settingsDialog?.close());
-  document.getElementById('cfg-save')?.addEventListener('click', () => {
-    const focus = Number(cfgFocus?.value);
-    const short = Number(cfgShort?.value);
-    const long = Number(cfgLong?.value);
-    const every = Number(cfgEvery?.value);
-    if (![focus, short, long, every].every((n) => Number.isFinite(n) && n > 0)) return;
-    state.cfg = { focus, short, long, every };
-    if (!state.running) {
-      remaining = durationSecFor(state.mode, state.cfg);
-      state.pausedRemaining = remaining;
+      return;
     }
-    persist();
-    settingsDialog?.close();
-    render();
+    if (target.closest('#study-start')) {
+      if (!state.running) start();
+      if ('Notification' in window && Notification.permission === 'default') {
+        void Notification.requestPermission();
+      }
+      return;
+    }
+    if (target.closest('#study-pause')) {
+      if (state.running) pause();
+      return;
+    }
+    if (target.closest('#study-reset')) {
+      reset();
+      return;
+    }
+    if (target.closest('#study-abandon')) {
+      if (!window.confirm('放弃当前番茄？该番茄作废，不计入统计。')) return;
+      reset();
+      return;
+    }
+    if (target.closest('#study-settings-btn')) {
+      const dlg = el<HTMLDialogElement>('study-settings-dialog');
+      if (!dlg) return;
+      const f = el<HTMLInputElement>('cfg-focus');
+      const s = el<HTMLInputElement>('cfg-short');
+      const l = el<HTMLInputElement>('cfg-long');
+      const ev = el<HTMLInputElement>('cfg-every');
+      if (f) f.value = String(state.cfg.focus);
+      if (s) s.value = String(state.cfg.short);
+      if (l) l.value = String(state.cfg.long);
+      if (ev) ev.value = String(state.cfg.every);
+      dlg.showModal();
+      return;
+    }
+    if (target.closest('#cfg-cancel')) {
+      el<HTMLDialogElement>('study-settings-dialog')?.close();
+      return;
+    }
+    if (target.closest('#cfg-save')) {
+      const f = Number(el<HTMLInputElement>('cfg-focus')?.value);
+      const s = Number(el<HTMLInputElement>('cfg-short')?.value);
+      const l = Number(el<HTMLInputElement>('cfg-long')?.value);
+      const ev = Number(el<HTMLInputElement>('cfg-every')?.value);
+      if (![f, s, l, ev].every((n) => Number.isFinite(n) && n > 0)) return;
+      state.cfg = { focus: f, short: s, long: l, every: ev };
+      if (!state.running) {
+        remaining = durationSecFor(state.mode, state.cfg);
+        state.pausedRemaining = remaining;
+      }
+      persist();
+      el<HTMLDialogElement>('study-settings-dialog')?.close();
+      render();
+      return;
+    }
+    // 专注遮罩开关按钮（F6 快捷键 + 浮标不做，仅键盘）
+    if (target.closest('#study-mask-toggle')) {
+      maskOn = !maskOn;
+      render();
+    }
   });
 
-  /* ================= 专注遮罩 ================= */
-  let maskOn = false;
+  // 当前任务选择变化 → 记录到状态（change 委托）
+  document.addEventListener('change', (e) => {
+    const sel = (e.target as HTMLElement).closest<HTMLSelectElement>('#study-task');
+    if (sel) {
+      state.taskId = sel.value || null;
+      persist();
+    }
+  });
+
+  // F6 专注遮罩
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'F6') return;
     maskOn = !maskOn;
-    if (maskEl) maskEl.classList.toggle('flex', maskOn);
     render();
   });
-  // 提示
-  if (maskEl) {
-    const tip = document.createElement('p');
-    tip.className = 'mt-3 text-xs text-muted-foreground';
-    tip.textContent = '按 F6 开关专注遮罩';
-    maskEl.appendChild(tip);
-  }
 
-  render();
-  startUiTick();
+  // 全局状态变化（其他页面发起/完成）→ 同步 UI
+  window.addEventListener('study-timer-change', () => sync());
+  // 番茄完成（全局 tick 推进模式后）→ 重载页面刷新统计
+  window.addEventListener('study-timer-done', () => {
+    window.setTimeout(() => window.location.reload(), 800);
+  });
 
-  /* ================= 任务 CRUD（登录） ================= */
-  if (IS_AUTHED) {
-    const taskList = document.getElementById('task-list');
-    const taskTitle = document.getElementById('task-title') as HTMLInputElement | null;
-    const taskEst = document.getElementById('task-est') as HTMLInputElement | null;
-    const taskAdd = document.getElementById('task-add');
-    const goalInput = document.getElementById('goal-input') as HTMLInputElement | null;
-
+  /* ================= 任务 CRUD（登录，document 委托） ================= */
+  if (document.querySelector('[data-authed]')?.getAttribute('data-authed') === '1') {
     function escHtml(s: string): string {
       return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
@@ -696,6 +709,7 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     interface TaskView { id: string; title: string; estPomodoros: number; done: boolean; pomodoroCount: number }
 
     function renderTasks(tasks: TaskView[]): void {
+      const taskList = el('task-list');
       if (!taskList) return;
       if (tasks.length === 0) {
         taskList.innerHTML = '<li class="text-muted-foreground">还没有任务，添加一个开始吧。</li>';
@@ -724,26 +738,39 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
       } catch { /* 忽略 */ }
     }
 
-    taskAdd?.addEventListener('click', async () => {
-      const title = (taskTitle?.value ?? '').trim();
-      if (!title) return;
-      const est = Math.max(1, Number(taskEst?.value) || 1);
+    async function loadDistractions(): Promise<void> {
       try {
-        const res = await fetch('/api/study/tasks', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ title, estPomodoros: est }),
-        });
-        if (res.ok) {
-          if (taskTitle) taskTitle.value = '';
-          void loadTasks();
-        }
+        const res = await fetch('/api/study/distractions');
+        const d = (await res.json()) as { distractions?: Array<{ id: string; type: string; note: string }> };
+        renderDistractions(d.distractions ?? []);
       } catch { /* 忽略 */ }
-    });
-    taskTitle?.addEventListener('keydown', (e) => { if (e.key === 'Enter') taskAdd?.click(); });
+    }
 
+    function renderDistractions(items: Array<{ id: string; type: string; note: string }>): void {
+      const distList = el('distraction-list');
+      if (!distList) return;
+      const labels: Record<string, string> = { internal: '内部', external: '外部' };
+      if (items.length === 0) {
+        distList.innerHTML = '<li class="text-muted-foreground">今天还没有打断记录。</li>';
+        return;
+      }
+      distList.innerHTML = items
+        .map(
+          (d) =>
+            `<li class="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">` +
+            `<span class="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[0.55rem] ${d.type === 'internal' ? 'text-primary' : 'text-destructive'}">${labels[d.type] ?? d.type}</span>` +
+            `<span class="min-w-0 flex-1 truncate">${escHtml(d.note || '（无备注）')}</span>` +
+            `<button type="button" data-dist-del="${d.id}" title="删除" aria-label="删除" class="shrink-0 text-muted-foreground transition-colors hover:text-destructive">×</button>` +
+            `</li>`,
+        )
+        .join('');
+    }
+
+    // 任务/打断交互（委托）
     document.addEventListener('click', async (e) => {
-      const toggle = (e.target as HTMLElement).closest<HTMLElement>('[data-task-toggle]');
+      const target = e.target as HTMLElement;
+
+      const toggle = target.closest<HTMLElement>('[data-task-toggle]');
       if (toggle) {
         const id = toggle.dataset.taskToggle;
         try {
@@ -756,20 +783,84 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
         } catch { /* 忽略 */ }
         return;
       }
-      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-task-del]');
-      if (del) {
+      const taskDel = target.closest<HTMLElement>('[data-task-del]');
+      if (taskDel) {
         if (!window.confirm('删除该任务？')) return;
         try {
-          await fetch(`/api/study/tasks/${del.dataset.taskDel}`, { method: 'DELETE' });
+          await fetch(`/api/study/tasks/${taskDel.dataset.taskDel}`, { method: 'DELETE' });
           void loadTasks();
         } catch { /* 忽略 */ }
+        return;
+      }
+      const distDel = target.closest<HTMLElement>('[data-dist-del]');
+      if (distDel) {
+        try {
+          await fetch(`/api/study/distractions/${distDel.dataset.distDel}`, { method: 'DELETE' });
+          void loadDistractions();
+        } catch { /* 忽略 */ }
+        return;
+      }
+      const taskAdd = target.closest('#task-add');
+      if (taskAdd) {
+        const title = (el<HTMLInputElement>('task-title')?.value ?? '').trim();
+        if (!title) return;
+        const est = Math.max(1, Number(el<HTMLInputElement>('task-est')?.value) || 1);
+        try {
+          const res = await fetch('/api/study/tasks', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ title, estPomodoros: est }),
+          });
+          if (res.ok) {
+            const inp = el<HTMLInputElement>('task-title');
+            if (inp) inp.value = '';
+            void loadTasks();
+          }
+        } catch { /* 忽略 */ }
+        return;
+      }
+      const distInt = target.closest('#distraction-internal');
+      if (distInt) {
+        void addDistraction('internal');
+        return;
+      }
+      const distExt = target.closest('#distraction-external');
+      if (distExt) {
+        void addDistraction('external');
+      }
+    });
+
+    async function addDistraction(type: 'internal' | 'external'): Promise<void> {
+      const note = (el<HTMLInputElement>('distraction-note')?.value ?? '').trim();
+      try {
+        const res = await fetch('/api/study/distractions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type, note }),
+        });
+        if (res.ok) {
+          const inp = el<HTMLInputElement>('distraction-note');
+          if (inp) inp.value = '';
+          void loadDistractions();
+        }
+      } catch { /* 忽略 */ }
+    }
+
+    // 任务标题回车添加
+    document.addEventListener('keydown', (e) => {
+      const t = e.target as HTMLElement;
+      if (t.id === 'task-title' && e.key === 'Enter') {
+        const btn = el<HTMLButtonElement>('task-add');
+        btn?.click();
       }
     });
 
     // 每日目标
-    goalInput?.addEventListener('change', async () => {
-      const v = Math.max(0, Math.min(99, Number(goalInput.value) || 0));
-      goalInput.value = String(v);
+    document.addEventListener('change', async (e) => {
+      const goal = (e.target as HTMLElement).closest<HTMLInputElement>('#goal-input');
+      if (!goal) return;
+      const v = Math.max(0, Math.min(99, Number(goal.value) || 0));
+      goal.value = String(v);
       try {
         await fetch('/api/study/goal', {
           method: 'PUT',
@@ -780,74 +871,26 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
       window.location.reload();
     });
 
-    /* ================= 打断记录（登录） ================= */
-    const distList = document.getElementById('distraction-list');
-    const distNote = document.getElementById('distraction-note') as HTMLInputElement | null;
-    const distTypeLabels: Record<string, string> = { internal: '内部', external: '外部' };
-
-    function renderDistractions(items: typeof DISTRACTIONS): void {
-      if (!distList) return;
-      if (items.length === 0) {
-        distList.innerHTML = '<li class="text-muted-foreground">今天还没有打断记录。</li>';
-        return;
-      }
-      distList.innerHTML = items
-        .map(
-          (d) =>
-            `<li class="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">` +
-            `<span class="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[0.55rem] ${d.type === 'internal' ? 'text-primary' : 'text-destructive'}">${distTypeLabels[d.type] ?? d.type}</span>` +
-            `<span class="min-w-0 flex-1 truncate">${escHtml(d.note || '（无备注）')}</span>` +
-            `<button type="button" data-dist-del="${d.id}" title="删除" aria-label="删除" class="shrink-0 text-muted-foreground transition-colors hover:text-destructive">×</button>` +
-            `</li>`,
-        )
-        .join('');
+    // 首次 + View Transition 后加载任务/打断（幂等：页面存在才加载）
+    function loadPrivateData(): void {
+      if (el('task-list')) void loadTasks();
+      if (el('distraction-list')) void loadDistractions();
     }
-
-    async function loadDistractions(): Promise<void> {
-      try {
-        const res = await fetch('/api/study/distractions');
-        const d = (await res.json()) as { distractions?: typeof DISTRACTIONS };
-        renderDistractions(d.distractions ?? []);
-      } catch { /* 忽略 */ }
-    }
-
-    async function addDistraction(type: 'internal' | 'external'): Promise<void> {
-      const note = (distNote?.value ?? '').trim();
-      try {
-        const res = await fetch('/api/study/distractions', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type, note }),
-        });
-        if (res.ok) {
-          if (distNote) distNote.value = '';
-          void loadDistractions();
-        }
-      } catch { /* 忽略 */ }
-    }
-    document.getElementById('distraction-internal')?.addEventListener('click', () => void addDistraction('internal'));
-    document.getElementById('distraction-external')?.addEventListener('click', () => void addDistraction('external'));
-    document.addEventListener('click', async (e) => {
-      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-dist-del]');
-      if (!del) return;
-      try {
-        await fetch(`/api/study/distractions/${del.dataset.distDel}`, { method: 'DELETE' });
-        void loadDistractions();
-      } catch { /* 忽略 */ }
-    });
-
-    void loadTasks();
-    void loadDistractions();
+    loadPrivateData();
+    document.addEventListener('astro:page-load', loadPrivateData);
   }
 
-  /* ================= 统计刷新 ================= */
-  // 全局状态变化：仅同步 UI（开始/暂停/重置等）
-  window.addEventListener('study-timer-change', () => syncFromStorage());
-  // 番茄完成（全局 tick 推进模式后）：重载页面，保证今日统计/热力图一致
-  window.addEventListener('study-timer-done', () => {
-    window.setTimeout(() => window.location.reload(), 800);
-  });
+  /* ================= 启动 ================= */
+  // 每秒 UI 刷新（幂等；无论脚本是否重跑，interval 只建一次）
+  if (!(window as unknown as { __studyUiBound?: boolean }).__studyUiBound) {
+    (window as unknown as { __studyUiBound?: boolean }).__studyUiBound = true;
+    window.setInterval(uiTick, 500);
+  }
 
-  render();
-  document.addEventListener('astro:page-load', () => render());
+  function initPage(): void {
+    sync();
+  }
+  initPage();
+  // View Transition 后重新渲染（DOM 已替换）
+  document.addEventListener('astro:page-load', () => initPage());
 </script>

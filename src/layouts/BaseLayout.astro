@@ -365,31 +365,36 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
         emitTimerChange,
         readTimerState,
         remainingSec,
-        writeTimerState,
       } from '@/lib/study-timer-global';
 
       if (!(window as unknown as { __studyGlobalBound?: boolean }).__studyGlobalBound) {
         (window as unknown as { __studyGlobalBound?: boolean }).__studyGlobalBound = true;
 
-        const floatEl = document.getElementById('study-float');
-        const floatTime = document.getElementById('study-float-time');
-        const floatLabel = document.getElementById('study-float-label');
-
         const MODE_LABEL: Record<string, string> = { focus: '专注', short: '短休', long: '长休' };
+
+        /** 实时查询浮标元素（View Transition 后 DOM 被替换，必须每次重新取） */
+        function floatEls(): { el: HTMLElement | null; time: HTMLElement | null; label: HTMLElement | null } {
+          return {
+            el: document.getElementById('study-float'),
+            time: document.getElementById('study-float-time'),
+            label: document.getElementById('study-float-label'),
+          };
+        }
 
         /** 渲染浮标（无进行中计时则隐藏） */
         function renderFloat(state: ReturnType<typeof readTimerState>): void {
-          if (!floatEl || !floatTime || !floatLabel) return;
+          const { el, time, label } = floatEls();
+          if (!el || !time || !label) return;
           if (!state || !state.running) {
-            floatEl.classList.add('hidden');
+            el.classList.add('hidden');
             return;
           }
           const sec = remainingSec(state);
           const mm = String(Math.floor(sec / 60)).padStart(2, '0');
           const ss = String(sec % 60).padStart(2, '0');
-          floatTime.textContent = `${mm}:${ss}`;
-          floatLabel.textContent = MODE_LABEL[state.mode] ?? '';
-          floatEl.classList.remove('hidden');
+          time.textContent = `${mm}:${ss}`;
+          label.textContent = MODE_LABEL[state.mode] ?? '';
+          el.classList.remove('hidden');
         }
 
         /** 每秒检查：到点则推进模式并写回 */
@@ -397,7 +402,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
         window.setInterval(() => {
           const state = readTimerState();
           if (!state || !state.running) {
-            if (floatEl && !floatEl.classList.contains('hidden')) {
+            const { el } = floatEls();
+            if (el && !el.classList.contains('hidden')) {
               renderFloat(null);
               emitTimerChange(null);
             }
@@ -419,7 +425,7 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           renderFloat(state);
         }, 250);
 
-        // 初始渲染
+        // 初始渲染 + View Transition 后重新渲染（DOM 已替换）
         renderFloat(readTimerState());
         document.addEventListener('astro:page-load', () => renderFloat(readTimerState()));
       }
