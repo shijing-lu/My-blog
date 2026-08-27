@@ -10,6 +10,7 @@ import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
 import { verifyRequest } from '@/lib/auth';
 import { createWebsite, deleteWebsite, updateWebsite } from '@/lib/nav';
+import { fetchSiteMeta } from '@/lib/nav-metadata';
 
 export const prerender = false;
 
@@ -40,8 +41,13 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   if (!name) return json({ error: '请填写网站名' }, 400);
   if (!url) return json({ error: '请填写网址' }, 400);
   const icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
-  const desc = typeof body.desc === 'string' && body.desc.trim() ? body.desc.trim().slice(0, MAX_DESC) : null;
+  let desc = typeof body.desc === 'string' && body.desc.trim() ? body.desc.trim().slice(0, MAX_DESC) : null;
   const sort = Number.isFinite(Number(body.sort)) ? Math.max(0, Math.floor(Number(body.sort))) : 0;
+  // 简介留空时自动抓取目标站 description（失败则保持空）
+  if (!desc) {
+    const meta = await fetchSiteMeta(url);
+    if (meta?.desc) desc = meta.desc.slice(0, MAX_DESC);
+  }
   try {
     const website = await createWebsite({ categoryId, name, url, icon, desc, sort });
     return json({ website }, 201);

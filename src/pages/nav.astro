@@ -2,10 +2,13 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { autoIconUrl, googleFaviconUrl, listNav } from '@/lib/nav';
+import { verifyRequest } from '@/lib/auth';
 
 /* ===== Logic ===== */
 const categories = await listNav();
 const totalSites = categories.reduce((n, c) => n + c.sites.length, 0);
+/** 管理员：显示删除叉 / 添加加号 / 支持拖拽移动 */
+const isAuthed = verifyRequest(Astro.cookies);
 
 interface SiteLike {
   id: string;
@@ -15,38 +18,53 @@ interface SiteLike {
   desc: string | null;
 }
 
-/** 统一卡片模板（紧凑长方形，约原尺寸 2/3）：图标 + 名称 + 简介 */
-function SiteCard({ site }: { site: SiteLike }) {
+/** HTML 转义 */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * 统一卡片模板（紧凑长方形）：图标 + 名称 + 简介
+ * 管理员模式下：卡片可拖拽（移动到分类）+ 右上角删除叉
+ */
+function renderSite(site: SiteLike, authed: boolean): string {
+  const iconSrc = autoIconUrl(site.url, site.icon);
+  const google = googleFaviconUrl(site.url);
+  const name = site.name || '?';
+  const desc = site.desc
+    ? `<span class="mt-0.5 block truncate text-[0.7rem] text-muted-foreground">${esc(site.desc)}</span>`
+    : '';
+  const dragAttr = authed ? ` draggable="true" data-site-id="${site.id}" data-site-name="${esc(name)}"` : '';
+  const delBtn = authed
+    ? `<button type="button" data-site-del="${site.id}" data-site-name="${esc(name)}" aria-label="删除" title="删除" ` +
+      `class="absolute -right-1.5 -top-1.5 z-10 hidden size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-opacity group-hover:flex hover:text-destructive">×</button>`
+    : '';
   return (
-    <a
-      href={site.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      class="group flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
-    >
-      <span class="relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
-        <img
-          class="nav-icon size-5 object-contain"
-          src={autoIconUrl(site.url, site.icon)}
-          alt=""
-          loading="lazy"
-          data-google={googleFaviconUrl(site.url)}
-          data-name={site.name}
-        />
-        <span class="nav-icon-fallback hidden font-display text-sm font-semibold text-primary">
-          {(site.name || '?').slice(0, 1)}
-        </span>
-      </span>
-      <span class="min-w-0">
-        <span class="block truncate text-xs font-medium">{site.name}</span>
-        {site.desc && <span class="mt-0.5 block truncate text-[0.7rem] text-muted-foreground">{site.desc}</span>}
-      </span>
-    </a>
+    `<div class="group relative">` +
+    `<a href="${esc(site.url)}"${dragAttr} target="_blank" rel="noopener noreferrer" ` +
+    `class="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md">` +
+    `<span class="relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">` +
+    `<img class="nav-icon size-5 object-contain" src="${esc(iconSrc)}" alt="" loading="lazy" data-google="${esc(google)}" data-name="${esc(name)}" />` +
+    `<span class="nav-icon-fallback hidden font-display text-sm font-semibold text-primary">${esc(name.slice(0, 1))}</span>` +
+    `</span>` +
+    `<span class="min-w-0"><span class="block truncate text-xs font-medium">${esc(name)}</span>${desc}</span>` +
+    `</a>${delBtn}</div>`
   );
+}
+
+/** 分类下的网站网格（含底部「+ 添加网址」） */
+function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): string {
+  const cards = sites.map((s) => renderSite(s, authed)).join('');
+  const addBtn = authed
+    ? `<div class="mt-3 flex justify-center">` +
+      `<button type="button" data-cat-add="${categoryId}" ` +
+      `class="rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋ 添加网址</button></div>`
+    : '';
+  return `<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">${cards}</div>${addBtn}`;
 }
 ---
 <BaseLayout title="导航" description="精选网站导航 —— My Blog Navigation">
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10" data-authed={isAuthed ? '1' : '0'}>
     <!-- 头部 -->
     <div data-hero>
       <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">NAVIGATION</p>
@@ -62,7 +80,7 @@ function SiteCard({ site }: { site: SiteLike }) {
         <p class="mt-10 text-center text-sm text-muted-foreground">暂无分类 —— 管理员可到后台添加。</p>
       ) : (
         <div class="mt-6 flex gap-6">
-          {/* 左侧分类栏 */}
+          {/* 左侧分类栏（管理员可拖入网站移动分类） */}
           <aside class="hidden w-52 shrink-0 md:block">
             <div class="sticky top-20 rounded-lg border border-border bg-card p-2">
               <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
@@ -79,7 +97,9 @@ function SiteCard({ site }: { site: SiteLike }) {
                   <button
                     type="button"
                     data-cat-tab={c.id}
+                    data-drop-cat={isAuthed ? c.id : undefined}
                     class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                    title={isAuthed ? '拖拽网站卡片到这里即可移动' : undefined}
                   >
                     {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
                     <span class="truncate">{c.name}</span>
@@ -87,29 +107,26 @@ function SiteCard({ site }: { site: SiteLike }) {
                   </button>
                 ))}
               </nav>
+              {isAuthed && (
+                <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
+                  提示：拖拽卡片到分类即可移动
+                </p>
+              )}
             </div>
           </aside>
 
-          {/* 右侧内容：全部 + 各分类面板（点击分类切换） */}
+          {/* 右侧内容：全部 + 各分类面板 */}
           <main class="min-w-0 flex-1">
             <div data-cat-panel="all">
-              <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {categories.flatMap((c) => c.sites).map((site) => (
-                  <SiteCard site={site} />
-                ))}
-              </div>
+              <Fragment set:html={siteGrid(categories.flatMap((c) => c.sites), '', false)} />
             </div>
             {categories.map((c) => (
               <div data-cat-panel={c.id} class="hidden">
                 {
-                  c.sites.length === 0 ? (
+                  c.sites.length === 0 && !isAuthed ? (
                     <p class="text-sm text-muted-foreground">该分类暂无网站。</p>
                   ) : (
-                    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                      {c.sites.map((site) => (
-                        <SiteCard site={site} />
-                      ))}
-                    </div>
+                    <Fragment set:html={siteGrid(c.sites, c.id, isAuthed)} />
                   )
                 }
               </div>
@@ -119,10 +136,50 @@ function SiteCard({ site }: { site: SiteLike }) {
       )
     }
   </section>
+
+  <!-- 添加网址弹框（管理员） -->
+  <dialog id="nav-add-dialog" class="w-96 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 class="font-medium">添加网址</h3>
+    <p id="nav-add-target" class="mt-0.5 text-xs text-muted-foreground"></p>
+    <label class="mt-3 block text-xs font-medium text-muted-foreground">
+      网址
+      <input
+        id="nav-add-url"
+        type="url"
+        placeholder="https://…"
+        class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+      />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      名称（可选，默认取域名）
+      <input
+        id="nav-add-name"
+        type="text"
+        maxlength="80"
+        class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+      />
+    </label>
+    <p id="nav-add-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="nav-add-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">
+        取消
+      </button>
+      <button
+        id="nav-add-confirm"
+        type="button"
+        class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        添加（自动扒图标简介）
+      </button>
+    </div>
+  </dialog>
 </BaseLayout>
 
 <script>
-  /** 分类切换：点击左侧分类 → 右侧显示对应面板 */
+  /** 导航页：分类切换 + 图标兜底 + 管理员增删移（× 删除 / ＋ 添加 / 拖拽移动） */
+  const IS_AUTHED = document.querySelector<HTMLElement>('[data-authed]')?.dataset.authed === '1';
+
+  // ---- 分类切换 ----
   const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-cat-tab]'));
   const panels = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-panel]'));
   function activate(id: string): void {
@@ -138,7 +195,7 @@ function SiteCard({ site }: { site: SiteLike }) {
   tabs.forEach((t) => t.addEventListener('click', () => activate(t.dataset.catTab ?? 'all')));
   document.addEventListener('astro:page-load', () => activate('all'));
 
-  /** 图标三级兜底：favicon.ico → Google favicon → 首字占位 */
+  // ---- 图标三级兜底 ----
   function bindIconFallback(): void {
     document.querySelectorAll<HTMLImageElement>('.nav-icon').forEach((img) => {
       if (img.dataset.bound) return;
@@ -156,4 +213,119 @@ function SiteCard({ site }: { site: SiteLike }) {
   }
   bindIconFallback();
   document.addEventListener('astro:page-load', bindIconFallback);
+
+  // ---- 管理员操作：删除 / 添加 / 拖拽移动 ----
+  if (IS_AUTHED) {
+    // 删除（卡片右上角 ×）
+    document.addEventListener('click', async (e) => {
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-site-del]');
+      if (!del) return;
+      if (!window.confirm(`删除网站「${del.dataset.siteName}」？`)) return;
+      const res = await fetch('/api/nav/sites', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: del.dataset.siteDel }),
+      });
+      if (res.ok) del.closest<HTMLElement>('.group')?.remove();
+    });
+
+  // ---- 添加（分类面板底部 ＋）----
+  let addCategoryId = '';
+  const addDialog = document.getElementById('nav-add-dialog') as HTMLDialogElement | null;
+  const addUrl = document.getElementById('nav-add-url') as HTMLInputElement | null;
+  const addName = document.getElementById('nav-add-name') as HTMLInputElement | null;
+  const addTarget = document.getElementById('nav-add-target');
+  const addStatus = document.getElementById('nav-add-status');
+  function domainFromUrl(url: string): string {
+    try {
+      return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
+    } catch {
+      return url;
+    }
+  }
+  document.addEventListener('click', (e) => {
+    const add = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-add]');
+    if (!add || !addDialog) return;
+    addCategoryId = add.dataset.catAdd ?? '';
+    const catName = add.closest('[data-cat-panel]')?.querySelector('[data-cat-tab]')?.textContent?.trim() ?? '';
+    if (addTarget) addTarget.textContent = catName ? `添加到「${catName}」` : '';
+    if (addUrl) addUrl.value = '';
+    if (addName) addName.value = '';
+    addStatus?.classList.add('hidden');
+    addDialog.showModal();
+    addUrl?.focus();
+  });
+  document.getElementById('nav-add-cancel')?.addEventListener('click', () => addDialog?.close());
+  document.getElementById('nav-add-confirm')?.addEventListener('click', async () => {
+    const url = (addUrl?.value ?? '').trim();
+    if (!url) {
+      if (addStatus) { addStatus.textContent = '请填写网址'; addStatus.classList.remove('hidden'); }
+      return;
+    }
+    const name = (addName?.value ?? '').trim() || domainFromUrl(url);
+    try {
+      const res = await fetch('/api/nav/sites', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ categoryId: addCategoryId, name, url }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        if (addStatus) { addStatus.textContent = d.error ?? '添加失败'; addStatus.classList.remove('hidden'); }
+        return;
+      }
+      addDialog?.close();
+      window.location.reload();
+    } catch {
+      if (addStatus) { addStatus.textContent = '添加失败'; addStatus.classList.remove('hidden'); }
+    }
+  });
+
+  // ---- 拖拽移动（卡片 → 分类）----
+  let draggingSiteId: string | null = null;
+  document.addEventListener('dragstart', (e) => {
+    const card = (e.target as HTMLElement).closest<HTMLElement>('[data-site-id]');
+    if (!card) return;
+    draggingSiteId = card.dataset.siteId ?? null;
+    e.dataTransfer?.setData('text/plain', draggingSiteId ?? '');
+    e.dataTransfer!.effectAllowed = 'move';
+  });
+  document.addEventListener('dragover', (e) => {
+    const dropCat = (e.target as HTMLElement).closest<HTMLElement>('[data-drop-cat]');
+    if (!dropCat) return;
+    e.preventDefault();
+    dropCat.classList.add('bg-primary/10');
+    dropCat.classList.add('text-primary');
+  });
+  document.addEventListener('dragleave', (e) => {
+    const dropCat = (e.target as HTMLElement).closest<HTMLElement>('[data-drop-cat]');
+    if (dropCat) {
+      dropCat.classList.remove('bg-primary/10');
+      dropCat.classList.remove('text-primary');
+    }
+  });
+  document.addEventListener('drop', async (e) => {
+    const dropCat = (e.target as HTMLElement).closest<HTMLElement>('[data-drop-cat]');
+    dropCat?.classList.remove('bg-primary/10', 'text-primary');
+    if (!dropCat || !draggingSiteId) return;
+    e.preventDefault();
+    const categoryId = dropCat.dataset.dropCat;
+    if (!categoryId) return;
+    const siteId = draggingSiteId;
+    draggingSiteId = null;
+    if (dropCat.dataset.catTab === siteId) return; // 拖到自身分类忽略
+    const res = await fetch('/api/nav/sites', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: siteId, categoryId }),
+    });
+    if (res.ok) window.location.reload();
+  });
+  } // end if (IS_AUTHED)
+
+  // 转场后重置：分类高亮 + 拖拽高亮状态
+  document.addEventListener('astro:page-load', () => {
+    activate('all');
+    document.querySelectorAll('[data-drop-cat]').forEach((el) => el.classList.remove('bg-primary/10', 'text-primary'));
+  });
 </script>
