@@ -482,34 +482,25 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
 </BaseLayout>
 
 <script>
-  /** 沉浸学习页：番茄钟（Date.now 差值计时防漂移）+ 任务/打断 CRUD + 目标 + 遮罩 */
+  /** 沉浸学习页：番茄钟（全局状态，跨页面后台运行）+ 任务/打断 CRUD + 目标 + 遮罩 */
+  import {
+    durationSecFor,
+    emitTimerChange,
+    freshTimerState,
+    readTimerState,
+    remainingSec,
+    writeTimerState,
+  } from '@/lib/study-timer-global';
+
   const DATA = document.getElementById('study-data');
   const IS_AUTHED = DATA?.dataset.authed === '1';
   const DISTRACTIONS = JSON.parse(DATA?.dataset.distractions ?? '[]') as Array<{ id: string; type: string; note: string; createdAt: string }>;
 
-  /* ================= 番茄钟 ================= */
-  interface TimerCfg { focus: number; short: number; long: number; every: number }
-  const CFG_KEY = 'study-timer-config';
-  function loadCfg(): TimerCfg {
-    try {
-      const raw = localStorage.getItem(CFG_KEY);
-      if (raw) {
-        const c = JSON.parse(raw) as TimerCfg;
-        if ([c.focus, c.short, c.long, c.every].every((n) => Number.isFinite(n))) return c;
-      }
-    } catch { /* 忽略损坏配置 */ }
-    return { focus: 25, short: 5, long: 15, every: 4 };
-  }
-  let cfg = loadCfg();
-
+  /* ================= 番茄钟（全局状态，跨页面后台运行） ================= */
   type Mode = 'focus' | 'short' | 'long';
-  let mode: Mode = 'focus';
-  let running = false;
-  let endTime = 0;
-  let remainingSec = cfg.focus * 60;
-  /** 本轮已完成番茄数（0..every-1） */
-  let roundCount = 0;
-  let tickTimer = 0;
+  let state = readTimerState() ?? freshTimerState();
+  let remaining = remainingSec(state);
+  let uiTimer = 0;
 
   const timeEl = document.getElementById('study-time');
   const ringEl = document.getElementById('study-ring') as SVGCircleElement | null;
@@ -527,118 +518,96 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
   const MODE_TEXT: Record<Mode, string> = { focus: '专注中', short: '短休息', long: '长休息' };
   const RING_C = 2 * Math.PI * 52; // ≈326.7
 
-  function durationFor(m: Mode): number {
-    return (m === 'focus' ? cfg.focus : m === 'short' ? cfg.short : cfg.long) * 60;
+  function persist(): void {
+    writeTimerState(state);
+    emitTimerChange(state);
   }
 
   function render(): void {
-    const total = durationFor(mode);
-    const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0');
-    const ss = String(remainingSec % 60).padStart(2, '0');
+    const total = durationSecFor(state.mode, state.cfg);
+    const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
+    const ss = String(remaining % 60).padStart(2, '0');
     if (timeEl) timeEl.textContent = `${mm}:${ss}`;
     if (maskTime) maskTime.textContent = `${mm}:${ss}`;
-    if (ringEl) ringEl.style.strokeDashoffset = String(RING_C * (1 - remainingSec / total));
-    if (modeLabel) modeLabel.textContent = MODE_TEXT[mode];
-    if (maskLabel) maskLabel.textContent = MODE_TEXT[mode];
+    if (ringEl) ringEl.style.strokeDashoffset = String(RING_C * (1 - remaining / total));
+    if (modeLabel) modeLabel.textContent = MODE_TEXT[state.mode];
+    if (maskLabel) maskLabel.textContent = MODE_TEXT[state.mode];
     // 番茄进度点
-    const filled = mode === 'focus' ? roundCount : (mode === 'short' ? roundCount % cfg.every : roundCount % cfg.every);
+    const filled = state.roundCount % state.cfg.every;
     if (dotsEl) {
-      dotsEl.textContent = Array.from({ length: cfg.every }, (_, i) => (i < filled ? '●' : '○')).join('');
+      dotsEl.textContent = Array.from({ length: state.cfg.every }, (_, i) => (i < filled ? '●' : '○')).join('');
     }
-    document.title = `${mm}:${ss} · ${MODE_TEXT[mode]} — My Blog`;
+    document.title = `${mm}:${ss} · ${MODE_TEXT[state.mode]} — My Blog`;
     // 模式 tab 高亮
     document.querySelectorAll<HTMLButtonElement>('[data-mode-tab]').forEach((t) => {
-      const active = t.dataset.modeTab === mode;
+      const active = t.dataset.modeTab === state.mode;
       t.classList.toggle('bg-primary/10', active);
       t.classList.toggle('text-primary', active);
       t.classList.toggle('text-muted-foreground', !active);
     });
+    // 按钮态
+    if (startBtn) startBtn.textContent = state.running ? '进行中' : remaining > 0 && remaining < durationSecFor(state.mode, state.cfg) ? '继续' : '开始';
+    if (pauseBtn) { pauseBtn.disabled = !state.running; pauseBtn.textContent = '暂停'; }
   }
 
-  function stopTick(): void {
-    window.clearInterval(tickTimer);
-    tickTimer = 0;
+  /** 本地 UI 刷新（每秒重算剩余；不负责完成——完成由全局 tick 统一处理） */
+  function startUiTick(): void {
+    window.clearInterval(uiTimer);
+    uiTimer = window.setInterval(() => {
+      if (!state.running) return;
+      remaining = remainingSec(state);
+      if (remaining <= 0) return; // 全局 tick 会推进并广播
+      render();
+    }, 250);
   }
+
+  /** 从 localStorage 重新同步状态并渲染 */
+  function syncFromStorage(): void {
+    const s = readTimerState();
+    if (s) state = s;
+    remaining = remainingSec(state);
+    render();
+  }
+
+  // 全局 tick 完成/变更时同步 UI
+  // （统一在脚本末尾注册监听，见"统计刷新"）
 
   function start(): void {
-    if (running) return;
-    running = true;
-    endTime = Date.now() + remainingSec * 1000;
-    if (startBtn) startBtn.textContent = '进行中';
-    if (pauseBtn) { pauseBtn.disabled = false; pauseBtn.textContent = '暂停'; }
-    tickTimer = window.setInterval(tick, 250);
+    if (state.running) return;
+    // 以暂停时剩余（或完整时长）为起点
+    state.pausedRemaining = remaining;
+    state.running = true;
+    state.endTime = Date.now() + remaining * 1000;
+    persist();
+    remaining = remainingSec(state);
+    render();
+    startUiTick();
   }
 
   function pause(): void {
-    if (!running) return;
-    running = false;
-    stopTick();
-    remainingSec = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
-    if (startBtn) startBtn.textContent = '继续';
-    if (pauseBtn) pauseBtn.disabled = true;
+    if (!state.running) return;
+    state.running = false;
+    state.pausedRemaining = Math.max(0, Math.ceil((state.endTime - Date.now()) / 1000));
+    state.endTime = 0;
+    remaining = state.pausedRemaining;
+    persist();
+    render();
   }
 
   function reset(): void {
-    running = false;
-    stopTick();
-    mode = 'focus';
-    remainingSec = durationFor('focus');
-    if (startBtn) startBtn.textContent = '开始';
-    if (pauseBtn) pauseBtn.disabled = true;
+    state = freshTimerState(state.cfg);
+    remaining = durationSecFor('focus', state.cfg);
+    persist();
     render();
   }
 
-  /** 完成当前阶段 */
-  async function complete(): Promise<void> {
-    stopTick();
-    running = false;
-    const wasFocus = mode === 'focus';
-    if (wasFocus) {
-      // 记录番茄（登录）
-      if (IS_AUTHED) {
-        const taskId = taskSelect?.value || null;
-        try {
-          await fetch('/api/study/sessions', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ taskId, durationSec: durationFor('focus') }),
-          });
-        } catch { /* 记录失败静默 */ }
-      }
-      roundCount += 1;
-      beep();
-      notify('🍅 番茄完成！', `专注 ${cfg.focus} 分钟，休息一下吧`);
-      // 满 every 个 → 长休息
-      if (roundCount % cfg.every === 0) {
-        mode = 'long';
-      } else {
-        mode = 'short';
-      }
-      remainingSec = durationFor(mode);
-    } else {
-      beep();
-      notify('☕ 休息结束', '开始下一个番茄吧');
-      mode = 'focus';
-      remainingSec = durationFor('focus');
+  startBtn?.addEventListener('click', () => {
+    if (!state.running) start();
+    if ('Notification' in window && Notification.permission === 'default') {
+      void Notification.requestPermission();
     }
-    if (startBtn) startBtn.textContent = '开始';
-    if (pauseBtn) pauseBtn.disabled = true;
-    render();
-    refreshStats();
-  }
-
-  function tick(): void {
-    const left = Math.max(0, endTime - Date.now());
-    remainingSec = Math.ceil(left / 1000);
-    if (remainingSec <= 0) {
-      void complete();
-      return;
-    }
-    render();
-  }
-
-  startBtn?.addEventListener('click', () => { if (!running) start(); });
-  pauseBtn?.addEventListener('click', () => { if (running) pause(); });
+  });
+  pauseBtn?.addEventListener('click', () => { if (state.running) pause(); });
   resetBtn?.addEventListener('click', () => reset());
   abandonBtn?.addEventListener('click', () => {
     if (!window.confirm('放弃当前番茄？该番茄作废，不计入统计。')) return;
@@ -646,18 +615,23 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
   });
   document.querySelectorAll<HTMLButtonElement>('[data-mode-tab]').forEach((t) => {
     t.addEventListener('click', () => {
-      if (running && !window.confirm('切换模式将重置计时，确定？')) return;
-      running = false;
-      stopTick();
-      mode = (t.dataset.modeTab ?? 'focus') as Mode;
-      remainingSec = durationFor(mode);
-      if (startBtn) startBtn.textContent = '开始';
-      if (pauseBtn) pauseBtn.disabled = true;
+      if (state.running && !window.confirm('切换模式将重置计时，确定？')) return;
+      state = freshTimerState(state.cfg);
+      state.mode = (t.dataset.modeTab ?? 'focus') as Mode;
+      state.pausedRemaining = durationSecFor(state.mode, state.cfg);
+      remaining = state.pausedRemaining;
+      persist();
       render();
     });
   });
 
-  // 设置弹框
+  // 当前任务选择变化 → 记录到状态
+  taskSelect?.addEventListener('change', () => {
+    state.taskId = taskSelect.value || null;
+    persist();
+  });
+
+  /* ================= 设置弹框 ================= */
   const settingsDialog = document.getElementById('study-settings-dialog') as HTMLDialogElement | null;
   const cfgFocus = document.getElementById('cfg-focus') as HTMLInputElement | null;
   const cfgShort = document.getElementById('cfg-short') as HTMLInputElement | null;
@@ -665,10 +639,10 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
   const cfgEvery = document.getElementById('cfg-every') as HTMLInputElement | null;
   document.getElementById('study-settings-btn')?.addEventListener('click', () => {
     if (!settingsDialog) return;
-    if (cfgFocus) cfgFocus.value = String(cfg.focus);
-    if (cfgShort) cfgShort.value = String(cfg.short);
-    if (cfgLong) cfgLong.value = String(cfg.long);
-    if (cfgEvery) cfgEvery.value = String(cfg.every);
+    if (cfgFocus) cfgFocus.value = String(state.cfg.focus);
+    if (cfgShort) cfgShort.value = String(state.cfg.short);
+    if (cfgLong) cfgLong.value = String(state.cfg.long);
+    if (cfgEvery) cfgEvery.value = String(state.cfg.every);
     settingsDialog.showModal();
   });
   document.getElementById('cfg-cancel')?.addEventListener('click', () => settingsDialog?.close());
@@ -678,41 +652,14 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     const long = Number(cfgLong?.value);
     const every = Number(cfgEvery?.value);
     if (![focus, short, long, every].every((n) => Number.isFinite(n) && n > 0)) return;
-    cfg = { focus, short, long, every };
-    localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
-    settingsDialog?.close();
-    if (!running) { remainingSec = durationFor(mode); }
-    render();
-  });
-
-  /* ================= 音效 / 通知 ================= */
-  let audioCtx: AudioContext | null = null;
-  function beep(): void {
-    try {
-      audioCtx = audioCtx ?? new AudioContext();
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.connect(g);
-      g.connect(audioCtx.destination);
-      o.frequency.value = 880;
-      g.gain.setValueAtTime(0.15, audioCtx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
-      o.start();
-      o.stop(audioCtx.currentTime + 0.8);
-    } catch { /* 无声兜底 */ }
-  }
-  function notify(title: string, body: string): void {
-    try {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(title, { body });
-      }
-    } catch { /* 忽略 */ }
-  }
-  // 首次交互后申请通知权限
-  startBtn?.addEventListener('click', () => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      void Notification.requestPermission();
+    state.cfg = { focus, short, long, every };
+    if (!state.running) {
+      remaining = durationSecFor(state.mode, state.cfg);
+      state.pausedRemaining = remaining;
     }
+    persist();
+    settingsDialog?.close();
+    render();
   });
 
   /* ================= 专注遮罩 ================= */
@@ -730,6 +677,9 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     tip.textContent = '按 F6 开关专注遮罩';
     maskEl.appendChild(tip);
   }
+
+  render();
+  startUiTick();
 
   /* ================= 任务 CRUD（登录） ================= */
   if (IS_AUTHED) {
@@ -890,16 +840,13 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     void loadDistractions();
   }
 
-  /* ================= 刷新统计 ================= */
-  async function refreshStats(): Promise<void> {
-    try {
-      const res = await fetch('/api/study/stats');
-      const d = (await res.json()) as { stats?: { todayMinutes: number; todayPomodoros: number; streakDays: number } };
-      if (!d.stats) return;
-      // 简单刷新：数据变化后整页重载，保证统计/热力图一致
-      window.location.reload();
-    } catch { /* 忽略 */ }
-  }
+  /* ================= 统计刷新 ================= */
+  // 全局状态变化：仅同步 UI（开始/暂停/重置等）
+  window.addEventListener('study-timer-change', () => syncFromStorage());
+  // 番茄完成（全局 tick 推进模式后）：重载页面，保证今日统计/热力图一致
+  window.addEventListener('study-timer-done', () => {
+    window.setTimeout(() => window.location.reload(), 800);
+  });
 
   render();
   document.addEventListener('astro:page-load', () => render());

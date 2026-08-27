@@ -140,6 +140,18 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
 
     <RightToolbar />
 
+    {/* 番茄钟后台浮标：任意页面显示进行中的计时（点击回 /study） */}
+    <a
+      id="study-float"
+      href="/study"
+      class="fixed bottom-5 right-5 z-50 hidden items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-2 text-xs shadow-lg backdrop-blur-md transition-colors hover:border-primary/50 hover:text-primary"
+      aria-label="番茄钟进行中"
+    >
+      <span class="text-sm">🍅</span>
+      <span id="study-float-time" class="font-display tabular-nums">25:00</span>
+      <span id="study-float-label" class="text-muted-foreground">专注</span>
+    </a>
+
     <!-- 公开页交互：代码复制按钮 + 图片灯箱（document 委托，View Transitions 下依然有效） -->
     <script>
       import '@/scripts/copy-button';
@@ -343,6 +355,73 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           { passive: true },
         );
       }
+      }
+    </script>
+
+    <!-- 番茄钟后台运行：任意页面持续倒计时，到点响铃/通知/记录（幂等） -->
+    <script>
+      import {
+        advanceTimer,
+        emitTimerChange,
+        readTimerState,
+        remainingSec,
+        writeTimerState,
+      } from '@/lib/study-timer-global';
+
+      if (!(window as unknown as { __studyGlobalBound?: boolean }).__studyGlobalBound) {
+        (window as unknown as { __studyGlobalBound?: boolean }).__studyGlobalBound = true;
+
+        const floatEl = document.getElementById('study-float');
+        const floatTime = document.getElementById('study-float-time');
+        const floatLabel = document.getElementById('study-float-label');
+
+        const MODE_LABEL: Record<string, string> = { focus: '专注', short: '短休', long: '长休' };
+
+        /** 渲染浮标（无进行中计时则隐藏） */
+        function renderFloat(state: ReturnType<typeof readTimerState>): void {
+          if (!floatEl || !floatTime || !floatLabel) return;
+          if (!state || !state.running) {
+            floatEl.classList.add('hidden');
+            return;
+          }
+          const sec = remainingSec(state);
+          const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+          const ss = String(sec % 60).padStart(2, '0');
+          floatTime.textContent = `${mm}:${ss}`;
+          floatLabel.textContent = MODE_LABEL[state.mode] ?? '';
+          floatEl.classList.remove('hidden');
+        }
+
+        /** 每秒检查：到点则推进模式并写回 */
+        let lastTick = 0;
+        window.setInterval(() => {
+          const state = readTimerState();
+          if (!state || !state.running) {
+            if (floatEl && !floatEl.classList.contains('hidden')) {
+              renderFloat(null);
+              emitTimerChange(null);
+            }
+            return;
+          }
+          const now = Date.now();
+          // 节流：>500ms 才处理，避免多实例重复推进
+          if (now - lastTick < 500) return;
+          lastTick = now;
+          if (now >= state.endTime) {
+            void (async () => {
+              const next = await advanceTimer(state);
+              renderFloat(next);
+              emitTimerChange(next);
+              window.dispatchEvent(new CustomEvent('study-timer-done', { detail: next }));
+            })();
+            return;
+          }
+          renderFloat(state);
+        }, 250);
+
+        // 初始渲染
+        renderFloat(readTimerState());
+        document.addEventListener('astro:page-load', () => renderFloat(readTimerState()));
       }
     </script>
   </body>
