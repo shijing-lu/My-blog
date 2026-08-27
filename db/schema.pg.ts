@@ -282,3 +282,54 @@ export const mindmaps = pgTable(
     index('mindmaps_article_idx').on(table.articleId),
   ],
 );
+
+/** 网址导航·分类 */
+export const webCategories = pgTable(
+  'web_categories',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 分类名 */
+    name: text('name').notNull(),
+    /** 分类图标（emoji/文字，可空） */
+    icon: text('icon'),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('web_categories_sort_idx').on(table.sort),
+  ],
+);
+
+/** 网址导航·网站 */
+export const websites = pgTable(
+  'websites',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属分类 */
+    categoryId: text('category_id').notNull(),
+    /** 网站名 */
+    name: text('name').notNull(),
+    /** 网址 */
+    url: text('url').notNull(),
+    /** 图标 URL（可空；空则自动抓 favicon） */
+    icon: text('icon'),
+    /** 一句话简介（可空） */
+    desc: text('desc'),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('websites_category_idx').on(table.categoryId),
+    index('websites_sort_idx').on(table.sort),
+  ],
+);

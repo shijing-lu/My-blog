@@ -1,0 +1,98 @@
+---
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { autoIconUrl, googleFaviconUrl, listNav } from '@/lib/nav';
+
+/* ===== Logic ===== */
+/** 分类 + 网站聚合（按 sort 排序） */
+const categories = await listNav();
+const totalSites = categories.reduce((n, c) => n + c.sites.length, 0);
+---
+<BaseLayout title="导航" description="精选网站导航 —— My Blog Navigation">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <!-- 头部 -->
+    <div data-hero>
+      <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">NAVIGATION</p>
+      <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">导航</h1>
+      <p class="mt-1 text-sm text-muted-foreground">
+        {categories.length > 0 ? `共 ${categories.length} 个分类 · ${totalSites} 个网站` : '精选网站，方便查找。'}
+      </p>
+    </div>
+    <div class="pixel-divider mt-5" />
+
+    <!-- 分类分组 + 卡片网格 -->
+    {
+      categories.length === 0 ? (
+        <p class="mt-10 text-center text-sm text-muted-foreground">暂无分类 —— 管理员可到后台添加。</p>
+      ) : (
+        categories.map((cat) => (
+          <section class="mt-8">
+            <h2 class="flex items-center gap-2">
+              {cat.icon && <span class="text-base leading-none">{cat.icon}</span>}
+              <span class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">{cat.name}</span>
+              <span class="h-px flex-1 bg-border" aria-hidden="true" />
+              <span class="font-pixel text-[0.55rem] text-muted-foreground">{cat.sites.length}</span>
+            </h2>
+            {
+              cat.sites.length === 0 ? (
+                <p class="mt-2 text-xs text-muted-foreground">该分类暂无网站。</p>
+              ) : (
+                <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {cat.sites.map((site) => (
+                    <a
+                      href={site.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="group flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
+                    >
+                      {/* 图标：favicon.ico → Google favicon → 首字占位 */}
+                      <span class="relative inline-flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+                        <img
+                          class="nav-icon size-6 object-contain"
+                          src={autoIconUrl(site.url, site.icon)}
+                          alt=""
+                          loading="lazy"
+                          data-google={googleFaviconUrl(site.url)}
+                          data-name={site.name}
+                        />
+                        <span class="nav-icon-fallback hidden font-display text-base font-semibold text-primary">
+                          {(site.name || '?').slice(0, 1)}
+                        </span>
+                      </span>
+                      {/* 名称 + 简介 */}
+                      <span class="min-w-0">
+                        <span class="block truncate text-sm font-medium">{site.name}</span>
+                        {site.desc && <span class="mt-0.5 block truncate text-xs text-muted-foreground">{site.desc}</span>}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )
+            }
+          </section>
+        ))
+      )
+    }
+  </section>
+</BaseLayout>
+
+<script>
+  /** 图标三级兜底：favicon.ico → Google favicon → 首字像素占位 */
+  function bindIconFallback(): void {
+    document.querySelectorAll<HTMLImageElement>('.nav-icon').forEach((img) => {
+      if (img.dataset.bound) return;
+      img.dataset.bound = '1';
+      img.addEventListener('error', () => {
+        if (!img.dataset.stage) {
+          img.dataset.stage = '1';
+          img.src = img.dataset.google ?? '';
+          return;
+        }
+        img.classList.add('hidden');
+        (img.nextElementSibling as HTMLElement | null)?.classList.remove('hidden');
+      });
+    });
+  }
+  bindIconFallback();
+  document.addEventListener('astro:page-load', bindIconFallback);
+</script>

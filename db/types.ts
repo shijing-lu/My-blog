@@ -288,3 +288,33 @@ export interface MindmapMeta {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/** 网址导航·分类 */
+export interface WebCategory {
+  id: string;
+  name: string;
+  icon: string | null;
+  sort: number;
+  createdAt: Date;
+}
+
+/** 网址导航·网站 */
+export interface Website {
+  id: string;
+  categoryId: string;
+  name: string;
+  url: string;
+  icon: string | null;
+  desc: string | null;
+  sort: number;
+  createdAt: Date;
+}
+
+/** 网址导航·聚合视图（公共页渲染：分类 + 其下网站） */
+export interface NavCategoryView {
+  id: string;
+  name: string;
+  icon: string | null;
+  sort: number;
+  sites: Array<Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc'>>;
+}
