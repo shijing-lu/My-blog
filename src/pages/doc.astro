@@ -62,8 +62,19 @@ function esc(s: string): string {
         </div>
       ) : (
         <div class="mt-6 space-y-8">
+          {isAuthed && (
+            <div class="flex justify-end">
+              <button
+                type="button"
+                data-doc-cat-add
+                class="rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                ＋ 添加分类
+              </button>
+            </div>
+          )}
           {categories.map((c) => (
-            <section>
+            <section class="group">
               <div class="flex items-center justify-between gap-2">
                 <h2 class="flex items-center gap-2 text-lg font-semibold">
                   <span class="pixel-chip text-muted-foreground">分类</span>
@@ -71,7 +82,7 @@ function esc(s: string): string {
                   <span class="font-pixel text-[0.55rem] text-muted-foreground">{c.bundles.length} 册</span>
                 </h2>
                 {isAuthed && (
-                  <span class="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <span class="flex items-center gap-1">
                     <button
                       type="button"
                       data-doc-cat-edit={c.id}
@@ -85,7 +96,7 @@ function esc(s: string): string {
                       data-doc-name={esc(c.name)}
                       title="删除分类"
                       aria-label="删除分类"
-                      class="inline-flex size-5 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                      class="inline-flex size-5 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground opacity-40 transition-opacity group-hover:opacity-100 hover:border-destructive/50 hover:text-destructive"
                     >×</button>
                   </span>
                 )}
