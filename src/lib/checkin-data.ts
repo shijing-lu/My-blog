@@ -89,10 +89,14 @@ export async function toggleCheckin(taskId: string, date: string, now = new Date
   const task = (await db.select().from(checkinTasks).where(eq(checkinTasks.id, taskId)).limit(1)) as CheckinTask[];
   if (!task[0]) throw new Error('任务不存在');
   const maxMakeup = Math.max(0, task[0].maxMakeupDays);
+  // 「今天」以服务器时区为准，但客户端可能处于更早/更晚时区（如东八区晚于 UTC）。
+  // 为兼容"用户本地今天"与"服务器 UTC 今天"相差 1 天的情况：
+  // - 补签最早日期按服务器今天往前推（maxMakeup 天）；
+  // - 允许 date 至多等于「服务器今天 + 1 天」（客户端时区超前一天的场景），再往后才拒绝。
   const earliest = dateKey(addDays(now, -maxMakeup));
+  const latest = dateKey(addDays(now, 1));
   if (date < earliest) throw new Error('超出可补签范围');
-  // 不允许未来日期
-  if (date > dateKey(now)) throw new Error('不能为未来日期打卡');
+  if (date > latest) throw new Error('不能为未来日期打卡');
 
   await db
     .insert(checkinRecords)
