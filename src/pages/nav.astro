@@ -405,10 +405,11 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
   import { confirmDanger } from '@/lib/confirm';
   const IS_AUTHED = document.querySelector<HTMLElement>('[data-authed]')?.dataset.authed === '1';
 
-  // ---- 分类切换 ----
-  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-cat-tab]'));
-  const panels = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-panel]'));
+  // ---- 分类切换（document 委托 + 实时查询 DOM，View Transition 后依然有效）----
   function activate(id: string): void {
+    // 实时查询（View Transition 后 DOM 被替换）
+    const panels = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-panel]'));
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-cat-tab]'));
     panels.forEach((p) => p.classList.toggle('hidden', p.dataset.catPanel !== id));
     tabs.forEach((t) => {
       const active = t.dataset.catTab === id;
@@ -422,7 +423,11 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     if (navTitle && activeTab?.dataset.catName) navTitle.textContent = activeTab.dataset.catName;
   }
   activate('all');
-  tabs.forEach((t) => t.addEventListener('click', () => activate(t.dataset.catTab ?? 'all')));
+  document.addEventListener('click', (e) => {
+    const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-tab]');
+    if (!tab) return;
+    activate(tab.dataset.catTab ?? 'all');
+  });
   document.addEventListener('astro:page-load', () => activate('all'));
 
   // ---- 图标三级兜底：favicon.ico → Google favicon → 首字占位 ----
@@ -474,13 +479,12 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       (document.getElementById('nav-data') as HTMLElement).dataset.categories ?? '[]',
     ) as NavCatJson[];
     let editingSiteId: string | null = null;
-    const editDialog = document.getElementById('nav-edit-dialog') as HTMLDialogElement | null;
-    const editName = document.getElementById('nav-edit-name') as HTMLInputElement | null;
-    const editUrl = document.getElementById('nav-edit-url') as HTMLInputElement | null;
-    const editDesc = document.getElementById('nav-edit-desc') as HTMLInputElement | null;
-    const editCat = document.getElementById('nav-edit-cat') as HTMLSelectElement | null;
-    const editStatus = document.getElementById('nav-edit-status');
+    /** 实时查询元素（View Transition 后 DOM 被替换，必须每次重新取） */
+    function $(id: string): HTMLElement | null {
+      return document.getElementById(id);
+    }
     function fillEditCats(selected: string): void {
+      const editCat = $('nav-edit-cat') as HTMLSelectElement | null;
       if (!editCat) return;
       editCat.innerHTML = NAV_DATA.map(
         (c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${escHtml(c.name)}</option>`,
@@ -496,8 +500,13 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       if (!siteId) return;
       const cat = NAV_DATA.find((c) => c.sites.some((s) => s.id === siteId));
       const site = cat?.sites.find((s) => s.id === siteId);
+      const editDialog = $('nav-edit-dialog') as HTMLDialogElement | null;
       if (!site || !cat || !editDialog) return;
       editingSiteId = siteId;
+      const editName = $('nav-edit-name') as HTMLInputElement | null;
+      const editUrl = $('nav-edit-url') as HTMLInputElement | null;
+      const editDesc = $('nav-edit-desc') as HTMLInputElement | null;
+      const editStatus = $('nav-edit-status');
       if (editName) editName.value = site.name;
       if (editUrl) editUrl.value = site.url;
       if (editDesc) editDesc.value = site.desc ?? '';
@@ -506,8 +515,20 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       editDialog.showModal();
       editName?.focus();
     });
-    document.getElementById('nav-edit-cancel')?.addEventListener('click', () => editDialog?.close());
-    document.getElementById('nav-edit-confirm')?.addEventListener('click', async () => {
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('#nav-edit-cancel')) return;
+      ($('nav-edit-dialog') as HTMLDialogElement | null)?.close();
+    });
+    document.addEventListener('click', async (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('#nav-edit-confirm')) return;
+      const editDialog = $('nav-edit-dialog') as HTMLDialogElement | null;
+      const editName = $('nav-edit-name') as HTMLInputElement | null;
+      const editUrl = $('nav-edit-url') as HTMLInputElement | null;
+      const editDesc = $('nav-edit-desc') as HTMLInputElement | null;
+      const editCat = $('nav-edit-cat') as HTMLSelectElement | null;
+      const editStatus = $('nav-edit-status');
       if (!editingSiteId || !editDialog) return;
       const name = (editName?.value ?? '').trim();
       const url = (editUrl?.value ?? '').trim();
@@ -541,11 +562,6 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
 
   // ---- 添加（分类面板底部 ＋）----
   let addCategoryId = '';
-  const addDialog = document.getElementById('nav-add-dialog') as HTMLDialogElement | null;
-  const addUrl = document.getElementById('nav-add-url') as HTMLInputElement | null;
-  const addName = document.getElementById('nav-add-name') as HTMLInputElement | null;
-  const addTarget = document.getElementById('nav-add-target');
-  const addStatus = document.getElementById('nav-add-status');
   function domainFromUrl(url: string): string {
     try {
       return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
@@ -555,7 +571,13 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
   }
   document.addEventListener('click', (e) => {
     const add = (e.target as HTMLElement).closest<HTMLElement>('[data-site-add]');
-    if (!add || !addDialog) return;
+    if (!add) return;
+    const addDialog = $('nav-add-dialog') as HTMLDialogElement | null;
+    const addUrl = $('nav-add-url') as HTMLInputElement | null;
+    const addName = $('nav-add-name') as HTMLInputElement | null;
+    const addTarget = $('nav-add-target');
+    const addStatus = $('nav-add-status');
+    if (!addDialog) return;
     addCategoryId = add.dataset.siteAdd ?? '';
     const catName = add.closest('[data-cat-panel]')?.querySelector('[data-cat-tab]')?.textContent?.trim() ?? '';
     if (addTarget) addTarget.textContent = catName ? `添加到「${catName}」` : '';
@@ -565,11 +587,20 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     addDialog.showModal();
     addUrl?.focus();
   });
-  document.getElementById('nav-add-cancel')?.addEventListener('click', () => addDialog?.close());
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#nav-add-cancel')) ($('nav-add-dialog') as HTMLDialogElement | null)?.close();
+  });
   let addingSite = false;
-  const addConfirmBtn = document.getElementById('nav-add-confirm') as HTMLButtonElement | null;
-  document.getElementById('nav-add-confirm')?.addEventListener('click', async () => {
+  document.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest('#nav-add-confirm')) return;
     if (addingSite) return;
+    const addDialog = $('nav-add-dialog') as HTMLDialogElement | null;
+    const addUrl = $('nav-add-url') as HTMLInputElement | null;
+    const addName = $('nav-add-name') as HTMLInputElement | null;
+    const addStatus = $('nav-add-status');
+    const addConfirmBtn = $('nav-add-confirm') as HTMLButtonElement | null;
     const url = (addUrl?.value ?? '').trim();
     if (!url) {
       if (addStatus) { addStatus.textContent = '请填写网址'; addStatus.classList.remove('hidden'); }
@@ -643,15 +674,6 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
 
   // ---- 分类：添加 / 编辑 / 删除 / 拖拽排序 ----
   let editingCatId: string | null = null;
-  const catAddDialog = document.getElementById('nav-cat-add-dialog') as HTMLDialogElement | null;
-  const catAddName = document.getElementById('nav-cat-add-name') as HTMLInputElement | null;
-  const catAddIcon = document.getElementById('nav-cat-add-icon') as HTMLInputElement | null;
-  const catAddStatus = document.getElementById('nav-cat-add-status');
-  const catEditDialog = document.getElementById('nav-cat-edit-dialog') as HTMLDialogElement | null;
-  const catEditName = document.getElementById('nav-cat-edit-name') as HTMLInputElement | null;
-  const catEditIcon = document.getElementById('nav-cat-edit-icon') as HTMLInputElement | null;
-  const catEditTarget = document.getElementById('nav-cat-edit-target');
-  const catEditStatus = document.getElementById('nav-cat-edit-status');
 
   function catStatus(el: HTMLElement | null, msg: string): void {
     if (el) { el.textContent = msg; el.classList.remove('hidden'); }
@@ -660,18 +682,32 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
   // 打开添加分类弹框
   document.addEventListener('click', (e) => {
     const add = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-add]');
-    if (!add || !catAddDialog) return;
+    if (!add) return;
+    const catAddDialog = $('nav-cat-add-dialog') as HTMLDialogElement | null;
+    const catAddName = $('nav-cat-add-name') as HTMLInputElement | null;
+    const catAddIcon = $('nav-cat-add-icon') as HTMLInputElement | null;
+    const catAddStatus = $('nav-cat-add-status');
+    if (!catAddDialog) return;
     if (catAddName) catAddName.value = '';
     if (catAddIcon) catAddIcon.value = '';
     catAddStatus?.classList.add('hidden');
     catAddDialog.showModal();
     catAddName?.focus();
   });
-  document.getElementById('nav-cat-add-cancel')?.addEventListener('click', () => catAddDialog?.close());
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#nav-cat-add-cancel')) ($('nav-cat-add-dialog') as HTMLDialogElement | null)?.close();
+  });
   let addingCat = false;
-  const catAddConfirmBtn = document.getElementById('nav-cat-add-confirm') as HTMLButtonElement | null;
-  document.getElementById('nav-cat-add-confirm')?.addEventListener('click', async () => {
+  document.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest('#nav-cat-add-confirm')) return;
     if (addingCat) return;
+    const catAddDialog = $('nav-cat-add-dialog') as HTMLDialogElement | null;
+    const catAddName = $('nav-cat-add-name') as HTMLInputElement | null;
+    const catAddIcon = $('nav-cat-add-icon') as HTMLInputElement | null;
+    const catAddStatus = $('nav-cat-add-status');
+    const catAddConfirmBtn = $('nav-cat-add-confirm') as HTMLButtonElement | null;
     const name = (catAddName?.value ?? '').trim();
     if (!name) { catStatus(catAddStatus, '请填写分类名'); return; }
     const icon = (catAddIcon?.value ?? '').trim() || null;
@@ -702,6 +738,11 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     if (!edit) return;
     const catId = edit.dataset.catEdit;
     const cat = NAV_DATA.find((c) => c.id === catId);
+    const catEditDialog = $('nav-cat-edit-dialog') as HTMLDialogElement | null;
+    const catEditName = $('nav-cat-edit-name') as HTMLInputElement | null;
+    const catEditIcon = $('nav-cat-edit-icon') as HTMLInputElement | null;
+    const catEditTarget = $('nav-cat-edit-target');
+    const catEditStatus = $('nav-cat-edit-status');
     if (!cat || !catEditDialog) return;
     editingCatId = catId ?? null;
     if (catEditName) catEditName.value = cat.name;
@@ -711,8 +752,17 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     catEditDialog.showModal();
     catEditName?.focus();
   });
-  document.getElementById('nav-cat-edit-cancel')?.addEventListener('click', () => catEditDialog?.close());
-  document.getElementById('nav-cat-edit-confirm')?.addEventListener('click', async () => {
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#nav-cat-edit-cancel')) ($('nav-cat-edit-dialog') as HTMLDialogElement | null)?.close();
+  });
+  document.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest('#nav-cat-edit-confirm')) return;
+    const catEditDialog = $('nav-cat-edit-dialog') as HTMLDialogElement | null;
+    const catEditName = $('nav-cat-edit-name') as HTMLInputElement | null;
+    const catEditIcon = $('nav-cat-edit-icon') as HTMLInputElement | null;
+    const catEditStatus = $('nav-cat-edit-status');
     if (!editingCatId || !catEditDialog) return;
     const name = (catEditName?.value ?? '').trim();
     if (!name) { catStatus(catEditStatus, '分类名不能为空'); return; }
