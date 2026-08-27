@@ -80,6 +80,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
           <button
             type="button"
             data-cat-tab="all"
+            data-cat-name="全部网站"
             class="shrink-0 rounded-full border border-border px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
           >
             🧭 全部
@@ -88,6 +89,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
             <button
               type="button"
               data-cat-tab={c.id}
+              data-cat-name={c.name}
               class="shrink-0 rounded-full border border-border px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
             >
               {c.icon ? `${c.icon} ` : ''}{c.name}
@@ -124,9 +126,9 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
           </div>
         ) : (
           <>
-            <div data-hero>
+            <div data-hero class="text-center">
               <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">NAVIGATION</p>
-              <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">导航</h1>
+              <h1 id="nav-title" class="mt-1 font-display text-3xl font-semibold tracking-tight">全部网站</h1>
               <p class="mt-1 text-sm text-muted-foreground">
                 共 {categories.length} 个分类 · {totalSites} 个网站
               </p>
@@ -142,6 +144,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
                       <button
                         type="button"
                         data-cat-tab="all"
+                        data-cat-name="全部网站"
                         class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
                       >
                         <span aria-hidden="true">🧭</span>
@@ -152,6 +155,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
                           <button
                             type="button"
                             data-cat-tab={c.id}
+                            data-cat-name={c.name}
                             data-cat-id={c.id}
                             data-drop-cat={isAuthed ? c.id : undefined}
                             draggable={isAuthed ? 'true' : undefined}
@@ -411,6 +415,10 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       t.classList.toggle('text-primary', active);
       t.classList.toggle('text-muted-foreground', !active);
     });
+    // 标题跟随当前分类
+    const navTitle = document.getElementById('nav-title');
+    const activeTab = tabs.find((t) => t.dataset.catTab === id);
+    if (navTitle && activeTab?.dataset.catName) navTitle.textContent = activeTab.dataset.catName;
   }
   activate('all');
   tabs.forEach((t) => t.addEventListener('click', () => activate(t.dataset.catTab ?? 'all')));
