@@ -164,6 +164,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
     <!-- 全局动效：滚动进度条 + 卡片入场动画 + GSAP 分割线展开 -->
     <script>
       import { initReveals } from '@/lib/anim';
+      import { restoreTheme, readState } from '@/lib/theme';
+      import { getCustomThemes, injectCustomThemeCss } from '@/lib/custom-theme';
 
       // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
       if (!(window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound) {
@@ -265,6 +267,15 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
         });
       }
       document.addEventListener('astro:page-load', () => {
+        // View Transition 后恢复主题（data-theme / 暗色 / 自定义主题 CSS 会被新 head 替换丢失）
+        try {
+          restoreTheme();
+          const state = readState();
+          if (state.themeId) {
+            const custom = getCustomThemes().find(function (t) { return t.id === state.themeId; });
+            if (custom && !document.getElementById('custom-theme-css')) injectCustomThemeCss(custom);
+          }
+        } catch (e) { /* 主题恢复失败不影响页面 */ }
         updateProgress();
         // View Transition 切换后的页面：卡片直接显示，不再叠加播放入场动画
         // （避免「转场淡入 + 卡片上浮」双重动画造成闪烁）

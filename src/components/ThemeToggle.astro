@@ -25,11 +25,11 @@
 </button>
 
 <script>
-  import { readState, writeState, isDark } from '@/lib/theme';
+  import { readState, writeState, isDark, applyState } from '@/lib/theme';
 
-  /** 依据当前状态同步 <html> 的 dark 类（图标切换由 CSS dark: 变体处理） */
+  /** 依据当前状态同步 <html>（dark 类 + data-theme；图标切换由 CSS dark: 变体处理） */
   const apply = (): void => {
-    document.documentElement.classList.toggle('dark', isDark(readState()));
+    applyState(readState());
   };
 
   // document 级事件委托：点击任意 #theme-toggle 生效，

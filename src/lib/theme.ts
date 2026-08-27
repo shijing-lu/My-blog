@@ -69,3 +69,13 @@ export function writeState(state: ThemeState): void {
   }
   applyState(state);
 }
+
+/**
+ * 恢复主题状态到 <html>（View Transition 导航后调用）
+ *
+ * 仅应用 data-theme / .dark / data-mode；不注入自定义主题 CSS——
+ * 自定义主题 CSS 由调用方（BaseLayout）在恢复时同步注入，避免循环依赖。
+ */
+export function restoreTheme(): void {
+  applyState(readState());
+}
