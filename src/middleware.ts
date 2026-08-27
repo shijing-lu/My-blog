@@ -53,6 +53,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
     isStudyApi &&
     !(pathname === '/api/study/stats') &&
     !(pathname === '/api/study/sessions' && context.request.method === 'GET');
+  // 文档系统：分类/文档/文章/预览的写方法需登录；树/单篇/搜索 GET 公开
+  const isDocApi = pathname.startsWith('/api/doc/');
+  const protectedDocApi =
+    isDocApi &&
+    !(pathname === '/api/doc' && context.request.method === 'GET') &&
+    !(pathname === '/api/doc/search' && context.request.method === 'GET') &&
+    !pathname.startsWith('/api/doc/articles/') && // 单篇 GET 公开
+    context.request.method !== 'GET';
   const protectedApi =
     pathname.startsWith('/api/') &&
     (isProtectedApi(pathname) ||
@@ -64,7 +72,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
       (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
       (isMomentsApi && ['POST', 'DELETE'].includes(context.request.method)) ||
       (pathname === '/api/profile' && context.request.method === 'PUT') ||
-      protectedStudyApi);
+      protectedStudyApi ||
+      protectedDocApi);
   if (!protectedPage && !protectedApi) return withCachePolicy(await next(), context.request);
 
   if (verifyRequest(context.cookies)) return withCachePolicy(await next(), context.request);

@@ -1,0 +1,484 @@
+---
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { verifyRequest } from '@/lib/auth';
+import { listDocTree } from '@/lib/docs';
+
+/* ===== Logic ===== */
+const categories = await listDocTree();
+const totalBundles = categories.reduce((n, c) => n + c.bundles.length, 0);
+const totalArticles = categories.reduce((n, c) => n + c.bundles.reduce((m, b) => m + b.articles.length, 0), 0);
+const isAuthed = verifyRequest(Astro.cookies);
+/** 全量分类+文档数据（弹窗用，经隐藏 div 注入） */
+const treeJson = JSON.stringify(categories);
+
+/** HTML 转义 */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+---
+
+<BaseLayout title="文档" description="文档库 —— My Blog Documentation">
+  <section data-authed={isAuthed ? '1' : '0'}>
+    <main class="mx-auto w-full max-w-6xl px-4 py-10">
+      {/* Hero：居中 */}
+      <div data-hero class="text-center">
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">DOCS · 文档库</p>
+        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">文档</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          {categories.length} 个分类 · {totalBundles} 本文档 · {totalArticles} 篇文档
+        </p>
+      </div>
+      <div class="pixel-divider mt-5" />
+
+      {/* 搜索框 */}
+      <div class="relative mx-auto mt-6 max-w-xl">
+        <div class="flex items-center gap-2 rounded-full border border-border bg-card/85 px-4 py-2 shadow-sm backdrop-blur-md">
+          <span class="text-muted-foreground">🔍</span>
+          <input
+            id="doc-search"
+            type="text"
+            placeholder="搜索文档 / 文章标题或内容…"
+            class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+        {/* 搜索结果下拉 */}
+        <div id="doc-search-panel" class="absolute inset-x-0 top-full z-30 mt-2 hidden max-h-80 overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg"></div>
+      </div>
+
+      {/* 主体：按分类分组文档书架 */}
+      {categories.length === 0 ? (
+        <div class="mt-10 text-center">
+          <p class="text-sm text-muted-foreground">暂无文档 —— 管理员可在这里添加分类与文档。</p>
+          {isAuthed && (
+            <button
+              type="button"
+              data-doc-cat-add
+              class="mt-4 rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+            >
+              ＋ 添加分类
+            </button>
+          )}
+        </div>
+      ) : (
+        <div class="mt-6 space-y-8">
+          {categories.map((c) => (
+            <section>
+              <div class="flex items-center justify-between gap-2">
+                <h2 class="flex items-center gap-2 text-lg font-semibold">
+                  <span class="pixel-chip text-muted-foreground">分类</span>
+                  {esc(c.name)}
+                  <span class="font-pixel text-[0.55rem] text-muted-foreground">{c.bundles.length} 册</span>
+                </h2>
+                {isAuthed && (
+                  <span class="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      data-doc-cat-edit={c.id}
+                      title="编辑分类"
+                      aria-label="编辑分类"
+                      class="inline-flex size-5 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                    >✎</button>
+                    <button
+                      type="button"
+                      data-doc-cat-del={c.id}
+                      data-doc-name={esc(c.name)}
+                      title="删除分类"
+                      aria-label="删除分类"
+                      class="inline-flex size-5 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                    >×</button>
+                  </span>
+                )}
+              </div>
+
+              {c.bundles.length === 0 ? (
+                <p class="mt-2 text-sm text-muted-foreground">该分类暂无文档</p>
+              ) : (
+                <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {c.bundles.map((b) => (
+                    <a
+                      href={`/doc/${b.id}`}
+                      data-astro-prefetch="viewport"
+                      class="group relative block rounded-lg border border-border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
+                    >
+                      <div class="flex items-start gap-3">
+                        <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-lg">
+                          {b.icon ?? '📖'}
+                        </span>
+                        <div class="min-w-0">
+                          <p class="truncate font-medium">{esc(b.name)}</p>
+                          <p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                            {b.summary ? esc(b.summary) : '暂无简介'}
+                          </p>
+                        </div>
+                      </div>
+                      <p class="mt-2 text-[0.6rem] text-muted-foreground">{b.articles.length} 篇文章</p>
+                      {isAuthed && (
+                        <span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            type="button"
+                            data-doc-bundle-edit={b.id}
+                            title="编辑文档"
+                            aria-label="编辑文档"
+                            class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                          >✎</button>
+                          <button
+                            type="button"
+                            data-doc-bundle-del={b.id}
+                            data-doc-name={esc(b.name)}
+                            title="删除文档"
+                            aria-label="删除文档"
+                            class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                          >×</button>
+                        </span>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {isAuthed && (
+                <button
+                  type="button"
+                  data-doc-bundle-add={c.id}
+                  class="mt-3 rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  ＋ 添加文档
+                </button>
+              )}
+            </section>
+          ))}
+        </div>
+      )}
+    </main>
+  </section>
+
+  {/* 数据注入（脚本读取） */}
+  <div
+    id="doc-data"
+    data-authed={isAuthed ? '1' : '0'}
+    data-tree={treeJson}
+    class="hidden"
+    aria-hidden="true"
+  />
+
+  <!-- 添加/编辑分类弹框 -->
+  <dialog id="doc-cat-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 id="doc-cat-dialog-title" class="font-medium">添加分类</h3>
+    <label class="mt-3 block text-xs font-medium text-muted-foreground">
+      分类名
+      <input id="doc-cat-name" type="text" maxlength="50" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <p id="doc-cat-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="doc-cat-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
+      <button id="doc-cat-confirm" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+    </div>
+  </dialog>
+
+  <!-- 添加/编辑文档弹框 -->
+  <dialog id="doc-bundle-dialog" class="m-auto w-96 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 id="doc-bundle-dialog-title" class="font-medium">添加文档</h3>
+    <label class="mt-3 block text-xs font-medium text-muted-foreground">
+      文档名
+      <input id="doc-bundle-name" type="text" maxlength="80" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      图标（可选，填一个 emoji）
+      <input id="doc-bundle-icon" type="text" maxlength="20" placeholder="如 📖" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      简介（可选）
+      <input id="doc-bundle-summary" type="text" maxlength="200" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      所属分类
+      <select id="doc-bundle-cat" class="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"></select>
+    </label>
+    <p id="doc-bundle-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="doc-bundle-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
+      <button id="doc-bundle-confirm" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+    </div>
+  </dialog>
+</BaseLayout>
+
+<script>
+  /** 文档库主页：搜索 + 分类/文档 增删改（document 委托 + 实时查询 DOM） */
+  import { confirmDanger } from '@/lib/confirm';
+
+  const DATA = document.getElementById('doc-data');
+  const IS_AUTHED = DATA?.dataset.authed === '1';
+  const TREE = JSON.parse(DATA?.dataset.tree ?? '[]') as Array<{ id: string; name: string; bundles: Array<{ id: string; name: string; icon: string | null; summary: string | null; articles: unknown[] }> }>;
+
+  /** 实时查询元素（View Transition 后 DOM 被替换，必须每次重新取） */
+  function el<T extends Element = HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
+  }
+
+  /* ================= 搜索 ================= */
+  const searchInput = el<HTMLInputElement>('doc-search');
+  const searchPanel = el('doc-search-panel');
+  let searchTimer = 0;
+
+  function escHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  async function doSearch(q: string): Promise<void> {
+    if (!searchPanel) return;
+    if (!q.trim()) {
+      searchPanel.classList.add('hidden');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/doc/search?q=${encodeURIComponent(q.trim())}`);
+      const d = (await res.json()) as { bundles?: Array<{ id: string; name: string; summary: string | null; icon: string | null; categoryName: string }>; articles?: Array<{ id: string; title: string; bundleId: string; bundleName: string }> };
+      const bundles = d.bundles ?? [];
+      const articles = d.articles ?? [];
+      if (bundles.length === 0 && articles.length === 0) {
+        searchPanel.innerHTML = '<p class="px-3 py-3 text-xs text-muted-foreground">没有匹配结果</p>';
+        searchPanel.classList.remove('hidden');
+        return;
+      }
+      let html = '';
+      if (bundles.length > 0) {
+        html += '<p class="px-2 pb-1 pt-2 font-pixel text-[0.55rem] uppercase tracking-wider text-muted-foreground">文档</p>';
+        html += bundles
+          .map(
+            (b) =>
+              `<a href="/doc/${b.id}" class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-accent hover:text-foreground">` +
+              `<span>${b.icon ?? '📖'}</span><span class="truncate">${escHtml(b.name)}</span><span class="ml-auto text-[0.6rem] text-muted-foreground">${escHtml(b.categoryName)}</span></a>`,
+          )
+          .join('');
+      }
+      if (articles.length > 0) {
+        html += '<p class="px-2 pb-1 pt-2 font-pixel text-[0.55rem] uppercase tracking-wider text-muted-foreground">文章</p>';
+        html += articles
+          .map(
+            (a) =>
+              `<a href="/doc/${a.bundleId}#${a.id}" class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-accent hover:text-foreground">` +
+              `<span>📄</span><span class="truncate">${escHtml(a.title)}</span><span class="ml-auto shrink-0 text-[0.6rem] text-muted-foreground">${escHtml(a.bundleName)}</span></a>`,
+          )
+          .join('');
+      }
+      searchPanel.innerHTML = html;
+      searchPanel.classList.remove('hidden');
+    } catch {
+      searchPanel.innerHTML = '<p class="px-3 py-3 text-xs text-destructive">搜索失败，请重试</p>';
+      searchPanel.classList.remove('hidden');
+    }
+  }
+
+  searchInput?.addEventListener('input', () => {
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => void doSearch(searchInput.value), 300);
+  });
+  // 点击外部收起搜索结果
+  document.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (!t.closest('#doc-search')) searchPanel?.classList.add('hidden');
+  });
+  document.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('#doc-search-panel')) return;
+  });
+
+  /* ================= 分类/文档 增删改（登录） ================= */
+  if (IS_AUTHED) {
+    let editingCatId: string | null = null;
+    let editingBundleId: string | null = null;
+    let bundleDialogCatId = '';
+
+    // ------- 分类 -------
+    document.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      const add = t.closest<HTMLElement>('[data-doc-cat-add]');
+      const edit = t.closest<HTMLElement>('[data-doc-cat-edit]');
+      const dlg = el<HTMLDialogElement>('doc-cat-dialog');
+      if (!dlg) return;
+      if (add) {
+        editingCatId = null;
+        if (el<HTMLInputElement>('doc-cat-name')) el<HTMLInputElement>('doc-cat-name')!.value = '';
+        el('doc-cat-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('doc-cat-dialog-title')!.textContent = '添加分类';
+        dlg.showModal();
+        el<HTMLInputElement>('doc-cat-name')?.focus();
+        return;
+      }
+      if (edit) {
+        const id = edit.dataset.docCatEdit;
+        const cat = TREE.find((c) => c.id === id);
+        if (!cat) return;
+        editingCatId = id ?? null;
+        const nameInp = el<HTMLInputElement>('doc-cat-name');
+        if (nameInp) nameInp.value = cat.name;
+        el('doc-cat-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('doc-cat-dialog-title')!.textContent = '编辑分类';
+        dlg.showModal();
+        nameInp?.focus();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('#doc-cat-cancel')) el<HTMLDialogElement>('doc-cat-dialog')?.close();
+    });
+    document.addEventListener('click', async (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('#doc-cat-confirm')) return;
+      const name = (el<HTMLInputElement>('doc-cat-name')?.value ?? '').trim();
+      if (!name) {
+        const st = el('doc-cat-status');
+        if (st) { st.textContent = '请填写分类名'; st.classList.remove('hidden'); }
+        return;
+      }
+      const dlg = el<HTMLDialogElement>('doc-cat-dialog');
+      try {
+        const res = editingCatId
+          ? await fetch('/api/doc/categories', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: editingCatId, name }),
+            })
+          : await fetch('/api/doc/categories', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ name }),
+            });
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const st = el('doc-cat-status');
+          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
+          return;
+        }
+        dlg?.close();
+        window.location.reload();
+      } catch {
+        const st = el('doc-cat-status');
+        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+      }
+    });
+    document.addEventListener('click', async (e) => {
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-doc-cat-del]');
+      if (!del) return;
+      const name = del.dataset.docName ?? '';
+      const count = TREE.find((c) => c.id === del.dataset.docCatDel)?.bundles.length ?? 0;
+      const msg = count > 0 ? `删除分类「${name}」？其下 ${count} 本文档也会一并删除。` : `删除分类「${name}」？`;
+      if (!(await confirmDanger(msg))) return;
+      try {
+        const res = await fetch('/api/doc/categories', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: del.dataset.docCatDel }),
+        });
+        if (res.ok) window.location.reload();
+      } catch { /* 忽略 */ }
+    });
+
+    // ------- 文档 -------
+    // 填充分类下拉
+    function fillBundleCats(selected: string): void {
+      const sel = el<HTMLSelectElement>('doc-bundle-cat');
+      if (!sel) return;
+      sel.innerHTML = TREE.map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+    }
+    document.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      const add = t.closest<HTMLElement>('[data-doc-bundle-add]');
+      const edit = t.closest<HTMLElement>('[data-doc-bundle-edit]');
+      const dlg = el<HTMLDialogElement>('doc-bundle-dialog');
+      if (!dlg) return;
+      if (add) {
+        editingBundleId = null;
+        bundleDialogCatId = add.dataset.docBundleAdd ?? '';
+        if (el<HTMLInputElement>('doc-bundle-name')) el<HTMLInputElement>('doc-bundle-name')!.value = '';
+        if (el<HTMLInputElement>('doc-bundle-icon')) el<HTMLInputElement>('doc-bundle-icon')!.value = '';
+        if (el<HTMLInputElement>('doc-bundle-summary')) el<HTMLInputElement>('doc-bundle-summary')!.value = '';
+        fillBundleCats(bundleDialogCatId);
+        el('doc-bundle-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('doc-bundle-dialog-title')!.textContent = '添加文档';
+        dlg.showModal();
+        el<HTMLInputElement>('doc-bundle-name')?.focus();
+        return;
+      }
+      if (edit) {
+        const id = edit.dataset.docBundleEdit;
+        let found: { b: (typeof TREE)[number]['bundles'][number]; catId: string } | null = null;
+        for (const c of TREE) {
+          const b = c.bundles.find((x) => x.id === id);
+          if (b) { found = { b, catId: c.id }; break; }
+        }
+        if (!found) return;
+        editingBundleId = id ?? null;
+        bundleDialogCatId = found.catId;
+        if (el<HTMLInputElement>('doc-bundle-name')) el<HTMLInputElement>('doc-bundle-name')!.value = found.b.name;
+        if (el<HTMLInputElement>('doc-bundle-icon')) el<HTMLInputElement>('doc-bundle-icon')!.value = found.b.icon ?? '';
+        if (el<HTMLInputElement>('doc-bundle-summary')) el<HTMLInputElement>('doc-bundle-summary')!.value = found.b.summary ?? '';
+        fillBundleCats(bundleDialogCatId);
+        el('doc-bundle-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('doc-bundle-dialog-title')!.textContent = '编辑文档';
+        dlg.showModal();
+        el<HTMLInputElement>('doc-bundle-name')?.focus();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('#doc-bundle-cancel')) el<HTMLDialogElement>('doc-bundle-dialog')?.close();
+    });
+    document.addEventListener('click', async (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('#doc-bundle-confirm')) return;
+      const name = (el<HTMLInputElement>('doc-bundle-name')?.value ?? '').trim();
+      const icon = (el<HTMLInputElement>('doc-bundle-icon')?.value ?? '').trim() || null;
+      const summary = (el<HTMLInputElement>('doc-bundle-summary')?.value ?? '').trim() || null;
+      const categoryId = el<HTMLSelectElement>('doc-bundle-cat')?.value ?? '';
+      if (!name) {
+        const st = el('doc-bundle-status');
+        if (st) { st.textContent = '请填写文档名'; st.classList.remove('hidden'); }
+        return;
+      }
+      const dlg = el<HTMLDialogElement>('doc-bundle-dialog');
+      try {
+        const res = editingBundleId
+          ? await fetch('/api/doc/bundles', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: editingBundleId, name, icon, summary, categoryId }),
+            })
+          : await fetch('/api/doc/bundles', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ categoryId, name, icon, summary }),
+            });
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const st = el('doc-bundle-status');
+          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
+          return;
+        }
+        dlg?.close();
+        window.location.reload();
+      } catch {
+        const st = el('doc-bundle-status');
+        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+      }
+    });
+    document.addEventListener('click', async (e) => {
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-doc-bundle-del]');
+      if (!del) return;
+      const name = del.dataset.docName ?? '';
+      if (!(await confirmDanger(`删除文档「${name}」？其下文章也会一并删除。`))) return;
+      try {
+        const res = await fetch('/api/doc/bundles', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: del.dataset.docBundleDel }),
+        });
+        if (res.ok) window.location.reload();
+      } catch { /* 忽略 */ }
+    });
+  }
+
+  // View Transition 后确保分类悬停操作组可见
+  document.addEventListener('astro:page-load', () => {
+    /* 委托事件天然有效，此处理可空 */
+  });
+</script>

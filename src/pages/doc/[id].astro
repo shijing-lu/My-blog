@@ -1,0 +1,371 @@
+---
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { verifyRequest } from '@/lib/auth';
+import { getBundle, listArticlesByBundle, listDocTree } from '@/lib/docs';
+import { renderMdx } from '@/lib/mdx';
+
+/* ===== Logic ===== */
+const { id } = Astro.params;
+const isAuthed = verifyRequest(Astro.cookies);
+const bundle = id ? await getBundle(id) : null;
+if (!bundle) return Astro.redirect('/doc');
+
+const articles = await listArticlesByBundle(bundle.id);
+/** 当前选中的文章（默认第一篇；URL hash 定位） */
+const hashId = Astro.url.hash ? Astro.url.hash.slice(1) : '';
+const active = articles.find((a) => a.id === hashId) ?? articles[0];
+
+let html = '';
+let toc: Array<{ id: string; text: string; level: number }> = [];
+if (active) {
+  const r = await renderMdx(active.content);
+  html = r.html;
+  toc = r.toc;
+}
+
+// 面包屑：分类名（通过列表匹配，可选）
+const allCategories = await listDocTree();
+const catName = allCategories.find((c) => c.bundles.some((b) => b.id === bundle.id))?.name ?? '';
+
+const articlesJson = JSON.stringify(articles.map((a) => ({ id: a.id, title: a.title, content: a.content })));
+const bundleJson = JSON.stringify({ id: bundle.id, name: bundle.name, icon: bundle.icon, summary: bundle.summary });
+
+/** HTML 转义 */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+---
+
+<BaseLayout title={`${bundle.name} · 文档`} description={bundle.summary ?? `${bundle.name} 文档`}>
+  <section data-authed={isAuthed ? '1' : '0'}>
+    {/* 面包屑 */}
+    <div class="mx-auto w-full max-w-6xl px-4 pt-6 text-sm text-muted-foreground">
+      <a href="/doc" class="transition-colors hover:text-primary">文档</a>
+      {catName && <span class="mx-1">/</span>}
+      {catName && <span>{esc(catName)}</span>}
+      <span class="mx-1">/</span>
+      <span class="text-foreground">{esc(bundle.name)}</span>
+      {isAuthed && (
+        <button id="doc-edit-bundle" type="button" title="编辑文档" aria-label="编辑文档" class="ml-2 text-xs text-muted-foreground transition-colors hover:text-primary">✎</button>
+      )}
+    </div>
+
+    <div class="mx-auto w-full max-w-6xl px-4 py-6">
+      {/* 三栏布局：左=文章合集 / 中=正文 / 右=目录 */}
+      <div class="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)_220px]">
+        {/* 左栏：文章合集 */}
+        <aside class="lg:sticky lg:top-20 lg:self-start">
+          <div class="rounded-lg border border-border bg-card p-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+            <div class="flex items-center justify-between px-1">
+              <p class="pixel-chip text-[0.55rem] text-muted-foreground">本册目录</p>
+              {isAuthed && (
+                <button id="doc-add-article" type="button" title="新增文章" aria-label="新增文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋</button>
+              )}
+            </div>
+            <nav class="mt-2 space-y-0.5 text-sm" aria-label="文章合集">
+              {articles.length === 0 ? (
+                <p class="px-1 py-2 text-xs text-muted-foreground">暂无文章</p>
+              ) : (
+                articles.map((a, i) => (
+                  <a
+                    href={`#${a.id}`}
+                    data-article-id={a.id}
+                    class={`group flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors ${a.id === active?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
+                  >
+                    <span class="font-pixel text-[0.55rem] text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
+                    <span class="min-w-0 flex-1 truncate">{esc(a.title)}</span>
+                    {isAuthed && (
+                      <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+                        <button type="button" data-article-edit={a.id} title="编辑" aria-label="编辑" class="text-[0.6rem] text-muted-foreground hover:text-primary">✎</button>
+                        <button type="button" data-article-del={a.id} data-article-name={esc(a.title)} title="删除" aria-label="删除" class="text-[0.6rem] text-muted-foreground hover:text-destructive">×</button>
+                      </span>
+                    )}
+                  </a>
+                ))
+              )}
+            </nav>
+          </div>
+        </aside>
+
+        {/* 中栏：正文 */}
+        <main class="min-w-0">
+          {active ? (
+            <>
+              <header class="max-w-3xl">
+                <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(active.title)}</h1>
+                <div class="pixel-divider mt-4" />
+              </header>
+              <article class="prose max-w-3xl mt-6" set:html={html} />
+            </>
+          ) : (
+            <p class="mt-10 text-center text-sm text-muted-foreground">该文档暂无文章。</p>
+          )}
+        </main>
+
+        {/* 右栏：自动目录 */}
+        <aside class="hidden lg:block">
+          <div class="sticky top-20 rounded-lg border border-border bg-card p-3">
+            <p class="pixel-chip text-[0.55rem] text-muted-foreground">目录 / TOC</p>
+            {toc.length > 0 ? (
+              <div class="mt-2 border-l border-border pl-2">
+                {toc.map((item) => (
+                  <a
+                    class={'block text-xs leading-relaxed text-muted-foreground transition-colors hover:text-primary ' + (item.level === 3 ? 'pl-4' : '')}
+                    href={`#${item.id}`}
+                  >
+                    {esc(item.text)}
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p class="mt-2 text-xs text-muted-foreground">无目录</p>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  {/* 数据注入 */}
+  <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-articles={articlesJson} data-bundle={bundleJson} class="hidden" aria-hidden="true" />
+
+  <!-- 文章编辑弹窗 -->
+  <dialog id="doc-article-dialog" class="m-auto w-[min(92vw,52rem)] rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 id="doc-article-dialog-title" class="font-medium">编辑文章</h3>
+    <div class="mt-3 flex items-center gap-2">
+      <label class="flex-1 text-xs font-medium text-muted-foreground">
+        标题
+        <input id="doc-article-title" type="text" maxlength="200" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+      </label>
+      <div class="flex items-center gap-1">
+        <button id="doc-preview-btn" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">预览</button>
+      </div>
+    </div>
+    <div class="mt-2 grid gap-2 md:grid-cols-2">
+      <textarea id="doc-article-content" spellcheck="false" placeholder="Markdown / MDX 正文…" class="h-80 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring"></textarea>
+      <div id="doc-article-preview" class="prose h-80 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm"></div>
+    </div>
+    <p id="doc-article-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="doc-article-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
+      <button id="doc-article-confirm" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+    </div>
+  </dialog>
+
+  <!-- 文档编辑弹窗 -->
+  <dialog id="doc-edit-bundle-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 class="font-medium">编辑文档</h3>
+    <label class="mt-3 block text-xs font-medium text-muted-foreground">
+      文档名
+      <input id="doc-bundle-edit-name" type="text" maxlength="80" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      图标（可选）
+      <input id="doc-bundle-edit-icon" type="text" maxlength="20" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      简介（可选）
+      <input id="doc-bundle-edit-summary" type="text" maxlength="200" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <p id="doc-bundle-edit-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="doc-bundle-edit-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
+      <button id="doc-bundle-edit-confirm" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+    </div>
+  </dialog>
+</BaseLayout>
+
+<script>
+  /** 文档详情页：文章合集切换 + 文章/文档 CRUD + 预览（document 委托 + 实时查询 DOM） */
+  import { confirmDanger } from '@/lib/confirm';
+
+  const DATA = document.getElementById('doc-detail-data');
+  const IS_AUTHED = DATA?.dataset.authed === '1';
+  const ARTICLES = JSON.parse(DATA?.dataset.articles ?? '[]') as Array<{ id: string; title: string; content: string }>;
+  const BUNDLE = JSON.parse(DATA?.dataset.bundle ?? '{}') as { id: string; name: string; icon: string | null; summary: string | null };
+
+  function el<T extends Element = HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
+  }
+
+  /* ================= 左侧文章切换（复用 hash 锚点，避免整页刷新） ================= */
+  // 点击文章 → 滚动对应区域（已在 SSR 中默认第一篇；这里处理点击高亮 + 可选的懒加载）
+  // 简单方案：点击即导航到 hash，由浏览器定位；高亮由 rescan 处理
+  document.addEventListener('astro:page-load', () => {
+    rescanActive();
+  });
+  function rescanActive(): void {
+    const hash = location.hash.slice(1);
+    document.querySelectorAll<HTMLAnchorElement>('[data-article-id]').forEach((a) => {
+      const active = a.dataset.articleId === hash;
+      a.classList.toggle('bg-primary/10', active);
+      a.classList.toggle('text-primary', active);
+      a.classList.toggle('text-muted-foreground', !active);
+    });
+  }
+  document.addEventListener('click', (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLElement>('[data-article-id]');
+    if (!a) return;
+    // 默认行为：浏览器跳转 hash
+    window.setTimeout(rescanActive, 100);
+  });
+
+  /* ================= 文章 CRUD（登录） ================= */
+  if (IS_AUTHED) {
+    let editingArticleId: string | null = null;
+
+    // 打开编辑（新增/编辑）
+    document.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      const add = t.closest('#doc-add-article');
+      const edit = t.closest<HTMLElement>('[data-article-edit]');
+      const dlg = el<HTMLDialogElement>('doc-article-dialog');
+      if (!dlg) return;
+      if (add) {
+        editingArticleId = null;
+        if (el<HTMLInputElement>('doc-article-title')) el<HTMLInputElement>('doc-article-title')!.value = '';
+        if (el<HTMLTextAreaElement>('doc-article-content')) el<HTMLTextAreaElement>('doc-article-content')!.value = '';
+        if (el('doc-article-preview')) el('doc-article-preview')!.innerHTML = '';
+        el('doc-article-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('doc-article-dialog-title')!.textContent = '新增文章';
+        dlg.showModal();
+        el<HTMLInputElement>('doc-article-title')?.focus();
+        return;
+      }
+      if (edit) {
+        const id = edit.dataset.articleEdit;
+        const article = ARTICLES.find((x) => x.id === id);
+        if (!article) return;
+        editingArticleId = id ?? null;
+        if (el<HTMLInputElement>('doc-article-title')) el<HTMLInputElement>('doc-article-title')!.value = article.title;
+        if (el<HTMLTextAreaElement>('doc-article-content')) el<HTMLTextAreaElement>('doc-article-content')!.value = article.content;
+        if (el('doc-article-preview')) el('doc-article-preview')!.innerHTML = '';
+        el('doc-article-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('doc-article-dialog-title')!.textContent = '编辑文章';
+        dlg.showModal();
+        el<HTMLInputElement>('doc-article-title')?.focus();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('#doc-article-cancel')) el<HTMLDialogElement>('doc-article-dialog')?.close();
+    });
+
+    // 预览
+    document.addEventListener('click', async (e) => {
+      if (!(e.target as HTMLElement).closest('#doc-preview-btn')) return;
+      const source = el<HTMLTextAreaElement>('doc-article-content')?.value ?? '';
+      const preview = el('doc-article-preview');
+      if (!preview) return;
+      try {
+        const res = await fetch('/api/doc/preview', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ source }),
+        });
+        const d = (await res.json().catch(() => ({}))) as { html?: string; error?: string };
+        preview.innerHTML = d.html ?? `<p class="text-destructive">${d.error ?? '渲染失败'}</p>`;
+      } catch {
+        preview.innerHTML = '<p class="text-destructive">渲染失败</p>';
+      }
+    });
+
+    // 保存（新增/编辑）
+    document.addEventListener('click', async (e) => {
+      if (!(e.target as HTMLElement).closest('#doc-article-confirm')) return;
+      const title = (el<HTMLInputElement>('doc-article-title')?.value ?? '').trim();
+      const content = el<HTMLTextAreaElement>('doc-article-content')?.value ?? '';
+      if (!title) {
+        const st = el('doc-article-status');
+        if (st) { st.textContent = '请填写标题'; st.classList.remove('hidden'); }
+        return;
+      }
+      const dlg = el<HTMLDialogElement>('doc-article-dialog');
+      try {
+        const res = editingArticleId
+          ? await fetch('/api/doc/articles', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: editingArticleId, title, content }),
+            })
+          : await fetch('/api/doc/articles', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ bundleId: BUNDLE.id, title, content }),
+            });
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const st = el('doc-article-status');
+          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
+          return;
+        }
+        dlg?.close();
+        window.location.reload();
+      } catch {
+        const st = el('doc-article-status');
+        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+      }
+    });
+
+    // 删除文章
+    document.addEventListener('click', async (e) => {
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-article-del]');
+      if (!del) return;
+      const name = del.dataset.articleName ?? '';
+      if (!(await confirmDanger(`删除文章「${name}」？`))) return;
+      try {
+        const res = await fetch('/api/doc/articles', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: del.dataset.articleDel }),
+        });
+        if (res.ok) window.location.reload();
+      } catch { /* 忽略 */ }
+    });
+
+    // 编辑文档
+    document.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('#doc-edit-bundle')) return;
+      const dlg = el<HTMLDialogElement>('doc-edit-bundle-dialog');
+      if (!dlg) return;
+      if (el<HTMLInputElement>('doc-bundle-edit-name')) el<HTMLInputElement>('doc-bundle-edit-name')!.value = BUNDLE.name;
+      if (el<HTMLInputElement>('doc-bundle-edit-icon')) el<HTMLInputElement>('doc-bundle-edit-icon')!.value = BUNDLE.icon ?? '';
+      if (el<HTMLInputElement>('doc-bundle-edit-summary')) el<HTMLInputElement>('doc-bundle-edit-summary')!.value = BUNDLE.summary ?? '';
+      el('doc-bundle-edit-status')?.classList.add('hidden');
+      dlg.showModal();
+    });
+    document.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('#doc-bundle-edit-cancel')) el<HTMLDialogElement>('doc-edit-bundle-dialog')?.close();
+    });
+    document.addEventListener('click', async (e) => {
+      if (!(e.target as HTMLElement).closest('#doc-bundle-edit-confirm')) return;
+      const name = (el<HTMLInputElement>('doc-bundle-edit-name')?.value ?? '').trim();
+      const icon = (el<HTMLInputElement>('doc-bundle-edit-icon')?.value ?? '').trim() || null;
+      const summary = (el<HTMLInputElement>('doc-bundle-edit-summary')?.value ?? '').trim() || null;
+      if (!name) {
+        const st = el('doc-bundle-edit-status');
+        if (st) { st.textContent = '请填写文档名'; st.classList.remove('hidden'); }
+        return;
+      }
+      try {
+        const res = await fetch('/api/doc/bundles', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: BUNDLE.id, name, icon, summary }),
+        });
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const st = el('doc-bundle-edit-status');
+          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
+          return;
+        }
+        el<HTMLDialogElement>('doc-edit-bundle-dialog')?.close();
+        window.location.reload();
+      } catch {
+        const st = el('doc-bundle-edit-status');
+        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+      }
+    });
+  }
+</script>

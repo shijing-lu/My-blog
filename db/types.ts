@@ -380,3 +380,62 @@ export interface StudyStats {
   /** 近 7 天每日分钟数（旧 → 新） */
   weeklyMinutes: Array<{ date: string; minutes: number }>;
 }
+
+/** 文档系统·分类 */
+export interface DocCategory {
+  id: string;
+  name: string;
+  sort: number;
+  createdAt: Date;
+}
+
+/** 文档系统·文档 */
+export interface DocBundle {
+  id: string;
+  categoryId: string;
+  name: string;
+  icon: string | null;
+  summary: string | null;
+  sort: number;
+  createdAt: Date;
+}
+
+/** 文档系统·文章 */
+export interface DocArticle {
+  id: string;
+  bundleId: string;
+  title: string;
+  content: string;
+  sort: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 文档系统·文章写入入参 */
+export interface NewDocArticle {
+  id: string;
+  bundleId: string;
+  title: string;
+  content: string;
+  sort: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 文档系统·文档视图（含文章列表，公共页渲染；不含或含 content 视场景） */
+export interface DocBundleView extends Omit<DocBundle, 'categoryId'> {
+  articles: Array<Pick<DocArticle, 'id' | 'title' | 'sort'>>;
+}
+
+/** 文档系统·分类聚合视图（分类 → 其下文档 → 其下文章元信息） */
+export interface DocCategoryView extends DocCategory {
+  bundles: Array<DocBundleView>;
+}
+
+/** 文档系统·搜索命中 */
+export interface DocSearchResult {
+  /** 命中的文档（按 name/summary 匹配） */
+  bundles: Array<Pick<DocBundle, 'id' | 'name' | 'summary' | 'icon'> & { categoryName: string }>;
+  /** 命中的文章（按 title/content 匹配，含所属文档名） */
+  articles: Array<Pick<DocArticle, 'id' | 'title' | 'bundleId'> & { bundleName: string }>;
+}

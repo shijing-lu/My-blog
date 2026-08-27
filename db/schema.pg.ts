@@ -402,3 +402,79 @@ export const studyDistractions = pgTable(
     index('study_distractions_created_idx').on(table.createdAt),
   ],
 );
+
+/** 文档系统·分类 */
+export const docCategories = pgTable(
+  'doc_categories',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 分类名 */
+    name: text('name').notNull(),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('doc_categories_sort_idx').on(table.sort),
+  ],
+);
+
+/** 文档系统·文档（一本书 / 一个手册） */
+export const docBundles = pgTable(
+  'doc_bundles',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属分类 */
+    categoryId: text('category_id').notNull(),
+    /** 文档名 */
+    name: text('name').notNull(),
+    /** 图标（emoji/文字，可空） */
+    icon: text('icon'),
+    /** 一句话简介（可空） */
+    summary: text('summary'),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('doc_bundles_category_idx').on(table.categoryId),
+    index('doc_bundles_sort_idx').on(table.sort),
+  ],
+);
+
+/** 文档系统·文章（正文存 MDX 源码，服务端 renderMdx 渲染） */
+export const docArticles = pgTable(
+  'doc_articles',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属文档 */
+    bundleId: text('bundle_id').notNull(),
+    /** 文章标题 */
+    title: text('title').notNull(),
+    /** MDX 源码 */
+    content: text('content').notNull().default(''),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    /** 更新时间 */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('doc_articles_bundle_idx').on(table.bundleId),
+    index('doc_articles_sort_idx').on(table.sort),
+  ],
+);
