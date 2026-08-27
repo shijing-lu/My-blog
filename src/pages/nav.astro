@@ -93,6 +93,15 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
               {c.icon ? `${c.icon} ` : ''}{c.name}
             </button>
           ))}
+          {isAuthed && (
+            <button
+              type="button"
+              data-cat-add
+              class="shrink-0 rounded-full border border-dashed border-border px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+            >
+              ＋ 分类
+            </button>
+          )}
         </div>
       )
     }
@@ -113,23 +122,57 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
                 <span>全部网站</span>
               </button>
               {categories.map((c) => (
-                <button
-                  type="button"
-                  data-cat-tab={c.id}
-                  data-drop-cat={isAuthed ? c.id : undefined}
-                  class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-                  title={isAuthed ? '拖拽网站卡片到这里即可移动' : undefined}
-                >
-                  {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
-                  <span class="truncate">{c.name}</span>
-                  <span class="ml-auto font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length}</span>
-                </button>
+                <div class="group relative">
+                  <button
+                    type="button"
+                    data-cat-tab={c.id}
+                    data-cat-id={c.id}
+                    data-drop-cat={isAuthed ? c.id : undefined}
+                    draggable={isAuthed ? 'true' : undefined}
+                    class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 pr-6 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                    title={isAuthed ? '拖拽可排序；拖拽网站卡片到此处可移动' : undefined}
+                  >
+                    {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
+                    <span class="truncate">{c.name}</span>
+                    <span class="ml-auto font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length}</span>
+                  </button>
+                  {isAuthed && (
+                    <span
+                      class="absolute -top-1.5 right-0 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      <button
+                        type="button"
+                        data-cat-edit={c.id}
+                        title="编辑分类"
+                        aria-label="编辑分类"
+                        class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                      >✎</button>
+                      <button
+                        type="button"
+                        data-cat-del={c.id}
+                        data-cat-name={esc(c.name)}
+                        title="删除分类"
+                        aria-label="删除分类"
+                        class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                      >×</button>
+                    </span>
+                  )}
+                </div>
               ))}
             </nav>
             {isAuthed && (
-              <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
-                提示：拖拽卡片到分类即可移动
-              </p>
+              <>
+                <button
+                  type="button"
+                  data-cat-add
+                  class="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  ＋ 添加分类
+                </button>
+                <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
+                  提示：拖拽网站卡片到分类移动；拖拽分类可排序
+                </p>
+              </>
             )}
           </div>
         </aside>
@@ -140,7 +183,18 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     <main class="mx-auto w-full max-w-4xl px-4 py-10 md:pl-64">
       {
         categories.length === 0 ? (
-          <p class="mt-10 text-center text-sm text-muted-foreground">暂无分类 —— 管理员可到后台添加。</p>
+          <div class="mt-10 text-center">
+            <p class="text-sm text-muted-foreground">暂无分类 —— 管理员可到后台添加。</p>
+            {isAuthed && (
+              <button
+                type="button"
+                data-cat-add
+                class="mt-4 rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                ＋ 添加分类
+              </button>
+            )}
+          </div>
         ) : (
           <>
             <div data-hero>
@@ -255,6 +309,81 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       </button>
       <button
         id="nav-edit-confirm"
+        type="button"
+        class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        保存
+      </button>
+    </div>
+  </dialog>
+
+  <!-- 添加分类弹框（管理员，居中） -->
+  <dialog id="nav-cat-add-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 class="font-medium">添加分类</h3>
+    <label class="mt-3 block text-xs font-medium text-muted-foreground">
+      分类名
+      <input
+        id="nav-cat-add-name"
+        type="text"
+        maxlength="50"
+        class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+      />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      图标（可选，填一个 emoji）
+      <input
+        id="nav-cat-add-icon"
+        type="text"
+        maxlength="20"
+        placeholder="如 🧭"
+        class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+      />
+    </label>
+    <p id="nav-cat-add-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="nav-cat-add-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">
+        取消
+      </button>
+      <button
+        id="nav-cat-add-confirm"
+        type="button"
+        class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        添加
+      </button>
+    </div>
+  </dialog>
+
+  <!-- 编辑分类弹框（管理员，居中） -->
+  <dialog id="nav-cat-edit-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 class="font-medium">编辑分类</h3>
+    <p id="nav-cat-edit-target" class="mt-0.5 text-xs text-muted-foreground"></p>
+    <label class="mt-3 block text-xs font-medium text-muted-foreground">
+      分类名
+      <input
+        id="nav-cat-edit-name"
+        type="text"
+        maxlength="50"
+        class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+      />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      图标（可选，填一个 emoji）
+      <input
+        id="nav-cat-edit-icon"
+        type="text"
+        maxlength="20"
+        placeholder="如 🧭"
+        class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+      />
+    </label>
+    <p id="nav-cat-edit-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="nav-cat-edit-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">
+        取消
+      </button>
+      <button
+        id="nav-cat-edit-confirm"
         type="button"
         class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90"
       >
@@ -493,11 +622,183 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     });
     if (res.ok) window.location.reload();
   });
+
+  // ---- 分类：添加 / 编辑 / 删除 / 拖拽排序 ----
+  let editingCatId: string | null = null;
+  const catAddDialog = document.getElementById('nav-cat-add-dialog') as HTMLDialogElement | null;
+  const catAddName = document.getElementById('nav-cat-add-name') as HTMLInputElement | null;
+  const catAddIcon = document.getElementById('nav-cat-add-icon') as HTMLInputElement | null;
+  const catAddStatus = document.getElementById('nav-cat-add-status');
+  const catEditDialog = document.getElementById('nav-cat-edit-dialog') as HTMLDialogElement | null;
+  const catEditName = document.getElementById('nav-cat-edit-name') as HTMLInputElement | null;
+  const catEditIcon = document.getElementById('nav-cat-edit-icon') as HTMLInputElement | null;
+  const catEditTarget = document.getElementById('nav-cat-edit-target');
+  const catEditStatus = document.getElementById('nav-cat-edit-status');
+
+  function catStatus(el: HTMLElement | null, msg: string): void {
+    if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+  }
+
+  // 打开添加分类弹框
+  document.addEventListener('click', (e) => {
+    const add = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-add]');
+    if (!add || !catAddDialog) return;
+    if (catAddName) catAddName.value = '';
+    if (catAddIcon) catAddIcon.value = '';
+    catAddStatus?.classList.add('hidden');
+    catAddDialog.showModal();
+    catAddName?.focus();
+  });
+  document.getElementById('nav-cat-add-cancel')?.addEventListener('click', () => catAddDialog?.close());
+  document.getElementById('nav-cat-add-confirm')?.addEventListener('click', async () => {
+    const name = (catAddName?.value ?? '').trim();
+    if (!name) { catStatus(catAddStatus, '请填写分类名'); return; }
+    const icon = (catAddIcon?.value ?? '').trim() || null;
+    try {
+      const res = await fetch('/api/nav/categories', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, icon }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) { catStatus(catAddStatus, d.error ?? '添加失败'); return; }
+      catAddDialog?.close();
+      window.location.reload();
+    } catch {
+      catStatus(catAddStatus, '添加失败');
+    }
+  });
+
+  // 打开编辑分类弹框
+  document.addEventListener('click', (e) => {
+    const edit = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-edit]');
+    if (!edit) return;
+    const catId = edit.dataset.catEdit;
+    const cat = NAV_DATA.find((c) => c.id === catId);
+    if (!cat || !catEditDialog) return;
+    editingCatId = catId ?? null;
+    if (catEditName) catEditName.value = cat.name;
+    if (catEditIcon) catEditIcon.value = cat.icon ?? '';
+    if (catEditTarget) catEditTarget.textContent = `分类「${cat.name}」 · ${cat.sites.length} 个网站`;
+    catEditStatus?.classList.add('hidden');
+    catEditDialog.showModal();
+    catEditName?.focus();
+  });
+  document.getElementById('nav-cat-edit-cancel')?.addEventListener('click', () => catEditDialog?.close());
+  document.getElementById('nav-cat-edit-confirm')?.addEventListener('click', async () => {
+    if (!editingCatId || !catEditDialog) return;
+    const name = (catEditName?.value ?? '').trim();
+    if (!name) { catStatus(catEditStatus, '分类名不能为空'); return; }
+    const icon = (catEditIcon?.value ?? '').trim() || null;
+    try {
+      const res = await fetch('/api/nav/categories', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: editingCatId, name, icon }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) { catStatus(catEditStatus, d.error ?? '保存失败'); return; }
+      catEditDialog.close();
+      window.location.reload();
+    } catch {
+      catStatus(catEditStatus, '保存失败');
+    }
+  });
+
+  // 删除分类（级联删除其下网站）
+  document.addEventListener('click', async (e) => {
+    const del = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-del]');
+    if (!del) return;
+    const catId = del.dataset.catDel;
+    const cat = NAV_DATA.find((c) => c.id === catId);
+    const catName = del.dataset.catName ?? cat?.name ?? '';
+    const count = cat?.sites.length ?? 0;
+    const msg = count > 0
+      ? `删除分类「${catName}」？其下 ${count} 个网站也会一并删除。`
+      : `删除分类「${catName}」？`;
+    if (!window.confirm(msg)) return;
+    const res = await fetch('/api/nav/categories', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: catId }),
+    });
+    if (res.ok) window.location.reload();
+  });
+
+  // 拖拽排序（分类上下拖动）
+  let draggingCatId: string | null = null;
+  let catDropBefore = false;
+  function clearCatDragUi(): void {
+    document.querySelectorAll('.cat-drag-top, .cat-drag-bottom').forEach((el) => {
+      el.classList.remove('cat-drag-top', 'cat-drag-bottom');
+    });
+  }
+  document.addEventListener('dragstart', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
+    if (!btn) return;
+    draggingCatId = btn.dataset.catId ?? null;
+    e.dataTransfer?.setData('text/plain', draggingCatId ?? '');
+    e.dataTransfer!.effectAllowed = 'move';
+  });
+  document.addEventListener('dragover', (e) => {
+    if (!draggingCatId) return;
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
+    if (!btn || btn.dataset.catId === draggingCatId) return;
+    e.preventDefault();
+    clearCatDragUi();
+    const rect = btn.getBoundingClientRect();
+    catDropBefore = e.clientY < rect.top + rect.height / 2;
+    btn.classList.add(catDropBefore ? 'cat-drag-top' : 'cat-drag-bottom');
+  });
+  document.addEventListener('drop', async (e) => {
+    if (!draggingCatId) return;
+    e.preventDefault();
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
+    clearCatDragUi();
+    const catId = draggingCatId;
+    draggingCatId = null;
+    if (!btn) return;
+    const targetId = btn.dataset.catId;
+    if (!targetId || targetId === catId) return;
+    const ids = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-id]')).map((el) => el.dataset.catId ?? '');
+    const from = ids.indexOf(catId);
+    if (from < 0) return;
+    ids.splice(from, 1);
+    let to = ids.indexOf(targetId);
+    if (to < 0) return;
+    if (!catDropBefore) to += 1;
+    ids.splice(to, 0, catId);
+    const results = await Promise.all(
+      ids.map((id, i) =>
+        fetch('/api/nav/categories', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id, sort: i }),
+        }),
+      ),
+    );
+    if (results.every((r) => r.ok)) window.location.reload();
+  });
+  document.addEventListener('dragend', () => {
+    draggingCatId = null;
+    clearCatDragUi();
+  });
   } // end if (IS_AUTHED)
 
   // 转场后重置：分类高亮 + 拖拽高亮状态
   document.addEventListener('astro:page-load', () => {
     activate('all');
     document.querySelectorAll('[data-drop-cat]').forEach((el) => el.classList.remove('bg-primary/10', 'text-primary'));
+    document.querySelectorAll('.cat-drag-top, .cat-drag-bottom').forEach((el) => el.classList.remove('cat-drag-top', 'cat-drag-bottom'));
   });
 </script>
+
+<style>
+  /* 分类拖拽排序：指示插入位置的上/下线条 */
+  .cat-drag-top {
+    box-shadow: inset 0 2px 0 0 var(--color-primary);
+  }
+  .cat-drag-bottom {
+    box-shadow: inset 0 -2px 0 0 var(--color-primary);
+  }
+</style>
