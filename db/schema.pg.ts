@@ -478,3 +478,48 @@ export const docArticles = pgTable(
     index('doc_articles_sort_idx').on(table.sort),
   ],
 );
+
+/** 学习打卡·任务 */
+export const checkinTasks = pgTable(
+  'checkin_tasks',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 任务名 */
+    name: text('name').notNull(),
+    /** 图标（emoji/文字，可空） */
+    icon: text('icon'),
+    /** 最大可补签天数（默认 1） */
+    maxMakeupDays: integer('max_makeup_days').notNull().default(1),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('checkin_tasks_sort_idx').on(table.sort),
+  ],
+);
+
+/** 学习打卡·记录（taskId + date 唯一，同日同任务一条） */
+export const checkinRecords = pgTable(
+  'checkin_records',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属任务 */
+    taskId: text('task_id').notNull(),
+    /** 打卡日期 YYYY-MM-DD */
+    date: text('date').notNull(),
+    /** 打卡时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique('checkin_records_task_date_unique').on(table.taskId, table.date),
+    index('checkin_records_task_idx').on(table.taskId),
+  ],
+);

@@ -439,3 +439,35 @@ export interface DocSearchResult {
   /** 命中的文章（按 title/content 匹配，含所属文档名） */
   articles: Array<Pick<DocArticle, 'id' | 'title' | 'bundleId'> & { bundleName: string }>;
 }
+
+/** 学习打卡·任务 */
+export interface CheckinTask {
+  id: string;
+  name: string;
+  icon: string | null;
+  /** 最大可补签天数 */
+  maxMakeupDays: number;
+  sort: number;
+  createdAt: Date;
+}
+
+/** 学习打卡·记录 */
+export interface CheckinRecord {
+  id: string;
+  taskId: string;
+  /** 打卡日期 YYYY-MM-DD */
+  date: string;
+  createdAt: Date;
+}
+
+/** 学习打卡·任务视图（含聚合统计，登录后渲染用） */
+export interface CheckinTaskView extends CheckinTask {
+  /** 今天是否已打卡 */
+  todayChecked: boolean;
+  /** 当前连续打卡天数 */
+  streakDays: number;
+  /** 累计打卡次数 */
+  totalCount: number;
+  /** 该任务全部打卡日期（YYYY-MM-DD，热力图数据源） */
+  recordDates: string[];
+}

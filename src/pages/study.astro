@@ -8,6 +8,7 @@ import {
   listStudyDistractions,
   listStudyTasks,
 } from '@/lib/study-data';
+import { listCheckinTasks } from '@/lib/checkin-data';
 
 /* ===== Logic ===== */
 const isAuthed = verifyRequest(Astro.cookies);
@@ -18,6 +19,9 @@ const tasksJson = isAuthed ? JSON.stringify(await listStudyTasks()) : '[]';
 const distractionsJson = isAuthed ? JSON.stringify(await listStudyDistractions()) : '[]';
 /** 任务数组（模板下拉用，登录时才有） */
 const tasks = isAuthed ? (await listStudyTasks()) : [];
+/** 打卡任务（登录时才有；含聚合统计 + 记录日期） */
+const checkins = isAuthed ? (await listCheckinTasks()) : [];
+const checkinsJson = isAuthed ? JSON.stringify(checkins) : '[]';
 
 /** HTML 转义 */
 function esc(s: string): string {
@@ -242,8 +246,29 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
           )}
         </div>
 
-        {/* 右侧：任务计划 + 统计 */}
+        {/* 右侧：打卡 + 任务计划 + 统计 */}
         <div class="flex flex-col gap-6">
+          {/* 打卡系统（登录） */}
+          {isAuthed && (
+            <div class="rounded-xl border border-border bg-card/85 p-5 shadow-md backdrop-blur-md">
+              <div class="flex items-center justify-between">
+                <p class="pixel-chip text-muted-foreground">打卡 / CHECK-IN</p>
+                <button
+                  id="checkin-add"
+                  type="button"
+                  class="rounded-full border border-dashed border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  ＋ 添加打卡任务
+                </button>
+              </div>
+              {checkins.length === 0 ? (
+                <p class="mt-3 text-xs text-muted-foreground">还没有打卡任务 —— 添加一个开始坚持吧。</p>
+              ) : (
+                <ul id="checkin-list" class="mt-3 space-y-1.5 text-sm"></ul>
+              )}
+            </div>
+          )}
+
           {/* 任务计划（登录） */}
           {isAuthed && (
             <div class="rounded-xl border border-border bg-card/85 p-5 shadow-md backdrop-blur-md">
@@ -440,6 +465,7 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     data-authed={isAuthed ? '1' : '0'}
     data-tasks={tasksJson}
     data-distractions={distractionsJson}
+    data-checkins={checkinsJson}
     class="hidden"
     aria-hidden="true"
   />
@@ -468,6 +494,37 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     <div class="mt-3 flex items-center justify-end gap-2">
       <button id="cfg-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
       <button id="cfg-save" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+    </div>
+  </dialog>
+
+  <!-- 添加/编辑打卡任务弹框（登录） -->
+  <dialog id="checkin-task-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 id="checkin-task-dialog-title" class="font-medium">添加打卡任务</h3>
+    <label class="mt-3 block text-xs font-medium text-muted-foreground">
+      任务名
+      <input id="checkin-name" type="text" maxlength="50" placeholder="如 背单词、跑步、早起" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      图标（可选，填一个 emoji）
+      <input id="checkin-icon" type="text" maxlength="20" placeholder="如 📖" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      最大可补签天数（0 = 不可补签）
+      <input id="checkin-makeup" type="number" min="0" max="30" value="1" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    </label>
+    <p id="checkin-task-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="checkin-task-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
+      <button id="checkin-task-confirm" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+    </div>
+  </dialog>
+
+  <!-- 补签弹框（登录） -->
+  <dialog id="checkin-makeup-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 id="checkin-makeup-task" class="font-medium">补签</h3>
+    <div id="checkin-makeup-days" class="mt-3 flex flex-wrap gap-1.5"></div>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="checkin-makeup-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
     </div>
   </dialog>
 
@@ -894,4 +951,252 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
   initPage();
   // View Transition 后重新渲染（DOM 已替换）
   document.addEventListener('astro:page-load', () => initPage());
+
+  /* ================= 打卡系统（登录，document 委托 + 实时查询 DOM） ================= */
+  const IS_AUTHED = document.querySelector('[data-authed]')?.getAttribute('data-authed') === '1';
+  if (IS_AUTHED) {
+    // 打卡渲染（每次加载/刷新后重建列表）
+    const CHECKINS = JSON.parse(
+      document.getElementById('study-data')?.getAttribute('data-checkins') ?? '[]',
+    ) as Array<{ id: string; name: string; icon: string | null; maxMakeupDays: number; todayChecked: boolean; streakDays: number; totalCount: number; recordDates: string[] }>;
+
+    function escHtml(s: string): string {
+      return String(s).replace(/[&<>"']/g, (c) => {
+        const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return map[c] ?? c;
+      });
+    }
+
+    /** 本地时区 YYYY-MM-DD */
+    function todayKey(): string {
+      const d = new Date();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    }
+
+    /** 热力图（近 12 周，复用 heat-cell 档位：0=无 1=已打） */
+    function heatmapHtml(dates: string[]): string {
+      const set = new Set(dates);
+      const end = new Date();
+      const start = new Date(end.getFullYear(), end.getMonth() - 2, 1);
+      const gridStart = new Date(start);
+      gridStart.setDate(gridStart.getDate() - gridStart.getDay());
+      const mk = (d: Date): string => {
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${d.getFullYear()}-${m}-${day}`;
+      };
+      let weeks = '';
+      const cursor = new Date(gridStart);
+      while (cursor.getTime() <= end.getTime()) {
+        let week = '';
+        for (let i = 0; i < 7; i += 1) {
+          const d = new Date(cursor);
+          d.setDate(d.getDate() + i);
+          const k = mk(d);
+          week += `<span class="heat-cell ${set.has(k) ? 'heat-4' : 'heat-0'}" title="${k}${set.has(k) ? '：已打卡' : ''}"></span>`;
+        }
+        weeks += `<div class="flex flex-col gap-[2px]">${week}</div>`;
+        cursor.setDate(cursor.getDate() + 7);
+      }
+      return `<div class="mt-2 flex gap-[2px] overflow-x-auto">${weeks}</div>`;
+    }
+
+    function renderCheckins(): void {
+      const list = document.getElementById('checkin-list');
+      if (!list) return;
+      if (CHECKINS.length === 0) return; // 模板已显示空态提示
+      list.innerHTML = CHECKINS.map((t) => {
+        const checked = t.todayChecked;
+        return (
+          `<li class="rounded-md border border-border px-3 py-2">` +
+          `<div class="flex items-center gap-2">` +
+          `<span class="text-base">${t.icon ?? '✅'}</span>` +
+          `<span class="min-w-0 flex-1 truncate">${escHtml(t.name)}</span>` +
+          `<span class="shrink-0 text-[0.6rem] text-muted-foreground">🔥${t.streakDays}天 · 共${t.totalCount}次</span>` +
+          `<button type="button" data-checkin-toggle="${t.id}" title="${checked ? '取消今天打卡' : '今天打卡'}" aria-label="打卡" ` +
+          `class="inline-flex size-6 shrink-0 items-center justify-center rounded-full border text-xs transition-colors ${checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-primary/50 hover:text-primary'}">${checked ? '✓' : '○'}</button>` +
+          `<button type="button" data-checkin-makeup="${t.id}" data-checkin-makeup-max="${t.maxMakeupDays}" title="补签" aria-label="补签" ` +
+          `class="shrink-0 text-[0.7rem] text-muted-foreground transition-colors hover:text-primary">↩</button>` +
+          `<span class="flex shrink-0 items-center gap-0.5">` +
+          `<button type="button" data-checkin-edit="${t.id}" title="编辑" aria-label="编辑" class="text-[0.7rem] text-muted-foreground hover:text-primary">✎</button>` +
+          `<button type="button" data-checkin-del="${t.id}" data-checkin-name="${escHtml(t.name)}" title="删除" aria-label="删除" class="text-[0.7rem] text-muted-foreground hover:text-destructive">×</button>` +
+          `</span>` +
+          `</div>` +
+          `<button type="button" data-checkin-heat="${t.id}" title="展开/收起热力图" class="mt-1 text-[0.6rem] text-muted-foreground hover:text-primary">▸ 热力图</button>` +
+          `<div data-checkin-heat-panel="${t.id}" class="hidden">${heatmapHtml(t.recordDates)}</div>` +
+          `</li>`
+        );
+      }).join('');
+    }
+
+    let editingCheckinId: string | null = null;
+
+    // 打开添加/编辑任务弹框
+    document.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      const add = t.closest('#checkin-add');
+      const edit = t.closest<HTMLElement>('[data-checkin-edit]');
+      const dlg = el<HTMLDialogElement>('checkin-task-dialog');
+      if (!dlg) return;
+      if (add) {
+        editingCheckinId = null;
+        if (el<HTMLInputElement>('checkin-name')) el<HTMLInputElement>('checkin-name')!.value = '';
+        if (el<HTMLInputElement>('checkin-icon')) el<HTMLInputElement>('checkin-icon')!.value = '';
+        if (el<HTMLInputElement>('checkin-makeup')) el<HTMLInputElement>('checkin-makeup')!.value = '1';
+        el('checkin-task-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('checkin-task-dialog-title')!.textContent = '添加打卡任务';
+        dlg.showModal();
+        el<HTMLInputElement>('checkin-name')?.focus();
+        return;
+      }
+      if (edit) {
+        const id = edit.dataset.checkinEdit;
+        const task = CHECKINS.find((x) => x.id === id);
+        if (!task) return;
+        editingCheckinId = id ?? null;
+        if (el<HTMLInputElement>('checkin-name')) el<HTMLInputElement>('checkin-name')!.value = task.name;
+        if (el<HTMLInputElement>('checkin-icon')) el<HTMLInputElement>('checkin-icon')!.value = task.icon ?? '';
+        if (el<HTMLInputElement>('checkin-makeup')) el<HTMLInputElement>('checkin-makeup')!.value = String(task.maxMakeupDays);
+        el('checkin-task-status')?.classList.add('hidden');
+        el<HTMLHeadingElement>('checkin-task-dialog-title')!.textContent = '编辑打卡任务';
+        dlg.showModal();
+        el<HTMLInputElement>('checkin-name')?.focus();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('#checkin-task-cancel')) el<HTMLDialogElement>('checkin-task-dialog')?.close();
+    });
+    document.addEventListener('click', async (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('#checkin-task-confirm')) return;
+      const name = (el<HTMLInputElement>('checkin-name')?.value ?? '').trim();
+      const icon = (el<HTMLInputElement>('checkin-icon')?.value ?? '').trim() || null;
+      const makeup = Math.max(0, Math.floor(Number(el<HTMLInputElement>('checkin-makeup')?.value) || 1));
+      if (!name) {
+        const st = el('checkin-task-status');
+        if (st) { st.textContent = '请填写任务名'; st.classList.remove('hidden'); }
+        return;
+      }
+      const dlg = el<HTMLDialogElement>('checkin-task-dialog');
+      try {
+        const res = editingCheckinId
+          ? await fetch(`/api/study/checkin/tasks/${editingCheckinId}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ name, icon, maxMakeupDays: makeup }),
+            })
+          : await fetch('/api/study/checkin/tasks', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ name, icon, maxMakeupDays: makeup }),
+            });
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const st = el('checkin-task-status');
+          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
+          return;
+        }
+        dlg?.close();
+        window.location.reload();
+      } catch {
+        const st = el('checkin-task-status');
+        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+      }
+    });
+    // 删除任务
+    document.addEventListener('click', async (e) => {
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-checkin-del]');
+      if (!del) return;
+      const name = del.dataset.checkinName ?? '';
+      if (!(await confirmDanger(`删除打卡任务「${name}」？其打卡记录也会一并删除。`))) return;
+      try {
+        const res = await fetch(`/api/study/checkin/tasks/${del.dataset.checkinDel}`, { method: 'DELETE' });
+        if (res.ok) window.location.reload();
+      } catch { /* 忽略 */ }
+    });
+    // 打卡 toggle
+    document.addEventListener('click', async (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-checkin-toggle]');
+      if (!btn) return;
+      try {
+        const res = await fetch('/api/study/checkin/toggle', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ taskId: btn.dataset.checkinToggle, date: todayKey() }),
+        });
+        if (res.ok) window.location.reload();
+      } catch { /* 忽略 */ }
+    });
+    // 补签弹窗：动态创建简单日期选择（近 N 天，含今天）
+    let checkinMakeupTaskId: string | null = null;
+    document.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-checkin-makeup]');
+      if (!btn) return;
+      const taskId = btn.dataset.checkinMakeup;
+      const max = Math.max(0, Number(btn.dataset.checkinMakeupMax) || 0);
+      checkinMakeupTaskId = taskId ?? null;
+      if (!taskId) return;
+      const dlg = el<HTMLDialogElement>('checkin-makeup-dialog');
+      if (!dlg) return;
+      // 渲染近 N 天按钮（含今天）
+      const wrap = el('checkin-makeup-days');
+      if (!wrap) return;
+      const rows: string[] = [];
+      for (let i = max; i >= 0; i -= 1) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const k = `${d.getFullYear()}-${m}-${day}`;
+        rows.push(
+          `<button type="button" data-checkin-makeup-day="${k}" class="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">${m}/${day}</button>`,
+        );
+      }
+      wrap.innerHTML = rows.join('');
+      el('checkin-makeup-task')!.textContent = '补签日期（可多选）';
+      dlg.showModal();
+    });
+    document.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('#checkin-makeup-cancel')) el<HTMLDialogElement>('checkin-makeup-dialog')?.close();
+    });
+    document.addEventListener('click', async (e) => {
+      const t = e.target as HTMLElement;
+      const day = t.closest<HTMLElement>('[data-checkin-makeup-day]');
+      if (!day) return;
+      if (checkinMakeupTaskId) {
+        try {
+          const res = await fetch('/api/study/checkin/toggle', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ taskId: checkinMakeupTaskId, date: day.dataset.checkinMakeupDay }),
+          });
+          if (res.ok) {
+            el<HTMLDialogElement>('checkin-makeup-dialog')?.close();
+            window.location.reload();
+          }
+        } catch { /* 忽略 */ }
+      }
+    });
+    // 热力图展开/收起
+    document.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      const heat = t.closest<HTMLElement>('[data-checkin-heat]');
+      if (!heat) return;
+      const panel = document.querySelector<HTMLElement>(`[data-checkin-heat-panel="${heat.dataset.checkinHeat}"]`);
+      if (panel) {
+        panel.classList.toggle('hidden');
+        heat.textContent = panel.classList.contains('hidden') ? '▸ 热力图' : '▾ 热力图';
+      }
+    });
+
+    // 首次 + View Transition 后渲染
+    function renderCheckinPage(): void {
+      if (document.getElementById('checkin-list')) renderCheckins();
+    }
+    renderCheckinPage();
+    document.addEventListener('astro:page-load', renderCheckinPage);
+  }
 </script>
