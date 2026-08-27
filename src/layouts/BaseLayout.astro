@@ -140,8 +140,10 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
       import '@/scripts/lightbox';
     </script>
 
-    <!-- 全局动效：滚动进度条 + 卡片入场动画 -->
+    <!-- 全局动效：滚动进度条 + 卡片入场动画 + GSAP 分割线展开 -->
     <script>
+      import { initReveals } from '@/lib/anim';
+
       // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
       if (!(window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound) {
         (window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound = true;
@@ -253,6 +255,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           });
       });
       observeReveals();
+      // GSAP：全站像素分割线滚动展开（仅初始加载播放；转场后静态显示避免闪）
+      void initReveals();
 
       /** 按钮点击波纹（document 委托，View Transitions 后依然有效） */
       document.addEventListener('click', (e) => {

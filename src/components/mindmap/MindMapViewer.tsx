@@ -237,15 +237,6 @@ export default function MindMapViewer({ data, blockMap = {}, mapId }: Props): Re
       }
     }
 
-    function toast(msg: string): void {
-      const el = document.createElement('div');
-      el.className =
-        'fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-background px-4 py-2 text-xs shadow-lg';
-      el.textContent = msg;
-      document.body.appendChild(el);
-      window.setTimeout(() => el.remove(), 2200);
-    }
-
     void (async () => {
       const mod = await import('simple-mind-map');
       if (disposed || !containerRef.current) return;

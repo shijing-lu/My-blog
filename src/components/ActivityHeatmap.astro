@@ -127,8 +127,8 @@ const peakTotal = data.monthly[peakIdx]?.total ?? 0;
     <div class="shrink-0 lg:w-64">
       <p class="pixel-chip mb-2 text-muted-foreground">月度写作量 / MONTHLY</p>
       <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} class="w-full" role="img" aria-label="月度写作量折线图">
-        <path d={areaPath} fill="var(--color-primary)" opacity="0.14" />
-        <path d={linePath} fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        <path class="line-area" d={areaPath} fill="var(--color-primary)" opacity="0.14" />
+        <path class="line-stroke" d={linePath} fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
         {points.map((p) => (
           <circle cx={p.x} cy={p.y} r="3" fill="var(--color-primary)" />
         ))}
@@ -145,35 +145,43 @@ const peakTotal = data.monthly[peakIdx]?.total ?? 0;
 </div>
 
 <script>
-  /** 统计数字滚动动画（进入视口时从 0 滚到目标值） */
-  const nums = Array.from(document.querySelectorAll<HTMLElement>('.stat-num'));
-  const targets = nums.map((el) => Number(el.dataset.num ?? 0));
+  /** 统计数字滚动（GSAP） + 热力格逐个点亮 + 月度折线描边 */
+  import { counterInView, loadGsap, prefersReducedMotion } from '@/lib/anim';
 
-  function animate(el: HTMLElement, target: number): void {
-    const duration = 1600;
-    const start = performance.now();
-    const fmt = (n: number): string => n.toLocaleString();
-    const tick = (t: number): void => {
-      const p = Math.min(1, (t - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
-      el.textContent = fmt(Math.round(target * eased));
-      if (p < 1) requestAnimationFrame(tick);
-      else el.textContent = fmt(target);
-    };
-    requestAnimationFrame(tick);
-  }
+  // 数字 0 → 目标值（进入视口触发）
+  void counterInView('.stat-num');
 
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          const idx = nums.indexOf(entry.target as HTMLElement);
-          if (idx >= 0) animate(entry.target as HTMLElement, targets[idx]!);
-          observer.unobserve(entry.target);
-        }
+  (async () => {
+    if (prefersReducedMotion()) return;
+    const gsap = await loadGsap(true);
+    const container = document.querySelector('.activity-heatmap');
+    if (!container) return;
+    const trigger = { trigger: container as HTMLElement, start: 'top 85%', once: true };
+
+    // 热力格（有数据的）逐个点亮：scale/opacity
+    gsap.fromTo(
+      '.heat-cell:not(.heat-0)',
+      { scale: 0.3, opacity: 0 },
+      { scale: 1, opacity: 1, duration: 0.4, ease: 'back.out(2)', stagger: 0.008, scrollTrigger: trigger },
+    );
+
+    // 月度折线描边（draw 效果）+ 填充区域淡入
+    const stroke = container.querySelector<SVGPathElement>('.line-stroke');
+    if (stroke) {
+      const len = stroke.getTotalLength();
+      gsap.set(stroke, { strokeDasharray: len, strokeDashoffset: len });
+      gsap.to(stroke, {
+        strokeDashoffset: 0,
+        duration: 1.6,
+        ease: 'power2.inOut',
+        scrollTrigger: { trigger: container as HTMLElement, start: 'top 85%', once: true },
       });
-    },
-    { threshold: 0.3 },
-  );
-  nums.forEach((el) => observer.observe(el));
+    }
+    gsap.from('.line-area', {
+      opacity: 0,
+      duration: 1.2,
+      ease: 'power2.out',
+      scrollTrigger: { trigger: container as HTMLElement, start: 'top 85%', once: true },
+    });
+  })();
 </script>
