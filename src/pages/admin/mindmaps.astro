@@ -96,6 +96,7 @@ function formatShort(date: Date): string {
 </AdminLayout>
 
 <script>
+  import { confirmDanger } from '@/lib/confirm';
   const status = document.getElementById('map-status') as HTMLParagraphElement | null;
   function setStatus(msg: string): void {
     if (!status) return;
@@ -140,7 +141,7 @@ function formatShort(date: Date): string {
   document.addEventListener('click', async (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-map-del]');
     if (!btn) return;
-    if (!window.confirm(`删除思维导图「${btn.dataset.mapTitle}」？`)) return;
+    if (!(await confirmDanger(`删除思维导图「${btn.dataset.mapTitle}」？`))) return;
     const res = await fetch(`/api/mindmaps/${btn.dataset.mapDel}`, { method: 'DELETE' });
     if (res.ok) btn.closest('li')?.remove();
   });

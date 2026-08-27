@@ -176,6 +176,7 @@ function renderVideo(url: string): string {
 
 <script>
   import { compressImageForUpload } from '../../lib/client-image-upload';
+  import { confirmDanger } from '@/lib/confirm';
   /** 动态页交互：发布（图片/GIF 上传 + 视频链接）、加载更多、删除（管理员） */
 
   const PAGE_SIZE = 20;
@@ -392,7 +393,7 @@ function renderVideo(url: string): string {
   document.addEventListener('click', async (e) => {
     const del = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-del]');
     if (!del) return;
-    if (!window.confirm('确定删除这条动态？')) return;
+    if (!(await confirmDanger('确定删除这条动态？'))) return;
     await fetch(`/api/moments/${del.dataset.momentDel}`, { method: 'DELETE' });
     del.closest<HTMLElement>('.moment-card')?.remove();
   });

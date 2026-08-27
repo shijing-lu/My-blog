@@ -304,6 +304,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 
 <script>
   /** 日历交互：日期悬浮预览（停留 2s 显示当日信息，管理员含日记）+ 待办/事件管理 */
+  import { confirmDanger } from '@/lib/confirm';
 
   function esc(value: string): string {
     return String(value).replace(/[&<>"']/g, (c) => {
@@ -558,7 +559,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 
   /** 弹窗内删除重要日期：DELETE → 刷新弹窗列表 + 主日历视图 */
   async function deleteAllEvent(id: string): Promise<void> {
-    if (!window.confirm('删除这个重要日期？')) return;
+    if (!(await confirmDanger('删除这个重要日期？'))) return;
     try {
       const res = await fetch(`/api/calendar-events/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('删除失败');
@@ -775,7 +776,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const target = e.target as HTMLElement;
     const todoDel = target.closest<HTMLElement>('[data-todo-del]');
     if (todoDel) {
-      if (!window.confirm('删除这条待办？')) return;
+      if (!(await confirmDanger('删除这条待办？'))) return;
       try {
         const res = await fetch(`/api/todos/${todoDel.dataset.todoDel}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('删除失败');
@@ -788,7 +789,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     }
     const eventDel = target.closest<HTMLElement>('[data-event-del]');
     if (eventDel) {
-      if (!window.confirm('删除这个重要日期？')) return;
+      if (!(await confirmDanger('删除这个重要日期？'))) return;
       try {
         const res = await fetch(`/api/calendar-events/${eventDel.dataset.eventDel}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('删除失败');

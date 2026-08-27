@@ -273,6 +273,7 @@ const hasManualFonts = await hasManualFontSettings();
 
 <script>
   /** 站点设置页：诗词轮播配置（增删/调速/保存）。配置来自服务端注入 data-settings。 */
+  import { confirmDialog, confirmDanger } from '@/lib/confirm';
 
   interface QuoteConfig {
     text: string;
@@ -568,7 +569,7 @@ const hasManualFonts = await hasManualFontSettings();
     fontModeStatus.classList.toggle('hidden', !isError);
   }
   fontFollowTheme?.addEventListener('click', async () => {
-    if (!window.confirm('恢复跟随主题字体？将清除当前手动字体设置，全站改用当前主题自带字体。')) return;
+    if (!(await confirmDialog('恢复跟随主题字体？将清除当前手动字体设置，全站改用当前主题自带字体。'))) return;
     try {
       const res = await fetch('/api/fonts-settings', { method: 'DELETE' });
       if (!res.ok) throw new Error('清除失败');
@@ -601,7 +602,7 @@ const hasManualFonts = await hasManualFontSettings();
       del.textContent = '删除';
       del.className = 'ml-auto rounded px-1.5 py-0.5 text-destructive hover:bg-destructive/10';
       del.addEventListener('click', async () => {
-        if (!window.confirm(`删除字体 ${f.familyName}？`)) return;
+        if (!(await confirmDanger(`删除字体 ${f.familyName}？`))) return;
         const res = await fetch(`/api/fonts/${f.id}`, { method: 'DELETE' });
         if (res.ok) window.location.reload();
       });

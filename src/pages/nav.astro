@@ -402,6 +402,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
 
 <script>
   /** 导航页：分类切换 + 图标兜底 + 管理员增删移（× 删除 / ＋ 添加 / 拖拽移动） */
+  import { confirmDanger } from '@/lib/confirm';
   const IS_AUTHED = document.querySelector<HTMLElement>('[data-authed]')?.dataset.authed === '1';
 
   // ---- 分类切换 ----
@@ -457,7 +458,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     document.addEventListener('click', async (e) => {
       const del = (e.target as HTMLElement).closest<HTMLElement>('[data-site-del]');
       if (!del) return;
-      if (!window.confirm(`删除网站「${del.dataset.siteName}」？`)) return;
+      if (!(await confirmDanger(`删除网站「${del.dataset.siteName}」？`))) return;
       const res = await fetch('/api/nav/sites', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
@@ -742,7 +743,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     const msg = count > 0
       ? `删除分类「${catName}」？其下 ${count} 个网站也会一并删除。`
       : `删除分类「${catName}」？`;
-    if (!window.confirm(msg)) return;
+    if (!(await confirmDanger(msg))) return;
     const res = await fetch('/api/nav/categories', {
       method: 'DELETE',
       headers: { 'content-type': 'application/json' },

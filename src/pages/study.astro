@@ -492,6 +492,7 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
     remainingSec,
     writeTimerState,
   } from '@/lib/study-timer-global';
+  import { confirmDialog, confirmDanger } from '@/lib/confirm';
 
   type Mode = 'focus' | 'short' | 'long';
   let state = readTimerState() ?? freshTimerState();
@@ -602,12 +603,12 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
   /* ================= 事件（全部 document 委托，View Transition 后依然有效） ================= */
 
   // 番茄钟控制
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
 
     if (target.closest('[data-mode-tab]')) {
       const tab = target.closest<HTMLElement>('[data-mode-tab]')!;
-      if (state.running && !window.confirm('切换模式将重置计时，确定？')) return;
+      if (state.running && !(await confirmDialog('切换模式将重置计时，确定？'))) return;
       state = freshTimerState(state.cfg);
       state.mode = (tab.dataset.modeTab ?? 'focus') as Mode;
       state.pausedRemaining = durationSecFor(state.mode, state.cfg);
@@ -632,7 +633,7 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
       return;
     }
     if (target.closest('#study-abandon')) {
-      if (!window.confirm('放弃当前番茄？该番茄作废，不计入统计。')) return;
+      if (!(await confirmDialog('放弃当前番茄？该番茄作废，不计入统计。'))) return;
       reset();
       return;
     }
@@ -785,7 +786,7 @@ const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros /
       }
       const taskDel = target.closest<HTMLElement>('[data-task-del]');
       if (taskDel) {
-        if (!window.confirm('删除该任务？')) return;
+        if (!(await confirmDanger('删除该任务？'))) return;
         try {
           await fetch(`/api/study/tasks/${taskDel.dataset.taskDel}`, { method: 'DELETE' });
           void loadTasks();

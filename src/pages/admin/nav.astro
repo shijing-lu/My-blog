@@ -134,6 +134,7 @@ const categoriesJson = JSON.stringify(
 
 <script>
   /** 导航管理：分类/网站 增删改查 + 移动分类（操作后刷新） */
+  import { confirmDanger } from '@/lib/confirm';
   interface CategoryJson { id: string; name: string; icon: string | null; sort: number; sites: { id: string; name: string; url: string; icon: string | null; desc: string | null }[] }
   const CATEGORIES = JSON.parse((document.getElementById('nav-data') as HTMLElement).dataset.categories ?? '[]') as CategoryJson[];
   const status = (id: string): HTMLElement | null => document.getElementById(id);
@@ -185,7 +186,7 @@ const categoriesJson = JSON.stringify(
     }
     const del = target.closest<HTMLElement>('[data-cat-del]');
     if (del) {
-      if (!window.confirm(`删除分类「${del.dataset.catName}」？其下所有网站将一并删除。`)) return;
+      if (!(await confirmDanger(`删除分类「${del.dataset.catName}」？其下所有网站将一并删除。`))) return;
       const res = await fetch('/api/nav/categories', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
@@ -269,7 +270,7 @@ const categoriesJson = JSON.stringify(
   });
   document.querySelectorAll<HTMLElement>('[data-site-del]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!window.confirm(`删除网站「${btn.dataset.siteName}」？`)) return;
+      if (!(await confirmDanger(`删除网站「${btn.dataset.siteName}」？`))) return;
       const res = await fetch('/api/nav/sites', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },

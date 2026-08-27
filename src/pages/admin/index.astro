@@ -75,12 +75,13 @@ function formatShort(date: Date): string {
 
 <script>
   /** 删除确认 → DELETE /api/articles/[id] → 刷新 */
+  import { confirmDanger } from '@/lib/confirm';
   document.querySelectorAll<HTMLButtonElement>('[data-delete-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.deleteId ?? '';
       const title = btn.dataset.deleteTitle ?? '';
       if (!id) return;
-      if (!window.confirm(`确定删除「${title}」？此操作不可撤销。`)) return;
+      if (!(await confirmDanger(`确定删除「${title}」？此操作不可撤销。`))) return;
       await fetch(`/api/articles/${id}`, { method: 'DELETE' });
       window.location.reload();
     });

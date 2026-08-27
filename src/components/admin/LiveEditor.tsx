@@ -15,6 +15,7 @@ import MindMapEditor from '../mindmap/MindMapEditor';
 import type { ArticleType } from '../../../db/types';
 import { ARTICLE_TYPES } from '../../../db/types';
 import { compressImageForUpload } from '../../lib/client-image-upload';
+import { confirmDanger } from '../../lib/confirm';
 
 /** 初始草稿（服务端注入） */
 export interface InitialDraft {
@@ -264,7 +265,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
   const removeArticle = useCallback(async (id: string): Promise<void> => {
     const target = list.find((x) => x.id === id);
     if (!target) return;
-    if (!window.confirm(`确定删除「${target.title}」？此操作不可撤销。`)) return;
+    if (!(await confirmDanger(`确定删除「${target.title}」？此操作不可撤销。`))) return;
     await fetch(`/api/articles/${id}`, { method: 'DELETE' });
     setList((prev) => prev.filter((x) => x.id !== id));
     if (selectedId === id) {

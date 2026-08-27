@@ -208,6 +208,7 @@ const todayStr = dateKey(today);
   /** 影集上传与管理（原生 JS）：
    *  多文件队列 → canvas 压缩原图+缩略图 → 逐张 POST /api/photos；
    *  URL 导入（PicGo 工作流）；管理列表 保存(PATCH) / 删除(DELETE)。 */
+  import { confirmDanger } from '@/lib/confirm';
 
   const todayStr = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
   const MAX_ORIGINAL_BYTES = 3 * 1024 * 1024;
@@ -522,7 +523,7 @@ const todayStr = dateKey(today);
     if (delBtn) {
       const id = delBtn.dataset.deletePhoto ?? '';
       if (!id) return;
-      if (!window.confirm('确定删除这张照片？此操作不可撤销。')) return;
+      if (!(await confirmDanger('确定删除这张照片？此操作不可撤销。'))) return;
       delBtn.disabled = true;
       try {
         const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });

@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Heart, MessageSquare, ChevronDown, ChevronUp, Send, Trash2 } from 'lucide-react';
+import { confirmDanger } from '../../lib/confirm';
 import { getLikeFingerprint } from '../../lib/like-fingerprint';
 import LikeButton from './LikeButton';
 
@@ -369,7 +370,7 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
 
   /** 删除评论 */
   const del = async (id: string): Promise<void> => {
-    if (!window.confirm('删除这条评论？')) return;
+    if (!(await confirmDanger('删除这条评论？'))) return;
     try {
       const res = await fetch(`/api/comments/${id}`, { method: 'DELETE' });
       if (res.ok) await load(1, sort);

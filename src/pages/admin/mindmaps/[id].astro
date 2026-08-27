@@ -99,6 +99,7 @@ if (map.articleId) {
 
 <script>
   /** 编辑器工具栏：标题保存、导出、删除（画布与自动保存由 MindMapEditor 岛负责） */
+  import { confirmDanger } from '@/lib/confirm';
   const titleInput = document.getElementById('map-title') as HTMLInputElement | null;
   const saveState = document.getElementById('map-save-state');
   let titleTimer = 0;
@@ -148,7 +149,7 @@ if (map.articleId) {
 
   document.getElementById('map-delete')?.addEventListener('click', async () => {
     const id = location.pathname.split('/').pop();
-    if (!window.confirm('删除这张思维导图？')) return;
+    if (!(await confirmDanger('删除这张思维导图？'))) return;
     const res = await fetch(`/api/mindmaps/${id}`, { method: 'DELETE' });
     if (res.ok) window.location.href = '/admin/mindmaps';
   });
