@@ -106,81 +106,8 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       )
     }
 
-    {
-      categories.length > 0 && (
-        /* 超宽屏左侧分类栏：圆角浮动卡片，悬浮在内容区左侧留白，与内容区左边缘留 gap */
-        <aside class="fixed left-4 top-16 z-30 hidden w-52 min-[1720px]:block">
-          <div class="rounded-xl border border-border bg-card/85 p-3 shadow-md backdrop-blur-md">
-            <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
-            <nav class="space-y-0.5 text-sm" aria-label="导航分类">
-              <button
-                type="button"
-                data-cat-tab="all"
-                class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-              >
-                <span aria-hidden="true">🧭</span>
-                <span>全部网站</span>
-              </button>
-              {categories.map((c) => (
-                <div class="group relative">
-                  <button
-                    type="button"
-                    data-cat-tab={c.id}
-                    data-cat-id={c.id}
-                    data-drop-cat={isAuthed ? c.id : undefined}
-                    draggable={isAuthed ? 'true' : undefined}
-                    class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 pr-6 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-                    title={isAuthed ? '拖拽可排序；拖拽网站卡片到此处可移动' : undefined}
-                  >
-                    {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
-                    <span class="truncate">{c.name}</span>
-                    <span class="ml-auto font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length}</span>
-                  </button>
-                  {isAuthed && (
-                    <span
-                      class="absolute -top-1.5 right-0 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"
-                    >
-                      <button
-                        type="button"
-                        data-cat-edit={c.id}
-                        title="编辑分类"
-                        aria-label="编辑分类"
-                        class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                      >✎</button>
-                      <button
-                        type="button"
-                        data-cat-del={c.id}
-                        data-cat-name={esc(c.name)}
-                        title="删除分类"
-                        aria-label="删除分类"
-                        class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
-                      >×</button>
-                    </span>
-                  )}
-                </div>
-              ))}
-            </nav>
-            {isAuthed && (
-              <>
-                <button
-                  type="button"
-                  data-cat-add
-                  class="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                >
-                  ＋ 添加分类
-                </button>
-                <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
-                  提示：拖拽网站卡片到分类移动；拖拽分类可排序
-                </p>
-              </>
-            )}
-          </div>
-        </aside>
-      )
-    }
-
-    {/* 主体内容：与页脚同宽（max-w-6xl）居中，两条虚线左右对齐；分类栏独立悬浮于左侧留白 */}
-    <main class="mx-auto w-full max-w-6xl px-4 py-10">
+    {/* 主体内容：与页脚同宽（max-w-6xl）居中，两条虚线左右对齐；分类栏锚定在内容区左侧 */}
+    <main class="relative mx-auto w-full max-w-6xl px-4 py-10">
       {
         categories.length === 0 ? (
           <div class="mt-10 text-center">
@@ -204,7 +131,80 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
                 共 {categories.length} 个分类 · {totalSites} 个网站
               </p>
             </div>
-            <div class="pixel-divider mt-5" />
+            <div class="relative mt-5">
+              <div class="pixel-divider" />
+              {
+                categories.length > 0 && (
+                  <aside class="absolute right-[calc(100%+1.5rem)] top-0 z-30 hidden w-52 min-[1720px]:block">
+                  <div class="rounded-xl border border-border bg-card/85 p-3 shadow-md backdrop-blur-md">
+                    <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
+                    <nav class="space-y-0.5 text-sm" aria-label="导航分类">
+                      <button
+                        type="button"
+                        data-cat-tab="all"
+                        class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                      >
+                        <span aria-hidden="true">🧭</span>
+                        <span>全部网站</span>
+                      </button>
+                      {categories.map((c) => (
+                        <div class="group relative">
+                          <button
+                            type="button"
+                            data-cat-tab={c.id}
+                            data-cat-id={c.id}
+                            data-drop-cat={isAuthed ? c.id : undefined}
+                            draggable={isAuthed ? 'true' : undefined}
+                            class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 pr-6 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                            title={isAuthed ? '拖拽可排序；拖拽网站卡片到此处可移动' : undefined}
+                          >
+                            {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
+                            <span class="truncate">{c.name}</span>
+                            <span class="ml-auto font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length}</span>
+                          </button>
+                          {isAuthed && (
+                            <span
+                              class="absolute -top-1.5 right-0 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"
+                            >
+                              <button
+                                type="button"
+                                data-cat-edit={c.id}
+                                title="编辑分类"
+                                aria-label="编辑分类"
+                                class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                              >✎</button>
+                              <button
+                                type="button"
+                                data-cat-del={c.id}
+                                data-cat-name={esc(c.name)}
+                                title="删除分类"
+                                aria-label="删除分类"
+                                class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                              >×</button>
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </nav>
+                    {isAuthed && (
+                      <>
+                        <button
+                          type="button"
+                          data-cat-add
+                          class="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                        >
+                          ＋ 添加分类
+                        </button>
+                        <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
+                          提示：拖拽网站卡片到分类移动；拖拽分类可排序
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </aside>
+              )
+            }
+            </div>
             <div class="mt-6">
               <div data-cat-panel="all">
                 <Fragment set:html={siteGrid(categories.flatMap((c) => c.sites), '', false)} />
