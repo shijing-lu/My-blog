@@ -316,5 +316,5 @@ export interface NavCategoryView {
   name: string;
   icon: string | null;
   sort: number;
-  sites: Array<Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc'>>;
+  sites: Array<Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc' | 'categoryId'>>;
 }

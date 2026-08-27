@@ -34,6 +34,7 @@ export async function listNav(): Promise<NavCategoryView[]> {
       url: s.url,
       icon: s.icon,
       desc: s.desc,
+      categoryId: s.categoryId,
     })),
   }));
 }
