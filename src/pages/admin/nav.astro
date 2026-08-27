@@ -69,16 +69,25 @@ const categoriesJson = JSON.stringify(
           class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
         <input id="site-icon" type="text" maxlength="500" placeholder="图标 URL（可选，留空自动）"
           class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
-        <select id="site-cat" class="rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring">
-          {categories.map((c) => <option value={c.id}>{c.name}</option>)}
-        </select>
-        <input id="site-sort" type="number" min="0" value="0"
-          class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+        <div class="flex items-center gap-2">
+          <select id="site-cat" class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring">
+            {categories.map((c) => <option value={c.id}>{c.name}</option>)}
+          </select>
+          <input id="site-sort" type="number" min="0" value="0" title="排序"
+            class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+        </div>
       </div>
-      <button id="site-save" type="button" data-mode="create"
-        class="mt-2 rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90">
-        添加网站
-      </button>
+      <div class="mt-2 flex items-center gap-2">
+        <button id="site-scan" type="button"
+          class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">
+          自动抓取简介
+        </button>
+        <span id="site-scan-status" class="text-xs text-muted-foreground"></span>
+        <button id="site-save" type="button" data-mode="create"
+          class="ml-auto rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90">
+          添加网站
+        </button>
+      </div>
       <p id="site-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
       <!-- 网站列表（按分类分组） -->
       <div class="mt-4 space-y-5">
@@ -188,6 +197,34 @@ const categoriesJson = JSON.stringify(
 
   // ---- 网站：新增 / 编辑 ----
   let editingSiteId: string | null = null;
+
+  /** 自动抓取简介：填网址 → scan → 填充简介输入框 */
+  document.getElementById('site-scan')?.addEventListener('click', async () => {
+    const url = val('site-url');
+    const scanStatus = document.getElementById('site-scan-status');
+    if (!url) {
+      if (scanStatus) { scanStatus.textContent = '先填写网址'; scanStatus.classList.add('text-destructive'); }
+      return;
+    }
+    if (scanStatus) { scanStatus.textContent = '抓取中…'; scanStatus.classList.remove('text-destructive'); }
+    try {
+      const res = await fetch('/api/nav/sites/scan', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { desc?: string; error?: string };
+      if (res.ok && d.desc) {
+        ($('site-desc') as HTMLInputElement).value = d.desc;
+        if (scanStatus) { scanStatus.textContent = '已抓取简介 ✓'; scanStatus.classList.add('text-emerald-600'); }
+      } else {
+        if (scanStatus) { scanStatus.textContent = d.error ?? '未抓到简介'; scanStatus.classList.add('text-destructive'); }
+      }
+    } catch {
+      if (scanStatus) { scanStatus.textContent = '抓取失败'; scanStatus.classList.add('text-destructive'); }
+    }
+  });
+
   document.getElementById('site-save')?.addEventListener('click', async () => {
     const name = val('site-name');
     const url = val('site-url');
