@@ -65,7 +65,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
   const cards = sites.map((s) => renderSite(s, authed)).join('');
   const addBtn = authed
     ? `<div class="mt-3 flex justify-center">` +
-      `<button type="button" data-cat-add="${categoryId}" ` +
+      `<button type="button" data-site-add="${categoryId}" ` +
       `class="rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋ 添加网址</button></div>`
     : '';
   return `<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">${cards}</div>${addBtn}`;
@@ -545,9 +545,9 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     }
   }
   document.addEventListener('click', (e) => {
-    const add = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-add]');
+    const add = (e.target as HTMLElement).closest<HTMLElement>('[data-site-add]');
     if (!add || !addDialog) return;
-    addCategoryId = add.dataset.catAdd ?? '';
+    addCategoryId = add.dataset.siteAdd ?? '';
     const catName = add.closest('[data-cat-panel]')?.querySelector('[data-cat-tab]')?.textContent?.trim() ?? '';
     if (addTarget) addTarget.textContent = catName ? `添加到「${catName}」` : '';
     if (addUrl) addUrl.value = '';
@@ -557,13 +557,19 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     addUrl?.focus();
   });
   document.getElementById('nav-add-cancel')?.addEventListener('click', () => addDialog?.close());
+  let addingSite = false;
+  const addConfirmBtn = document.getElementById('nav-add-confirm') as HTMLButtonElement | null;
   document.getElementById('nav-add-confirm')?.addEventListener('click', async () => {
+    if (addingSite) return;
     const url = (addUrl?.value ?? '').trim();
     if (!url) {
       if (addStatus) { addStatus.textContent = '请填写网址'; addStatus.classList.remove('hidden'); }
       return;
     }
     const name = (addName?.value ?? '').trim() || domainFromUrl(url);
+    addingSite = true;
+    if (addConfirmBtn) { addConfirmBtn.disabled = true; addConfirmBtn.textContent = '添加中…'; }
+    addStatus?.classList.add('hidden');
     try {
       const res = await fetch('/api/nav/sites', {
         method: 'POST',
@@ -579,6 +585,9 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       window.location.reload();
     } catch {
       if (addStatus) { addStatus.textContent = '添加失败'; addStatus.classList.remove('hidden'); }
+    } finally {
+      addingSite = false;
+      if (addConfirmBtn) { addConfirmBtn.disabled = false; addConfirmBtn.textContent = '添加（自动扒图标简介）'; }
     }
   });
 
@@ -650,10 +659,16 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     catAddName?.focus();
   });
   document.getElementById('nav-cat-add-cancel')?.addEventListener('click', () => catAddDialog?.close());
+  let addingCat = false;
+  const catAddConfirmBtn = document.getElementById('nav-cat-add-confirm') as HTMLButtonElement | null;
   document.getElementById('nav-cat-add-confirm')?.addEventListener('click', async () => {
+    if (addingCat) return;
     const name = (catAddName?.value ?? '').trim();
     if (!name) { catStatus(catAddStatus, '请填写分类名'); return; }
     const icon = (catAddIcon?.value ?? '').trim() || null;
+    addingCat = true;
+    if (catAddConfirmBtn) { catAddConfirmBtn.disabled = true; catAddConfirmBtn.textContent = '添加中…'; }
+    catAddStatus?.classList.add('hidden');
     try {
       const res = await fetch('/api/nav/categories', {
         method: 'POST',
@@ -666,6 +681,9 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       window.location.reload();
     } catch {
       catStatus(catAddStatus, '添加失败');
+    } finally {
+      addingCat = false;
+      if (catAddConfirmBtn) { catAddConfirmBtn.disabled = false; catAddConfirmBtn.textContent = '添加'; }
     }
   });
 
