@@ -54,34 +54,33 @@ function esc(s: string): string {
     </div>
 
     <div class="mx-auto w-full max-w-6xl px-4 py-6">
-      {/* 三栏布局：左=文章合集 / 中=正文 / 右=目录 */}
+      {/* 三栏布局：左=文章合集 / 中=正文 / 右=目录（左右栏无卡片，仅竖线分隔） */}
       <div class="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)_180px]">
-        {/* 左栏：文章合集 */}
-        <aside class="lg:sticky lg:top-20 lg:self-start">
-          <div class="rounded-lg border border-border bg-card p-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+        {/* 左栏：文章合集（右侧竖线分隔） */}
+        <aside class="lg:sticky lg:top-20 lg:self-start lg:border-r lg:border-border lg:pr-4">
+          <div class="lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
             <div class="flex items-center justify-between px-1">
-              <p class="pixel-chip text-xs text-muted-foreground">本册目录</p>
+              <p class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">本册目录</p>
               {isAuthed && (
                 <button id="doc-add-article" type="button" title="新增文章" aria-label="新增文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋</button>
               )}
             </div>
-            <nav class="mt-2 space-y-1 text-[0.95rem]" aria-label="文章合集">
+            <nav class="mt-3 space-y-1.5 text-base" aria-label="文章合集">
               {articles.length === 0 ? (
                 <p class="px-1 py-2 text-xs text-muted-foreground">暂无文章</p>
               ) : (
                 articles.map((a, i) => (
                   <a
-                    href={`/doc/${bundle.id}#${a.id}`}
-                    data-doc-anchor
-                    data-article-id={a.id}
+                    href={`#${a.id}`}
+                    data-article-switch={a.id}
                     class={`group flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors ${a.id === active?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
                   >
-                    <span class="font-pixel text-[0.65rem] text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
+                    <span class="font-pixel text-[0.75rem] text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
                     <span class="min-w-0 flex-1 truncate">{esc(a.title)}</span>
                     {isAuthed && (
                       <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex">
-                        <button type="button" data-article-edit={a.id} title="编辑" aria-label="编辑" class="text-[0.65rem] text-muted-foreground hover:text-primary">✎</button>
-                        <button type="button" data-article-del={a.id} data-article-name={esc(a.title)} title="删除" aria-label="删除" class="text-[0.65rem] text-muted-foreground hover:text-destructive">×</button>
+                        <button type="button" data-article-edit={a.id} title="编辑" aria-label="编辑" class="text-[0.7rem] text-muted-foreground hover:text-primary">✎</button>
+                        <button type="button" data-article-del={a.id} data-article-name={esc(a.title)} title="删除" aria-label="删除" class="text-[0.7rem] text-muted-foreground hover:text-destructive">×</button>
                       </span>
                     )}
                   </a>
@@ -106,16 +105,16 @@ function esc(s: string): string {
           )}
         </main>
 
-        {/* 右栏：自动目录 */}
+        {/* 右栏：自动目录（左侧竖线分隔，无卡片） */}
         <aside class="hidden lg:block">
-          <div class="sticky top-20 rounded-lg border border-border bg-card p-3">
-            <p class="pixel-chip text-xs text-muted-foreground">目录 / TOC</p>
+          <div class="sticky top-20 border-l border-border pl-4">
+            <p class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
             {toc.length > 0 ? (
-              <div class="mt-3 space-y-2.5 border-l border-border pl-3">
+              <div id="doc-toc-list" class="mt-3 space-y-2.5">
                 {toc.map((item) => (
                   <a
                     data-doc-anchor
-                    class={'block text-sm leading-snug text-muted-foreground transition-colors hover:text-primary ' + (item.level === 3 ? 'pl-4' : '')}
+                    class={'block text-base leading-snug text-muted-foreground transition-colors hover:text-primary ' + (item.level === 3 ? 'pl-4 text-[0.95rem]' : '')}
                     href={`#${item.id}`}
                   >
                     {esc(item.text)}
@@ -193,13 +192,71 @@ function esc(s: string): string {
     return document.getElementById(id) as T | null;
   }
 
-  /* ================= 左栏文章高亮（基于 SSR 注入的当前文章 id） ================= */
-  // 点击左栏文章 → 完整 URL 导航（View Transition 换内容，SSR 按 hash 渲染对应文章）；
-  // 右栏目录点击 → 页内锚点跳转（不换内容）。高亮只认当前渲染的文章。
-  function rescanActive(): void {
-    const activeId = document.getElementById('doc-detail-data')?.getAttribute('data-active-article') ?? '';
-    document.querySelectorAll<HTMLAnchorElement>('[data-article-id]').forEach((a) => {
-      const active = a.dataset.articleId === activeId;
+  /* ================= 左栏文章即时切换（无整页导航，不转圈） ================= */
+  // 点击左栏文章 → fetch /api/doc/articles/[id]/render → 前端更新正文/目录/标题/高亮
+  document.addEventListener('click', async (e) => {
+    const link = (e.target as HTMLElement).closest<HTMLElement>('[data-article-switch]');
+    if (!link) return;
+    e.preventDefault();
+    const id = link.dataset.articleSwitch;
+    if (!id) return;
+
+    // 高亮当前（乐观更新）
+    setActiveArticle(id);
+
+    // 若 SSR 已注入该文章内容（当前渲染的就是它），直接滚动顶部
+    const activeId = currentActiveId();
+    if (id === activeId) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/doc/articles/${id}/render`);
+      const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: Array<{ id: string; text: string; level: number }>; error?: string };
+      if (!res.ok || typeof d.html !== 'string') throw new Error(d.error ?? '加载失败');
+
+      // 更新标题
+      const h1 = document.querySelector('main h1');
+      if (h1 && d.title) h1.textContent = d.title;
+      // 更新正文
+      const article = document.querySelector<HTMLElement>('main article.prose');
+      if (article) article.innerHTML = d.html;
+      // 更新右栏目录
+      const tocWrap = document.getElementById('doc-toc-list');
+      if (tocWrap && Array.isArray(d.toc)) {
+        tocWrap.innerHTML = d.toc.length
+          ? d.toc
+              .map(
+                (item) =>
+                  `<a data-doc-anchor class="block text-base leading-snug text-muted-foreground transition-colors hover:text-primary ${item.level === 3 ? 'pl-4 text-[0.95rem]' : ''}" href="#${item.id}">${escHtml(item.text)}</a>`,
+              )
+              .join('')
+          : '<p class="text-xs text-muted-foreground">无目录</p>';
+      }
+      // 更新注入的当前文章 id（供后续高亮）
+      document.getElementById('doc-detail-data')?.setAttribute('data-active-article', id);
+      // URL hash 同步（不触发导航）
+      history.replaceState(null, '', `#${id}`);
+      // 滚动到顶部
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      // 兜底：整页导航
+      window.location.href = `/doc/${BUNDLE.id}#${id}`;
+    }
+  });
+
+  function escHtml(s: string): string {
+    return String(s).replace(/[&<>"']/g, (c) => {
+      const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return map[c] ?? c;
+    });
+  }
+
+  /** 左栏高亮：仅当前文章 id 高亮 */
+  function setActiveArticle(id: string): void {
+    document.querySelectorAll<HTMLElement>('[data-article-switch]').forEach((a) => {
+      const active = a.dataset.articleSwitch === id;
       a.classList.toggle('bg-primary/10', active);
       a.classList.toggle('text-primary', active);
       a.classList.toggle('text-muted-foreground', !active);
@@ -208,17 +265,8 @@ function esc(s: string): string {
   function currentActiveId(): string {
     return document.getElementById('doc-detail-data')?.getAttribute('data-active-article') ?? '';
   }
-  document.addEventListener('astro:page-load', () => {
-    rescanActive();
-    // 若 URL 带文章 hash（#文章id），滚动到正文顶部
-    const articleHash = /^#[\w-]{8,}$/.test(location.hash) ? location.hash.slice(1) : '';
-    const activeId = currentActiveId();
-    if (articleHash && articleHash !== activeId) return;
-    if (articleHash) {
-      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
-    }
-  });
-  rescanActive();
+  document.addEventListener('astro:page-load', () => setActiveArticle(currentActiveId()));
+  setActiveArticle(currentActiveId());
 
   /* ================= 文章 CRUD（登录） ================= */
   if (IS_AUTHED) {
@@ -377,4 +425,35 @@ function esc(s: string): string {
       }
     });
   }
+
+  /* ================= 注脚：点击 [N] 跳底部注脚，↩ 返回原阅读位置 ================= */
+  // 点击正文注脚引用（[data-footnote-ref]）时记录当前滚动位置
+  document.addEventListener('click', (e) => {
+    const ref = (e.target as HTMLElement).closest<HTMLElement>('[data-footnote-ref]');
+    if (!ref) return;
+    try {
+      sessionStorage.setItem('doc-footnote-back-scroll', String(window.scrollY));
+    } catch { /* 忽略 */ }
+  });
+
+  // 点击注脚区 ↩（[data-footnote-backref]）时，若记录过滚动位置则恢复到该位置
+  // （同时仍保留默认的锚点回跳作为兜底）
+  document.addEventListener('click', (e) => {
+    const back = (e.target as HTMLElement).closest<HTMLElement>('[data-footnote-backref]');
+    if (!back) return;
+    let saved = '';
+    try {
+      saved = sessionStorage.getItem('doc-footnote-back-scroll') ?? '';
+    } catch { /* 忽略 */ }
+    if (!saved) return;
+    const y = Number(saved);
+    if (Number.isFinite(y)) {
+      // 阻止默认锚点跳转，改为恢复精确滚动位置
+      e.preventDefault();
+      window.scrollTo({ top: y, behavior: 'smooth' });
+      try {
+        sessionStorage.removeItem('doc-footnote-back-scroll');
+      } catch { /* 忽略 */ }
+    }
+  });
 </script>

@@ -58,7 +58,11 @@ export function rehypeBlockAnchors() {
       if (node.type === 'element') {
         if (BLOCK_ANCHOR_TAGS.has(node.tagName)) {
           n += 1;
-          node.properties = { ...(node.properties ?? {}), id: `para-${n}` };
+          // 保留已有 id（rehypeSlug 生成的标题锚点），仅给无 id 的块生成 para-N
+          // （否则覆写标题 id 会导致右侧目录的 #slug 锚点跳转失效）
+          if (!node.properties?.id) {
+            node.properties = { ...(node.properties ?? {}), id: `para-${n}` };
+          }
         }
         if (Array.isArray(node.children)) {
           node.children.forEach((child) => walk(child as Element));
@@ -124,6 +128,99 @@ function textContent(node: ElementContent | undefined): string {
 }
 
 /**
+ * remark 插件：兼容旧式数字注脚 `[1]`
+ *
+ * 支持两种写法（与 GFM 标准 `[^1]` 并存）：
+ * 1. 正文引用：文本中出现 `[12]` → 转为 footnoteReference（跳过链接/图片等已有语义上下文）
+ * 2. 底部定义：段落以 `[1] 注释内容…` 开头 → 转为 footnoteDefinition
+ *
+ * 转换后的节点交给 remark-gfm 渲染：正文生成 `<sup><a href="#user-content-fn-N">[N]</a></sup>`，
+ * 底部生成注脚区 `<li id="user-content-fn-N">… <a href="#user-content-fnref-N">↩</a></li>`，
+ * 实现"点击 [N] 跳到底部注脚 + ↩ 跳回引用处"的双向跳转。
+ */
+export function remarkLegacyFootnotes() {
+  return (tree: Root) => {
+    const REF_RE = /\[(\d{1,3})\]/g;
+
+    /** 拆分文本节点中的 [数字] 引用，返回新子级数组 */
+    function splitTextRefs(children: Node[]): Node[] {
+      const out: Node[] = [];
+      for (const node of children) {
+        if (node.type === 'text') {
+          const value = (node as { value?: unknown }).value as string | undefined ?? '';
+          let last = 0;
+          let m: RegExpExecArray | null;
+          REF_RE.lastIndex = 0;
+          let matched = false;
+          while ((m = REF_RE.exec(value)) !== null) {
+            matched = true;
+            if (m.index > last) {
+              out.push({ type: 'text', value: value.slice(last, m.index) } as Node);
+            }
+            out.push({
+              type: 'footnoteReference',
+              identifier: m[1]!,
+              label: m[1]!,
+            } as unknown as Node);
+            last = m.index + m[0].length;
+          }
+          if (!matched) {
+            out.push(node);
+          } else if (last < value.length) {
+            out.push({ type: 'text', value: value.slice(last) } as Node);
+          }
+        } else {
+          // 非文本节点（strong/em/行内代码/链接/图片）：不拆分其内部 [x]
+          out.push(node);
+        }
+      }
+      return out;
+    }
+
+    /** 递归遍历整棵树 */
+    function walk(node: Node): void {
+      const children = (node as { children?: Node[] }).children;
+      if (!Array.isArray(children)) return;
+
+      for (let i = 0; i < children.length; i += 1) {
+        const child = children[i]!;
+        if (child.type === 'paragraph') {
+          const para = child as { children?: Node[] };
+          const paraChildren = para.children ?? [];
+          const first = paraChildren[0] as { type?: string; value?: unknown } | undefined;
+          if (first && first.type === 'text') {
+            const firstText = String(first.value ?? '');
+            const defMatch = /^\[(\d{1,3})\]\s+/.exec(firstText);
+            if (defMatch) {
+              const id = defMatch[1]!;
+              const rest: Node[] = [];
+              const prefixLen = defMatch[0].length;
+              if (firstText.length > prefixLen) {
+                rest.push({ type: 'text', value: firstText.slice(prefixLen) } as Node);
+              }
+              rest.push(...paraChildren.slice(1));
+              children[i] = {
+                type: 'footnoteDefinition',
+                identifier: id,
+                label: id,
+                children: [{ type: 'paragraph', children: rest }],
+              } as unknown as Node;
+              continue;
+            }
+          }
+          // 段落内文本引用（仅处理文本节点，链接/图片内部不动）
+          para.children = splitTextRefs(paraChildren);
+        } else {
+          walk(child);
+        }
+      }
+    }
+
+    walk(tree);
+  };
+}
+
+/**
  * rehype 插件：采集 h2/h3 标题到 `file.data.toc`。
  * 必须在 `rehype-slug` 之后运行以获得标题 id。
  */
@@ -155,7 +252,7 @@ export function rehypeTocCollector() {
 }
 
 /** remark 插件数组（evaluate 与预览共用） */
-export const remarkPlugins = [remarkGfm, remarkDirective, remarkDirectiveToJsx];
+export const remarkPlugins = [remarkGfm, remarkDirective, remarkDirectiveToJsx, remarkLegacyFootnotes];
 
 /** rehype 插件数组：slug → autolink → prism（行号）→ 块锚点（思维导图引用） */
 export const rehypePlugins = [

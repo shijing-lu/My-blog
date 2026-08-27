@@ -242,8 +242,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
       document.addEventListener('click', (e) => {
         const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
         if (!link) return;
-        // 日历日期格子/月份按钮、文档目录/文章锚点链接是局部/页内跳转（不换页），不触发转圈
-        if (link.closest('.cal-cell, .cal-nav-btn, [data-doc-anchor]')) return;
+        // 日历日期格子/月份按钮、文档目录/文章锚点、注脚跳转是页内/局部跳转（不换页），不触发转圈
+        if (link.closest('.cal-cell, .cal-nav-btn, [data-doc-anchor], [data-article-switch], [data-footnote-ref], [data-footnote-backref]')) return;
         const target = new URL(link.href, location.href);
         if (target.origin !== location.origin) return;
         if (link.hasAttribute('download')) return;
