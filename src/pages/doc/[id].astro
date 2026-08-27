@@ -30,6 +30,8 @@ const catName = allCategories.find((c) => c.bundles.some((b) => b.id === bundle.
 
 const articlesJson = JSON.stringify(articles.map((a) => ({ id: a.id, title: a.title, content: a.content })));
 const bundleJson = JSON.stringify({ id: bundle.id, name: bundle.name, icon: bundle.icon, summary: bundle.summary });
+/** 当前渲染的文章 id（左栏高亮用，不依赖 URL hash——hash 会被右栏目录标题改写） */
+const activeArticleId = active?.id ?? '';
 
 /** HTML 转义 */
 function esc(s: string): string {
@@ -53,32 +55,33 @@ function esc(s: string): string {
 
     <div class="mx-auto w-full max-w-6xl px-4 py-6">
       {/* 三栏布局：左=文章合集 / 中=正文 / 右=目录 */}
-      <div class="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)_220px]">
+      <div class="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)_180px]">
         {/* 左栏：文章合集 */}
         <aside class="lg:sticky lg:top-20 lg:self-start">
           <div class="rounded-lg border border-border bg-card p-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
             <div class="flex items-center justify-between px-1">
-              <p class="pixel-chip text-[0.55rem] text-muted-foreground">本册目录</p>
+              <p class="pixel-chip text-xs text-muted-foreground">本册目录</p>
               {isAuthed && (
-                <button id="doc-add-article" type="button" title="新增文章" aria-label="新增文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋</button>
+                <button id="doc-add-article" type="button" title="新增文章" aria-label="新增文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋</button>
               )}
             </div>
-            <nav class="mt-2 space-y-0.5 text-sm" aria-label="文章合集">
+            <nav class="mt-2 space-y-1 text-[0.95rem]" aria-label="文章合集">
               {articles.length === 0 ? (
                 <p class="px-1 py-2 text-xs text-muted-foreground">暂无文章</p>
               ) : (
                 articles.map((a, i) => (
                   <a
-                    href={`#${a.id}`}
+                    href={`/doc/${bundle.id}#${a.id}`}
+                    data-doc-anchor
                     data-article-id={a.id}
-                    class={`group flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors ${a.id === active?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
+                    class={`group flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors ${a.id === active?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
                   >
-                    <span class="font-pixel text-[0.55rem] text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
+                    <span class="font-pixel text-[0.65rem] text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
                     <span class="min-w-0 flex-1 truncate">{esc(a.title)}</span>
                     {isAuthed && (
                       <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex">
-                        <button type="button" data-article-edit={a.id} title="编辑" aria-label="编辑" class="text-[0.6rem] text-muted-foreground hover:text-primary">✎</button>
-                        <button type="button" data-article-del={a.id} data-article-name={esc(a.title)} title="删除" aria-label="删除" class="text-[0.6rem] text-muted-foreground hover:text-destructive">×</button>
+                        <button type="button" data-article-edit={a.id} title="编辑" aria-label="编辑" class="text-[0.65rem] text-muted-foreground hover:text-primary">✎</button>
+                        <button type="button" data-article-del={a.id} data-article-name={esc(a.title)} title="删除" aria-label="删除" class="text-[0.65rem] text-muted-foreground hover:text-destructive">×</button>
                       </span>
                     )}
                   </a>
@@ -88,15 +91,15 @@ function esc(s: string): string {
           </div>
         </aside>
 
-        {/* 中栏：正文 */}
+        {/* 中栏：正文（无 max-w 限制，撑满中栏） */}
         <main class="min-w-0">
           {active ? (
             <>
-              <header class="max-w-3xl">
+              <header>
                 <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(active.title)}</h1>
                 <div class="pixel-divider mt-4" />
               </header>
-              <article class="prose max-w-3xl mt-6" set:html={html} />
+              <article class="prose mt-6 max-w-none" set:html={html} />
             </>
           ) : (
             <p class="mt-10 text-center text-sm text-muted-foreground">该文档暂无文章。</p>
@@ -106,12 +109,13 @@ function esc(s: string): string {
         {/* 右栏：自动目录 */}
         <aside class="hidden lg:block">
           <div class="sticky top-20 rounded-lg border border-border bg-card p-3">
-            <p class="pixel-chip text-[0.55rem] text-muted-foreground">目录 / TOC</p>
+            <p class="pixel-chip text-xs text-muted-foreground">目录 / TOC</p>
             {toc.length > 0 ? (
-              <div class="mt-2 border-l border-border pl-2">
+              <div class="mt-3 space-y-2.5 border-l border-border pl-3">
                 {toc.map((item) => (
                   <a
-                    class={'block text-xs leading-relaxed text-muted-foreground transition-colors hover:text-primary ' + (item.level === 3 ? 'pl-4' : '')}
+                    data-doc-anchor
+                    class={'block text-sm leading-snug text-muted-foreground transition-colors hover:text-primary ' + (item.level === 3 ? 'pl-4' : '')}
                     href={`#${item.id}`}
                   >
                     {esc(item.text)}
@@ -128,7 +132,7 @@ function esc(s: string): string {
   </section>
 
   {/* 数据注入 */}
-  <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-articles={articlesJson} data-bundle={bundleJson} class="hidden" aria-hidden="true" />
+  <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-articles={articlesJson} data-bundle={bundleJson} data-active-article={activeArticleId} class="hidden" aria-hidden="true" />
 
   <!-- 文章编辑弹窗 -->
   <dialog id="doc-article-dialog" class="m-auto w-[min(92vw,52rem)] rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
@@ -189,27 +193,32 @@ function esc(s: string): string {
     return document.getElementById(id) as T | null;
   }
 
-  /* ================= 左侧文章切换（复用 hash 锚点，避免整页刷新） ================= */
-  // 点击文章 → 滚动对应区域（已在 SSR 中默认第一篇；这里处理点击高亮 + 可选的懒加载）
-  // 简单方案：点击即导航到 hash，由浏览器定位；高亮由 rescan 处理
-  document.addEventListener('astro:page-load', () => {
-    rescanActive();
-  });
+  /* ================= 左栏文章高亮（基于 SSR 注入的当前文章 id） ================= */
+  // 点击左栏文章 → 完整 URL 导航（View Transition 换内容，SSR 按 hash 渲染对应文章）；
+  // 右栏目录点击 → 页内锚点跳转（不换内容）。高亮只认当前渲染的文章。
   function rescanActive(): void {
-    const hash = location.hash.slice(1);
+    const activeId = document.getElementById('doc-detail-data')?.getAttribute('data-active-article') ?? '';
     document.querySelectorAll<HTMLAnchorElement>('[data-article-id]').forEach((a) => {
-      const active = a.dataset.articleId === hash;
+      const active = a.dataset.articleId === activeId;
       a.classList.toggle('bg-primary/10', active);
       a.classList.toggle('text-primary', active);
       a.classList.toggle('text-muted-foreground', !active);
     });
   }
-  document.addEventListener('click', (e) => {
-    const a = (e.target as HTMLElement).closest<HTMLElement>('[data-article-id]');
-    if (!a) return;
-    // 默认行为：浏览器跳转 hash
-    window.setTimeout(rescanActive, 100);
+  function currentActiveId(): string {
+    return document.getElementById('doc-detail-data')?.getAttribute('data-active-article') ?? '';
+  }
+  document.addEventListener('astro:page-load', () => {
+    rescanActive();
+    // 若 URL 带文章 hash（#文章id），滚动到正文顶部
+    const articleHash = /^#[\w-]{8,}$/.test(location.hash) ? location.hash.slice(1) : '';
+    const activeId = currentActiveId();
+    if (articleHash && articleHash !== activeId) return;
+    if (articleHash) {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    }
   });
+  rescanActive();
 
   /* ================= 文章 CRUD（登录） ================= */
   if (IS_AUTHED) {
