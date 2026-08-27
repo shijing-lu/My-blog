@@ -41,10 +41,27 @@ export const REVEAL_EASE = 'power3.out' as const;
  */
 export async function heroIn(stagger = 0.12): Promise<void> {
   const els = Array.from(document.querySelectorAll<HTMLElement>('[data-hero]'));
-  if (els.length === 0) return;
+  const fresh = els.filter((el) => !el.hasAttribute('data-hero-done'));
+  if (fresh.length === 0) return;
   const gsap = await loadGsap();
-  if (prefersReducedMotion()) return;
-  gsap.from(els, { y: 22, opacity: 0, duration: 0.85, stagger, ease: REVEAL_EASE });
+  if (prefersReducedMotion()) {
+    fresh.forEach((el) => el.setAttribute('data-hero-done', ''));
+    return;
+  }
+  gsap.fromTo(
+    fresh,
+    { y: 22, opacity: 0 },
+    {
+      y: 0,
+      opacity: 1,
+      duration: 0.85,
+      stagger,
+      ease: REVEAL_EASE,
+      onComplete: () => {
+        fresh.forEach((el) => el.setAttribute('data-hero-done', ''));
+      },
+    },
+  );
 }
 
 /**

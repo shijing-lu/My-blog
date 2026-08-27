@@ -287,8 +287,13 @@ function formatShort(date?: Date): string {
   /** 首页动效：Hero 进场序列 + 像素统计条数字滚动（GSAP，reduced-motion 时跳过） */
   import { heroIn, counterInView } from '@/lib/anim';
 
+  const homeW = window as unknown as { __homeAnimsBound?: boolean };
   async function runHomeAnims(): Promise<void> {
-    await heroIn();
+    // 进场序列只在首次加载播放一次（刷新/SPA 转场后直接显示，避免重复动画卡隐藏）
+    if (!homeW.__homeAnimsBound) {
+      homeW.__homeAnimsBound = true;
+      await heroIn();
+    }
     void counterInView('.stat-count');
   }
   // 初始加载播放；View Transition 后新页面元素重新进场
