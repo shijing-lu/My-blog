@@ -318,3 +318,65 @@ export interface NavCategoryView {
   sort: number;
   sites: Array<Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc' | 'categoryId'>>;
 }
+
+/** 学习模式·番茄记录（公开统计） */
+export interface StudySession {
+  id: string;
+  /** 关联任务 id（可空） */
+  taskId: string | null;
+  /** 实际专注秒数 */
+  durationSec: number;
+  /** 是否完整完成 */
+  completed: boolean;
+  createdAt: Date;
+}
+
+/** 学习模式·任务（私密） */
+export interface StudyTask {
+  id: string;
+  title: string;
+  /** 预估番茄数 */
+  estPomodoros: number;
+  /** 是否完成 */
+  done: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 学习模式·打断记录（私密） */
+export interface StudyDistraction {
+  id: string;
+  /** internal | external */
+  type: 'internal' | 'external';
+  note: string;
+  createdAt: Date;
+}
+
+/** 学习模式·任务视图（含已完成番茄数） */
+export interface StudyTaskView extends StudyTask {
+  /** 关联该任务的已完成番茄数 */
+  pomodoroCount: number;
+}
+
+/** 学习模式·公开统计 */
+export interface StudyStats {
+  /** 今日专注分钟数 */
+  todayMinutes: number;
+  /** 今日番茄数 */
+  todayPomodoros: number;
+  /** 今日打断次数 */
+  todayDistractions: number;
+  /** 连续学习天数 */
+  streakDays: number;
+  /** 累计番茄数 */
+  totalPomodoros: number;
+  /** 累计专注小时数 */
+  totalHours: number;
+  /** 热力图（复用 buildHeatmap 结构；count = 当日分钟数） */
+  heatmap: {
+    weeks: Array<Array<{ date: string; count: number }>>;
+    monthly: Array<{ month: string; total: number }>;
+  };
+  /** 近 7 天每日分钟数（旧 → 新） */
+  weeklyMinutes: Array<{ date: string; minutes: number }>;
+}

@@ -1,0 +1,906 @@
+---
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { verifyRequest } from '@/lib/auth';
+import {
+  getDailyGoal,
+  getStudyStats,
+  listStudyDistractions,
+  listStudyTasks,
+} from '@/lib/study-data';
+
+/* ===== Logic ===== */
+const isAuthed = verifyRequest(Astro.cookies);
+const stats = await getStudyStats();
+const dailyGoal = await getDailyGoal();
+/** 私密数据（登录后注入，经隐藏 div 传前端） */
+const tasksJson = isAuthed ? JSON.stringify(await listStudyTasks()) : '[]';
+const distractionsJson = isAuthed ? JSON.stringify(await listStudyDistractions()) : '[]';
+/** 任务数组（模板下拉用，登录时才有） */
+const tasks = isAuthed ? (await listStudyTasks()) : [];
+
+/** HTML 转义 */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* ---- 热力图渲染数据 ---- */
+/** 分钟数 → 档位 0-4 */
+function level(minutes: number): number {
+  if (minutes === 0) return 0;
+  if (minutes < 15) return 1;
+  if (minutes < 30) return 2;
+  if (minutes < 60) return 3;
+  return 4;
+}
+const monthLabels = stats.heatmap.weeks.map((week) => {
+  const first = week.find((d) => d.date.endsWith('-01'));
+  if (!first) return '';
+  const m = new Date(`${first.date}T12:00:00`);
+  return m.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+});
+
+/* ---- 月度折线图数据 ---- */
+const CHART_W = 260;
+const CHART_H = 120;
+const PAD = 10;
+const maxMonthly = Math.max(1, ...stats.heatmap.monthly.map((m) => m.total));
+const points = stats.heatmap.monthly.map((m, i) => {
+  const denom = Math.max(1, stats.heatmap.monthly.length - 1);
+  const x = PAD + (i * (CHART_W - PAD * 2)) / denom;
+  const y = CHART_H - PAD - (m.total / maxMonthly) * (CHART_H - PAD * 2);
+  return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)), total: m.total };
+});
+const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+const areaPath =
+  points.length > 1
+    ? `M${points[0]!.x},${points[0]!.y} ` +
+      points.slice(1).map((p) => `L${p.x},${p.y}`).join(' ') +
+      ` L${points[points.length - 1]!.x},${CHART_H - PAD} L${points[0]!.x},${CHART_H - PAD} Z`
+    : '';
+const monthShort = (month: string): string => {
+  const [y, m] = month.split('-');
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-US', { month: 'short' }).toUpperCase();
+};
+const firstMonth = stats.heatmap.monthly[0] ? monthShort(stats.heatmap.monthly[0]!.month) : '';
+const lastMonth = stats.heatmap.monthly[stats.heatmap.monthly.length - 1]
+  ? monthShort(stats.heatmap.monthly[stats.heatmap.monthly.length - 1]!.month)
+  : '';
+
+/* ---- 近 7 天柱状图 ---- */
+const maxWeek = Math.max(1, ...stats.weeklyMinutes.map((d) => d.minutes));
+const barDays = stats.weeklyMinutes.map((d) => {
+  const m = new Date(`${d.date}T12:00:00`);
+  return {
+    ...d,
+    label: m.toLocaleString('zh-CN', { weekday: 'short' }),
+    /** 柱高（px）：有值至少 4px，无值 1px */
+    h: Math.max(d.minutes > 0 ? 4 : 1, (d.minutes / maxWeek) * 64),
+  };
+});
+
+/** 番茄进度点：本轮已完成的番茄数（取整到 4） */
+const roundPomodoros = stats.todayPomodoros % 4;
+const dots = Array.from({ length: 4 }, (_, i) => (i < roundPomodoros ? '●' : '○')).join('');
+/** 每日目标进度百分比 */
+const goalPct = dailyGoal > 0 ? Math.min(100, Math.round((stats.todayPomodoros / dailyGoal) * 100)) : 0;
+---
+
+<BaseLayout title="沉浸学习" description="番茄工作法 · 沉浸学习模式 —— My Blog Study">
+  <section data-authed={isAuthed ? '1' : '0'}>
+    <main class="mx-auto w-full max-w-6xl px-4 py-10">
+      {/* Hero：居中，标题 + 今日概览 */}
+      <div data-hero class="text-center">
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">STUDY · 番茄工作法</p>
+        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">沉浸学习</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          今日已专注 <span class="font-medium text-primary">{stats.todayMinutes}</span> 分钟 ·
+          <span class="font-medium text-primary">{stats.todayPomodoros}</span> 个番茄 ·
+          连续 <span class="font-medium text-primary">{stats.streakDays}</span> 天
+        </p>
+      </div>
+      <div class="pixel-divider mt-5" />
+
+      <div class="mt-6 grid gap-6 lg:grid-cols-[340px_1fr]">
+        {/* 左侧：番茄钟 + 打断 */}
+        <div class="flex flex-col gap-6">
+          {/* 番茄钟主卡 */}
+          <div class="rounded-xl border border-border bg-card/85 p-5 shadow-md backdrop-blur-md">
+            <div class="flex items-center justify-between">
+              <p class="pixel-chip text-muted-foreground">番茄钟 / POMODORO</p>
+              <button
+                id="study-settings-btn"
+                type="button"
+                title="设置时长"
+                aria-label="设置时长"
+                class="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                ⚙ 设置
+              </button>
+            </div>
+
+            {/* 模式切换 */}
+            <div class="mt-3 flex gap-1 rounded-lg border border-border p-1 text-xs" role="tablist" aria-label="计时模式">
+              <button type="button" data-mode-tab="focus" class="flex-1 rounded-md px-2 py-1.5 transition-colors">🍅 专注</button>
+              <button type="button" data-mode-tab="short" class="flex-1 rounded-md px-2 py-1.5 text-muted-foreground transition-colors">☕ 短休</button>
+              <button type="button" data-mode-tab="long" class="flex-1 rounded-md px-2 py-1.5 text-muted-foreground transition-colors">🌙 长休</button>
+            </div>
+
+            {/* 圆环倒计时 */}
+            <div class="relative mx-auto mt-5 size-52">
+              <svg viewBox="0 0 120 120" class="size-full -rotate-90" aria-hidden="true">
+                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--color-muted)" stroke-width="7" opacity="0.35" />
+                <circle
+                  id="study-ring"
+                  cx="60"
+                  cy="60"
+                  r="52"
+                  fill="none"
+                  stroke="var(--color-primary)"
+                  stroke-width="7"
+                  stroke-linecap="round"
+                  stroke-dasharray="326.7"
+                  stroke-dashoffset="0"
+                />
+              </svg>
+              <div class="absolute inset-0 flex flex-col items-center justify-center">
+                <p id="study-time" class="font-display text-5xl font-semibold tabular-nums tracking-tight">25:00</p>
+                <p id="study-mode-label" class="mt-1 text-xs text-muted-foreground">专注中</p>
+              </div>
+            </div>
+
+            {/* 番茄进度点 */}
+            <p id="study-dots" class="mt-4 text-center text-lg tracking-[0.4em] text-primary" title="本轮番茄进度">
+              {dots}
+            </p>
+
+            {/* 控制按钮 */}
+            <div class="mt-4 flex items-center justify-center gap-2">
+              <button
+                id="study-start"
+                type="button"
+                class="rounded-md bg-primary px-6 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                开始
+              </button>
+              <button
+                id="study-pause"
+                type="button"
+                disabled
+                class="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                暂停
+              </button>
+              <button
+                id="study-reset"
+                type="button"
+                class="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                重置
+              </button>
+              <button
+                id="study-abandon"
+                type="button"
+                class="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                title="放弃当前番茄（作废，不计入统计）"
+              >
+                放弃
+              </button>
+            </div>
+
+            {/* 当前任务（登录） */}
+            <div class="mt-4">
+              <label class="block text-xs font-medium text-muted-foreground">
+                当前任务
+                <select
+                  id="study-task"
+                  class="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
+                >
+                  <option value="">无任务</option>
+                  {tasks.map((t) => (
+                    <option value={t.id}>{esc(t.title)}</option>
+                  ))}
+                </select>
+              </label>
+              {!isAuthed && (
+                <p class="mt-1 text-[0.6rem] text-muted-foreground">登录后记录番茄、选择任务并保存学习数据。</p>
+              )}
+            </div>
+          </div>
+
+          {/* 打断记录（登录） */}
+          {isAuthed && (
+            <div class="rounded-xl border border-border bg-card/85 p-5 shadow-md backdrop-blur-md">
+              <p class="pixel-chip mb-3 text-muted-foreground">打断记录 / DISTRACTIONS</p>
+              <div class="flex gap-2">
+                <input
+                  id="distraction-note"
+                  type="text"
+                  maxlength="300"
+                  placeholder="刚才分心去做了什么？"
+                  class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+                />
+                <button
+                  id="distraction-internal"
+                  type="button"
+                  class="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  title="内部打断：走神、突然想起的事"
+                >
+                  内部
+                </button>
+                <button
+                  id="distraction-external"
+                  type="button"
+                  class="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  title="外部打断：他人、环境干扰"
+                >
+                  外部
+                </button>
+              </div>
+              <ul id="distraction-list" class="mt-3 space-y-1.5 text-xs"></ul>
+            </div>
+          )}
+        </div>
+
+        {/* 右侧：任务计划 + 统计 */}
+        <div class="flex flex-col gap-6">
+          {/* 任务计划（登录） */}
+          {isAuthed && (
+            <div class="rounded-xl border border-border bg-card/85 p-5 shadow-md backdrop-blur-md">
+              <div class="flex items-center justify-between">
+                <p class="pixel-chip text-muted-foreground">学习计划 / PLAN</p>
+                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>每日目标</span>
+                  <input
+                    id="goal-input"
+                    type="number"
+                    min="0"
+                    max="99"
+                    value={dailyGoal}
+                    class="w-14 rounded-md border border-input bg-background px-1.5 py-0.5 text-center text-sm outline-none focus-visible:border-ring"
+                  />
+                  <span>个番茄</span>
+                </div>
+              </div>
+
+              {/* 每日目标进度条 */}
+              <div class="mt-3">
+                <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    id="goal-bar"
+                    class="h-full rounded-full bg-primary transition-all duration-500"
+                    style={`width: ${goalPct}%`}
+                  />
+                </div>
+                <p class="mt-1 text-[0.6rem] text-muted-foreground">
+                  今日 {stats.todayPomodoros} / {dailyGoal || '∞'} 个番茄
+                </p>
+              </div>
+
+              <div class="mt-3 flex gap-2">
+                <input
+                  id="task-title"
+                  type="text"
+                  maxlength="200"
+                  placeholder="添加学习任务…"
+                  class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+                />
+                <input
+                  id="task-est"
+                  type="number"
+                  min="1"
+                  max="99"
+                  value="1"
+                  title="预估番茄数"
+                  class="w-14 rounded-md border border-input bg-background px-1.5 py-1.5 text-center text-sm outline-none focus-visible:border-ring"
+                />
+                <button
+                  id="task-add"
+                  type="button"
+                  class="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  ＋ 添加
+                </button>
+              </div>
+              <ul id="task-list" class="mt-3 space-y-1.5 text-xs"></ul>
+            </div>
+          )}
+
+          {/* 统计区（公开） */}
+          <div class="rounded-xl border border-border bg-card/85 p-5 shadow-md backdrop-blur-md">
+            <p class="pixel-chip text-muted-foreground">学习统计 / STATS</p>
+            <div class="mt-3 flex flex-wrap items-baseline gap-x-8 gap-y-2">
+              <div class="flex items-baseline gap-2">
+                <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Today</span>
+                <span class="font-display text-3xl font-semibold leading-none text-primary">{stats.todayMinutes}</span>
+                <span class="text-xs text-muted-foreground">分钟</span>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Pomodoros</span>
+                <span class="font-display text-3xl font-semibold leading-none text-primary">{stats.totalPomodoros}</span>
+                <span class="text-xs text-muted-foreground">累计</span>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Hours</span>
+                <span class="font-display text-3xl font-semibold leading-none text-primary">{stats.totalHours}</span>
+                <span class="text-xs text-muted-foreground">小时</span>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Streak</span>
+                <span class="font-display text-3xl font-semibold leading-none text-primary">{stats.streakDays}</span>
+                <span class="text-xs text-muted-foreground">天</span>
+              </div>
+            </div>
+
+            {/* 近 7 天柱状图 */}
+            <div class="mt-5">
+              <p class="pixel-chip mb-2 text-[0.55rem] text-muted-foreground">近 7 天 / WEEKLY</p>
+              <div class="flex h-20 items-end gap-2">
+                {barDays.map((d) => (
+                  <div class="flex flex-1 flex-col items-center gap-1">
+                    <span class="text-[0.55rem] text-muted-foreground">{d.minutes > 0 ? d.minutes : ''}</span>
+                    <div
+                      class="w-full rounded-sm bg-primary/80"
+                      style={`height: ${d.h.toFixed(1)}px`}
+                      title={`${d.date}：${d.minutes} 分钟`}
+                    />
+                    <span class="text-[0.55rem] text-muted-foreground">{d.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 热力图 */}
+            <div class="mt-5">
+              <div class="mb-1 flex h-3">
+                {monthLabels.map((label) => (
+                  <span class="w-[11px] shrink-0 text-[0.5rem] leading-none text-muted-foreground">{label}</span>
+                ))}
+              </div>
+              <div class="overflow-x-auto">
+                <div class="flex w-max gap-[2px]">
+                  {stats.heatmap.weeks.map((week) => (
+                    <div class="flex flex-col gap-[2px]">
+                      {week.map((day) => (
+                        <div
+                          class={`heat-cell heat-${level(day.count)}`}
+                          title={day.count > 0 ? `${day.date}：专注 ${day.count} 分钟` : day.date}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5 text-[0.6rem] text-muted-foreground">
+                <span class="mr-1">图例</span>
+                <span class="heat-cell heat-0" /><span>0</span>
+                <span class="heat-cell heat-1" /><span>1-14m</span>
+                <span class="heat-cell heat-2" /><span>15-29m</span>
+                <span class="heat-cell heat-3" /><span>30-59m</span>
+                <span class="heat-cell heat-4" /><span>60m+</span>
+              </div>
+            </div>
+
+            {/* 月度折线 */}
+            <div class="mt-5">
+              <p class="pixel-chip mb-2 text-[0.55rem] text-muted-foreground">月度专注 / MONTHLY</p>
+              <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} class="w-full" role="img" aria-label="月度专注分钟数折线图">
+                <path class="line-area" d={areaPath} fill="var(--color-primary)" opacity="0.14" />
+                <path
+                  class="line-stroke"
+                  d={linePath}
+                  fill="none"
+                  stroke="var(--color-primary)"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+                {points.map((p) => (
+                  <circle cx={p.x} cy={p.y} r="3" fill="var(--color-primary)" />
+                ))}
+              </svg>
+              <div class="mt-1 flex justify-between text-[0.55rem] text-muted-foreground">
+                <span>{firstMonth}</span>
+                <span>{lastMonth}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 番茄法原理 */}
+      <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-lg border border-border bg-card p-4">
+          <p class="text-lg">🍅</p>
+          <p class="mt-1 text-sm font-medium">25 / 5 循环</p>
+          <p class="mt-1 text-xs text-muted-foreground">专注 25 分钟 + 休息 5 分钟为一个番茄；每完成 4 个进入 15 分钟长休息。</p>
+        </div>
+        <div class="rounded-lg border border-border bg-card p-4">
+          <p class="text-lg">🎯</p>
+          <p class="mt-1 text-sm font-medium">一次一事</p>
+          <p class="mt-1 text-xs text-muted-foreground">每个番茄只专注一个任务，开始前选定当前任务，避免多任务切换损耗。</p>
+        </div>
+        <div class="rounded-lg border border-border bg-card p-4">
+          <p class="text-lg">📝</p>
+          <p class="mt-1 text-sm font-medium">打断先记下</p>
+          <p class="mt-1 text-xs text-muted-foreground">走神或被打扰时先记录原因，稍后处理，番茄不可分割——被打断则作废重来。</p>
+        </div>
+        <div class="rounded-lg border border-border bg-card p-4">
+          <p class="text-lg">📈</p>
+          <p class="mt-1 text-sm font-medium">预估与复盘</p>
+          <p class="mt-1 text-xs text-muted-foreground">任务前预估番茄数，完成后对比实际，逐步提升对时间的掌控力。</p>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  {/* 数据注入（脚本读取） */}
+  <div
+    id="study-data"
+    data-authed={isAuthed ? '1' : '0'}
+    data-tasks={tasksJson}
+    data-distractions={distractionsJson}
+    class="hidden"
+    aria-hidden="true"
+  />
+
+  {/* 设置弹框 */}
+  <dialog id="study-settings-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 class="font-medium">番茄钟设置</h3>
+    <div class="mt-3 space-y-2">
+      <label class="block text-xs font-medium text-muted-foreground">
+        专注时长（分钟）
+        <input id="cfg-focus" type="number" min="1" max="120" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+      </label>
+      <label class="block text-xs font-medium text-muted-foreground">
+        短休息（分钟）
+        <input id="cfg-short" type="number" min="1" max="60" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+      </label>
+      <label class="block text-xs font-medium text-muted-foreground">
+        长休息（分钟）
+        <input id="cfg-long" type="number" min="1" max="120" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+      </label>
+      <label class="block text-xs font-medium text-muted-foreground">
+        长休息间隔（每几个番茄）
+        <input id="cfg-every" type="number" min="2" max="12" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+      </label>
+    </div>
+    <div class="mt-3 flex items-center justify-end gap-2">
+      <button id="cfg-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
+      <button id="cfg-save" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+    </div>
+  </dialog>
+
+  {/* 专注遮罩（可选开启） */}
+  <div id="study-focus-mask" class="pointer-events-none fixed inset-0 z-50 hidden items-center justify-center bg-background/85 backdrop-blur-sm">
+    <div class="text-center">
+      <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">FOCUS</p>
+      <p id="mask-time" class="mt-2 font-display text-7xl font-semibold tabular-nums tracking-tight">25:00</p>
+      <p id="mask-label" class="mt-2 text-sm text-muted-foreground"></p>
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  /** 沉浸学习页：番茄钟（Date.now 差值计时防漂移）+ 任务/打断 CRUD + 目标 + 遮罩 */
+  const DATA = document.getElementById('study-data');
+  const IS_AUTHED = DATA?.dataset.authed === '1';
+  const DISTRACTIONS = JSON.parse(DATA?.dataset.distractions ?? '[]') as Array<{ id: string; type: string; note: string; createdAt: string }>;
+
+  /* ================= 番茄钟 ================= */
+  interface TimerCfg { focus: number; short: number; long: number; every: number }
+  const CFG_KEY = 'study-timer-config';
+  function loadCfg(): TimerCfg {
+    try {
+      const raw = localStorage.getItem(CFG_KEY);
+      if (raw) {
+        const c = JSON.parse(raw) as TimerCfg;
+        if ([c.focus, c.short, c.long, c.every].every((n) => Number.isFinite(n))) return c;
+      }
+    } catch { /* 忽略损坏配置 */ }
+    return { focus: 25, short: 5, long: 15, every: 4 };
+  }
+  let cfg = loadCfg();
+
+  type Mode = 'focus' | 'short' | 'long';
+  let mode: Mode = 'focus';
+  let running = false;
+  let endTime = 0;
+  let remainingSec = cfg.focus * 60;
+  /** 本轮已完成番茄数（0..every-1） */
+  let roundCount = 0;
+  let tickTimer = 0;
+
+  const timeEl = document.getElementById('study-time');
+  const ringEl = document.getElementById('study-ring') as SVGCircleElement | null;
+  const modeLabel = document.getElementById('study-mode-label');
+  const dotsEl = document.getElementById('study-dots');
+  const startBtn = document.getElementById('study-start') as HTMLButtonElement | null;
+  const pauseBtn = document.getElementById('study-pause') as HTMLButtonElement | null;
+  const resetBtn = document.getElementById('study-reset');
+  const abandonBtn = document.getElementById('study-abandon');
+  const taskSelect = document.getElementById('study-task') as HTMLSelectElement | null;
+  const maskEl = document.getElementById('study-focus-mask');
+  const maskTime = document.getElementById('mask-time');
+  const maskLabel = document.getElementById('mask-label');
+
+  const MODE_TEXT: Record<Mode, string> = { focus: '专注中', short: '短休息', long: '长休息' };
+  const RING_C = 2 * Math.PI * 52; // ≈326.7
+
+  function durationFor(m: Mode): number {
+    return (m === 'focus' ? cfg.focus : m === 'short' ? cfg.short : cfg.long) * 60;
+  }
+
+  function render(): void {
+    const total = durationFor(mode);
+    const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+    const ss = String(remainingSec % 60).padStart(2, '0');
+    if (timeEl) timeEl.textContent = `${mm}:${ss}`;
+    if (maskTime) maskTime.textContent = `${mm}:${ss}`;
+    if (ringEl) ringEl.style.strokeDashoffset = String(RING_C * (1 - remainingSec / total));
+    if (modeLabel) modeLabel.textContent = MODE_TEXT[mode];
+    if (maskLabel) maskLabel.textContent = MODE_TEXT[mode];
+    // 番茄进度点
+    const filled = mode === 'focus' ? roundCount : (mode === 'short' ? roundCount % cfg.every : roundCount % cfg.every);
+    if (dotsEl) {
+      dotsEl.textContent = Array.from({ length: cfg.every }, (_, i) => (i < filled ? '●' : '○')).join('');
+    }
+    document.title = `${mm}:${ss} · ${MODE_TEXT[mode]} — My Blog`;
+    // 模式 tab 高亮
+    document.querySelectorAll<HTMLButtonElement>('[data-mode-tab]').forEach((t) => {
+      const active = t.dataset.modeTab === mode;
+      t.classList.toggle('bg-primary/10', active);
+      t.classList.toggle('text-primary', active);
+      t.classList.toggle('text-muted-foreground', !active);
+    });
+  }
+
+  function stopTick(): void {
+    window.clearInterval(tickTimer);
+    tickTimer = 0;
+  }
+
+  function start(): void {
+    if (running) return;
+    running = true;
+    endTime = Date.now() + remainingSec * 1000;
+    if (startBtn) startBtn.textContent = '进行中';
+    if (pauseBtn) { pauseBtn.disabled = false; pauseBtn.textContent = '暂停'; }
+    tickTimer = window.setInterval(tick, 250);
+  }
+
+  function pause(): void {
+    if (!running) return;
+    running = false;
+    stopTick();
+    remainingSec = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+    if (startBtn) startBtn.textContent = '继续';
+    if (pauseBtn) pauseBtn.disabled = true;
+  }
+
+  function reset(): void {
+    running = false;
+    stopTick();
+    mode = 'focus';
+    remainingSec = durationFor('focus');
+    if (startBtn) startBtn.textContent = '开始';
+    if (pauseBtn) pauseBtn.disabled = true;
+    render();
+  }
+
+  /** 完成当前阶段 */
+  async function complete(): Promise<void> {
+    stopTick();
+    running = false;
+    const wasFocus = mode === 'focus';
+    if (wasFocus) {
+      // 记录番茄（登录）
+      if (IS_AUTHED) {
+        const taskId = taskSelect?.value || null;
+        try {
+          await fetch('/api/study/sessions', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ taskId, durationSec: durationFor('focus') }),
+          });
+        } catch { /* 记录失败静默 */ }
+      }
+      roundCount += 1;
+      beep();
+      notify('🍅 番茄完成！', `专注 ${cfg.focus} 分钟，休息一下吧`);
+      // 满 every 个 → 长休息
+      if (roundCount % cfg.every === 0) {
+        mode = 'long';
+      } else {
+        mode = 'short';
+      }
+      remainingSec = durationFor(mode);
+    } else {
+      beep();
+      notify('☕ 休息结束', '开始下一个番茄吧');
+      mode = 'focus';
+      remainingSec = durationFor('focus');
+    }
+    if (startBtn) startBtn.textContent = '开始';
+    if (pauseBtn) pauseBtn.disabled = true;
+    render();
+    refreshStats();
+  }
+
+  function tick(): void {
+    const left = Math.max(0, endTime - Date.now());
+    remainingSec = Math.ceil(left / 1000);
+    if (remainingSec <= 0) {
+      void complete();
+      return;
+    }
+    render();
+  }
+
+  startBtn?.addEventListener('click', () => { if (!running) start(); });
+  pauseBtn?.addEventListener('click', () => { if (running) pause(); });
+  resetBtn?.addEventListener('click', () => reset());
+  abandonBtn?.addEventListener('click', () => {
+    if (!window.confirm('放弃当前番茄？该番茄作废，不计入统计。')) return;
+    reset();
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-mode-tab]').forEach((t) => {
+    t.addEventListener('click', () => {
+      if (running && !window.confirm('切换模式将重置计时，确定？')) return;
+      running = false;
+      stopTick();
+      mode = (t.dataset.modeTab ?? 'focus') as Mode;
+      remainingSec = durationFor(mode);
+      if (startBtn) startBtn.textContent = '开始';
+      if (pauseBtn) pauseBtn.disabled = true;
+      render();
+    });
+  });
+
+  // 设置弹框
+  const settingsDialog = document.getElementById('study-settings-dialog') as HTMLDialogElement | null;
+  const cfgFocus = document.getElementById('cfg-focus') as HTMLInputElement | null;
+  const cfgShort = document.getElementById('cfg-short') as HTMLInputElement | null;
+  const cfgLong = document.getElementById('cfg-long') as HTMLInputElement | null;
+  const cfgEvery = document.getElementById('cfg-every') as HTMLInputElement | null;
+  document.getElementById('study-settings-btn')?.addEventListener('click', () => {
+    if (!settingsDialog) return;
+    if (cfgFocus) cfgFocus.value = String(cfg.focus);
+    if (cfgShort) cfgShort.value = String(cfg.short);
+    if (cfgLong) cfgLong.value = String(cfg.long);
+    if (cfgEvery) cfgEvery.value = String(cfg.every);
+    settingsDialog.showModal();
+  });
+  document.getElementById('cfg-cancel')?.addEventListener('click', () => settingsDialog?.close());
+  document.getElementById('cfg-save')?.addEventListener('click', () => {
+    const focus = Number(cfgFocus?.value);
+    const short = Number(cfgShort?.value);
+    const long = Number(cfgLong?.value);
+    const every = Number(cfgEvery?.value);
+    if (![focus, short, long, every].every((n) => Number.isFinite(n) && n > 0)) return;
+    cfg = { focus, short, long, every };
+    localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+    settingsDialog?.close();
+    if (!running) { remainingSec = durationFor(mode); }
+    render();
+  });
+
+  /* ================= 音效 / 通知 ================= */
+  let audioCtx: AudioContext | null = null;
+  function beep(): void {
+    try {
+      audioCtx = audioCtx ?? new AudioContext();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.connect(g);
+      g.connect(audioCtx.destination);
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
+      o.start();
+      o.stop(audioCtx.currentTime + 0.8);
+    } catch { /* 无声兜底 */ }
+  }
+  function notify(title: string, body: string): void {
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body });
+      }
+    } catch { /* 忽略 */ }
+  }
+  // 首次交互后申请通知权限
+  startBtn?.addEventListener('click', () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
+  });
+
+  /* ================= 专注遮罩 ================= */
+  let maskOn = false;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'F6') return;
+    maskOn = !maskOn;
+    if (maskEl) maskEl.classList.toggle('flex', maskOn);
+    render();
+  });
+  // 提示
+  if (maskEl) {
+    const tip = document.createElement('p');
+    tip.className = 'mt-3 text-xs text-muted-foreground';
+    tip.textContent = '按 F6 开关专注遮罩';
+    maskEl.appendChild(tip);
+  }
+
+  /* ================= 任务 CRUD（登录） ================= */
+  if (IS_AUTHED) {
+    const taskList = document.getElementById('task-list');
+    const taskTitle = document.getElementById('task-title') as HTMLInputElement | null;
+    const taskEst = document.getElementById('task-est') as HTMLInputElement | null;
+    const taskAdd = document.getElementById('task-add');
+    const goalInput = document.getElementById('goal-input') as HTMLInputElement | null;
+
+    function escHtml(s: string): string {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    interface TaskView { id: string; title: string; estPomodoros: number; done: boolean; pomodoroCount: number }
+
+    function renderTasks(tasks: TaskView[]): void {
+      if (!taskList) return;
+      if (tasks.length === 0) {
+        taskList.innerHTML = '<li class="text-muted-foreground">还没有任务，添加一个开始吧。</li>';
+        return;
+      }
+      taskList.innerHTML = tasks
+        .map(
+          (t) =>
+            `<li class="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 ${t.done ? 'opacity-50' : ''}">` +
+            `<button type="button" data-task-toggle="${t.id}" title="标记完成" aria-label="标记完成" ` +
+            `class="shrink-0 text-sm ${t.done ? 'text-primary' : 'text-muted-foreground'}">${t.done ? '☑' : '☐'}</button>` +
+            `<span class="min-w-0 flex-1 truncate ${t.done ? 'line-through' : ''}">${escHtml(t.title)}</span>` +
+            `<span class="shrink-0 font-pixel text-[0.55rem] text-muted-foreground">${t.pomodoroCount}/${t.estPomodoros}🍅</span>` +
+            `<button type="button" data-task-del="${t.id}" title="删除" aria-label="删除" ` +
+            `class="shrink-0 text-muted-foreground transition-colors hover:text-destructive">×</button>` +
+            `</li>`,
+        )
+        .join('');
+    }
+
+    async function loadTasks(): Promise<void> {
+      try {
+        const res = await fetch('/api/study/tasks');
+        const d = (await res.json()) as { tasks?: TaskView[] };
+        renderTasks(d.tasks ?? []);
+      } catch { /* 忽略 */ }
+    }
+
+    taskAdd?.addEventListener('click', async () => {
+      const title = (taskTitle?.value ?? '').trim();
+      if (!title) return;
+      const est = Math.max(1, Number(taskEst?.value) || 1);
+      try {
+        const res = await fetch('/api/study/tasks', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title, estPomodoros: est }),
+        });
+        if (res.ok) {
+          if (taskTitle) taskTitle.value = '';
+          void loadTasks();
+        }
+      } catch { /* 忽略 */ }
+    });
+    taskTitle?.addEventListener('keydown', (e) => { if (e.key === 'Enter') taskAdd?.click(); });
+
+    document.addEventListener('click', async (e) => {
+      const toggle = (e.target as HTMLElement).closest<HTMLElement>('[data-task-toggle]');
+      if (toggle) {
+        const id = toggle.dataset.taskToggle;
+        try {
+          await fetch(`/api/study/tasks/${id}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ done: toggle.textContent?.trim() === '☐' }),
+          });
+          void loadTasks();
+        } catch { /* 忽略 */ }
+        return;
+      }
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-task-del]');
+      if (del) {
+        if (!window.confirm('删除该任务？')) return;
+        try {
+          await fetch(`/api/study/tasks/${del.dataset.taskDel}`, { method: 'DELETE' });
+          void loadTasks();
+        } catch { /* 忽略 */ }
+      }
+    });
+
+    // 每日目标
+    goalInput?.addEventListener('change', async () => {
+      const v = Math.max(0, Math.min(99, Number(goalInput.value) || 0));
+      goalInput.value = String(v);
+      try {
+        await fetch('/api/study/goal', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ value: v }),
+        });
+      } catch { /* 忽略 */ }
+      window.location.reload();
+    });
+
+    /* ================= 打断记录（登录） ================= */
+    const distList = document.getElementById('distraction-list');
+    const distNote = document.getElementById('distraction-note') as HTMLInputElement | null;
+    const distTypeLabels: Record<string, string> = { internal: '内部', external: '外部' };
+
+    function renderDistractions(items: typeof DISTRACTIONS): void {
+      if (!distList) return;
+      if (items.length === 0) {
+        distList.innerHTML = '<li class="text-muted-foreground">今天还没有打断记录。</li>';
+        return;
+      }
+      distList.innerHTML = items
+        .map(
+          (d) =>
+            `<li class="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">` +
+            `<span class="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[0.55rem] ${d.type === 'internal' ? 'text-primary' : 'text-destructive'}">${distTypeLabels[d.type] ?? d.type}</span>` +
+            `<span class="min-w-0 flex-1 truncate">${escHtml(d.note || '（无备注）')}</span>` +
+            `<button type="button" data-dist-del="${d.id}" title="删除" aria-label="删除" class="shrink-0 text-muted-foreground transition-colors hover:text-destructive">×</button>` +
+            `</li>`,
+        )
+        .join('');
+    }
+
+    async function loadDistractions(): Promise<void> {
+      try {
+        const res = await fetch('/api/study/distractions');
+        const d = (await res.json()) as { distractions?: typeof DISTRACTIONS };
+        renderDistractions(d.distractions ?? []);
+      } catch { /* 忽略 */ }
+    }
+
+    async function addDistraction(type: 'internal' | 'external'): Promise<void> {
+      const note = (distNote?.value ?? '').trim();
+      try {
+        const res = await fetch('/api/study/distractions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type, note }),
+        });
+        if (res.ok) {
+          if (distNote) distNote.value = '';
+          void loadDistractions();
+        }
+      } catch { /* 忽略 */ }
+    }
+    document.getElementById('distraction-internal')?.addEventListener('click', () => void addDistraction('internal'));
+    document.getElementById('distraction-external')?.addEventListener('click', () => void addDistraction('external'));
+    document.addEventListener('click', async (e) => {
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-dist-del]');
+      if (!del) return;
+      try {
+        await fetch(`/api/study/distractions/${del.dataset.distDel}`, { method: 'DELETE' });
+        void loadDistractions();
+      } catch { /* 忽略 */ }
+    });
+
+    void loadTasks();
+    void loadDistractions();
+  }
+
+  /* ================= 刷新统计 ================= */
+  async function refreshStats(): Promise<void> {
+    try {
+      const res = await fetch('/api/study/stats');
+      const d = (await res.json()) as { stats?: { todayMinutes: number; todayPomodoros: number; streakDays: number } };
+      if (!d.stats) return;
+      // 简单刷新：数据变化后整页重载，保证统计/热力图一致
+      window.location.reload();
+    } catch { /* 忽略 */ }
+  }
+
+  render();
+  document.addEventListener('astro:page-load', () => render());
+</script>

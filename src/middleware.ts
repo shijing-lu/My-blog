@@ -47,6 +47,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
     pathname === '/api/calendar-events' || pathname.startsWith('/api/calendar-events/');
   // 动态：读公开、写需登录；个人中心：写需登录
   const isMomentsApi = pathname === '/api/moments' || pathname.startsWith('/api/moments/');
+  // 学习模式：任务/打断全方法需登录；番茄记录仅 POST 需登录；统计 GET 公开
+  const isStudyApi = pathname.startsWith('/api/study/');
+  const protectedStudyApi =
+    isStudyApi &&
+    !(pathname === '/api/study/stats') &&
+    !(pathname === '/api/study/sessions' && context.request.method === 'GET');
   const protectedApi =
     pathname.startsWith('/api/') &&
     (isProtectedApi(pathname) ||
@@ -57,7 +63,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
       (pathname === '/api/background' && context.request.method === 'PUT') ||
       (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
       (isMomentsApi && ['POST', 'DELETE'].includes(context.request.method)) ||
-      (pathname === '/api/profile' && context.request.method === 'PUT'));
+      (pathname === '/api/profile' && context.request.method === 'PUT') ||
+      protectedStudyApi);
   if (!protectedPage && !protectedApi) return withCachePolicy(await next(), context.request);
 
   if (verifyRequest(context.cookies)) return withCachePolicy(await next(), context.request);

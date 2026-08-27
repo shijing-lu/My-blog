@@ -333,3 +333,72 @@ export const websites = pgTable(
     index('websites_sort_idx').on(table.sort),
   ],
 );
+
+/** 学习模式·番茄记录（公开统计；仅落完整完成的番茄） */
+export const studySessions = pgTable(
+  'study_sessions',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 关联任务 id（可空；公开聚合不返回任务名） */
+    taskId: text('task_id'),
+    /** 实际专注秒数 */
+    durationSec: integer('duration_sec').notNull(),
+    /** 是否完整完成（仅 completed=true 入库） */
+    completed: boolean('completed').notNull().default(true),
+    /** 完成时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('study_sessions_task_idx').on(table.taskId),
+    index('study_sessions_created_idx').on(table.createdAt),
+  ],
+);
+
+/** 学习模式·任务（私密，登录） */
+export const studyTasks = pgTable(
+  'study_tasks',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 任务名 */
+    title: text('title').notNull(),
+    /** 预估番茄数 */
+    estPomodoros: integer('est_pomodoros').notNull().default(1),
+    /** 是否完成 */
+    done: boolean('done').notNull().default(false),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    /** 更新时间 */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('study_tasks_created_idx').on(table.createdAt),
+  ],
+);
+
+/** 学习模式·打断记录（私密，登录） */
+export const studyDistractions = pgTable(
+  'study_distractions',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 类型：internal（走神/想起事）| external（他人/环境） */
+    type: text('type').notNull(),
+    /** 备注 */
+    note: text('note').notNull().default(''),
+    /** 记录时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('study_distractions_created_idx').on(table.createdAt),
+  ],
+);
