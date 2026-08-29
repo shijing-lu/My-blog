@@ -13,13 +13,20 @@
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `DATABASE_URL` | ✅ | Neon 连接串（`postgres://` 开头即走 PG） |
+| `DATABASE_URL` | ✅ | 主库连接串（Neon/Supabase 等，`postgres://` 开头即走 PG） |
+| `DATABASE_URL_FALLBACK` | 可选 | 备用库连接串（推荐 Supabase 免费档）。配置后**主库查询出错自动冷却并切换到备用库**，冷却（15s）过期后自动回切主库——对限流/断连自愈。无需改任何业务代码 |
 | `ADMIN_PASSWORD` | ✅ | 后台口令（务必改强密码） |
 | `AUTH_SECRET` | 建议 | 会话签名密钥（随机 32+ 字符；缺省由口令派生） |
 | `PUBLIC_SITE_URL` | ✅ | 你的域名，如 `https://your-blog.vercel.app` |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `ADMIN_GITHUB_LOGIN` | 可选 | GitHub OAuth 登录（不配则隐藏按钮） |
 | `PUBLIC_GISCUS_REPO` / `PUBLIC_GISCUS_REPO_ID` / `PUBLIC_GISCUS_CATEGORY` / `PUBLIC_GISCUS_CATEGORY_ID` | 可选 | Giscus 评论（不配则评论区隐藏） |
 | `PUBLIC_GISCUS_MAPPING` / `PUBLIC_GISCUS_THEME` | 可选 | 默认 `title` / `preferred_color_scheme` |
+
+> **主备双库（推荐）**：把 Neon/Prisma 设为 `DATABASE_URL`（主库），Supabase 设为
+> `DATABASE_URL_FALLBACK`（备用库）。Supabase 免费档不按读写次数限流，是主库超限时
+> 的安全网。两库 schema 与数据需保持一致（用 `pnpm db:migrate:pg` 建表、
+> `pnpm db:migrate-data` 迁数据，对备用库同样执行一次）。影集照片本体存在 Vercel Blob，
+> `photos` 表只存元数据，URL 指向 Blob，无需迁移图片本体。
 
 ## 3. Giscus 配置（想用评论则做）
 

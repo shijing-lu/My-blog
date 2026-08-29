@@ -39,5 +39,22 @@ export function readDatabaseUrl(): string {
   );
 }
 
+/**
+ * 读取「备用」数据库连接串（故障转移用，可选）。
+ * 未配置时返回空串，故障转移层据此判断只有单一端点。
+ */
+export function readFallbackDatabaseUrl(): string {
+  return (
+    readEnvFileValue('DATABASE_URL_FALLBACK')?.trim() ||
+    process.env.DATABASE_URL_FALLBACK?.trim() ||
+    ''
+  );
+}
+
 /** 是否为 PostgreSQL（生产） */
 export const isPostgres: boolean = /^postgres(ql)?:\/\//.test(readDatabaseUrl());
+
+/** 是否为 PostgreSQL 连接串（供备用端点按自身串判断方言） */
+export function isPostgresUrl(url: string): boolean {
+  return /^postgres(ql)?:\/\//.test(url);
+}

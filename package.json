@@ -14,7 +14,8 @@
     "db:generate:pg": "drizzle-kit generate --config=drizzle.config.pg.ts",
     "db:migrate:pg": "drizzle-kit migrate --config=drizzle.config.pg.ts",
     "db:seed": "tsx db/seed.ts",
-    "db:inspect": "node scripts/db-inspect.mjs"
+    "db:inspect": "node scripts/db-inspect.mjs",
+    "db:migrate-data": "tsx scripts/migrate-to-pg.ts"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.4",
