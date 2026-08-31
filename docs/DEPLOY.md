@@ -1,20 +1,20 @@
 # Vercel 部署指南（My Blog）
 
-本指南覆盖：数据库（Neon Postgres）→ 环境变量 → Giscus 配置 → Vercel 导入与构建 → 验证。
+本指南覆盖：数据库（**只用 Supabase**）→ 环境变量 → Giscus 配置 → Vercel 导入与构建 → 验证。
 
-## 1. 数据库（生产用 PostgreSQL，推荐 Neon）
+## 1. 数据库（生产只用 Supabase，不再使用 Neon/Vercel Postgres）
 
-1. 到 [neon.tech](https://neon.tech) 创建项目（免费档即可）。
-2. 拿到连接串，形如：
-   `postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require`
-   （建议用 **Pooled 连接串**（`-pooler`）以适配 Serverless。）
+1. 到 [supabase.com](https://supabase.com) 创建项目（免费档即可）。
+2. 拿到连接串：Project Settings → Database → Connection string → **URI**，形如：
+   `postgresql://postgres.xxx:密码@aws-0-xx.region.pooler.supabase.com:6543/postgres?sslmode=require`
+   （Serverless 推荐 **Connection pooler（Session mode）** 那个；务必保留 `sslmode=require`。）
+3. 在 Supabase 里把本仓库的 `db/migrations/pg/*.sql` 执行建表（或用 `pnpm db:migrate:pg` 连上后应用）。
 
 ## 2. 环境变量（Vercel → Project → Settings → Environment Variables）
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `DATABASE_URL` | ✅ | 主库连接串（Neon/Supabase 等，`postgres://` 开头即走 PG） |
-| `DATABASE_URL_FALLBACK` | 可选 | 备用库连接串（推荐 Supabase 免费档）。配置后**主库查询出错自动冷却并切换到备用库**，冷却（15s）过期后自动回切主库——对限流/断连自愈。无需改任何业务代码 |
+| `DATABASE_URL` | ✅ | **唯一数据库**：Supabase 连接串（`postgres://` 开头即走 PG） |
 | `ADMIN_PASSWORD` | ✅ | 后台口令（务必改强密码） |
 | `AUTH_SECRET` | 建议 | 会话签名密钥（随机 32+ 字符；缺省由口令派生） |
 | `PUBLIC_SITE_URL` | ✅ | 你的域名，如 `https://your-blog.vercel.app` |
@@ -22,11 +22,9 @@
 | `PUBLIC_GISCUS_REPO` / `PUBLIC_GISCUS_REPO_ID` / `PUBLIC_GISCUS_CATEGORY` / `PUBLIC_GISCUS_CATEGORY_ID` | 可选 | Giscus 评论（不配则评论区隐藏） |
 | `PUBLIC_GISCUS_MAPPING` / `PUBLIC_GISCUS_THEME` | 可选 | 默认 `title` / `preferred_color_scheme` |
 
-> **主备双库（推荐）**：把 Neon/Prisma 设为 `DATABASE_URL`（主库），Supabase 设为
-> `DATABASE_URL_FALLBACK`（备用库）。Supabase 免费档不按读写次数限流，是主库超限时
-> 的安全网。两库 schema 与数据需保持一致（用 `pnpm db:migrate:pg` 建表、
-> `pnpm db:migrate-data` 迁数据，对备用库同样执行一次）。影集照片本体存在 Vercel Blob，
-> `photos` 表只存元数据，URL 指向 Blob，无需迁移图片本体。
+> **只用一个库（推荐）**：`DATABASE_URL` 填 Supabase，**不要配置 `DATABASE_URL_FALLBACK`**，
+> 并删除 Vercel 上旧的 Neon / Vercel Postgres 变量与集成——避免主备双库导致应用读到
+> 与你编辑的不是同一个库（背景图/数据对不上）。图片字节存 Cloudflare R2（见 `docs/R2-DEPLOY.md`）。
 
 ## 3. Giscus 配置（想用评论则做）
 
@@ -43,9 +41,9 @@
 3. Framework Preset 会自动识别 **Astro**；Build Command `pnpm build`、Output 由 adapter 生成（无需改）。
 4. 在 Vercel 项目里配置第 2 节的环境变量（所有环境）。
 5. **首次部署前先建表**（任选其一）：
-   - 本机：`pnpm db:generate:pg && pnpm db:migrate:pg`（需 `DATABASE_URL` 指向 Neon），或
+   - 本机：`pnpm db:generate:pg && pnpm db:migrate:pg`（需 `DATABASE_URL` 指向 Supabase），或
    - 在 Vercel 构建脚本里加 `"prebuild": "drizzle-kit push --config=drizzle.config.pg.ts --force"`（简单粗暴，生产慎用），或
-   - 用 Neon 控制台 SQL 编辑器执行 `db/migrations/pg/*.sql`。
+   - 用 Supabase 控制台 **SQL Editor** 执行 `db/migrations/pg/*.sql`。
 6. 点击 **Deploy**。
 
 > 构建期建议：`pnpm build` 前无需数据库（页面为服务端运行时取数）；只有 `db:migrate`/`push` 才连库。
