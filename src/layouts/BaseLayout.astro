@@ -59,8 +59,9 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
   <body class="flex min-h-dvh flex-col">
     {
       bg.enabled && bg.imageUrl && (
+        // 注意：不要加 transition:persist —— 持久化会把旧背景元素（含旧 --bg-url）复用到新页面，
+        // 导致「保存并应用」后 SPA 跳转仍显示旧背景。去掉后每次导航按当前 DB 值重新渲染。
         <div
-          transition:persist="site-bg"
           class="site-bg"
           style={`--bg-url: url('${bg.imageUrl.replace(/['\\]/g, '')}'); --bg-opacity: ${bg.opacity / 100}; --bg-blur: ${bg.blur}px`}
           aria-hidden="true"
