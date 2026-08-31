@@ -54,8 +54,11 @@ export const DELETE: APIRoute = async ({ params }) => {
   const photo = await getPhotoById(id);
   if (!photo) return json({ error: '照片不存在' }, 404);
 
-  await deletePhotoObject(photo.url);
-  if (photo.thumbUrl) await deletePhotoObject(photo.thumbUrl);
+  // R2 删除用对象 key（URL 导入的外部图无 key，回落 url 作 key，404 静默忽略）
+  if (photo.key) await deletePhotoObject(photo.key);
+  else if (photo.url) await deletePhotoObject(photo.url);
+  if (photo.thumbKey) await deletePhotoObject(photo.thumbKey);
+  else if (photo.thumbUrl) await deletePhotoObject(photo.thumbUrl);
   await deletePhoto(id);
 
   return json({ ok: true });

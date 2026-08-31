@@ -48,14 +48,28 @@ export type NewArticle = typeof articles.$inferInsert;
 /** 行类型（查询用） */
 export type ArticleRow = typeof articles.$inferSelect;
 
-/** 图片表：编辑器上传的本地图片（DB 持久化，兼容 Vercel 无本地磁盘） */
+/** 图片表：编辑器上传的本地图片（R2 对象存储；过渡期兼容 base64 存 data） */
 export const images = pgTable('images', {
   /** UUID 主键 */
   id: text('id').primaryKey(),
   /** MIME 类型（仅允许 image/* 白名单） */
   mime: text('mime').notNull(),
-  /** 图片二进制 */
-  data: text('data').notNull(), // base64 编码的图片二进制
+  /** 图片二进制（base64；迁移后为空，新图不入库） */
+  data: text('data').notNull().default(''), // base64 编码的图片二进制（兼容旧数据）
+  /** R2 对象 key（原图） */
+  key: text('key'),
+  /** R2 原图公开 URL */
+  url: text('url'),
+  /** R2 缩略图对象 key */
+  thumbKey: text('thumb_key'),
+  /** R2 缩略图公开 URL */
+  thumbUrl: text('thumb_url'),
+  /** 原图宽度 */
+  width: integer('width'),
+  /** 原图高度 */
+  height: integer('height'),
+  /** 字节数 */
+  size: integer('size'),
   /** 创建时间 */
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
@@ -66,10 +80,14 @@ export const images = pgTable('images', {
 export const photos = pgTable('photos', {
   /** UUID 主键 */
   id: text('id').primaryKey(),
-  /** 原图 URL（Vercel Blob 或外部图床 URL） */
+  /** 原图 URL（R2 或外部图床 URL） */
   url: text('url').notNull(),
+  /** R2 原图对象 key */
+  key: text('key'),
   /** 缩略图 URL（为空时前端用原图） */
   thumbUrl: text('thumb_url'),
+  /** R2 缩略图对象 key */
+  thumbKey: text('thumb_key'),
   /** 可选标题 */
   title: text('title').notNull().default(''),
   /** 原图宽度（瀑布流占位防 CLS；URL 导入失败时可空） */

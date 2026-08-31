@@ -122,19 +122,25 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   try {
-    const { url } = await uploadPhotoObject(buffer, mime);
+    const id = randomUUID();
+    const key = `photos/${id}`;
+    const { url } = await uploadPhotoObject(buffer, mime, key);
     let thumbUrl: string | null = null;
+    let thumbKey: string | null = null;
     if (thumbBase64.length > 0) {
       const thumb = Buffer.from(thumbBase64, 'base64');
       if (thumb.length > 0) {
-        const t = await uploadPhotoObject(thumb, mime);
+        thumbKey = `photos/${id}_thumb`;
+        const t = await uploadPhotoObject(thumb, mime, thumbKey);
         thumbUrl = t.url;
       }
     }
     const photo = await addPhoto({
-      id: randomUUID(),
+      id,
       url,
+      key,
       thumbUrl,
+      thumbKey,
       title,
       width,
       height,

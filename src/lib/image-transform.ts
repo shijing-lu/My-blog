@@ -123,3 +123,47 @@ function clampQuality(q: number): number {
   if (!Number.isFinite(q)) return 78;
   return Math.max(1, Math.min(100, Math.round(q)));
 }
+
+/**
+ * 读取图片原始尺寸（用于上传时写入 width/height 元数据）
+ *
+ * @returns { width, height }（读取失败时返回 { width: null, height: null }）
+ */
+export async function imageMeta(input: Buffer): Promise<{ width: number | null; height: number | null }> {
+  try {
+    const sharp = await import('sharp').then((m) => m.default);
+    const meta = await sharp(input).metadata();
+    return { width: meta.width ?? null, height: meta.height ?? null };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
+/**
+ * 生成优化变体：等比缩放到目标宽度（不放大），输出 webp
+ *
+ * 供上传时生成"全尺寸(1920)+缩略图(600)"并直传 R2，从而保留 P0 的图片体积优化。
+ *
+ * @param input 原始图片二进制
+ * @param targetWidth 目标最大宽度（像素）
+ * @param quality 质量 1-100，默认 78
+ * @returns 缩放后的 buffer + 输出尺寸
+ * @throws 处理失败时抛错（调用方回落原图）
+ */
+export async function resizeToWebp(
+  input: Buffer,
+  targetWidth: number,
+  quality = 78,
+): Promise<{ buffer: Buffer; width: number; height: number }> {
+  const sharp = await import('sharp').then((m) => m.default);
+  const meta = await sharp(input).metadata();
+  const origW = meta.width ?? 0;
+  const origH = meta.height ?? 0;
+  const outW = Math.min(targetWidth, Math.max(origW, 1));
+  const outH = origW && origH ? Math.round((origH * outW) / origW) : 0;
+  const buffer = await sharp(input)
+    .resize({ width: outW, withoutEnlargement: true, fit: 'inside' })
+    .webp({ quality: clampQuality(quality) })
+    .toBuffer();
+  return { buffer, width: outW, height: outH };
+}

@@ -20,6 +20,7 @@
   "dependencies": {
     "@astrojs/react": "^6.0.4",
     "@astrojs/vercel": "^11.0.7",
+    "@aws-sdk/client-s3": "^3.1121.0",
     "@codemirror/commands": "^6.11.0",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-markdown": "^6.5.2",

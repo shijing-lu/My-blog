@@ -76,8 +76,12 @@ export interface Photo {
   id: string;
   /** 原图 URL */
   url: string;
+  /** R2 原图对象 key（null = 外部 URL 导入或旧数据） */
+  key: string | null;
   /** 缩略图 URL（null = 用原图） */
   thumbUrl: string | null;
+  /** R2 缩略图对象 key */
+  thumbKey: string | null;
   /** 可选标题 */
   title: string;
   /** 原图宽度（未知可为 null） */
@@ -94,7 +98,9 @@ export interface Photo {
 export interface NewPhoto {
   id: string;
   url: string;
+  key?: string | null;
   thumbUrl: string | null;
+  thumbKey?: string | null;
   title: string;
   width: number | null;
   height: number | null;
