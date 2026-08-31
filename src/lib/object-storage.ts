@@ -1,26 +1,18 @@
 /**
  * R2 对象存储抽象（S3 兼容，供图片/字体/照片统一存取）
  *
- * 替换旧的 Vercel Blob / base64 存库方案：
- * - 字节存 Cloudflare R2（对象存储），免费 10GB、0 出网费、请求量级百万/月；
- * - 数据库只存元数据 + 对象 key / 公开 URL（见 images/photos 表），热路径不读库。
- *
- * 环境变量（见 .env.example）：
- *   R2_ACCOUNT_ID           账号 ID（32 位十六进制，如 f19de861...）
- *   R2_ACCESS_KEY_ID        R2 API Token 的 Access Key ID
- *   R2_SECRET_ACCESS_KEY    R2 API Token 的 Secret Access Key
- *   R2_BUCKET               R2 桶名
- *   R2_PUBLIC_BASE_URL      公开访问地址（r2.dev 或自定义域名）
- *   R2_S3_ENDPOINT          可选，默认按 ACCOUNT_ID 推导 https://<id>.r2.cloudflarestorage.com
+ * - 字节存 Cloudflare R2（对象存储），DB 只存元数据 + 对象 key / 公开 URL。
+ * - **惰性动态导入 @aws-sdk/client-s3**：SDK 体积大且传递依赖（@aws-sdk/checksums 等）
+ *   在 serverless 打包时易缺失。仅在上传/删除等真正用到 S3 时 `import()`，避免
+ *   让纯读路径（首页等，只需图片 URL）把 SDK 拖进模块图导致 500。
+ * - 环境变量（见 .env.example）：
+ *     R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET / R2_PUBLIC_BASE_URL
+ *     可选 R2_S3_ENDPOINT（默认按 ACCOUNT_ID 推导 https://<id>.r2.cloudflarestorage.com）
  *
  * 说明：
- * - 懒加载单例 S3Client（serverless 实例间复用）；
- * - 写入对象时带 `Cache-Control: public, max-age=31536000, immutable`（图片 id 为 uuid，内容永不变）；
- * - 删除/head 对 404 静默容忍（复用既有"外部 URL"容忍逻辑）；
- * - `publicUrl` 拼接公开地址：默认 `${base}/${key}`。若你的 `pub-<hash>.r2.dev` 桶名必须出现在
- *   路径中，改 `urlFor` 一处即可（见注释）。
+ * - 懒加载单例 S3Client；写入带 immutable 缓存头；删除/head 对 404 静默容忍。
+ * - 公开 URL = `${base}/${key}`（已实测 r2.dev 桶名不在路径中）。
  */
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { serverEnv } from '@/lib/env';
 
 /** R2 配置（读取环境变量） */
@@ -48,23 +40,23 @@ function readConfig(): R2Config | null {
 /** 是否已配置 R2（决定自动上传可用性；未配置时走 URL 导入降级） */
 export const r2Enabled = (): boolean => readConfig() !== null;
 
-/** S3Client 单例（懒加载） */
-let client: S3Client | null = null;
-function getClient(): S3Client {
-  if (client) return client;
-  const cfg = readConfig();
-  if (!cfg) throw new Error('R2 未配置：请检查 R2_* 环境变量');
-  // region 取 'auto'；forcePathStyle 兼容自定义端点（以路径形式携带桶名）
-  client = new S3Client({
-    region: 'auto',
-    endpoint: cfg.endpoint,
-    forcePathStyle: true,
-    credentials: {
-      accessKeyId: cfg.accessKeyId,
-      secretAccessKey: cfg.secretAccessKey,
-    },
-  });
-  return client;
+/** S3Client 单例（懒加载；仅首次真实 R2 操作时 import SDK） */
+let clientPromise: Promise<unknown> | null = null;
+async function getClient(): Promise<{ send: (cmd: unknown) => Promise<unknown> }> {
+  if (!clientPromise) {
+    clientPromise = (async () => {
+      const cfg = readConfig();
+      if (!cfg) throw new Error('R2 未配置：请检查 R2_* 环境变量');
+      const { S3Client } = await import('@aws-sdk/client-s3');
+      return new S3Client({
+        region: 'auto',
+        endpoint: cfg.endpoint,
+        forcePathStyle: true,
+        credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+      });
+    })();
+  }
+  return (await clientPromise) as { send: (cmd: unknown) => Promise<unknown> };
 }
 
 /** 上传对象（自动带 immutable 缓存头） */
@@ -73,7 +65,9 @@ export async function putObject(
   input: { buffer: Buffer; contentType: string },
 ): Promise<string> {
   const cfg = readConfig()!;
-  await getClient().send(
+  const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+  const client = await getClient();
+  await client.send(
     new PutObjectCommand({
       Bucket: cfg.bucket,
       Key: key,
@@ -96,7 +90,9 @@ export function publicUrl(key: string): string {
 export async function headObject(key: string): Promise<boolean> {
   try {
     const cfg = readConfig()!;
-    await getClient().send(new HeadObjectCommand({ Bucket: cfg.bucket, Key: key }));
+    const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await getClient();
+    await client.send(new HeadObjectCommand({ Bucket: cfg.bucket, Key: key }));
     return true;
   } catch {
     return false;
@@ -108,7 +104,9 @@ export async function deleteObject(key: string): Promise<void> {
   if (!r2Enabled()) return;
   try {
     const cfg = readConfig()!;
-    await getClient().send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }));
+    const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await getClient();
+    await client.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }));
   } catch {
     /* 对象不存在或网络错误：忽略 */
   }
