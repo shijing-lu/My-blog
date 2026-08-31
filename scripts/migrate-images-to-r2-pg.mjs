@@ -31,6 +31,7 @@ if (!dbUrl || !/^postgres(ql)?:\/\//.test(dbUrl)) {
 
 // ---- 读 .env R2 配置 ----
 function env(key) {
+  if (process.env[key]) return process.env[key];
   const raw = readFileSync('.env', 'utf8');
   const m = raw.split(/\r?\n/).find((l) => l.startsWith(key + '='));
   return m ? m.slice(key.length + 1).trim() : '';
