@@ -61,3 +61,19 @@ export function extractFirstImage(content: string): string | null {
   const match = content.match(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/);
   return match?.[1] ?? null;
 }
+
+/**
+ * 卡片封面缩略图 URL：对 DB 图片（/api/images/<id>）追加 `?w=600&f=webp`，
+ * 由路由按需缩放/转 WebP → 卡片只需 ~600px，不再加载 2MB 原图，显著降 LCP 与字节。
+ *
+ * - 仅优化本站 `/api/images/` 路由的图片；外部 URL（Vercel Blob / 图床直链）原样返回，
+ *   其优化见后续 Vercel `/_vercel/image` 接入（P3）。
+ * - 已带查询串时追加而非覆盖。
+ */
+const CARD_WIDTH = 600;
+export function cardCoverUrl(cover: string | null | undefined): string | null {
+  if (!cover) return null;
+  if (!cover.startsWith('/api/images/')) return cover;
+  const sep = cover.includes('?') ? '&' : '?';
+  return `${cover}${sep}w=${CARD_WIDTH}&f=webp`;
+}

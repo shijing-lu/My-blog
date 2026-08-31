@@ -10,6 +10,7 @@ import type { APIRoute } from 'astro';
 import { listArticles, resolveCover } from '@/lib/articles';
 import { json } from '@/lib/api';
 import { countChars } from '@/lib/reading';
+import { cardCoverUrl } from '@/lib/images';
 import { isArticleType } from '../../../db/types';
 
 export const prerender = false;
@@ -42,7 +43,7 @@ export const GET: APIRoute = async ({ url }) => {
     slug: a.slug,
     type: a.type,
     summary: a.summary,
-    cover: resolveCover(a),
+    cover: cardCoverUrl(resolveCover(a)),
     tags: a.tags,
     updatedAt: a.updatedAt.toISOString(),
     charCount: countChars(a.content),

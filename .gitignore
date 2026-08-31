@@ -23,3 +23,8 @@ coverage/
 Thumbs.db
 
 lh-*.json
+
+# 字体子集源（仅本地 subset-font.mjs 用；产物 .subset.woff2 已上传 DB）
+LXGWWenKaiScreen.ttf
+# 诊断截图（开发临时产物）
+scripts/_diag-*.png

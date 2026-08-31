@@ -9,6 +9,7 @@ import ActivityHeatmap from '@/components/ActivityHeatmap.astro';
 import SearchBox from '@/components/SearchBox.astro';
 import Pagination from '@/components/Pagination.astro';
 import { countArticles, listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
+import { cardCoverUrl } from '@/lib/images';
 import { pageInfo } from '@/lib/pagination';
 import { verifyRequest } from '@/lib/auth';
 import type { ArticleType } from '../../db/types';
@@ -164,7 +165,7 @@ function formatShort(date?: Date): string {
               <div class="post-cover" data-type={article.type}>
                 {
                   (() => {
-                    const cover = covers.get(article.id);
+                    const cover = cardCoverUrl(covers.get(article.id));
                     return cover ? (
                       <img
                         src={cover}
