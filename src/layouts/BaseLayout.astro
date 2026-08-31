@@ -254,7 +254,7 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
         showLoader();
       }, true);
       function observeReveals(): void {
-        document.querySelectorAll<HTMLElement>('.post-card, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
+        document.querySelectorAll<HTMLElement>('.post-card, .post-row, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
           if (el.classList.contains('revealed')) return;
           if (!el.classList.contains('reveal')) el.classList.add('reveal');
           revealObserver.observe(el);
@@ -280,7 +280,7 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
         // View Transition 切换后的页面：卡片直接显示，不再叠加播放入场动画
         // （避免「转场淡入 + 卡片上浮」双重动画造成闪烁）
         document
-          .querySelectorAll<HTMLElement>('.post-card, .moment-card, .photo-card, .activity-heatmap')
+          .querySelectorAll<HTMLElement>('.post-card, .post-row, .moment-card, .photo-card, .activity-heatmap')
           .forEach((el) => {
             el.classList.remove('reveal');
             el.classList.add('revealed');

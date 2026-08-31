@@ -15,7 +15,7 @@ import { verifyRequest } from '@/lib/auth';
 import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
-/** 每页文章数（3×3 网格） */
+/** 每页文章数（故事流为单列交替，仍按 9 篇分页） */
 const PAGE_SIZE = 9;
 
 const total = await countArticles();
@@ -27,6 +27,11 @@ const articles = await listArticlePage(info.page, PAGE_SIZE);
 const isAuthed = verifyRequest(Astro.cookies);
 /** 文章 → 封面图（手动指定优先，否则取正文第一张图，无则用主题渐变占位） */
 const covers = new Map(articles.map((a) => [a.id, resolveCover(a)]));
+
+/** 落地页 Hero 背景图：首页文章中第一张非空封面（缩略 1920px WebP，首屏 LCP） */
+const heroRaw = articles.map((a) => covers.get(a.id)).find((c): c is string => !!c) ?? null;
+const heroCover = cardCoverUrl(heroRaw, 1920);
+const heroType: ArticleType = articles[0]?.type ?? 'tech';
 
 /** 全部文章元信息（不含正文，用于标签统计与最近更新） */
 const allMeta = await listArticleMeta();
@@ -62,8 +67,6 @@ function countChars(markdown: string): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-/** 栏目入口（已替换为社交图标，见模板） */
-
 /** 社交链接 */
 const SOCIALS: ReadonlyArray<{
   key: 'github' | 'bilibili' | 'sinaweibo';
@@ -88,36 +91,56 @@ function formatShort(date?: Date): string {
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="首页" description="技术教程 · 学习笔记 · 随笔与摄影 —— My Blog">
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <!-- Hero -->
-    <p data-hero class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">Personal Knowledge Base</p>
-    <HeroQuote />
-    <p data-hero class="mt-3 max-w-2xl text-base text-muted-foreground">
-      全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。
-    </p>
-
-    <!-- 社交入口（GitHub / Bilibili / 微信 / 微博） -->
-    <div data-hero class="mt-8 flex flex-wrap gap-3">
-      {
-        SOCIALS.map((s) => (
-          <a
-            href={s.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="social-link"
-            title={s.label}
-            aria-label={s.label}
-          >
-            <span class={`social-icon icon-${s.key}`} aria-hidden="true" />
-          </a>
-        ))
-      }
-      <!-- 微信：点击弹出好友二维码 -->
-      <button type="button" id="wechat-btn" class="social-link" title="微信" aria-label="微信">
-        <span class="social-icon icon-wechat" aria-hidden="true" />
-      </button>
+  <!-- ===== 落地页 Hero：全屏大图 + 文字叠层 ===== -->
+  <section class="landing-hero">
+    {
+      heroCover ? (
+        <img class="landing-hero-bg" src={heroCover} alt="" fetchpriority="high" />
+      ) : (
+        <div class="landing-hero-bg landing-hero-bg--gradient" data-type={heroType} aria-hidden="true">
+          <span class="post-cover-glyph" aria-hidden="true">{typeGlyph[heroType]}</span>
+        </div>
+      )
+    }
+    <div class="landing-hero-scrim" aria-hidden="true" />
+    <div class="landing-hero-content relative z-[1] mx-auto w-full max-w-6xl px-4">
+      <p data-hero class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">Personal Knowledge Base</p>
+      <HeroQuote />
+      <p data-hero class="mt-3 max-w-2xl text-base text-white/85">
+        全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。
+      </p>
+      <!-- 社交入口（GitHub / Bilibili / 微博 / 微信） -->
+      <div data-hero class="mt-8 flex flex-wrap gap-3">
+        {
+          SOCIALS.map((s) => (
+            <a
+              href={s.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="social-link"
+              title={s.label}
+              aria-label={s.label}
+            >
+              <span class={`social-icon icon-${s.key}`} aria-hidden="true" />
+            </a>
+          ))
+        }
+        <!-- 微信：点击弹出好友二维码 -->
+        <button type="button" id="wechat-btn" class="social-link" title="微信" aria-label="微信">
+          <span class="social-icon icon-wechat" aria-hidden="true" />
+        </button>
+      </div>
     </div>
+    <!-- 滚动提示：点击平滑滚到文章区 -->
+    <a href="#latest" class="scroll-cue" aria-label="向下浏览文章">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true">
+        <path d="M12 5v14M19 12l-7 7-7-7" />
+      </svg>
+    </a>
+  </section>
 
+  <!-- ===== 数据条 + 文章故事流 ===== -->
+  <section class="mx-auto w-full max-w-6xl px-4 py-12">
     <!-- 文章活跃热力图 + 月度写作量 -->
     <ActivityHeatmap />
 
@@ -136,7 +159,7 @@ function formatShort(date?: Date): string {
     </div>
 
     <!-- 最新文章 -->
-    <div class="mt-10">
+    <div id="latest" class="mt-10 scroll-mt-24">
       <div class="flex items-center gap-2.5">
         <h2 class="font-display text-2xl font-semibold">最新文章</h2>
         <span class="pixel-chip rounded bg-muted px-2 py-1 text-muted-foreground">LATEST ARTICLES</span>
@@ -154,44 +177,38 @@ function formatShort(date?: Date): string {
         <SearchBox total={total} />
       </div>
 
-      <!-- 服务端分页卡片流（搜索激活时由 SearchBox 隐藏） -->
-      <div id="post-grid" class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <!-- 文章行式列表（Claude 简约表格风格：无图、细分割线、大留白） -->
+      <div id="post-grid" class="post-list mt-8">
         {
-          articles.map((article, index) => (
-            <article class="post-card group relative overflow-hidden">
-              {/* 整卡链接：点击卡片任意处进入详情页（stretched-link） */}
-              <a href={`/blog/${article.slug}`} class="absolute inset-0 z-0" aria-label={`阅读《${article.title || '未命名'}》`} />
-              {/* 封面：手动封面 > 正文首图 > 主题渐变占位 + 大字字形 + 像素类型章 */}
-              <div class="post-cover" data-type={article.type}>
-                {
-                  (() => {
-                    const cover = cardCoverUrl(covers.get(article.id));
-                    return cover ? (
-                      <img
-                        src={cover}
-                        alt=""
-                        class="post-cover-img"
-                        fetchpriority={index === 0 && info.page === 1 ? 'high' : 'auto'}
-                        loading={index < 2 ? 'eager' : 'lazy'}
-                      />
-                    ) : (
-                      <>
-                        <span class="post-cover-dither" aria-hidden="true" />
-                        <span class="post-cover-glyph" aria-hidden="true">{typeGlyph[article.type]}</span>
-                      </>
-                    );
-                  })()
-                }
-                <span class={`post-cover-chip pixel-chip rounded px-1.5 py-0.5 ${typeChipClass[article.type]}`}>
-                  {typeLabels[article.type]}
-                </span>
+          articles.map((article) => {
+            return (
+              <article class="post-row group relative">
+                {/* 整行可点：进入详情页（stretched-link） */}
+                <a href={`/blog/${article.slug}`} class="absolute inset-0 z-0" aria-label={`阅读《${article.title || '未命名'}》`} />
+                {/* 左：类型章 + 标题 + 一行摘要 */}
+                <div class="post-row-main">
+                  <div class="flex items-center gap-2.5">
+                    <span class={`pixel-chip rounded px-1.5 py-0.5 text-[0.65rem] ${typeChipClass[article.type]}`}>
+                      {typeLabels[article.type]}
+                    </span>
+                    <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">
+                      {article.title}
+                    </h3>
+                  </div>
+                  <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">{article.summary}</p>
+                </div>
+                {/* 右：时间 + 字数（右对齐，等宽对齐） */}
+                <div class="post-row-meta">
+                  <span class="text-xs text-muted-foreground tabular-nums">{formatShort(article.updatedAt)}</span>
+                  <span class="font-pixel text-xs text-primary tabular-nums">{countChars(article.content)}字</span>
+                </div>
                 {
                   isAuthed && (
                     <a
                       href={`/edit/${article.id}`}
                       aria-label="编辑文章"
                       title="编辑"
-                      class="absolute right-2 top-2 z-10 inline-flex size-7 items-center justify-center rounded-md bg-black/40 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100 hover:bg-black/60"
+                      class="post-row-edit inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-primary"
                     >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
                         <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
@@ -199,50 +216,9 @@ function formatShort(date?: Date): string {
                     </a>
                   )
                 }
-              </div>
-              <div class="p-4">
-                <div class="flex items-start justify-between gap-2">
-                  <h3 class="font-display text-lg font-semibold leading-snug transition-colors duration-200">
-                    {article.title}
-                  </h3>
-                  <span class="shrink-0 font-pixel text-xs text-primary">{countChars(article.content)}字</span>
-                </div>
-                <div class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                  <time class="inline-flex items-center gap-1" datetime={article.updatedAt.toISOString()}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 7v5l3 2" />
-                    </svg>
-                    {formatShort(article.updatedAt)}
-                  </time>
-                  <span class="inline-flex items-center gap-1">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
-                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                    {String(article.tags.length).padStart(2, '0')} 标
-                  </span>
-                </div>
-                <p class="font-readable mt-2 text-sm text-muted-foreground line-clamp-2">{article.summary}</p>
-                {
-                  article.tags.length > 0 && (
-                    <div class="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-2.5">
-                      {
-                        article.tags.slice(0, 3).map((tag) => (
-                          <a
-                            href={`/tags/${encodeURIComponent(tag)}`}
-                            class="relative z-[1] rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary"
-                          >
-                            {tag}
-                          </a>
-                        ))
-                      }
-                    </div>
-                  )
-                }
-              </div>
-            </article>
-          ))
+              </article>
+            );
+          })
         }
       </div>
 
@@ -255,7 +231,7 @@ function formatShort(date?: Date): string {
       }
 
       <!-- 分页栏（搜索激活时由 SearchBox 隐藏） -->
-      <div id="post-pagination">
+      <div id="post-pagination" class="mt-8">
         {
           info.totalPages > 1 && <Pagination page={info.page} totalPages={info.totalPages} />
         }
@@ -300,6 +276,14 @@ function formatShort(date?: Date): string {
   // 初始加载播放；View Transition 后新页面元素重新进场
   document.addEventListener('astro:page-load', () => void runHomeAnims());
   void runHomeAnims();
+
+  /** 落地页滚动提示：点击平滑滚到文章区 */
+  document.addEventListener('click', (e) => {
+    const cue = (e.target as HTMLElement).closest<HTMLAnchorElement>('.scroll-cue');
+    if (!cue) return;
+    e.preventDefault();
+    document.getElementById('latest')?.scrollIntoView({ behavior: 'smooth' });
+  });
 
   /** 微信二维码弹窗（document 委托） */
   const wechatDialog = (): HTMLDialogElement | null =>
