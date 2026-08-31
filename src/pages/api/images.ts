@@ -30,6 +30,11 @@ export const POST: APIRoute = async ({ request }) => {
   const error = validateImageUpload(body.mime, base64, buffer.length);
   if (error) return json({ error }, 400);
 
-  const stored = await storeImage(body.mime as string, base64);
-  return json({ ok: true, url: `/api/images/${stored.id}` });
+  try {
+    const stored = await storeImage(body.mime as string, base64);
+    return json({ ok: true, url: `/api/images/${stored.id}` });
+  } catch (err) {
+    console.error('[api/images]', err);
+    return json({ error: err instanceof Error ? err.message : '上传失败' }, 500);
+  }
 };

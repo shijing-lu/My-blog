@@ -64,72 +64,68 @@ export function validateImageUpload(mime: unknown, base64: unknown, byteLength: 
   return null;
 }
 
-/** 保存一张图片：R2 优先（生成两档 webp），失败回落 base64 */
+/**
+ * 保存一张图片：**强制存储到 Cloudflare R2**，不在 DB 存图片内容。
+ *
+ * - 未配置 R2 → 抛错（不回落 base64，保证图片内容绝不入库）。
+ * - 光栅图 → 生成全尺寸(1920)+缩略图(600)两档 webp 直传 R2。
+ * - SVG → 原样传 R2（矢量，不做转格式）。
+ * - 任何上传失败 → 抛错，由调用方返回 500，避免静默降级存库。
+ */
 export async function storeImage(mime: string, dataBase64: string): Promise<StoredImage> {
+  if (!r2Enabled()) {
+    throw new Error('R2 未配置，无法上传图片。请在环境变量配置 R2_* 后再上传');
+  }
   const id = randomUUID();
   const buffer = Buffer.from(dataBase64, 'base64');
+  const key = `images/${id}`;
 
-  // R2 已配置且图片可处理 → 上传两档变体
-  if (r2Enabled() && isTransformableInput(mime)) {
-    try {
-      const full = await resizeToWebp(buffer, FULL_WIDTH);
-      const thumb = await resizeToWebp(buffer, THUMB_WIDTH);
-      const key = `images/${id}`;
-      const thumbKey = `images/${id}_thumb`;
-      const url = await putObject(key, { buffer: full.buffer, contentType: 'image/webp' });
-      const thumbUrl = await putObject(thumbKey, { buffer: thumb.buffer, contentType: 'image/webp' });
-      const row = {
-        id,
-        mime,
-        data: '',
-        key,
-        url,
-        thumbKey,
-        thumbUrl,
-        width: full.width,
-        height: full.height,
-        size: full.buffer.length,
-        createdAt: new Date(),
-      };
-      await db.insert(images).values(row);
-      return row as StoredImage;
-    } catch (err) {
-      // R2 上传失败：回落 base64 存库，保证上传不报错
-      console.error('[storeImage] R2 上传失败，回落 base64:', err);
-      await db.insert(images).values({ id, mime, data: dataBase64, createdAt: new Date() });
-      return { id, mime, data: dataBase64, key: null, url: null, thumbKey: null, thumbUrl: null, width: null, height: null, size: buffer.length };
-    }
+  // SVG（矢量）：原样传 R2，不生成缩略图
+  if (mime === 'image/svg+xml') {
+    const url = await putObject(key, { buffer, contentType: 'image/svg+xml' });
+    const dims = await imageMeta(buffer);
+    const row = {
+      id,
+      mime,
+      data: '',
+      key,
+      url,
+      thumbKey: null,
+      thumbUrl: null,
+      width: dims.width,
+      height: dims.height,
+      size: buffer.length,
+      createdAt: new Date(),
+    };
+    await db.insert(images).values(row);
+    return row as StoredImage;
   }
 
-  // SVG 或未配置 R2：原样存库（SVG 为矢量不走 sharp；R2 未配置走 base64 降级）
-  if (r2Enabled() && mime === 'image/svg+xml') {
-    try {
-      const key = `images/${id}`;
-      const url = await putObject(key, { buffer, contentType: 'image/svg+xml' });
-      const dims = await imageMeta(buffer);
-      const row = {
-        id,
-        mime,
-        data: '',
-        key,
-        url,
-        thumbKey: null,
-        thumbUrl: null,
-        width: dims.width,
-        height: dims.height,
-        size: buffer.length,
-        createdAt: new Date(),
-      };
-      await db.insert(images).values(row);
-      return row as StoredImage;
-    } catch (err) {
-      console.error('[storeImage] R2 上传 SVG 失败，回落 base64:', err);
-    }
+  // 校验是否为可处理的光栅图
+  if (!isTransformableInput(mime)) {
+    throw new Error(`不支持的图片类型: ${mime}`);
   }
 
-  const row = { id, mime, data: dataBase64, createdAt: new Date() };
+  const full = await resizeToWebp(buffer, FULL_WIDTH);
+  const thumb = await resizeToWebp(buffer, THUMB_WIDTH);
+  const thumbKey = `${key}_thumb`;
+  const url = await putObject(key, { buffer: full.buffer, contentType: 'image/webp' });
+  const thumbUrl = await putObject(thumbKey, { buffer: thumb.buffer, contentType: 'image/webp' });
+  const row = {
+    id,
+    mime,
+    data: '',
+    key,
+    url,
+    thumbKey,
+    thumbUrl,
+    width: full.width,
+    height: full.height,
+    size: full.buffer.length,
+    createdAt: new Date(),
+  };
   await db.insert(images).values(row);
-  return { id, mime, data: dataBase64, key: null, url: null, thumbKey: null, thumbUrl: null, width: null, height: null, size: buffer.length };
+  return row as StoredImage;
 }
 
 /** 按 id 读取图片（供公开路由 /api/images/[id] 输出） */
