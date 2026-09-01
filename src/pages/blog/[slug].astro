@@ -173,8 +173,15 @@ const blockMapJson = JSON.stringify(blockMap);
 </ContentLayout>
 
 <script>
+  /** 委托绑定（防 SPA 切换后直接绑定失效） */
+  function on(id: string, event: string, handler: EventListener): void {
+    document.addEventListener(event, (e) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.id === id || t.closest('#' + id))) handler(e);
+    });
+  }
   /** 思维导图抽屉：打开/关闭/多图切换；导图节点跳转时收起（移动端） */
-  const drawer = document.getElementById('mindmap-drawer');
+  let drawer: HTMLElement | null = document.getElementById('mindmap-drawer');
   const openBtn = document.getElementById('mindmap-open');
   const closeBtn = document.getElementById('mindmap-close');
 
@@ -194,8 +201,8 @@ const blockMapJson = JSON.stringify(blockMap);
     }
   }
 
-  openBtn?.addEventListener('click', toggleDrawer);
-  closeBtn?.addEventListener('click', () => setDrawer(false));
+  on('mindmap-open', 'click', toggleDrawer);
+  on('mindmap-close', 'click', () => setDrawer(false));
 
   // 点击抽屉外（右侧文章区域）关闭：仅在桌面宽度时绑定到遮罩层效果
   document.addEventListener('keydown', (e) => {
@@ -222,14 +229,27 @@ const blockMapJson = JSON.stringify(blockMap);
   });
 
   // ---------- 选中文本 → 加入导图 ----------
-  const snippetBar = document.getElementById('mindmap-snippet-bar');
-  const snippetAddBtn = document.getElementById('mindmap-snippet-add');
-  const pickDialog = document.getElementById('mindmap-pick-dialog') as HTMLDialogElement | null;
-  const pickSelect = document.getElementById('mindmap-pick-select') as HTMLSelectElement | null;
-  const pickSnippet = document.getElementById('mindmap-pick-snippet');
-  const pickStatus = document.getElementById('mindmap-pick-status');
+  let snippetBar = document.getElementById('mindmap-snippet-bar');
+  let snippetAddBtn = document.getElementById('mindmap-snippet-add');
+  let pickDialog = document.getElementById('mindmap-pick-dialog') as HTMLDialogElement | null;
+  let pickSelect = document.getElementById('mindmap-pick-select') as HTMLSelectElement | null;
+  let pickSnippet = document.getElementById('mindmap-pick-snippet');
+  let pickStatus = document.getElementById('mindmap-pick-status');
   let pendingRef: { text: string; anchorId: string; snippet: string } | null = null;
   let hideBarTimer = 0;
+
+  /** SPA 切换后 DOM 换新、脚本不重跑：按需重取元素引用（幂等） */
+  function syncRefs(): void {
+    drawer = document.getElementById('mindmap-drawer');
+    snippetBar = document.getElementById('mindmap-snippet-bar');
+    snippetAddBtn = document.getElementById('mindmap-snippet-add');
+    pickDialog = document.getElementById('mindmap-pick-dialog') as HTMLDialogElement | null;
+    pickSelect = document.getElementById('mindmap-pick-select') as HTMLSelectElement | null;
+    pickSnippet = document.getElementById('mindmap-pick-snippet');
+    pickStatus = document.getElementById('mindmap-pick-status');
+    pendingRef = null;
+  }
+  document.addEventListener('astro:page-load', syncRefs);
 
   function hideSnippetBar(): void {
     snippetBar?.classList.add('hidden');
@@ -284,7 +304,7 @@ const blockMapJson = JSON.stringify(blockMap);
 
   // 「加入导图」→ 打开选择弹层（默认引用名称 = 选中文本摘要）
   const pickNameInput = document.getElementById('mindmap-pick-name') as HTMLInputElement | null;
-  snippetAddBtn?.addEventListener('click', () => {
+  on('mindmap-snippet-add', 'click', () => {
     if (!pickDialog || !pendingRef || !pickSnippet) return;
     pickSnippet.textContent = `「${pendingRef.text}…」`;
     if (pickNameInput) pickNameInput.value = pendingRef.text.slice(0, 30);
@@ -292,8 +312,8 @@ const blockMapJson = JSON.stringify(blockMap);
     pickDialog.showModal();
   });
 
-  document.getElementById('mindmap-pick-cancel')?.addEventListener('click', () => pickDialog?.close());
-  document.getElementById('mindmap-pick-confirm')?.addEventListener('click', async () => {
+  on('mindmap-pick-cancel', 'click', () => pickDialog?.close());
+  on('mindmap-pick-confirm', 'click', async () => {
     if (!pendingRef || !pickSelect) return;
     const mapId = pickSelect.value;
     if (!mapId) return;

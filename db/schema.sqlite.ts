@@ -110,6 +110,8 @@ export const photos = sqliteTable('photos', {
   thumbKey: text('thumb_key'),
   /** 可选标题 */
   title: text('title').notNull().default(''),
+  /** 标签：JSON 编码的 string[]（上传时设置，影集页可按标签过滤） */
+  tags: text('tags').notNull().default('[]'),
   /** 原图宽度（瀑布流占位防 CLS；URL 导入失败时可空） */
   width: integer('width'),
   /** 原图高度 */
@@ -190,6 +192,8 @@ export const moments = sqliteTable('moments', {
   content: text('content').notNull().default(''),
   /** 媒体 JSON：[{type:'image'|'gif'|'video', url, poster?}] */
   media: text('media').notNull().default('[]'),
+  /** 标签：JSON 编码的 string[]（便于搜索/筛选/时间线归类） */
+  tags: text('tags').notNull().default('[]'),
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
@@ -514,6 +518,43 @@ export const docArticles = sqliteTable(
   (table) => [
     index('doc_articles_bundle_idx').on(table.bundleId),
     index('doc_articles_sort_idx').on(table.sort),
+  ],
+);
+
+/**
+ * 文档系统·节点（册内多级目录：目录可嵌套，目录下挂文章）
+ * 替代/并轨 doc_articles：kind='article' 的节点即文章；kind='folder' 为目录。
+ */
+export const docNodes = sqliteTable(
+  'doc_nodes',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属文档（册） */
+    bundleId: text('bundle_id').notNull(),
+    /** 父目录 id（null = 册根级） */
+    parentId: text('parent_id'),
+    /** 节点类型：folder=目录 / article=文章 */
+    kind: text('kind').notNull(),
+    /** 标题 */
+    title: text('title').notNull(),
+    /** 文章正文（MDX；目录节点为空） */
+    content: text('content').notNull().default(''),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestampMs('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+    /** 更新时间 */
+    updatedAt: timestampMs('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index('doc_nodes_bundle_idx').on(table.bundleId),
+    index('doc_nodes_parent_idx').on(table.parentId),
+    index('doc_nodes_sort_idx').on(table.sort),
   ],
 );
 

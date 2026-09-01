@@ -34,7 +34,7 @@ const todayStr = dateKey(today);
     </div>
 
     <!-- ===== 上传表单 ===== -->
-    <div class="rounded-lg border bg-card p-5">
+    <div class="pt-2">
       <div class="flex flex-wrap items-end gap-4">
         <label class="block text-xs font-medium text-muted-foreground">
           展示日期（默认今日）
@@ -56,6 +56,17 @@ const todayStr = dateKey(today);
           />
         </label>
       </div>
+
+      <label class="mt-3 block text-xs font-medium text-muted-foreground">
+        整批标签（可选，逗号分隔，最多 10 个，如：风景,旅行,2024）
+        <input
+          id="upload-tags"
+          type="text"
+          maxlength="200"
+          placeholder="风景,旅行,2024"
+          class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+        />
+      </label>
 
       {
         photoStorageEnabled ? (
@@ -90,7 +101,7 @@ const todayStr = dateKey(today);
           </>
         ) : (
           <div class="mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
-            未配置 <code class="font-mono">BLOB_READ_WRITE_TOKEN</code>，自动上传不可用 ——
+            未配置 Cloudflare R2（<code class="font-mono">R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET</code>），自动上传不可用 ——
             请使用下方「URL 导入」添加照片（PicGo / GitHub 图床工作流）。
           </div>
         )
@@ -98,7 +109,7 @@ const todayStr = dateKey(today);
     </div>
 
     <!-- ===== URL 导入（PicGo / GitHub 图床） ===== -->
-    <div class="rounded-lg border bg-card p-5">
+    <div class="pt-8">
       <p class="pixel-chip text-muted-foreground">URL 导入 / IMPORT</p>
       <p class="mt-1 text-xs text-muted-foreground">
         用 PicGo 等工具把照片传到 GitHub 后，粘贴图片直链即可入库（无需配置 Blob）。
@@ -132,6 +143,16 @@ const todayStr = dateKey(today);
             class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
           />
         </label>
+        <label class="block w-44 text-xs font-medium text-muted-foreground">
+          标签（可选，逗号分隔）
+          <input
+            id="url-tags"
+            type="text"
+            maxlength="200"
+            placeholder="风景,旅行"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
         <button
           id="url-import-btn"
           type="button"
@@ -144,7 +165,7 @@ const todayStr = dateKey(today);
     </div>
 
     <!-- ===== 已有照片管理 ===== -->
-    <div class="rounded-lg border bg-card p-5">
+    <div class="pt-8">
       <div class="flex items-center justify-between">
         <p class="pixel-chip text-muted-foreground">已有照片 / {photos.length}</p>
       </div>
@@ -152,52 +173,119 @@ const todayStr = dateKey(today);
         photos.length === 0 ? (
           <p class="mt-4 text-sm text-muted-foreground">影集还是空的，上传第一张吧。</p>
         ) : (
-          <div id="manage-grid" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-            {
-              photos.map((p) => (
-                <div class="manage-card rounded-lg border border-border bg-background p-2" data-photo-id={p.id}>
-                  <img
-                    src={p.thumbUrl ?? p.url}
-                    alt={p.title || '照片'}
-                    class="aspect-video w-full rounded object-cover"
-                    loading="lazy"
-                  />
-                  <input
-                    type="date"
-                    value={dateKey(p.takenAt)}
-                    data-manage-date
-                    class="mt-2 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
-                    aria-label="照片日期"
-                  />
-                  <input
-                    type="text"
-                    value={p.title}
-                    data-manage-title
-                    maxlength="200"
-                    placeholder="标题"
-                    class="mt-1 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
-                    aria-label="照片标题"
-                  />
-                  <div class="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      data-save-photo={p.id}
-                      class="flex-1 rounded border border-border px-2 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
-                    >
-                      保存
-                    </button>
-                    <button
-                      type="button"
-                      data-delete-photo={p.id}
-                      class="flex-1 rounded border border-destructive/40 px-2 py-1 text-xs text-destructive transition-colors duration-200 hover:bg-destructive/10"
-                    >
-                      删除
-                    </button>
+          <>
+            <!-- ===== 批量标签工具条 ===== -->
+            <div
+              id="batch-bar"
+              class="mt-4 flex flex-wrap items-end gap-3 rounded-md border border-border/70 bg-card/40 px-3 py-3"
+            >
+              <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  id="check-all"
+                  type="checkbox"
+                  class="size-3.5 accent-[var(--color-primary)]"
+                  aria-label="全选/取消全选照片"
+                />
+                全选
+              </label>
+              <span id="checked-count" class="text-xs text-muted-foreground">已选 0 张</span>
+              <label class="block text-xs font-medium text-muted-foreground">
+                批量操作
+                <select
+                  id="batch-op"
+                  class="mt-1 block rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
+                >
+                  <option value="set">覆盖为</option>
+                  <option value="add">追加</option>
+                  <option value="remove">移除</option>
+                </select>
+              </label>
+              <label class="block min-w-48 flex-1 text-xs font-medium text-muted-foreground">
+                标签（逗号分隔）
+                <input
+                  id="batch-tags"
+                  type="text"
+                  maxlength="200"
+                  placeholder="风景,旅行,2024"
+                  class="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
+                />
+              </label>
+              <button
+                id="batch-apply"
+                type="button"
+                disabled
+                class="rounded-md bg-primary px-4 py-1.5 text-xs text-primary-foreground transition-opacity duration-200 hover:opacity-90 disabled:opacity-40"
+              >
+                应用
+              </button>
+              <span id="batch-status" class="text-xs text-muted-foreground"></span>
+            </div>
+
+            <div id="manage-grid" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
+              {
+                photos.map((p) => (
+                  <div class="manage-card p-1" data-photo-id={p.id}>
+                    <div class="relative">
+                      <img
+                        src={p.thumbUrl ?? p.url}
+                        alt={p.title || '照片'}
+                        class="aspect-video w-full rounded object-cover"
+                        loading="lazy"
+                      />
+                      <input
+                        type="checkbox"
+                        value={p.id}
+                        data-photo-check
+                        class="absolute left-1.5 top-1.5 size-4 cursor-pointer accent-[var(--color-primary)]"
+                        aria-label="选择这张照片"
+                      />
+                    </div>
+                    <input
+                      type="date"
+                      value={dateKey(p.takenAt)}
+                      data-manage-date
+                      class="mt-2 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
+                      aria-label="照片日期"
+                    />
+                    <input
+                      type="text"
+                      value={p.title}
+                      data-manage-title
+                      maxlength="200"
+                      placeholder="标题"
+                      class="mt-1 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
+                      aria-label="照片标题"
+                    />
+                    <input
+                      type="text"
+                      value={p.tags.join(',')}
+                      data-manage-tags
+                      maxlength="200"
+                      placeholder="标签（逗号分隔）"
+                      class="mt-1 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
+                      aria-label="照片标签"
+                    />
+                    <div class="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        data-save-photo={p.id}
+                        class="flex-1 rounded border border-border px-2 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        data-delete-photo={p.id}
+                        class="flex-1 rounded border border-destructive/40 px-2 py-1 text-xs text-destructive transition-colors duration-200 hover:bg-destructive/10"
+                      >
+                        删除
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
-            }
-          </div>
+                ))
+              }
+            </div>
+          </>
         )
       }
     </div>
@@ -222,6 +310,11 @@ const todayStr = dateKey(today);
       const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
       return map[c] ?? c;
     });
+  }
+
+  /** 「风景,旅行,2024」→ ['风景','旅行','2024']（中英文逗号均可，去重去空） */
+  function parseTagInput(value: string): string[] {
+    return [...new Set(value.split(/[,，]/).map((t) => t.trim()).filter(Boolean))];
   }
 
   // ---------- 图片压缩 ----------
@@ -278,7 +371,7 @@ const todayStr = dateKey(today);
     btn.textContent = `开始上传（${queue.length} 张）`;
     queue.forEach((item) => {
       const row = document.createElement('div');
-      row.className = 'flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs';
+      row.className = 'flex items-center gap-3 border-b border-border px-3 py-2 text-xs';
       row.innerHTML = `
         <img src="" class="h-10 w-14 shrink-0 rounded object-cover" alt="">
         <span class="min-w-0 flex-1 truncate">${esc(item.file.name)}</span>
@@ -314,7 +407,7 @@ const todayStr = dateKey(today);
   }
 
   /** 上传单张：压缩 → POST /api/photos */
-  async function uploadItem(item: QueueItem, date: string, title: string): Promise<void> {
+  async function uploadItem(item: QueueItem, date: string, title: string, tags?: string[]): Promise<void> {
     setItemStatus(item, 'uploading');
     try {
       const isSvg = item.file.type === 'image/svg+xml';
@@ -343,7 +436,16 @@ const todayStr = dateKey(today);
       const res = await fetch('/api/photos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dataBase64, thumbBase64, mime, takenAt: `${date}T00:00:00`, title, width, height }),
+        body: JSON.stringify({
+          dataBase64,
+          thumbBase64,
+          mime,
+          takenAt: `${date}T00:00:00`,
+          title,
+          width,
+          height,
+          tags: tags ?? [],
+        }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? '上传失败');
@@ -357,6 +459,7 @@ const todayStr = dateKey(today);
   async function startUpload(): Promise<void> {
     const date = (el<HTMLInputElement>('upload-date')?.value ?? todayStr).trim();
     const title = (el<HTMLInputElement>('upload-title')?.value ?? '').trim();
+    const tags = parseTagInput(el<HTMLInputElement>('upload-tags')?.value ?? '');
     const status = el('upload-status');
     const btn = el<HTMLButtonElement>('upload-btn');
     if (!btn || queue.length === 0) return;
@@ -366,7 +469,7 @@ const todayStr = dateKey(today);
     const items = queue.filter((q) => q.status !== 'done');
     let failed = 0;
     for (let i = 0; i < items.length; i += 1) {
-      await uploadItem(items[i]!, date, title);
+      await uploadItem(items[i]!, date, title, tags);
       if (items[i]!.status === 'error') failed += 1;
       if (status) status.textContent = `第 ${i + 1} / ${items.length} 张`;
     }
@@ -466,16 +569,25 @@ const todayStr = dateKey(today);
     height = dims.h;
     status.textContent = width && height ? '导入中…' : '直链无法预加载宽高（跨域/防盗链），将按 4:3 占位导入…';
     try {
+      const importTags = parseTagInput(el<HTMLInputElement>('url-tags')?.value ?? '');
       const res = await fetch('/api/photos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ importUrl: raw, takenAt: `${date}T00:00:00`, title, width, height }),
+        body: JSON.stringify({
+          importUrl: raw,
+          takenAt: `${date}T00:00:00`,
+          title,
+          width,
+          height,
+          tags: importTags,
+        }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? '导入失败');
       status.textContent = '✓ 导入成功';
       urlInput.value = '';
       el<HTMLInputElement>('url-title')!.value = '';
+      // 标签保留（批量导入常沿用同一批标签），其余清空
       window.location.reload(); // 刷新管理列表
     } catch (err) {
       status.textContent = err instanceof Error ? err.message : '导入失败';
@@ -492,6 +604,7 @@ const todayStr = dateKey(today);
       if (!card || !id) return;
       const date = (card.querySelector<HTMLInputElement>('[data-manage-date]')?.value ?? '').trim();
       const title = (card.querySelector<HTMLInputElement>('[data-manage-title]')?.value ?? '').trim();
+      const tags = parseTagInput(card.querySelector<HTMLInputElement>('[data-manage-tags]')?.value ?? '');
       if (!date) {
         window.alert('请选择日期');
         return;
@@ -502,7 +615,7 @@ const todayStr = dateKey(today);
         const res = await fetch(`/api/photos/${id}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ title, takenAt: `${date}T00:00:00` }),
+          body: JSON.stringify({ title, takenAt: `${date}T00:00:00`, tags }),
         });
         const data = (await res.json()) as { error?: string };
         if (!res.ok) throw new Error(data.error ?? '保存失败');
@@ -524,15 +637,100 @@ const todayStr = dateKey(today);
       const id = delBtn.dataset.deletePhoto ?? '';
       if (!id) return;
       if (!(await confirmDanger('确定删除这张照片？此操作不可撤销。'))) return;
-      delBtn.disabled = true;
+      // 乐观移除：DELETE 涉及 R2 删除 + 主备双库双写，耗时可达数秒，
+      // 若等响应再移除，卡片会长时间占着网格位置（用户会以为删除没生效）。
+      const card = delBtn.closest<HTMLElement>('.manage-card');
+      card?.remove();
+      syncBatchState();
       try {
         const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('删除失败');
-        delBtn.closest<HTMLElement>('.manage-card')?.remove();
-      } catch {
-        window.alert('删除失败');
-        delBtn.disabled = false;
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(data.error ?? '删除失败');
+        }
+      } catch (err) {
+        // 删除失败 → 数据仍在，刷新页面以服务端状态回滚 UI
+        window.alert(err instanceof Error ? err.message : '删除失败');
+        window.location.reload();
       }
     }
   });
+
+  // ---------- 批量标签维护 ----------
+  const batchBar = el('batch-bar');
+  const checkAll = el<HTMLInputElement>('check-all');
+  const checkedCount = el('checked-count');
+  const batchApply = el<HTMLButtonElement>('batch-apply');
+  const batchStatus = el('batch-status');
+
+  /** 当前勾选的照片 id（DOM 每次实时查询，避免缓存失效；本页为 AdminLayout 无 SPA 切换） */
+  function checkedIds(): string[] {
+    return [...document.querySelectorAll<HTMLInputElement>('[data-photo-check]')]
+      .filter((c) => c.checked)
+      .map((c) => c.value)
+      .filter(Boolean);
+  }
+
+  /** 同步「已选 N 张」与「应用」按钮可用性 */
+  function syncBatchState(): void {
+    const boxes = [...document.querySelectorAll<HTMLInputElement>('[data-photo-check]')];
+    const n = boxes.filter((c) => c.checked).length;
+    if (checkedCount) checkedCount.textContent = `已选 ${n} 张`;
+    if (batchApply) batchApply.disabled = n === 0;
+    if (checkAll) {
+      checkAll.checked = boxes.length > 0 && n === boxes.length;
+      checkAll.indeterminate = n > 0 && n < boxes.length;
+    }
+  }
+
+  if (batchBar) {
+    checkAll?.addEventListener('change', () => {
+      const on = checkAll.checked;
+      document.querySelectorAll<HTMLInputElement>('[data-photo-check]').forEach((c) => {
+        c.checked = on;
+      });
+      syncBatchState();
+    });
+
+    // 勾选变化用 change 委托（change 会冒泡到 document）
+    document.addEventListener('change', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.matches?.('[data-photo-check]')) syncBatchState();
+    });
+
+    batchApply?.addEventListener('click', async () => {
+      const ids = checkedIds();
+      const op = (el<HTMLSelectElement>('batch-op')?.value ?? 'set') as 'set' | 'add' | 'remove';
+      const tags = parseTagInput(el<HTMLInputElement>('batch-tags')?.value ?? '');
+      if (ids.length === 0 || !batchApply) return;
+      if (tags.length === 0) {
+        // 仅「覆盖为 + 留空」是有意义的清空操作，其余必须填标签
+        if (op !== 'set') {
+          if (batchStatus) batchStatus.textContent = '请输入标签';
+          return;
+        }
+        if (!(await confirmDanger('留空将清空所选照片的全部标签，确定继续？'))) return;
+      }
+      batchApply.disabled = true;
+      const original = batchApply.textContent;
+      batchApply.textContent = '处理中…';
+      if (batchStatus) batchStatus.textContent = '';
+      try {
+        const res = await fetch('/api/photos/batch-tags', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ids, op, tags }),
+        });
+        const data = (await res.json()) as { error?: string; updated?: number };
+        if (!res.ok) throw new Error(data.error ?? '操作失败');
+        window.location.reload(); // 刷新卡片上的标签显示
+      } catch (err) {
+        if (batchStatus) batchStatus.textContent = err instanceof Error ? err.message : '操作失败';
+        batchApply.textContent = original ?? '应用';
+        batchApply.disabled = false;
+      }
+    });
+
+    syncBatchState();
+  }
 </script>

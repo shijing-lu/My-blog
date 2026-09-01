@@ -1,0 +1,4 @@
+# 本地环境文件绝不上传（否则会被打进函数包，覆盖 Vercel 环境变量导致线上误连 SQLite）
+.env
+.env.*
+!.env.example

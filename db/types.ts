@@ -84,6 +84,8 @@ export interface Photo {
   thumbKey: string | null;
   /** 可选标题 */
   title: string;
+  /** 标签（上传时设置，影集页可按标签过滤） */
+  tags: string[];
   /** 原图宽度（未知可为 null） */
   width: number | null;
   /** 原图高度 */
@@ -102,6 +104,7 @@ export interface NewPhoto {
   thumbUrl: string | null;
   thumbKey?: string | null;
   title: string;
+  tags?: string[];
   width: number | null;
   height: number | null;
   takenAt: Date;
@@ -161,6 +164,8 @@ export interface Moment {
   content: string;
   /** 媒体列表 */
   media: MomentMedia[];
+  /** 标签（便于搜索/筛选） */
+  tags: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -170,6 +175,7 @@ export interface NewMoment {
   id: string;
   content: string;
   media: MomentMedia[];
+  tags: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -428,9 +434,30 @@ export interface NewDocArticle {
   updatedAt: Date;
 }
 
+/** 文档系统·节点（册内多级目录；folder=目录 / article=文章） */
+export interface DocNode {
+  id: string;
+  bundleId: string;
+  parentId: string | null;
+  kind: 'folder' | 'article';
+  title: string;
+  content: string;
+  sort: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 文档系统·节点视图（树形，含 children） */
+export interface DocNodeView extends Omit<DocNode, 'content'> {
+  children: DocNodeView[];
+}
+
 /** 文档系统·文档视图（含文章列表，公共页渲染；不含或含 content 视场景） */
 export interface DocBundleView extends Omit<DocBundle, 'categoryId'> {
   articles: Array<Pick<DocArticle, 'id' | 'title' | 'sort'>>;
+  /** 节点统计（嵌套目录下的文章/目录总数） */
+  articleCount: number;
+  folderCount: number;
 }
 
 /** 文档系统·分类聚合视图（分类 → 其下文档 → 其下文章元信息） */

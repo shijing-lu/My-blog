@@ -1,0 +1,48 @@
+---
+/**
+ * 真时间线（影集 / 动态共用）：左侧竖线 + 节点圆点 + 日期标签 + 计数。
+ *
+ * - 点击通过 data-timeline-date 由页面脚本委托处理（滚动定位/筛选）；
+ * - 纯展示与交互骨架，样式在 global.css（.timeline*）。
+ */
+interface TimelineItem {
+  /** 定位用的日期键（如 YYYY-MM / YYYY-MM-DD） */
+  date: string;
+  /** 展示文案（如日期或「2024 年 5 月」） */
+  label: string;
+  /** 该节点数量（可选） */
+  count?: number;
+  /** 是否高亮 */
+  active?: boolean;
+}
+
+interface Props {
+  items: TimelineItem[];
+  /** 空态文案 */
+  emptyText?: string;
+}
+
+const { items, emptyText = '暂无记录' } = Astro.props;
+---
+{
+  items.length === 0 ? (
+    <p class="text-xs text-muted-foreground">{emptyText}</p>
+  ) : (
+    <div class="timeline" role="list">
+      {
+        items.map((it) => (
+          <button
+            type="button"
+            class={'timeline-item' + (it.active ? ' active' : '')}
+            data-timeline-date={it.date}
+            role="listitem"
+          >
+            <span class="timeline-dot" aria-hidden="true" />
+            <span class="timeline-label">{it.label}</span>
+            {it.count !== undefined && <span class="timeline-count">{it.count}</span>}
+          </button>
+        ))
+      }
+    </div>
+  )
+}

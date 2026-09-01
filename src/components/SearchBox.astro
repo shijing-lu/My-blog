@@ -19,7 +19,7 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
 ];
 ---
 <!-- ===== Template ===== -->
-<div id="search-box" class="rounded-lg border bg-card p-3">
+<div id="search-box" class="border-b border-border pb-3">
   <div class="flex items-center gap-2">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true">
       <circle cx="11" cy="11" r="7" />
@@ -47,8 +47,8 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
   </div>
 </div>
 
-<!-- 搜索结果容器（服务端 /api/search 返回数据后由 JS 渲染卡片） -->
-<div id="search-results" class="mt-4 grid hidden gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+<!-- 搜索结果容器（服务端 /api/search 返回数据后由 JS 渲染文章行，与首页列表同构） -->
+<div id="search-results" class="post-list mt-4 hidden"></div>
 <p id="search-empty" class="mt-6 hidden text-sm text-muted-foreground">
   未找到匹配的文章，换个关键词或类型试试。
 </p>
@@ -58,7 +58,6 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
    *  - 关键词为空且类型为「全部」时回到服务端分页列表；
    *  - 事件用 document 委托 + 每次解析元素，规避 View Transitions 后绑定失效。 */
   const TYPE_LABELS: Record<string, string> = { tech: '技术', note: '笔记', photo: '摄影' };
-  const TYPE_GLYPH: Record<string, string> = { tech: '技', note: '记', photo: '影' };
   const TYPE_CHIP: Record<string, string> = {
     tech: 'chip-tech',
     note: 'chip-note',
@@ -90,8 +89,8 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
   }
 
-  /** 由搜索数据构建卡片 HTML（与 index.astro 静态卡片同构） */
-  function cardHtml(a: {
+  /** 由搜索数据构建文章行（与首页 .post-row 同构：无盒、细线、大留白） */
+  function rowHtml(a: {
     id: string;
     title: string;
     slug: string;
@@ -102,9 +101,6 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     updatedAt: string;
     charCount: number;
   }): string {
-    const cover = a.cover
-      ? `<img src="${esc(a.cover)}" alt="" class="post-cover-img" loading="lazy">`
-      : `<span class="post-cover-dither" aria-hidden="true"></span><span class="post-cover-glyph" aria-hidden="true">${TYPE_GLYPH[a.type] ?? ''}</span>`;
     const tagLinks = a.tags
       .slice(0, 3)
       .map(
@@ -112,23 +108,19 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
           `<a href="/tags/${encodeURIComponent(t)}" class="relative z-[1] rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary">${esc(t)}</a>`,
       )
       .join('');
-    return `<article class="post-card group relative overflow-hidden">
+    return `<article class="post-row group relative">
       <a href="/blog/${esc(a.slug)}" class="absolute inset-0 z-0" aria-label="阅读《${esc(a.title || '未命名')}》"></a>
-      <div class="post-cover" data-type="${esc(a.type)}">
-        ${cover}
-        <span class="post-cover-chip pixel-chip rounded px-1.5 py-0.5 ${TYPE_CHIP[a.type] ?? 'chip-tech'}">${TYPE_LABELS[a.type] ?? a.type}</span>
+      <div class="post-row-main">
+        <div class="flex items-center gap-2.5">
+          <span class="pixel-chip rounded px-1.5 py-0.5 ${TYPE_CHIP[a.type] ?? 'chip-tech'}">${TYPE_LABELS[a.type] ?? a.type}</span>
+          <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">${esc(a.title)}</h3>
+        </div>
+        <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">${esc(a.summary)}</p>
+        ${tagLinks ? `<div class="mt-2 flex flex-wrap gap-1.5">${tagLinks}</div>` : ''}
       </div>
-      <div class="p-4">
-        <div class="flex items-start justify-between gap-2">
-          <h3 class="font-display text-lg font-semibold leading-snug">${esc(a.title)}</h3>
-          <span class="shrink-0 font-pixel text-xs text-primary">${countText(a.charCount)}字</span>
-        </div>
-        <div class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-          <time class="inline-flex items-center gap-1" datetime="${esc(a.updatedAt)}">${formatShort(a.updatedAt)}</time>
-          <span class="inline-flex items-center gap-1">${String(a.tags.length).padStart(2, '0')} 标</span>
-        </div>
-        <p class="font-readable mt-2 text-sm text-muted-foreground line-clamp-2">${esc(a.summary)}</p>
-        ${a.tags.length > 0 ? `<div class="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-2.5">${tagLinks}</div>` : ''}
+      <div class="post-row-meta">
+        <span class="text-xs text-muted-foreground tabular-nums">${formatShort(a.updatedAt)}</span>
+        <span class="font-pixel text-xs text-primary tabular-nums">${countText(a.charCount)}字</span>
       </div>
     </article>`;
   }
@@ -162,9 +154,9 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     if (count) count.textContent = '搜索中…';
     fetch(`/api/search?q=${encodeURIComponent(q)}&type=${activeType}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('bad status'))))
-      .then((data: { articles: Array<Parameters<typeof cardHtml>[0]>; total: number }) => {
+      .then((data: { articles: Array<Parameters<typeof rowHtml>[0]>; total: number }) => {
         const results = el('search-results');
-        if (results) results.innerHTML = data.articles.map(cardHtml).join('');
+        if (results) results.innerHTML = data.articles.map(rowHtml).join('');
         if (count) count.textContent = `${data.total} 篇`;
         el('search-empty')?.classList.toggle('hidden', data.total > 0);
       })

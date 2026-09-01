@@ -50,7 +50,7 @@ function renderSite(site: SiteLike, authed: boolean): string {
   return (
     `<div class="group relative">` +
     `<a href="${esc(site.url)}"${dragAttr} target="_blank" rel="noopener noreferrer" ` +
-    `class="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md">` +
+    `class="flex items-center gap-2.5 p-2.5 transition-colors duration-200 hover:bg-accent/60">` +
     `<span class="relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">` +
     `<img class="nav-icon size-5 object-contain" src="${esc(iconSrc)}" alt="" loading="lazy" data-google="${esc(google)}" data-name="${esc(name)}" />` +
     `<span class="nav-icon-fallback hidden font-display text-sm font-semibold text-primary">${esc(name.slice(0, 1))}</span>` +
@@ -138,7 +138,7 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
               {
                 categories.length > 0 && (
                   <aside class="absolute right-[calc(100%+1.5rem)] top-0 z-30 hidden w-52 min-[1720px]:block">
-                  <div class="rounded-xl border border-border bg-card/85 p-3 shadow-md backdrop-blur-md">
+                  <div class="p-3">
                     <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
                     <nav class="space-y-0.5 text-sm" aria-label="导航分类">
                       <button

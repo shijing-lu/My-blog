@@ -292,11 +292,10 @@
     }
   }
 
-  /* 最小更新原则：常驻元素（背景/header/footer/进度条/粒子）不参与转场动画，
-     整个页面切换期间保持静止显示——内容没变的绝不动画、绝不重绘 */
-  .site-bg {
-    view-transition-name: vt-site-bg;
-  }
+  /* 最小更新原则：常驻元素（header/footer/进度条/粒子）不参与转场动画，
+     整个页面切换期间保持静止显示——内容没变的绝不动画、绝不重绘。
+     注意：.site-bg 不设 view-transition-name——背景随页面整体转场、逐页按最新配置
+     渲染（避免旧背景元素残留导致「各页透明度/模糊度不统一」）。 */
   header {
     view-transition-name: vt-site-header;
   }
@@ -309,9 +308,6 @@
   .stardust {
     view-transition-name: vt-stardust;
   }
-  ::view-transition-group(vt-site-bg),
-  ::view-transition-old(vt-site-bg),
-  ::view-transition-new(vt-site-bg),
   ::view-transition-group(vt-site-header),
   ::view-transition-old(vt-site-header),
   ::view-transition-new(vt-site-header),
@@ -496,26 +492,23 @@
     }
   }
 
-  /* 设置页分区 tab */
+  /* 设置页分区 tab（下划线式，无盒，与背景相融） */
 .settings-tab {
   display: inline-flex;
   align-items: center;
-  padding: 0.375rem 0.875rem;
+  padding: 0.375rem 0.5rem;
   font-size: 0.8rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
   color: var(--color-muted-foreground);
-  background: var(--color-card);
-  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
 }
 .settings-tab:hover {
   color: var(--color-foreground);
-  background: var(--color-accent);
+  border-bottom-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
 }
 .settings-tab.active {
-  border-color: var(--color-primary);
-  background: var(--color-accent);
   color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
 }
 
 /* 日历日期悬浮预览 */
@@ -646,7 +639,6 @@
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
 }
 .moment-video-wrap iframe,
 .moment-video-wrap video {
@@ -791,19 +783,19 @@
     border-radius: 2px;
   }
   .heat-0 {
-    background: color-mix(in srgb, var(--color-muted) 55%, transparent);
+    background: color-mix(in srgb, var(--color-muted) 85%, transparent);
   }
   .heat-1 {
-    background: color-mix(in srgb, var(--color-primary) 20%, var(--color-card));
+    background: color-mix(in srgb, var(--color-primary) 38%, transparent);
   }
   .heat-2 {
-    background: color-mix(in srgb, var(--color-primary) 42%, var(--color-card));
+    background: color-mix(in srgb, var(--color-primary) 60%, transparent);
   }
   .heat-3 {
-    background: color-mix(in srgb, var(--color-primary) 66%, var(--color-card));
+    background: color-mix(in srgb, var(--color-primary) 82%, transparent);
   }
   .heat-4 {
-    background: color-mix(in srgb, var(--color-primary) 90%, var(--color-card));
+    background: var(--color-primary);
   }
 
   /* Hero 古诗词轮播：逐字闪烁出现 / 倒序还原（每字只闪一次，节奏慢） */
@@ -1051,6 +1043,57 @@
     height: 100%;
     object-fit: cover;
   }
+  /* 落地页 Hero 轮播（多图） */
+  .landing-hero-slides {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  .landing-hero-slide {
+    opacity: 0;
+  }
+  /* slide：从右向左滑入（下一张从右侧进入，当前张向左退出） */
+  .landing-hero-slides[data-animation='slide'] .landing-hero-slide {
+    transform: translateX(100%);
+    transition: transform 0.9s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.9s ease;
+  }
+  .landing-hero-slides[data-animation='slide'] .landing-hero-slide.is-active {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  .landing-hero-slides[data-animation='slide'] .landing-hero-slide.is-leaving {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  /* break：当前图撕裂破碎退场，下一张浮现 */
+  .landing-hero-slides[data-animation='break'] .landing-hero-slide.is-active {
+    opacity: 1;
+    transition: opacity 0.6s ease 0.45s;
+  }
+  .landing-hero-slides[data-animation='break'] .landing-hero-slide.is-breaking {
+    animation: hero-break 0.75s ease forwards;
+  }
+  @keyframes hero-break {
+    0% {
+      clip-path: inset(0 0 0 0);
+      transform: translateX(0);
+      opacity: 1;
+    }
+    35% {
+      clip-path: inset(0 32% 0 0);
+      transform: translateX(-2%);
+    }
+    70% {
+      clip-path: inset(0 62% 0 0);
+      transform: translateX(-6%);
+      opacity: 0.85;
+    }
+    100% {
+      clip-path: inset(0 100% 0 0);
+      transform: translateX(-14%);
+      opacity: 0;
+    }
+  }
   /* 无封面回落：主题渐变 + 大字字形 */
   .landing-hero-bg--gradient {
     background-image: linear-gradient(135deg, var(--color-primary), var(--color-muted));
@@ -1174,6 +1217,123 @@
       align-items: center;
       gap: 0.75rem;
     }
+  }
+
+  /* ===== 细线容器（简约 + 层次感）：透明底、1px 细描边、圆角；hover 微主色边/微背景。
+     用于动态条目、文档条目、学习分区等——有"单独感"但无卡片感，与背景相融 */
+  .hairline {
+    border: 1px solid color-mix(in srgb, var(--color-foreground) 22%, transparent);
+    border-radius: var(--radius-lg);
+    background: transparent;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+  }
+  .hairline:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+
+  /* ===== 真时间线（影集/动态共用）：左侧竖线 + 节点圆点 + 标签，点击定位到日期 ===== */
+  .timeline {
+    position: relative;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0.3rem;
+    top: 0.25rem;
+    bottom: 0.25rem;
+    width: 1px;
+    background: var(--color-border);
+  }
+  .timeline-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.45rem 0.25rem 0.45rem 0.75rem;
+    text-align: left;
+    color: var(--color-muted-foreground);
+    transition: color 0.2s ease, background-color 0.2s ease;
+    border-radius: var(--radius-md);
+  }
+  .timeline-item:hover,
+  .timeline-item.active {
+    color: var(--color-foreground);
+    background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+  .timeline-dot {
+    flex: 0 0 auto;
+    width: 0.6rem;
+    height: 0.6rem;
+    margin-top: 0.32rem;
+    border-radius: 9999px;
+    background: var(--color-border);
+    box-shadow: 0 0 0 2px var(--color-background);
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .timeline-item:hover .timeline-dot,
+  .timeline-item.active .timeline-dot {
+    background: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  }
+  .timeline-label {
+    min-width: 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    font-family: var(--font-pixel-family);
+  }
+  .timeline-count {
+    flex: 0 0 auto;
+    margin-left: auto;
+    border-radius: 9999px;
+    background: var(--color-muted);
+    padding: 0 0.4rem;
+    font-size: 0.65rem;
+    line-height: 1.4;
+    color: var(--color-muted-foreground);
+  }
+
+  /* ===== 极简行式列表（文章风：无盒、细线分隔、hover 左侧 accent 条） =====
+     用于后台文章/导图/导航、文档分类、动态流等列表：容器加 .list-blend，
+     行元素为直接子 li 或带 .list-blend-row 的 div。 */
+  .list-blend {
+    display: flex;
+    flex-direction: column;
+  }  .list-blend > li,
+  .list-blend > .list-blend-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem 0.75rem 0.9rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    transition: background-color 0.2s ease;
+  }
+  .list-blend > li:first-child,
+  .list-blend > .list-blend-row:first-child {
+    border-top: 1px solid var(--color-border);
+  }
+  .list-blend > li::before,
+  .list-blend > .list-blend-row::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--color-primary);
+    transform: scaleY(0);
+    transform-origin: center;
+    transition: transform 0.25s ease;
+  }
+  .list-blend > li:hover::before,
+  .list-blend > .list-blend-row:hover::before {
+    transform: scaleY(1);
+  }
+  .list-blend > li:hover,
+  .list-blend > .list-blend-row:hover {
+    background: var(--color-accent);
   }
 
   /* 代码块：相对定位 + 少量顶部留白（复制按钮浮动贴角，不占独立空行） */

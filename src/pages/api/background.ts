@@ -1,13 +1,24 @@
 /**
- * GET/PUT /api/background —— 全站背景配置
+ * GET/PUT /api/background —— 站点背景配置（统一背景 / 按页面独立）
  *
  * - GET：读取配置（公开，供页面渲染与设置页回显）
- * - PUT：保存配置（管理员，中间件保护）；校验背景图为合法 UUID 的站内图片或 http(s) 外链
+ * - PUT：保存配置（管理员，中间件保护）
+ *   body: {
+ *     mode: 'unified' | 'pages',
+ *     enabled?, imageUrl?, opacity?, blur?,   // 统一模式
+ *     pages?: { [pageKey]: { imageUrl, opacity, blur } }  // 按页模式
+ *   }
+ *   所有图 URL 校验：合法 UUID 的站内图片或 http(s) 外链
  */
 import type { APIRoute } from 'astro';
-import { getSiteBackground, saveSiteBackground } from '@/lib/background';
+import {
+  PAGE_KEYS,
+  getSiteBackground,
+  saveSiteBackground,
+  type PageKey,
+} from '@/lib/background';
 import { getImage } from '@/lib/images';
-import { json } from '@/lib/api';
+import { json, jsonCached } from '@/lib/api';
 
 export const prerender = false;
 
@@ -34,7 +45,7 @@ async function validateBackgroundImageUrl(imageUrl: string): Promise<string | nu
 
 /** GET：读取 */
 export const GET: APIRoute = async () => {
-  return json(await getSiteBackground());
+  return jsonCached(await getSiteBackground());
 };
 
 /** PUT：保存（管理员） */
@@ -48,15 +59,46 @@ export const PUT: APIRoute = async ({ request }) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return json({ error: '请求体不合法' }, 400);
   }
-  const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl : '';
+
+  const mode: 'unified' | 'pages' = body.mode === 'pages' ? 'pages' : 'unified';
+
   try {
+    if (mode === 'pages') {
+      // 按页模式：校验每页 imageUrl，仅保留白名单键
+      const rawPages = body.pages && typeof body.pages === 'object' ? (body.pages as Record<string, unknown>) : {};
+      const pages: Partial<Record<PageKey, { imageUrl: string; opacity: number; blur: number }>> = {};
+      for (const k of PAGE_KEYS) {
+        const p = rawPages[k] as Record<string, unknown> | undefined;
+        if (!p || typeof p !== 'object') continue;
+        const imageUrl = typeof p.imageUrl === 'string' ? p.imageUrl : '';
+        if (!imageUrl) continue;
+        const err = await validateBackgroundImageUrl(imageUrl);
+        if (err) return json({ error: `页面「${k}」: ${err}` }, 400);
+        pages[k] = {
+          imageUrl,
+          opacity: typeof p.opacity === 'number' ? p.opacity : NaN,
+          blur: typeof p.blur === 'number' ? p.blur : NaN,
+        };
+      }
+      const saved = await saveSiteBackground({
+        mode: 'pages',
+        pages,
+        stardust: body.stardust !== false,
+      });
+      return json(saved);
+    }
+
+    // 统一模式
+    const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl : '';
     const err = await validateBackgroundImageUrl(imageUrl);
     if (err) return json({ error: err }, 400);
     const saved = await saveSiteBackground({
+      mode: 'unified',
       enabled: body.enabled === true,
       imageUrl,
       opacity: typeof body.opacity === 'number' ? body.opacity : NaN,
       blur: typeof body.blur === 'number' ? body.blur : NaN,
+      stardust: body.stardust !== false,
     });
     return json(saved);
   } catch (err) {

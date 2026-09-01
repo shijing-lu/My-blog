@@ -28,3 +28,6 @@ lh-*.json
 LXGWWenKaiScreen.ttf
 # 诊断截图（开发临时产物）
 scripts/_diag-*.png
+
+.vercel
+.env*

@@ -7,7 +7,7 @@
 import type { APIRoute } from 'astro';
 import { addEvent, listEvents } from '@/lib/calendar-data';
 import { nextOccurrence } from '@/lib/calendar';
-import { json } from '@/lib/api';
+import { json, jsonCached } from '@/lib/api';
 
 export const prerender = false;
 
@@ -17,7 +17,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const GET: APIRoute = async () => {
   const events = await listEvents();
   const today = new Date();
-  return json({
+  return jsonCached({
     events: events.map((e) => {
       const next = nextOccurrence(e.date, e.repeat, today, e.lunar ? e.lunarDate : null);
       return {

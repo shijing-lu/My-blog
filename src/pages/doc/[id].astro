@@ -2,8 +2,9 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { verifyRequest } from '@/lib/auth';
-import { getBundle, listArticlesByBundle, listDocTree } from '@/lib/docs';
+import { buildNodeTree, getBundle, listBundleNodes, listDocTree } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
+import type { DocNodeView } from '../../../db/types';
 
 /* ===== Logic ===== */
 const { id } = Astro.params;
@@ -11,15 +12,21 @@ const isAuthed = verifyRequest(Astro.cookies);
 const bundle = id ? await getBundle(id) : null;
 if (!bundle) return Astro.redirect('/doc');
 
-const articles = await listArticlesByBundle(bundle.id);
+/** 全部节点（含正文，注入前端供即时切换） */
+const nodes = await listBundleNodes(bundle.id);
+const tree = buildNodeTree(nodes);
+/** 文章节点（扁平，用于默认选中与前端切换） */
+const articleNodes = nodes.filter((n) => n.kind === 'article');
+
 /** 当前选中的文章（默认第一篇；URL hash 定位） */
 const hashId = Astro.url.hash ? Astro.url.hash.slice(1) : '';
-const active = articles.find((a) => a.id === hashId) ?? articles[0];
+const activeNode =
+  articleNodes.find((n) => n.id === hashId) ?? articleNodes[0] ?? null;
 
 let html = '';
 let toc: Array<{ id: string; text: string; level: number }> = [];
-if (active) {
-  const r = await renderMdx(active.content);
+if (activeNode) {
+  const r = await renderMdx(activeNode.content);
   html = r.html;
   toc = r.toc;
 }
@@ -28,15 +35,69 @@ if (active) {
 const allCategories = await listDocTree();
 const catName = allCategories.find((c) => c.bundles.some((b) => b.id === bundle.id))?.name ?? '';
 
-const articlesJson = JSON.stringify(articles.map((a) => ({ id: a.id, title: a.title, content: a.content })));
+const nodesJson = JSON.stringify(
+  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title, content: n.content })),
+);
 const bundleJson = JSON.stringify({ id: bundle.id, name: bundle.name, icon: bundle.icon, summary: bundle.summary });
-/** 当前渲染的文章 id（左栏高亮用，不依赖 URL hash——hash 会被右栏目录标题改写） */
-const activeArticleId = active?.id ?? '';
+const activeNodeId = activeNode?.id ?? '';
+/** 目录节点（供"移动到"下拉选择） */
+const folderOptions = nodes
+  .filter((n) => n.kind === 'folder')
+  .map((n) => ({ id: n.id, title: n.title }));
 
 /** HTML 转义 */
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+
+/** 管理员行内操作按钮组 */
+function adminActions(n: DocNodeView, isAuthed: boolean): string {
+  if (!isAuthed) return '';
+  const add =
+    n.kind === 'folder'
+      ? `<button type="button" data-node-add-article="${n.id}" title="新增文章" aria-label="新增文章" class="text-[0.65rem] text-muted-foreground hover:text-primary">＋文</button>` +
+        `<button type="button" data-node-add-folder="${n.id}" title="新增子目录" aria-label="新增子目录" class="text-[0.65rem] text-muted-foreground hover:text-primary">＋目</button>`
+      : '';
+  return (
+    `<span class="ml-auto hidden shrink-0 items-center gap-1 group-hover:flex">` +
+    add +
+    `<button type="button" data-node-move="${n.id}" title="移动" aria-label="移动" class="text-[0.65rem] text-muted-foreground hover:text-primary">⇄</button>` +
+    `<button type="button" data-node-edit="${n.id}" title="编辑" aria-label="编辑" class="text-[0.65rem] text-muted-foreground hover:text-primary">✎</button>` +
+    `<button type="button" data-node-del="${n.id}" data-node-name="${esc(n.title)}" title="删除" aria-label="删除" class="text-[0.65rem] text-muted-foreground hover:text-destructive">×</button>` +
+    `</span>`
+  );
+}
+
+/** 递归渲染目录树（folder → details；article → 可切换链接） */
+function renderTreeHtml(items: DocNodeView[], isAuthed: boolean): string {
+  let out = '';
+  for (const n of items) {
+    if (n.kind === 'folder') {
+      const children = renderTreeHtml(n.children, isAuthed);
+      out +=
+        `<details class="group doc-folder" open data-folder="${n.id}">` +
+        `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">` +
+        `<span class="text-[0.7rem]">▸</span>` +
+        `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
+        adminActions(n, isAuthed) +
+        `</summary>` +
+        (children ? `<div class="ml-3 border-l border-border pl-2">${children}</div>` : '') +
+        `</details>`;
+    } else {
+      out +=
+        `<a href="#${n.id}" data-article-switch="${n.id}" class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
+        (n.id === activeNode?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
+        `">` +
+        `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
+        adminActions(n, isAuthed) +
+        `</a>`;
+    }
+  }
+  return out;
+}
+
+const treeHtml = renderTreeHtml(tree, isAuthed);
+const folderOptionsJson = JSON.stringify(folderOptions);
 ---
 
 <BaseLayout title={`${bundle.name} · 文档`} description={bundle.summary ?? `${bundle.name} 文档`}>
@@ -54,48 +115,38 @@ function esc(s: string): string {
     </div>
 
     <div class="mx-auto w-full max-w-6xl px-4 py-6">
-      {/* 三栏布局：左=文章合集 / 中=正文 / 右=目录（左右栏无卡片，仅竖线分隔） */}
-      <div class="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)_180px]">
-        {/* 左栏：文章合集（右侧竖线分隔） */}
+      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（左右栏无卡片，仅竖线分隔） */}
+      <div class="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)_180px]">
+        {/* 左栏：册内目录树 */}
         <aside class="lg:sticky lg:top-20 lg:self-start lg:border-r lg:border-border lg:pr-4">
           <div class="lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
             <div class="flex items-center justify-between px-1">
               <p class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">本册目录</p>
-              {isAuthed && (
-                <button id="doc-add-article" type="button" title="新增文章" aria-label="新增文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋</button>
-              )}
+              {
+                isAuthed && (
+                  <span class="flex items-center gap-1">
+                    <button id="doc-add-root-folder" type="button" title="新建目录" aria-label="新建目录" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋目录</button>
+                    <button id="doc-add-root-article" type="button" title="新建文章" aria-label="新建文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋文章</button>
+                  </span>
+                )
+              }
             </div>
-            <nav class="mt-3 space-y-1.5 text-base" aria-label="文章合集">
-              {articles.length === 0 ? (
-                <p class="px-1 py-2 text-xs text-muted-foreground">暂无文章</p>
+            <nav class="mt-3 space-y-0.5 text-base" aria-label="本册目录">
+              {treeHtml !== '' ? (
+                <div class="space-y-0.5" set:html={treeHtml} />
               ) : (
-                articles.map((a, i) => (
-                  <a
-                    href={`#${a.id}`}
-                    data-article-switch={a.id}
-                    class={`group flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors ${a.id === active?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
-                  >
-                    <span class="font-pixel text-[0.75rem] text-muted-foreground">{String(i + 1).padStart(2, '0')}</span>
-                    <span class="min-w-0 flex-1 truncate">{esc(a.title)}</span>
-                    {isAuthed && (
-                      <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex">
-                        <button type="button" data-article-edit={a.id} title="编辑" aria-label="编辑" class="text-[0.7rem] text-muted-foreground hover:text-primary">✎</button>
-                        <button type="button" data-article-del={a.id} data-article-name={esc(a.title)} title="删除" aria-label="删除" class="text-[0.7rem] text-muted-foreground hover:text-destructive">×</button>
-                      </span>
-                    )}
-                  </a>
-                ))
+                <p class="px-1 py-2 text-xs text-muted-foreground">暂无内容 —— 管理员可新建目录或文章。</p>
               )}
             </nav>
           </div>
         </aside>
 
-        {/* 中栏：正文（无 max-w 限制，撑满中栏） */}
+        {/* 中栏：正文 */}
         <main class="min-w-0">
-          {active ? (
+          {activeNode ? (
             <>
               <header>
-                <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(active.title)}</h1>
+                <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(activeNode.title)}</h1>
                 <div class="pixel-divider mt-4" />
               </header>
               <article class="prose mt-6 max-w-none" set:html={html} />
@@ -105,7 +156,7 @@ function esc(s: string): string {
           )}
         </main>
 
-        {/* 右栏：自动目录（左侧竖线分隔，无卡片） */}
+        {/* 右栏：文章内目录 */}
         <aside class="hidden lg:block">
           <div class="sticky top-20 border-l border-border pl-4">
             <p class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
@@ -131,28 +182,42 @@ function esc(s: string): string {
   </section>
 
   {/* 数据注入 */}
-  <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-articles={articlesJson} data-bundle={bundleJson} data-active-article={activeArticleId} class="hidden" aria-hidden="true" />
+  <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-nodes={nodesJson} data-bundle={bundleJson} data-active-node={activeNodeId} data-folders={folderOptionsJson} class="hidden" aria-hidden="true" />
 
-  <!-- 文章编辑弹窗 -->
-  <dialog id="doc-article-dialog" class="m-auto w-[min(92vw,52rem)] rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
-    <h3 id="doc-article-dialog-title" class="font-medium">编辑文章</h3>
-    <div class="mt-3 flex items-center gap-2">
-      <label class="flex-1 text-xs font-medium text-muted-foreground">
+  <!-- 节点编辑弹窗（目录 / 文章通用） -->
+  <dialog id="doc-node-dialog" class="m-auto w-[min(92vw,52rem)] rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+    <h3 id="doc-node-dialog-title" class="font-medium">编辑节点</h3>
+    <div class="mt-3 grid gap-2 sm:grid-cols-2">
+      <label class="text-xs font-medium text-muted-foreground">
         标题
-        <input id="doc-article-title" type="text" maxlength="200" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+        <input id="doc-node-title" type="text" maxlength="200" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
       </label>
-      <div class="flex items-center gap-1">
-        <button id="doc-preview-btn" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">预览</button>
+      <label class="text-xs font-medium text-muted-foreground">
+        类型（创建时可选）
+        <select id="doc-node-kind" class="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring">
+          <option value="article">文章</option>
+          <option value="folder">目录（可嵌套子目录/文章）</option>
+        </select>
+      </label>
+    </div>
+    <label class="mt-2 block text-xs font-medium text-muted-foreground">
+      所在目录
+      <select id="doc-node-parent" class="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"></select>
+    </label>
+    <div id="doc-node-content-wrap" class="mt-2">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted-foreground">正文（Markdown / MDX）</span>
+        <button id="doc-node-preview-btn" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">预览</button>
+      </div>
+      <div class="mt-1 grid gap-2 md:grid-cols-2">
+        <textarea id="doc-node-content" spellcheck="false" placeholder="文章正文…" class="h-80 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring"></textarea>
+        <div id="doc-node-preview" class="prose h-80 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm"></div>
       </div>
     </div>
-    <div class="mt-2 grid gap-2 md:grid-cols-2">
-      <textarea id="doc-article-content" spellcheck="false" placeholder="Markdown / MDX 正文…" class="h-80 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring"></textarea>
-      <div id="doc-article-preview" class="prose h-80 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm"></div>
-    </div>
-    <p id="doc-article-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <p id="doc-node-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
     <div class="mt-3 flex items-center justify-end gap-2">
-      <button id="doc-article-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
-      <button id="doc-article-confirm" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
+      <button id="doc-node-cancel" type="button" class="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">取消</button>
+      <button id="doc-node-confirm" type="button" class="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity hover:opacity-90">保存</button>
     </div>
   </dialog>
 
@@ -180,72 +245,28 @@ function esc(s: string): string {
 </BaseLayout>
 
 <script>
-  /** 文档详情页：文章合集切换 + 文章/文档 CRUD + 预览（document 委托 + 实时查询 DOM） */
+  /** 文档详情页：目录树文章切换 + 节点 CRUD（目录/文章 增删改移动）+ 预览 */
   import { confirmDanger } from '@/lib/confirm';
 
   const DATA = document.getElementById('doc-detail-data');
   const IS_AUTHED = DATA?.dataset.authed === '1';
-  const ARTICLES = JSON.parse(DATA?.dataset.articles ?? '[]') as Array<{ id: string; title: string; content: string }>;
-  const BUNDLE = JSON.parse(DATA?.dataset.bundle ?? '{}') as { id: string; name: string; icon: string | null; summary: string | null };
+  /** View Transitions（SPA 切换）下页面数据会随 DOM 更换，禁止模块级缓存 —— 每次按需读取最新 bundle/nodes/folders */
+  function readBundle(): { id: string; name: string; icon: string | null; summary: string | null } {
+    const d = document.getElementById('doc-detail-data');
+    return JSON.parse(d?.dataset.bundle ?? '{}') as { id: string; name: string; icon: string | null; summary: string | null };
+  }
+  function readNodes(): Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string; content: string }> {
+    const d = document.getElementById('doc-detail-data');
+    return JSON.parse(d?.dataset.nodes ?? '[]') as Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string; content: string }>;
+  }
+  function readFolders(): Array<{ id: string; title: string }> {
+    const d = document.getElementById('doc-detail-data');
+    return JSON.parse(d?.dataset.folders ?? '[]') as Array<{ id: string; title: string }>;
+  }
 
   function el<T extends Element = HTMLElement>(id: string): T | null {
     return document.getElementById(id) as T | null;
   }
-
-  /* ================= 左栏文章即时切换（无整页导航，不转圈） ================= */
-  // 点击左栏文章 → fetch /api/doc/articles/[id]/render → 前端更新正文/目录/标题/高亮
-  document.addEventListener('click', async (e) => {
-    const link = (e.target as HTMLElement).closest<HTMLElement>('[data-article-switch]');
-    if (!link) return;
-    e.preventDefault();
-    const id = link.dataset.articleSwitch;
-    if (!id) return;
-
-    // 高亮当前（乐观更新）
-    setActiveArticle(id);
-
-    // 若 SSR 已注入该文章内容（当前渲染的就是它），直接滚动顶部
-    const activeId = currentActiveId();
-    if (id === activeId) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/doc/articles/${id}/render`);
-      const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: Array<{ id: string; text: string; level: number }>; error?: string };
-      if (!res.ok || typeof d.html !== 'string') throw new Error(d.error ?? '加载失败');
-
-      // 更新标题
-      const h1 = document.querySelector('main h1');
-      if (h1 && d.title) h1.textContent = d.title;
-      // 更新正文
-      const article = document.querySelector<HTMLElement>('main article.prose');
-      if (article) article.innerHTML = d.html;
-      // 更新右栏目录
-      const tocWrap = document.getElementById('doc-toc-list');
-      if (tocWrap && Array.isArray(d.toc)) {
-        tocWrap.innerHTML = d.toc.length
-          ? d.toc
-              .map(
-                (item) =>
-                  `<a data-doc-anchor class="block text-base leading-snug text-muted-foreground transition-colors hover:text-primary ${item.level === 3 ? 'pl-4 text-[0.95rem]' : ''}" href="#${item.id}">${escHtml(item.text)}</a>`,
-              )
-              .join('')
-          : '<p class="text-xs text-muted-foreground">无目录</p>';
-      }
-      // 更新注入的当前文章 id（供后续高亮）
-      document.getElementById('doc-detail-data')?.setAttribute('data-active-article', id);
-      // URL hash 同步（不触发导航）
-      history.replaceState(null, '', `#${id}`);
-      // 滚动到顶部
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch {
-      // 兜底：整页导航
-      window.location.href = `/doc/${BUNDLE.id}#${id}`;
-    }
-  });
-
   function escHtml(s: string): string {
     return String(s).replace(/[&<>"']/g, (c) => {
       const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -253,7 +274,43 @@ function esc(s: string): string {
     });
   }
 
-  /** 左栏高亮：仅当前文章 id 高亮 */
+  /* ================= 左栏文章即时切换 ================= */
+  document.addEventListener('click', async (e) => {
+    const t = e.target as HTMLElement;
+    // 左栏管理按钮（编辑/删除/移动/新建）嵌在文章链接内：点击时不要顺带切换文章
+    if (t.closest('[data-node-edit], [data-node-del], [data-node-move], [data-node-add-article], [data-node-add-folder]')) return;
+    const link = t.closest<HTMLElement>('[data-article-switch]');
+    if (!link) return;
+    e.preventDefault();
+    const id = link.dataset.articleSwitch;
+    if (!id) return;
+    setActiveArticle(id);
+    if (id === currentActiveId()) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    try {
+      const res = await fetch(`/api/doc/nodes/${id}/render`);
+      const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: Array<{ id: string; text: string; level: number }>; error?: string };
+      if (!res.ok || typeof d.html !== 'string') throw new Error(d.error ?? '加载失败');
+      const h1 = document.querySelector('main h1');
+      if (h1 && d.title) h1.textContent = d.title;
+      const article = document.querySelector<HTMLElement>('main article.prose');
+      if (article) article.innerHTML = d.html;
+      const tocWrap = document.getElementById('doc-toc-list');
+      if (tocWrap && Array.isArray(d.toc)) {
+        tocWrap.innerHTML = d.toc.length
+          ? d.toc.map((item) => `<a data-doc-anchor class="block text-base leading-snug text-muted-foreground transition-colors hover:text-primary ${item.level === 3 ? 'pl-4 text-[0.95rem]' : ''}" href="#${item.id}">${escHtml(item.text)}</a>`).join('')
+          : '<p class="text-xs text-muted-foreground">无目录</p>';
+      }
+      document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
+      history.replaceState(null, '', `#${id}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      window.location.href = `/doc/${readBundle().id}#${id}`;
+    }
+  });
+
   function setActiveArticle(id: string): void {
     document.querySelectorAll<HTMLElement>('[data-article-switch]').forEach((a) => {
       const active = a.dataset.articleSwitch === id;
@@ -263,57 +320,88 @@ function esc(s: string): string {
     });
   }
   function currentActiveId(): string {
-    return document.getElementById('doc-detail-data')?.getAttribute('data-active-article') ?? '';
+    return document.getElementById('doc-detail-data')?.getAttribute('data-active-node') ?? '';
   }
   document.addEventListener('astro:page-load', () => setActiveArticle(currentActiveId()));
   setActiveArticle(currentActiveId());
 
-  /* ================= 文章 CRUD（登录） ================= */
+  /* ================= 节点 CRUD（登录） ================= */
   if (IS_AUTHED) {
-    let editingArticleId: string | null = null;
+    /** 打开节点弹窗：mode=create|edit；parentId 为创建时的所在目录 */
+    function openNodeDialog(opts: {
+      mode: 'create' | 'edit';
+      kind?: 'folder' | 'article';
+      parentId?: string | null;
+      nodeId?: string | null;
+    }): void {
+      const dlg = el<HTMLDialogElement>('doc-node-dialog');
+      if (!dlg) return;
+      const titleInput = el<HTMLInputElement>('doc-node-title');
+      const kindSelect = el<HTMLSelectElement>('doc-node-kind');
+      const parentSelect = el<HTMLSelectElement>('doc-node-parent');
+      const contentArea = el<HTMLTextAreaElement>('doc-node-content');
+      const previewBox = el('doc-node-preview');
+      const status = el('doc-node-status');
+      const contentWrap = el('doc-node-content-wrap');
+      if (!titleInput || !kindSelect || !parentSelect) return;
 
-    // 打开编辑（新增/编辑）
+      // 所在目录选项：根目录 + 所有目录
+      parentSelect.innerHTML = '<option value="">册根级</option>' + readFolders().map((f) => `<option value="${f.id}">${escHtml(f.title)}</option>`).join('');
+
+      status?.classList.add('hidden');
+      if (previewBox) previewBox.innerHTML = '';
+      if (opts.mode === 'edit' && opts.nodeId) {
+        const node = readNodes().find((n) => n.id === opts.nodeId);
+        if (!node) return;
+        el<HTMLHeadingElement>('doc-node-dialog-title')!.textContent = node.kind === 'folder' ? '编辑目录' : '编辑文章';
+        titleInput.value = node.title;
+        kindSelect.value = node.kind;
+        kindSelect.disabled = true; // 类型不可改
+        parentSelect.value = node.parentId ?? '';
+        if (contentArea) contentArea.value = node.content;
+        if (contentWrap) contentWrap.classList.toggle('hidden', node.kind === 'folder');
+        dlg.dataset.editing = node.id;
+      } else {
+        el<HTMLHeadingElement>('doc-node-dialog-title')!.textContent = opts.kind === 'folder' ? '新建目录' : '新建文章';
+        titleInput.value = '';
+        kindSelect.value = opts.kind ?? 'article';
+        kindSelect.disabled = false;
+        parentSelect.value = opts.parentId ?? '';
+        if (contentArea) contentArea.value = '';
+        if (contentWrap) contentWrap.classList.toggle('hidden', (opts.kind ?? 'article') === 'folder');
+        delete dlg.dataset.editing;
+      }
+      dlg.showModal();
+      titleInput.focus();
+    }
+
+    // 打开弹窗：根级新建 / 目录内新建 / 编辑 / 移动
     document.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
-      const add = t.closest('#doc-add-article');
-      const edit = t.closest<HTMLElement>('[data-article-edit]');
-      const dlg = el<HTMLDialogElement>('doc-article-dialog');
-      if (!dlg) return;
-      if (add) {
-        editingArticleId = null;
-        if (el<HTMLInputElement>('doc-article-title')) el<HTMLInputElement>('doc-article-title')!.value = '';
-        if (el<HTMLTextAreaElement>('doc-article-content')) el<HTMLTextAreaElement>('doc-article-content')!.value = '';
-        if (el('doc-article-preview')) el('doc-article-preview')!.innerHTML = '';
-        el('doc-article-status')?.classList.add('hidden');
-        el<HTMLHeadingElement>('doc-article-dialog-title')!.textContent = '新增文章';
-        dlg.showModal();
-        el<HTMLInputElement>('doc-article-title')?.focus();
-        return;
-      }
-      if (edit) {
-        const id = edit.dataset.articleEdit;
-        const article = ARTICLES.find((x) => x.id === id);
-        if (!article) return;
-        editingArticleId = id ?? null;
-        if (el<HTMLInputElement>('doc-article-title')) el<HTMLInputElement>('doc-article-title')!.value = article.title;
-        if (el<HTMLTextAreaElement>('doc-article-content')) el<HTMLTextAreaElement>('doc-article-content')!.value = article.content;
-        if (el('doc-article-preview')) el('doc-article-preview')!.innerHTML = '';
-        el('doc-article-status')?.classList.add('hidden');
-        el<HTMLHeadingElement>('doc-article-dialog-title')!.textContent = '编辑文章';
-        dlg.showModal();
-        el<HTMLInputElement>('doc-article-title')?.focus();
-      }
+      if (t.closest('#doc-add-root-folder')) return void openNodeDialog({ mode: 'create', kind: 'folder', parentId: null });
+      if (t.closest('#doc-add-root-article')) return void openNodeDialog({ mode: 'create', kind: 'article', parentId: null });
+      const addArt = t.closest<HTMLElement>('[data-node-add-article]');
+      if (addArt) return void openNodeDialog({ mode: 'create', kind: 'article', parentId: addArt.dataset.nodeAddArticle ?? null });
+      const addFolder = t.closest<HTMLElement>('[data-node-add-folder]');
+      if (addFolder) return void openNodeDialog({ mode: 'create', kind: 'folder', parentId: addFolder.dataset.nodeAddFolder ?? null });
+      const edit = t.closest<HTMLElement>('[data-node-edit]');
+      if (edit) return void openNodeDialog({ mode: 'edit', nodeId: edit.dataset.nodeEdit ?? null });
+      const move = t.closest<HTMLElement>('[data-node-move]');
+      if (move) return void openNodeDialog({ mode: 'edit', nodeId: move.dataset.nodeMove ?? null });
+      if (t.closest('#doc-node-cancel')) el<HTMLDialogElement>('doc-node-dialog')?.close();
     });
 
-    document.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('#doc-article-cancel')) el<HTMLDialogElement>('doc-article-dialog')?.close();
+    // 类型切换：目录无正文
+    el<HTMLSelectElement>('doc-node-kind')?.addEventListener('change', () => {
+      const wrap = el('doc-node-content-wrap');
+      if (wrap) wrap.classList.toggle('hidden', el<HTMLSelectElement>('doc-node-kind')?.value === 'folder');
     });
 
     // 预览
     document.addEventListener('click', async (e) => {
-      if (!(e.target as HTMLElement).closest('#doc-preview-btn')) return;
-      const source = el<HTMLTextAreaElement>('doc-article-content')?.value ?? '';
-      const preview = el('doc-article-preview');
+      if (!(e.target as HTMLElement).closest('#doc-node-preview-btn')) return;
+      const source = el<HTMLTextAreaElement>('doc-node-content')?.value ?? '';
+      const preview = el('doc-node-preview');
       if (!preview) return;
       try {
         const res = await fetch('/api/doc/preview', {
@@ -328,132 +416,96 @@ function esc(s: string): string {
       }
     });
 
-    // 保存（新增/编辑）
+    // 保存（创建 / 编辑 / 移动）
     document.addEventListener('click', async (e) => {
-      if (!(e.target as HTMLElement).closest('#doc-article-confirm')) return;
-      const title = (el<HTMLInputElement>('doc-article-title')?.value ?? '').trim();
-      const content = el<HTMLTextAreaElement>('doc-article-content')?.value ?? '';
+      if (!(e.target as HTMLElement).closest('#doc-node-confirm')) return;
+      const dlg = el<HTMLDialogElement>('doc-node-dialog');
+      const title = (el<HTMLInputElement>('doc-node-title')?.value ?? '').trim();
+      const kind = el<HTMLSelectElement>('doc-node-kind')?.value === 'folder' ? 'folder' : 'article';
+      const parentId = el<HTMLSelectElement>('doc-node-parent')?.value ?? '';
+      const content = el<HTMLTextAreaElement>('doc-node-content')?.value ?? '';
+      const status = el('doc-node-status');
+      const editingId = dlg?.dataset.editing ?? null;
       if (!title) {
-        const st = el('doc-article-status');
-        if (st) { st.textContent = '请填写标题'; st.classList.remove('hidden'); }
+        if (status) { status.textContent = '请填写标题'; status.classList.remove('hidden'); }
         return;
       }
-      const dlg = el<HTMLDialogElement>('doc-article-dialog');
+      if (kind === 'article' && !content.trim()) {
+        if (status) { status.textContent = '文章正文不能为空'; status.classList.remove('hidden'); }
+        return;
+      }
       try {
-        const res = editingArticleId
-          ? await fetch('/api/doc/articles', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: editingArticleId, title, content }),
-            })
-          : await fetch('/api/doc/articles', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ bundleId: BUNDLE.id, title, content }),
-            });
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          const st = el('doc-article-status');
-          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
-          return;
+        if (editingId) {
+          const res = await fetch(`/api/doc/nodes/${editingId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ title, content, parentId: parentId || null }),
+          });
+          if (!res.ok) throw new Error('保存失败');
+        } else {
+          const res = await fetch('/api/doc/nodes', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ bundleId: readBundle().id, parentId: parentId || null, kind, title, content }),
+          });
+          if (!res.ok) throw new Error('创建失败');
         }
-        dlg?.close();
         window.location.reload();
-      } catch {
-        const st = el('doc-article-status');
-        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+      } catch (err) {
+        if (status) { status.textContent = err instanceof Error ? err.message : '操作失败'; status.classList.remove('hidden'); }
       }
     });
 
-    // 删除文章
+    // 删除
     document.addEventListener('click', async (e) => {
-      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-article-del]');
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-node-del]');
       if (!del) return;
-      const name = del.dataset.articleName ?? '';
-      if (!(await confirmDanger(`删除文章「${name}」？`))) return;
-      try {
-        const res = await fetch('/api/doc/articles', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: del.dataset.articleDel }),
-        });
-        if (res.ok) window.location.reload();
-      } catch { /* 忽略 */ }
+      const name = del.dataset.nodeName ?? '';
+      if (!(await confirmDanger(`确定删除「${name}」？其下所有子目录与文章将一并删除。`))) return;
+      await fetch(`/api/doc/nodes/${del.dataset.nodeDel}`, { method: 'DELETE' });
+      window.location.reload();
     });
 
-    // 编辑文档
+    // 文档编辑（沿用旧接口）
     document.addEventListener('click', (e) => {
+      // 关键守卫：只有点击 ✎（#doc-edit-bundle）才打开，避免盖住节点弹窗
       if (!(e.target as HTMLElement).closest('#doc-edit-bundle')) return;
       const dlg = el<HTMLDialogElement>('doc-edit-bundle-dialog');
       if (!dlg) return;
-      if (el<HTMLInputElement>('doc-bundle-edit-name')) el<HTMLInputElement>('doc-bundle-edit-name')!.value = BUNDLE.name;
-      if (el<HTMLInputElement>('doc-bundle-edit-icon')) el<HTMLInputElement>('doc-bundle-edit-icon')!.value = BUNDLE.icon ?? '';
-      if (el<HTMLInputElement>('doc-bundle-edit-summary')) el<HTMLInputElement>('doc-bundle-edit-summary')!.value = BUNDLE.summary ?? '';
+      if (el<HTMLInputElement>('doc-bundle-edit-name')) el<HTMLInputElement>('doc-bundle-edit-name')!.value = readBundle().name;
+      if (el<HTMLInputElement>('doc-bundle-edit-icon')) el<HTMLInputElement>('doc-bundle-edit-icon')!.value = readBundle().icon ?? '';
+      if (el<HTMLInputElement>('doc-bundle-edit-summary')) el<HTMLInputElement>('doc-bundle-edit-summary')!.value = readBundle().summary ?? '';
       el('doc-bundle-edit-status')?.classList.add('hidden');
       dlg.showModal();
     });
+    // 取消
     document.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('#doc-bundle-edit-cancel')) el<HTMLDialogElement>('doc-edit-bundle-dialog')?.close();
+      if ((e.target as HTMLElement).closest('#doc-bundle-edit-cancel')) {
+        el<HTMLDialogElement>('doc-edit-bundle-dialog')?.close();
+      }
     });
+    // 保存
     document.addEventListener('click', async (e) => {
       if (!(e.target as HTMLElement).closest('#doc-bundle-edit-confirm')) return;
       const name = (el<HTMLInputElement>('doc-bundle-edit-name')?.value ?? '').trim();
-      const icon = (el<HTMLInputElement>('doc-bundle-edit-icon')?.value ?? '').trim() || null;
-      const summary = (el<HTMLInputElement>('doc-bundle-edit-summary')?.value ?? '').trim() || null;
+      const icon = el<HTMLInputElement>('doc-bundle-edit-icon')?.value ?? '';
+      const summary = el<HTMLInputElement>('doc-bundle-edit-summary')?.value ?? '';
+      const status = el('doc-bundle-edit-status');
       if (!name) {
-        const st = el('doc-bundle-edit-status');
-        if (st) { st.textContent = '请填写文档名'; st.classList.remove('hidden'); }
+        if (status) { status.textContent = '请填写文档名'; status.classList.remove('hidden'); }
         return;
       }
       try {
-        const res = await fetch('/api/doc/bundles', {
-          method: 'PUT',
+        const res = await fetch(`/api/doc/bundles`, {
+          method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: BUNDLE.id, name, icon, summary }),
+          body: JSON.stringify({ id: readBundle().id, name, icon, summary }),
         });
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          const st = el('doc-bundle-edit-status');
-          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
-          return;
-        }
-        el<HTMLDialogElement>('doc-edit-bundle-dialog')?.close();
+        if (!res.ok) throw new Error('保存失败');
         window.location.reload();
-      } catch {
-        const st = el('doc-bundle-edit-status');
-        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+      } catch (err) {
+        if (status) { status.textContent = err instanceof Error ? err.message : '保存失败'; status.classList.remove('hidden'); }
       }
     });
   }
-
-  /* ================= 注脚：点击 [N] 跳底部注脚，↩ 返回原阅读位置 ================= */
-  // 点击正文注脚引用（[data-footnote-ref]）时记录当前滚动位置
-  document.addEventListener('click', (e) => {
-    const ref = (e.target as HTMLElement).closest<HTMLElement>('[data-footnote-ref]');
-    if (!ref) return;
-    try {
-      sessionStorage.setItem('doc-footnote-back-scroll', String(window.scrollY));
-    } catch { /* 忽略 */ }
-  });
-
-  // 点击注脚区 ↩（[data-footnote-backref]）时，若记录过滚动位置则恢复到该位置
-  // （同时仍保留默认的锚点回跳作为兜底）
-  document.addEventListener('click', (e) => {
-    const back = (e.target as HTMLElement).closest<HTMLElement>('[data-footnote-backref]');
-    if (!back) return;
-    let saved = '';
-    try {
-      saved = sessionStorage.getItem('doc-footnote-back-scroll') ?? '';
-    } catch { /* 忽略 */ }
-    if (!saved) return;
-    const y = Number(saved);
-    if (Number.isFinite(y)) {
-      // 阻止默认锚点跳转，改为恢复精确滚动位置
-      e.preventDefault();
-      window.scrollTo({ top: y, behavior: 'smooth' });
-      try {
-        sessionStorage.removeItem('doc-footnote-back-scroll');
-      } catch { /* 忽略 */ }
-    }
-  });
 </script>

@@ -44,4 +44,24 @@ describe('renderMdx', () => {
     const { html } = await renderMdx('使用 `Alt` 键切换');
     expect(html).toContain('<code>Alt</code>');
   });
+
+  it('渲染行内 LaTeX 公式（$...$）', async () => {
+    const { html } = await renderMdx('质能方程 $E = mc^2$ 很有名。');
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('E');
+    // 原始 $ 定界符不应残留在输出里
+    expect(html).not.toContain('$E = mc^2$');
+  });
+
+  it('渲染独立 LaTeX 公式块（$$...$$）', async () => {
+    const { html } = await renderMdx('$$\n\\int_0^\\infty e^{-x}\\,dx = 1\n$$');
+    expect(html).toContain('class="katex-display"');
+    expect(html).toContain('class="katex"');
+  });
+
+  it('代码块内的 $ 不被当作公式定界符', async () => {
+    const { html } = await renderMdx('```bash\necho $HOME\n```');
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$HOME');
+  });
 });

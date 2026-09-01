@@ -8,8 +8,9 @@ import HeroQuote from '@/components/HeroQuote.astro';
 import ActivityHeatmap from '@/components/ActivityHeatmap.astro';
 import SearchBox from '@/components/SearchBox.astro';
 import Pagination from '@/components/Pagination.astro';
-import { countArticles, listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
+import { listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
 import { cardCoverUrl } from '@/lib/images';
+import { getLandingHero } from '@/lib/landing';
 import { pageInfo } from '@/lib/pagination';
 import { verifyRequest } from '@/lib/auth';
 import type { ArticleType } from '../../db/types';
@@ -18,7 +19,9 @@ import type { ArticleType } from '../../db/types';
 /** 每页文章数（故事流为单列交替，仍按 9 篇分页） */
 const PAGE_SIZE = 9;
 
-const total = await countArticles();
+/** 全部文章元信息（不含正文，用于标签统计、最近更新；总数直接由此推导，省一次 COUNT 查询） */
+const allMeta = await listArticleMeta();
+const total = allMeta.length;
 const rawPage = Number(Astro.url.searchParams.get('page') ?? '1');
 const info = pageInfo(rawPage, total, PAGE_SIZE);
 const articles = await listArticlePage(info.page, PAGE_SIZE);
@@ -28,13 +31,16 @@ const isAuthed = verifyRequest(Astro.cookies);
 /** 文章 → 封面图（手动指定优先，否则取正文第一张图，无则用主题渐变占位） */
 const covers = new Map(articles.map((a) => [a.id, resolveCover(a)]));
 
-/** 落地页 Hero 背景图：首页文章中第一张非空封面（缩略 1920px WebP，首屏 LCP） */
-const heroRaw = articles.map((a) => covers.get(a.id)).find((c): c is string => !!c) ?? null;
+/** 落地页 Hero：优先「已自定义头图列表」，否则取首页第一张非空封面（缩略 1920px WebP，首屏 LCP） */
+const landing = await getLandingHero();
+const heroSlides = landing.images.map((u) => cardCoverUrl(u, 1920)).filter((u): u is string => !!u);
+const heroRaw =
+  heroSlides[0] ||
+  (articles.map((a) => covers.get(a.id)).find((c): c is string => !!c) ?? null);
 const heroCover = cardCoverUrl(heroRaw, 1920);
+const heroSubtitle = landing.subtitle || '全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。';
 const heroType: ArticleType = articles[0]?.type ?? 'tech';
 
-/** 全部文章元信息（不含正文，用于标签统计与最近更新） */
-const allMeta = await listArticleMeta();
 /** 全部标签总数（去重） */
 const uniqueTags = new Set(allMeta.flatMap((a) => a.tags)).size;
 /** 最近更新时间 */
@@ -94,7 +100,21 @@ function formatShort(date?: Date): string {
   <!-- ===== 落地页 Hero：全屏大图 + 文字叠层 ===== -->
   <section class="landing-hero">
     {
-      heroCover ? (
+      heroSlides.length > 1 ? (
+        <div class="landing-hero-slides" data-animation={landing.animation} data-interval={landing.intervalSec}>
+          {
+            heroSlides.map((src, i) => (
+              <img
+                class={`landing-hero-bg landing-hero-slide${i === 0 ? ' is-active' : ''}`}
+                src={src}
+                alt=""
+                fetchpriority={i === 0 ? 'high' : undefined}
+                loading={i === 0 ? undefined : 'lazy'}
+              />
+            ))
+          }
+        </div>
+      ) : heroCover ? (
         <img class="landing-hero-bg" src={heroCover} alt="" fetchpriority="high" />
       ) : (
         <div class="landing-hero-bg landing-hero-bg--gradient" data-type={heroType} aria-hidden="true">
@@ -106,9 +126,7 @@ function formatShort(date?: Date): string {
     <div class="landing-hero-content relative z-[1] mx-auto w-full max-w-6xl px-4">
       <p data-hero class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">Personal Knowledge Base</p>
       <HeroQuote />
-      <p data-hero class="mt-3 max-w-2xl text-base text-white/85">
-        全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。
-      </p>
+      <p data-hero class="mt-3 max-w-2xl text-base text-white/85">{heroSubtitle}</p>
       <!-- 社交入口（GitHub / Bilibili / 微博 / 微信） -->
       <div data-hero class="mt-8 flex flex-wrap gap-3">
         {
@@ -308,4 +326,36 @@ function formatShort(date?: Date): string {
     };
     if (img.complete && img.naturalWidth === 0) img.onerror?.(new Event('error'));
   });
+
+  /** 落地页 Hero 轮播（多图；单图不轮播；View Transition 重入先清旧定时器） */
+  const heroCarousel = (): void => {
+    const w = window as unknown as { __heroCarouselTimer?: number };
+    if (w.__heroCarouselTimer) window.clearInterval(w.__heroCarouselTimer);
+    const wrap = document.querySelector<HTMLElement>('.landing-hero-slides');
+    if (!wrap) return;
+    const slides = Array.from(wrap.querySelectorAll<HTMLElement>('.landing-hero-slide'));
+    const n = slides.length;
+    if (n < 2) return;
+    const intervalMs = Number(wrap.dataset.interval ?? 6) * 1000;
+    const anim = wrap.dataset.animation ?? 'slide';
+    let cur = 0;
+    w.__heroCarouselTimer = window.setInterval(() => {
+      const prev = slides[cur];
+      const next = slides[(cur + 1) % n];
+      if (!prev || !next) return;
+      if (anim === 'break') {
+        prev.classList.add('is-breaking');
+        next.classList.add('is-active');
+        window.setTimeout(() => prev.classList.remove('is-breaking'), 800);
+      } else {
+        prev.classList.remove('is-active');
+        prev.classList.add('is-leaving');
+        next.classList.add('is-active');
+        window.setTimeout(() => prev.classList.remove('is-leaving'), 950);
+      }
+      cur = (cur + 1) % n;
+    }, intervalMs);
+  };
+  document.addEventListener('astro:page-load', heroCarousel);
+  heroCarousel();
 </script>

@@ -6,13 +6,13 @@
  */
 import type { APIRoute } from 'astro';
 import { getProfile, saveProfile } from '@/lib/profile';
-import { json } from '@/lib/api';
+import { json, jsonCached } from '@/lib/api';
 
 export const prerender = false;
 
 /** GET：读取（公开） */
 export const GET: APIRoute = async () => {
-  return json(await getProfile());
+  return jsonCached(await getProfile());
 };
 
 /** PUT：保存（管理员） */

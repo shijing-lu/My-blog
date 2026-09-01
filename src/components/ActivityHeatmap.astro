@@ -57,7 +57,7 @@ const peakIdx = data.monthly.reduce((best, m, i) => (m.total > data.monthly[best
 const peakTotal = data.monthly[peakIdx]?.total ?? 0;
 ---
 <!-- ===== Template ===== -->
-<div class="activity-heatmap mt-8 rounded-lg border bg-card p-5">
+<div class="activity-heatmap mt-10">
   <!-- 顶部统计条 -->
   <div class="flex flex-wrap items-baseline gap-x-10 gap-y-2">
     <div class="flex items-baseline gap-2">

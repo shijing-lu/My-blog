@@ -125,7 +125,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       <!-- 右侧：选中日详情 + 即将到来 -->
       <aside class="space-y-4">
         <!-- 选中日 -->
-        <div id="cal-selected-panel" class="rounded-lg border bg-card p-4">
+        <div id="cal-selected-panel" class="p-4">
           <p class="pixel-chip text-primary">SELECTED DAY</p>
           <h2 class="mt-1 font-display text-lg font-semibold">{selectedKey}</h2>
           {
@@ -254,7 +254,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
         </div>
 
         <!-- 即将到来 -->
-        <div id="cal-upcoming-panel" class="rounded-lg border bg-card p-4">
+        <div id="cal-upcoming-panel" class="border-t border-border p-4 pt-5">
           <p class="pixel-chip mb-2 text-muted-foreground">即将到来 / UPCOMING</p>
           {
             upcoming.length === 0 ? (

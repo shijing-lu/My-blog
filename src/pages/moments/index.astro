@@ -4,7 +4,8 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { formatRelativeTime, listMoments } from '@/lib/moments';
+import Timeline from '@/components/Timeline.astro';
+import { formatRelativeTime, getMomentTimeline, listMoments } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
 import { verifyRequest } from '@/lib/auth';
 import { countLikesByTargets } from '@/lib/likes';
@@ -13,6 +14,7 @@ import Comments from '@/components/interact/Comments';
 /* ===== Logic ===== */
 const PAGE_SIZE = 20;
 const moments = await listMoments(PAGE_SIZE, 0);
+const momentTimeline = await getMomentTimeline();
 const profile = await getProfile();
 const isAuthed = verifyRequest(Astro.cookies);
 const now = new Date();
@@ -31,7 +33,7 @@ function renderMedia(media: Array<{ type: 'image' | 'gif' | 'video'; url: string
     html += `<div class="${gridClass}">${images
       .map(
         (m) =>
-          `<figure class="moment-media overflow-hidden rounded-lg border border-border" data-lightbox data-caption="">
+          `<figure class="moment-media overflow-hidden rounded-lg" data-lightbox data-caption="">
             <img src="${m.url}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" />
           </figure>`,
       )
@@ -58,9 +60,10 @@ function renderVideo(url: string): string {
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="动态" description="随手记录，分享生活 —— My Blog Moments">
-  <section class="mx-auto w-full max-w-3xl px-4 py-10">
-    <!-- 主面板：毛玻璃有界容器（放宽至 max-w-3xl，两侧背景作画框，消除空旷感） -->
-    <div class="rounded-2xl border border-border bg-card/50 p-4 shadow-sm backdrop-blur-md sm:p-6">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_190px]">
+    <!-- 主面板：与背景相融（无盒），用像素分割线分区 -->
+    <div class="p-4 sm:p-6">
       <!-- 头部 -->
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -84,13 +87,20 @@ function renderVideo(url: string): string {
       <!-- 发布框（管理员） -->
       {
         isAuthed && (
-          <div class="mt-6 rounded-lg border bg-card p-4">
+          <div class="mt-6">
             <textarea
               id="moment-content"
               rows="3"
               maxlength="2000"
               placeholder="记录点什么…（支持文字 + 图片/GIF + 视频链接）"
               class="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring"
+            />
+            <input
+              id="moment-tags-input"
+              type="text"
+              maxlength="200"
+              placeholder="标签（逗号分隔，最多 10 个，如：日常,学习,旅行）"
+              class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
             />
             <div id="moment-media-preview" class="mt-2 grid grid-cols-4 gap-2"></div>
             <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -120,17 +130,37 @@ function renderVideo(url: string): string {
         )
       }
 
+      <!-- 搜索 + 标签筛选 -->
+      <div class="mt-6">
+        <div class="flex items-center gap-2 border-b border-border pb-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input
+            id="moment-search"
+            type="search"
+            placeholder="搜索动态内容 / 标签…"
+            autocomplete="off"
+            class="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            aria-label="搜索动态"
+          />
+          <span id="moment-filter-state" class="shrink-0 text-xs text-muted-foreground"></span>
+        </div>
+        <div id="moment-tags" class="mt-2 flex flex-wrap gap-1.5"></div>
+      </div>
+
       <!-- 动态流 -->
       <div id="moment-stream" class="mt-4 space-y-4" data-offset={moments.length}>
         {
           moments.length === 0 ? (
-            <div class="rounded-lg border bg-card p-10 text-center">
+            <div class="py-10 text-center">
               <p class="font-display text-lg font-semibold">还没有动态</p>
               <p class="mt-2 text-sm text-muted-foreground">{isAuthed ? '在上面记录第一条吧。' : '博主还没有发布动态。'}</p>
             </div>
           ) : (
             moments.map((m) => (
-              <article class="moment-card rounded-lg border bg-card p-4">
+              <article class="moment-card group hairline p-4">
                 <div class="flex items-start gap-3">
                   {avatarSrc ? (
                     <img src={avatarSrc} alt={nickname} class="size-10 shrink-0 rounded-full border border-border object-cover" />
@@ -145,13 +175,33 @@ function renderVideo(url: string): string {
                       <time class="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt, now)}</time>
                       {
                         isAuthed && (
-                          <button type="button" data-moment-del={m.id} class="ml-auto text-xs text-destructive opacity-0 transition-opacity hover:underline group-hover:opacity-100" aria-label="删除动态">
-                            删除
-                          </button>
+                          <span class="ml-auto flex items-center gap-2">
+                            <button type="button" data-moment-edit={m.id} class="text-xs text-muted-foreground hover:underline">
+                              编辑
+                            </button>
+                            <button type="button" data-moment-del={m.id} class="text-xs text-destructive hover:underline" aria-label="删除动态">
+                              删除
+                            </button>
+                          </span>
                         )
                       }
                     </div>
                     {m.content ? <p class="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p> : null}
+                    {
+                      m.tags.length > 0 && (
+                        <div class="mt-2 flex flex-wrap gap-1.5">
+                          {m.tags.map((t) => (
+                            <button
+                              type="button"
+                              data-moment-tag={t}
+                              class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    }
                     <div class="mt-2" set:html={renderMedia(m.media)} />
                   </div>
                 </div>
@@ -171,18 +221,41 @@ function renderVideo(url: string): string {
         </button>
       </div>
     </div>
+    <!-- 右侧：动态时间线（按天定位） -->
+    <aside class="hidden lg:block">
+      <div class="sticky top-20">
+        <p class="pixel-chip mb-2 text-muted-foreground">时间线 / TIMELINE</p>
+        <Timeline items={momentTimeline.map((t) => ({ date: t.date, label: t.date, count: t.count }))} emptyText="暂无动态" />
+      </div>
+    </aside>
+    </div>
   </section>
+
+  <!-- 编辑动态弹窗 -->
+  <dialog id="moment-edit-dialog" class="m-auto w-[min(92vw,40rem)] rounded-lg border border-border bg-card p-5 shadow-xl backdrop:bg-black/40">
+    <h3 class="font-medium">编辑动态</h3>
+    <textarea id="moment-edit-content" rows="3" maxlength="2000" class="mt-3 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring" placeholder="动态内容…"></textarea>
+    <input id="moment-edit-tags" type="text" maxlength="200" placeholder="标签（逗号分隔）" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    <p id="moment-edit-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+    <div class="mt-3 flex justify-end gap-2">
+      <button id="moment-edit-cancel" type="button" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">取消</button>
+      <button id="moment-edit-save" type="button" class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90">保存</button>
+    </div>
+  </dialog>
 </BaseLayout>
 
 <script>
   import { compressImageForUpload } from '../../lib/client-image-upload';
   import { confirmDanger } from '@/lib/confirm';
+  import { on } from '@/lib/dom';
   /** 动态页交互：发布（图片/GIF 上传 + 视频链接）、加载更多、删除（管理员） */
 
   const PAGE_SIZE = 20;
   let offset = 0;
   let loading = false;
   let done = false;
+  /** 当前筛选：关键词 / 标签 / 日期 */
+  const filter = { q: '', tag: '', date: '' };
 
   function el<T extends HTMLElement>(id: string): T | null {
     return document.getElementById(id) as T | null;
@@ -259,10 +332,12 @@ function renderVideo(url: string): string {
       btn.textContent = '发布中…';
     }
     try {
+      const tagsRaw = (el<HTMLInputElement>('moment-tags-input')?.value ?? '').trim();
+      const tags = tagsRaw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
       const res = await fetch('/api/moments', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content, media: pendingMedia }),
+        body: JSON.stringify({ content, media: pendingMedia, tags }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? '发布失败');
@@ -317,9 +392,23 @@ function renderVideo(url: string): string {
     })();
   });
 
-  // 初始 offset（服务端注入）
-  offset = Number(el('moment-stream')?.dataset.offset ?? 0);
-  done = offset < PAGE_SIZE;
+  // 初始 offset（服务端注入）；SPA 切换后 DOM 换新，需在 page-load 重新同步
+  function syncPagination(): void {
+    offset = Number(el('moment-stream')?.dataset.offset ?? 0);
+    done = offset < PAGE_SIZE;
+  }
+  document.addEventListener('astro:page-load', () => {
+    // SPA 重入：重置筛选/搜索状态，并按新 DOM 重新渲染标签 chips 与分页
+    filter.q = '';
+    filter.tag = '';
+    filter.date = '';
+    const si = el<HTMLInputElement>('moment-search');
+    if (si) si.value = '';
+    syncPagination();
+    renderTagChips();
+    renderFilterState();
+  });
+  syncPagination();
 
   // ---------- 加载更多 / 删除 ----------
   function videoHtml(url: string): string {
@@ -334,6 +423,7 @@ function renderVideo(url: string): string {
     id: string;
     content: string;
     media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>;
+    tags: string[];
     createdAt: string;
   }): string {
     const images = m.media.filter((x) => x.type === 'image' || x.type === 'gif');
@@ -342,19 +432,23 @@ function renderVideo(url: string): string {
     if (images.length > 0) {
       const cls = images.length === 1 ? 'moment-grid-single' : images.length === 2 ? 'moment-grid-two' : 'moment-grid';
       mediaHtml += `<div class="${cls}">${images
-        .map((x) => `<figure class="moment-media overflow-hidden rounded-lg border border-border" data-lightbox data-caption=""><img src="${esc(x.url)}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" /></figure>`)
+        .map((x) => `<figure class="moment-media overflow-hidden rounded-lg" data-lightbox data-caption=""><img src="${esc(x.url)}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" /></figure>`)
         .join('')}</div>`;
     }
     if (videos.length > 0) mediaHtml += `<div class="mt-2 space-y-2">${videos.map((v) => videoHtml(v.url)).join('')}</div>`;
-    return `<article class="moment-card group rounded-lg border bg-card p-4">
+    const tagHtml = (m.tags ?? [])
+      .map((t) => `<button type="button" data-moment-tag="${esc(t)}" class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary">${esc(t)}</button>`)
+      .join('');
+    return `<article class="moment-card group hairline p-4">
       <div class="flex items-start gap-3">
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium"></span>
             <time class="text-xs text-muted-foreground"></time>
-            <button type="button" data-moment-del="${esc(m.id)}" class="ml-auto text-xs text-destructive opacity-0 transition-opacity hover:underline group-hover:opacity-100" aria-label="删除动态">删除</button>
+            <span class="ml-auto flex items-center gap-2"><button type="button" data-moment-edit="${esc(m.id)}" class="text-xs text-muted-foreground hover:underline">编辑</button><button type="button" data-moment-del="${esc(m.id)}" class="text-xs text-destructive hover:underline" aria-label="删除动态">删除</button></span>
           </div>
           ${m.content ? `<p class="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">${esc(m.content)}</p>` : ''}
+          ${tagHtml ? `<div class="mt-2 flex flex-wrap gap-1.5">${tagHtml}</div>` : ''}
           <div class="mt-2">${mediaHtml}</div>
         </div>
       </div>
@@ -367,9 +461,15 @@ function renderVideo(url: string): string {
     const btn = el<HTMLButtonElement>('moment-more');
     if (btn) btn.textContent = '加载中…';
     try {
-      const res = await fetch(`/api/moments?limit=${PAGE_SIZE}&offset=${offset}`);
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+      if (filter.q) params.set('q', filter.q);
+      if (filter.tag) params.set('tag', filter.tag);
+      if (filter.date) params.set('date', filter.date);
+      const res = await fetch(`/api/moments?${params}`);
       if (!res.ok) throw new Error('bad status');
-      const data = (await res.json()) as { moments: Array<{ id: string; content: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; createdAt: string }> };
+      const data = (await res.json()) as {
+        moments: Array<{ id: string; content: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; tags: string[]; createdAt: string }>;
+      };
       const stream = el('moment-stream');
       data.moments.forEach((m) => {
         if (stream) stream.insertAdjacentHTML('beforeend', cardHtml(m));
@@ -381,6 +481,7 @@ function renderVideo(url: string): string {
         // 空 → 隐藏按钮
         el('moment-more-wrap')?.classList.add('hidden');
       }
+      renderTagChips();
     } catch {
       if (btn) btn.textContent = '加载失败，点击重试';
     } finally {
@@ -388,6 +489,105 @@ function renderVideo(url: string): string {
       if (btn && btn.textContent === '加载中…') btn.textContent = '更多';
     }
   }
+
+  // ---------- 搜索 / 标签 / 时间线筛选 ----------
+  /** 从 DOM 收集所有标签并渲染筛选 chips */
+  function renderTagChips(): void {
+    const box = el('moment-tags');
+    if (!box) return;
+    const set = new Set<string>();
+    document.querySelectorAll<HTMLElement>('[data-moment-tag]').forEach((b) => {
+      const t = b.dataset.momentTag ?? '';
+      if (t) set.add(t);
+    });
+    box.innerHTML = '';
+    set.forEach((t) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.dataset.filterTag = t;
+      chip.className =
+        'rounded px-1.5 py-0.5 text-[0.65rem] transition-colors ' +
+        (filter.tag === t
+          ? 'bg-primary text-primary-foreground'
+          : 'bg-muted text-muted-foreground hover:bg-accent hover:text-primary');
+      chip.textContent = `# ${t}`;
+      box.appendChild(chip);
+    });
+  }
+
+  /** 重置列表并按当前筛选重新加载第一页 */
+  async function reload(): Promise<void> {
+    const stream = el('moment-stream');
+    if (stream) stream.innerHTML = '';
+    offset = 0;
+    done = false;
+    el('moment-more-wrap')?.classList.remove('hidden');
+    renderFilterState();
+    await loadMore();
+  }
+
+  /** 顶部筛选状态文案（当前 tag/date/q） */
+  function renderFilterState(): void {
+    const s = el('moment-filter-state');
+    if (!s) return;
+    const parts: string[] = [];
+    if (filter.tag) parts.push(`#${filter.tag}`);
+    if (filter.date) parts.push(filter.date);
+    if (filter.q) parts.push(`"${filter.q}"`);
+    if (parts.length === 0) {
+      s.textContent = '';
+      return;
+    }
+    s.innerHTML = `${parts.map(esc).join(' · ')} <button type="button" data-filter-clear class="ml-1 text-primary hover:underline">✕ 清除</button>`;
+  }
+
+  // 搜索输入（防抖）
+  let searchTimer = 0;
+  document.addEventListener('input', (e) => {
+    const input = e.target as HTMLInputElement;
+    if (input.id !== 'moment-search') return;
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => {
+      filter.q = input.value.trim();
+      void reload();
+    }, 250);
+  });
+
+  // 标签 / 时间线 / 清除筛选（document 委托）
+  document.addEventListener('click', (e) => {
+    const tagBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-filter-tag]');
+    if (tagBtn) {
+      filter.tag = filter.tag === tagBtn.dataset.filterTag ? '' : (tagBtn.dataset.filterTag ?? '');
+      void reload();
+      return;
+    }
+    const momentTag = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-tag]');
+    if (momentTag) {
+      filter.tag = filter.tag === momentTag.dataset.momentTag ? '' : (momentTag.dataset.momentTag ?? '');
+      void reload();
+      return;
+    }
+    const tl = (e.target as HTMLElement).closest<HTMLElement>('[data-timeline-date]');
+    if (tl) {
+      const date = tl.dataset.timelineDate ?? '';
+      filter.date = filter.date === date ? '' : date;
+      void reload();
+      return;
+    }
+    const clear = (e.target as HTMLElement).closest<HTMLElement>('[data-filter-clear]');
+    if (clear) {
+      filter.q = '';
+      filter.tag = '';
+      filter.date = '';
+      const input = el<HTMLInputElement>('moment-search');
+      if (input) input.value = '';
+      void reload();
+    }
+  });
+
+  // 初始：渲染标签 chips 与筛选状态
+  renderTagChips();
+  renderFilterState();
 
   // 删除动态（document 委托）
   document.addEventListener('click', async (e) => {
@@ -411,5 +611,47 @@ function renderVideo(url: string): string {
     );
     observer.observe(sentinel);
   }
-  el('moment-more')?.addEventListener('click', () => void loadMore());
+  on('moment-more', 'click', () => void loadMore());
+
+  // ---------- 编辑动态（管理员）----------
+  let editingMomentId = '';
+  document.addEventListener('click', (e) => {
+    const editBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-edit]');
+    if (editBtn) {
+      editingMomentId = editBtn.dataset.momentEdit ?? '';
+      fetch(`/api/moments/${editingMomentId}`)
+        .then((r) => r.json())
+        .then((d: { moment?: { content: string; tags: string[] } }) => {
+          if (!d.moment) return;
+          const c = el<HTMLTextAreaElement>('moment-edit-content');
+          const tg = el<HTMLInputElement>('moment-edit-tags');
+          if (c) c.value = d.moment.content;
+          if (tg) tg.value = (d.moment.tags ?? []).join(', ');
+          el('moment-edit-status')?.classList.add('hidden');
+          el<HTMLDialogElement>('moment-edit-dialog')?.showModal();
+        });
+      return;
+    }
+    if ((e.target as HTMLElement).closest('#moment-edit-cancel')) {
+      el<HTMLDialogElement>('moment-edit-dialog')?.close();
+    }
+  });
+
+  on('moment-edit-save', 'click', async () => {
+    const content = (el<HTMLTextAreaElement>('moment-edit-content')?.value ?? '').trim();
+    const tagsRaw = (el<HTMLInputElement>('moment-edit-tags')?.value ?? '').trim();
+    const tags = tagsRaw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+    const status = el('moment-edit-status');
+    try {
+      const res = await fetch(`/api/moments/${editingMomentId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content, tags }),
+      });
+      if (!res.ok) throw new Error('保存失败');
+      window.location.reload();
+    } catch (err) {
+      if (status) { status.textContent = err instanceof Error ? err.message : '保存失败'; status.classList.remove('hidden'); }
+    }
+  });
 </script>

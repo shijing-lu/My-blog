@@ -25,7 +25,7 @@ function formatShort(date: Date): string {
     </div>
 
     <!-- 新建 -->
-    <div class="mt-5 rounded-lg border bg-card p-4">
+    <div class="mt-5">
       <p class="text-xs font-medium text-muted-foreground">新建思维导图</p>
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <input
@@ -58,7 +58,7 @@ function formatShort(date: Date): string {
     </div>
 
     <!-- 列表 -->
-    <ul class="mt-6 divide-y divide-border rounded-lg border bg-card">
+    <ul class="mt-6 list-blend">
       {
         maps.length === 0 ? (
           <li class="px-4 py-8 text-center text-sm text-muted-foreground">还没有思维导图 —— 在上方创建一张吧。</li>

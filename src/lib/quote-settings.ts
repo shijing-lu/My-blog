@@ -7,7 +7,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { settings } from '../../db/schema.sqlite';
-import { db } from '../../db';
+import { db, dbWrite } from '../../db';
 import { HERO_QUOTES, QUOTE_CHAR_INTERVAL_MS, QUOTE_PAUSE_MS, type QuoteConfig } from './quotes';
 
 /** 站点设置表行 */
@@ -88,10 +88,12 @@ function normalizeSettings(input: Partial<HeroQuoteSettings>): HeroQuoteSettings
 export async function saveHeroQuoteSettings(input: Partial<HeroQuoteSettings>): Promise<HeroQuoteSettings> {
   const normalized = normalizeSettings(input);
   const now = new Date();
-  await db
-    .insert(settings)
-    .values({ key: KEY, value: JSON.stringify(normalized), updatedAt: now })
-    .onConflictDoUpdate({ target: settings.key, set: { value: JSON.stringify(normalized), updatedAt: now } });
+  await dbWrite((d) =>
+    d
+      .insert(settings)
+      .values({ key: KEY, value: JSON.stringify(normalized), updatedAt: now })
+      .onConflictDoUpdate({ target: settings.key, set: { value: JSON.stringify(normalized), updatedAt: now } }),
+  );
   return normalized;
 }
 

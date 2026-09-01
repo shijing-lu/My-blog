@@ -1,14 +1,22 @@
 /**
- * GET/POST /api/photos —— 相册照片列表 / 上传
+ * GET/POST/PATCH /api/photos —— 相册照片列表 / 上传 / 批量标签
  *
- * - GET：分页列表 + 总数 + 时间线聚合（公开）
+ * - GET：分页列表 + 总数 + 时间线聚合（公开）；支持 ?tag= 过滤
  * - POST：上传单张照片（管理员，中间件保护）；JSON 携带原图+缩略图 base64
- *   与元数据；原图经 Vercel Blob 存储（未配置 BLOB_READ_WRITE_TOKEN 时 503）。
+ *   与元数据；原图与缩略图经 Cloudflare R2 存储（未配置 R2 时 503）
+ * - PATCH /api/photos/batch-tags：批量设置/添加/移除标签（管理员）
  */
 import type { APIRoute } from 'astro';
 import { randomUUID } from 'node:crypto';
-import { addPhoto, countPhotos, getTimeline, listPhotos } from '@/lib/photos';
-import { json } from '@/lib/api';
+import {
+  MAX_TAGS,
+  addPhoto,
+  batchUpdateTags,
+  countPhotos,
+  getTimeline,
+  listPhotos,
+} from '@/lib/photos';
+import { json, jsonCached } from '@/lib/api';
 import { photoStorageEnabled, uploadPhotoObject } from '@/lib/photo-storage';
 import { ALLOWED_MIME } from '@/lib/images';
 
@@ -28,7 +36,13 @@ const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
 /** 标题长度上限 */
 const MAX_TITLE_LENGTH = 200;
 
-/** GET：分页列表 + 总数 + 时间线 */
+/** 解析标签（数组 → 字符串数组，上限 MAX_TAGS） */
+function parseTagsArg(body: Record<string, unknown>): string[] {
+  if (!Array.isArray(body.tags)) return [];
+  return (body.tags as unknown[]).filter((t): t is string => typeof t === 'string').slice(0, MAX_TAGS);
+}
+
+/** GET：分页列表 + 总数 + 时间线（可选按标签过滤） */
 export const GET: APIRoute = async ({ url }) => {
   const rawLimit = Number(url.searchParams.get('limit') ?? String(PAGE_SIZE));
   const rawOffset = Number(url.searchParams.get('offset') ?? '0');
@@ -36,25 +50,29 @@ export const GET: APIRoute = async ({ url }) => {
     ? Math.min(Math.max(1, Math.floor(rawLimit)), MAX_PAGE_SIZE)
     : PAGE_SIZE;
   const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.floor(rawOffset)) : 0;
+  const tag = (url.searchParams.get('tag') ?? '').trim().slice(0, 20) || undefined;
+  const filter = tag ? { tag } : {};
 
   const [items, total, timeline] = await Promise.all([
-    listPhotos(limit, offset),
-    countPhotos(),
+    listPhotos(limit, offset, filter),
+    countPhotos(filter),
     getTimeline(),
   ]);
 
-  return json({
+  return jsonCached({
     photos: items.map((p) => ({
       id: p.id,
       url: p.url,
       thumbUrl: p.thumbUrl,
       title: p.title,
+      tags: p.tags,
       width: p.width,
       height: p.height,
       takenAt: p.takenAt.toISOString(),
     })),
     total,
     timeline,
+    tag: tag ?? null,
   });
 };
 
@@ -73,6 +91,7 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ error: '日期不合法' }, 400);
   }
   const title = typeof body.title === 'string' ? body.title.slice(0, MAX_TITLE_LENGTH) : '';
+  const tags = parseTagsArg(body);
   const width = typeof body.width === 'number' && body.width > 0 ? Math.floor(body.width) : null;
   const height = typeof body.height === 'number' && body.height > 0 ? Math.floor(body.height) : null;
 
@@ -88,6 +107,7 @@ export const POST: APIRoute = async ({ request }) => {
         url: importUrl,
         thumbUrl: null,
         title,
+        tags,
         width,
         height,
         takenAt,
@@ -99,9 +119,9 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  // ---- 自动上传模式（Vercel Blob） ----
+  // ---- 自动上传模式（R2） ----
   if (!photoStorageEnabled) {
-    return json({ error: '未配置 BLOB_READ_WRITE_TOKEN，自动上传不可用，请使用 URL 导入' }, 503);
+    return json({ error: '未配置 Cloudflare R2，自动上传不可用，请使用 URL 导入' }, 503);
   }
 
   const mime = typeof body.mime === 'string' ? body.mime : '';
@@ -142,6 +162,7 @@ export const POST: APIRoute = async ({ request }) => {
       thumbUrl,
       thumbKey,
       title,
+      tags,
       width,
       height,
       takenAt,
@@ -159,6 +180,7 @@ function serializePhoto(p: {
   url: string;
   thumbUrl: string | null;
   title: string;
+  tags: string[];
   width: number | null;
   height: number | null;
   takenAt: Date;
@@ -167,6 +189,7 @@ function serializePhoto(p: {
   url: string;
   thumbUrl: string | null;
   title: string;
+  tags: string[];
   width: number | null;
   height: number | null;
   takenAt: string;
@@ -176,6 +199,7 @@ function serializePhoto(p: {
     url: p.url,
     thumbUrl: p.thumbUrl,
     title: p.title,
+    tags: p.tags,
     width: p.width,
     height: p.height,
     takenAt: p.takenAt.toISOString(),

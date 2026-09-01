@@ -9,9 +9,11 @@
  */
 import remarkGfm from 'remark-gfm';
 import remarkDirective from 'remark-directive';
+import remarkMath from 'remark-math';
 import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import rehypePrismPlus from 'rehype-prism-plus';
+import rehypeKatex from 'rehype-katex';
 import type { Root, RootContent, Node } from 'mdast';
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
 
@@ -252,12 +254,13 @@ export function rehypeTocCollector() {
 }
 
 /** remark 插件数组（evaluate 与预览共用） */
-export const remarkPlugins = [remarkGfm, remarkDirective, remarkDirectiveToJsx, remarkLegacyFootnotes];
+export const remarkPlugins = [remarkGfm, remarkMath, remarkDirective, remarkDirectiveToJsx, remarkLegacyFootnotes];
 
-/** rehype 插件数组：slug → autolink → prism（行号）→ 块锚点（思维导图引用） */
+/** rehype 插件数组：slug → autolink → katex（LaTeX 公式，纯 CSS 渲染无需客户端 JS）→ prism（行号）→ 块锚点（思维导图引用） */
 export const rehypePlugins = [
   rehypeSlug,
   rehypeAutolinkHeadings,
+  rehypeKatex,
   [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
   rehypeBlockAnchors,
 ];

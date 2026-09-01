@@ -6,14 +6,14 @@
  */
 import type { APIRoute } from 'astro';
 import { getHeroQuoteSettings, saveHeroQuoteSettings, type HeroQuoteSettings } from '@/lib/quote-settings';
-import { json } from '@/lib/api';
+import { json, jsonCached } from '@/lib/api';
 
 export const prerender = false;
 
 /** GET：读取配置 */
 export const GET: APIRoute = async () => {
   const settings = await getHeroQuoteSettings();
-  return json(settings);
+  return jsonCached(settings);
 };
 
 /** PUT：保存配置（管理员） */

@@ -8,7 +8,7 @@
 import { asc, count, desc, eq, gte } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { settings, studyDistractions, studySessions, studyTasks } from '../../db/schema.sqlite';
-import { db } from '../../db';
+import { db, dbWrite } from '../../db';
 import type { StudyDistraction, StudySession, StudyStats, StudyTask, StudyTaskView } from '../../db/types';
 
 /** 本地时区 YYYY-MM-DD */
@@ -237,8 +237,10 @@ export async function getDailyGoal(): Promise<number> {
 export async function setDailyGoal(value: number): Promise<void> {
   const v = Math.max(0, Math.round(value));
   const now = new Date();
-  await db
-    .insert(settings)
-    .values({ key: 'study_daily_goal', value: String(v), updatedAt: now })
-    .onConflictDoUpdate({ target: settings.key, set: { value: String(v), updatedAt: now } });
+  await dbWrite((d) =>
+    d
+      .insert(settings)
+      .values({ key: 'study_daily_goal', value: String(v), updatedAt: now })
+      .onConflictDoUpdate({ target: settings.key, set: { value: String(v), updatedAt: now } }),
+  );
 }

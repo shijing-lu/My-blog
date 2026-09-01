@@ -13,6 +13,7 @@ const {
 
 /* ===== Imports ===== */
 import '../styles/global.css';
+import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
 import { ClientRouter } from 'astro:transitions';
 import ThemeHead from '@/components/ThemeHead.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
@@ -21,7 +22,7 @@ import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
 import LoginDialog from '@/components/LoginDialog.astro';
 import { verifyRequest } from '@/lib/auth';
-import { getSiteBackground } from '@/lib/background';
+import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 
 const siteTitle = 'My Blog';
@@ -30,8 +31,10 @@ const pageTitle = title === 'My Blog' ? title : `${title} · ${siteTitle}`;
 /* ===== Logic ===== */
 /** 是否已登录（决定是否显示「写作」入口） */
 const isAuthed = verifyRequest(Astro.cookies);
-/** 全站背景配置（是否开启/图片/透明度/模糊度，设置页可配） */
+/** 全站背景配置（统一背景 / 按页面独立，设置页可配） */
 const bg = await getSiteBackground();
+/** 当前页面应渲染的背景（null = 不渲染） */
+const resolvedBg = resolveBackgroundForPath(bg, Astro.url.pathname);
 /** 全局字体设置：手动设置过 → 注入覆盖（优先于主题）；从未设置 → 不注入，跟随主题字体 */
 const hasManualFonts = await hasManualFontSettings();
 const fontSettings = await getSiteFonts();
@@ -58,12 +61,12 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
   </head>
   <body class="flex min-h-dvh flex-col">
     {
-      bg.enabled && bg.imageUrl && (
+      resolvedBg && (
         // 注意：不要加 transition:persist —— 持久化会把旧背景元素（含旧 --bg-url）复用到新页面，
         // 导致「保存并应用」后 SPA 跳转仍显示旧背景。去掉后每次导航按当前 DB 值重新渲染。
         <div
           class="site-bg"
-          style={`--bg-url: url('${bg.imageUrl.replace(/['\\]/g, '')}'); --bg-opacity: ${bg.opacity / 100}; --bg-blur: ${bg.blur}px`}
+          style={`--bg-url: url('${resolvedBg.imageUrl.replace(/['\\]/g, '')}'); --bg-opacity: ${resolvedBg.opacity / 100}; --bg-blur: ${resolvedBg.blur}px`}
           aria-hidden="true"
         />
       )
@@ -73,8 +76,10 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
     <!-- 全局页面切换加载指示：顶部进度条 + 居中转圈（导航开始→转场完成期间覆盖，避免卡顿画面裸露） -->
     <div id="nav-progress" class="nav-progress" aria-hidden="true"></div>
     <div id="nav-loader" class="nav-loader" aria-hidden="true"></div>
-    <!-- 暗色主题星尘粒子背景（转场时保留） -->
-    <div class="stardust" transition:persist="stardust" aria-hidden="true" />
+    <!-- 暗色主题星尘粒子背景（转场时保留；设置页可开关） -->
+    {
+      bg.stardust && <div class="stardust" transition:persist="stardust" aria-hidden="true" />
+    }
     <header transition:persist="site-header" class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
       <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
         <a
@@ -84,25 +89,25 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           My Blog
         </a>
         <nav class="flex items-center gap-1 text-sm" aria-label="主导航">
-          <a href="/" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             首页
           </a>
-          <a href="/study" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/study" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             学习
           </a>
-          <a href="/doc" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/doc" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             文档
           </a>
-          <a href="/nav" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/nav" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             导航
           </a>
-          <a href="/gallery" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/gallery" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             影集
           </a>
-          <a href="/calendar" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/calendar" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             日历
           </a>
-          <a href="/moments" data-astro-prefetch="viewport" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/moments" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             动态
           </a>
           <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
@@ -148,7 +153,7 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
     <a
       id="study-float"
       href="/study"
-      class="fixed bottom-5 right-5 z-50 hidden items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-2 text-xs shadow-lg backdrop-blur-md transition-colors hover:border-primary/50 hover:text-primary"
+      class="fixed bottom-5 right-5 z-50 hidden items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-2 text-xs backdrop-blur-md transition-colors hover:border-primary/50 hover:text-primary"
       aria-label="番茄钟进行中"
     >
       <span class="text-sm">🍅</span>
@@ -201,25 +206,32 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
        *  让用户明确感知"在加载"，掩盖突兀的页面替换 */
       const navLoader = document.getElementById('nav-loader');
       const navProgress = document.getElementById('nav-progress');
-      const MIN_LOADER_MS = 400;
+      const MIN_LOADER_MS = 250;
+      const MAX_LOADER_MS = 1200; // 转圈绝对上限：无论导航是否完成，超时即隐藏（避免长时间卡圈）
       let minHideTimer = 0;
       let staleTimer = 0;
+      let maxTimer = 0;
       let progressDoneTimer = 0;
+      const hideLoaderImmediate = (): void => {
+        navLoader?.classList.remove('show');
+        navProgress?.classList.remove('active', 'done');
+      };
       const showLoader = (): void => {
         window.clearTimeout(minHideTimer);
         window.clearTimeout(staleTimer);
+        window.clearTimeout(maxTimer);
         if (navLoader) navLoader.dataset.shownAt = String(Date.now());
         navLoader?.classList.add('show');
         navProgress?.classList.remove('done');
         navProgress?.classList.add('active');
-        // 兜底：3s 内无导航事件（误触/同页链接）则强制隐藏
-        staleTimer = window.setTimeout(() => {
-          navLoader?.classList.remove('show');
-          navProgress?.classList.remove('active');
-        }, 3000);
+        // 兜底：1.5s 内无导航事件（误触/同页链接）则强制隐藏
+        staleTimer = window.setTimeout(hideLoaderImmediate, 1500);
+        // 绝对上限：1.2s 后即使页面还没换完也隐藏转圈，避免用户等待感过长
+        maxTimer = window.setTimeout(hideLoaderImmediate, MAX_LOADER_MS);
       };
       const hideLoader = (): void => {
         window.clearTimeout(staleTimer);
+        window.clearTimeout(maxTimer);
         window.clearTimeout(progressDoneTimer);
         const shownAt = Number(navLoader?.dataset.shownAt ?? 0);
         const elapsed = shownAt ? Date.now() - shownAt : 0;

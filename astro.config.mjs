@@ -24,10 +24,10 @@ export default defineConfig({
   output: 'server',
   adapter: vercel(),
   integrations: [react()],
-  // 页面切换预取：悬停链接时提前请求新页面（含 SSR），点击时近乎零等待，
-  // 消除 View Transition 的"点击→等待服务端渲染→出现"卡顿；慢连接自动禁用
+  // 预取收敛：仅显式标记的链接可预取（默认 false），悬停策略保留；
+  // 取消 prefetchAll 与导航 viewport 预取——此前每次进站并发预取 7+ 页面（每页一次 SSR+多查询），
+  // 是 Vercel 请求量与冷启动排队的主要来源（详见性能优化批次）
   prefetch: {
-    prefetchAll: true,
     defaultStrategy: 'hover',
   },
   vite: {

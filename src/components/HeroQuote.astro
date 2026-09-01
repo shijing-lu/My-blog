@@ -11,7 +11,11 @@ import { verifyRequest } from '@/lib/auth';
 const settings = await getHeroQuoteSettings();
 /** 仅管理员显示「管理诗词」入口（跳转设置页） */
 const isAuthed = verifyRequest(Astro.cookies);
-const firstQuote = settings.quotes[0]?.text ?? '';
+/** 首条随机选取（客户端按 SSR 文本回推同一条，避免首屏闪变） */
+const firstQuote =
+  settings.quotes.length > 0
+    ? settings.quotes[Math.floor(Math.random() * settings.quotes.length)]!.text
+    : '';
 const settingsJson = JSON.stringify(serializeSettings(settings));
 ---
 <!-- ===== Template ===== -->
@@ -89,12 +93,23 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
     timers.push(window.setTimeout(fn, ms));
   }
 
+  /** 随机选取下一条（避免与当前重复；单条时固定返回 0） */
+  function randomIndex(exclude: number): number {
+    const n = currentSettings.quotes.length;
+    if (n <= 1) return 0;
+    let idx: number;
+    do {
+      idx = Math.floor(Math.random() * n);
+    } while (idx === exclude);
+    return idx;
+  }
+
   function play(): void {
     const el = document.getElementById('hero-quote');
     if (!el || currentSettings.quotes.length === 0) return;
     clearTimers();
 
-    const quote = currentSettings.quotes[current % currentSettings.quotes.length]!;
+    const quote = currentSettings.quotes[current]!;
     const chars = Array.from(quote.text);
     el.textContent = '';
 
@@ -128,17 +143,25 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
         }, i * interval);
       });
       later(() => {
-        current = (current + 1) % currentSettings.quotes.length;
+        current = randomIndex(current);
         play();
       }, chars.length * interval + CHAR_ANIM_MS);
     }, totalIn + pause);
   }
 
   // 初始加载与每次 View Transition 后重播（配置来自服务端注入的 data-settings）
+  // 初始 current 按 SSR 渲染出的文本回推，保证首屏与客户端第一条一致
+  function syncCurrentFromDom(): void {
+    const el = document.getElementById('hero-quote');
+    const text = el?.textContent?.trim() ?? '';
+    const idx = currentSettings.quotes.findIndex((q) => q.text === text);
+    current = idx >= 0 ? idx : randomIndex(-1);
+  }
   document.addEventListener('astro:page-load', () => {
     currentSettings = readSettings();
-    current = 0;
+    syncCurrentFromDom();
     play();
   });
+  syncCurrentFromDom();
   play();
 </script>

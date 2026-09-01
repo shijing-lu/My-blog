@@ -6,7 +6,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { settings } from '../../db/schema.sqlite';
-import { db } from '../../db';
+import { db, dbWrite } from '../../db';
 
 /** 个人信息 */
 export interface Profile {
@@ -66,9 +66,11 @@ export async function getProfile(): Promise<Profile> {
 export async function saveProfile(input: Partial<Profile>): Promise<Profile> {
   const normalized = normalize(input);
   const now = new Date();
-  await db
-    .insert(settings)
-    .values({ key: KEY, value: JSON.stringify(normalized), updatedAt: now })
-    .onConflictDoUpdate({ target: settings.key, set: { value: JSON.stringify(normalized), updatedAt: now } });
+  await dbWrite((d) =>
+    d
+      .insert(settings)
+      .values({ key: KEY, value: JSON.stringify(normalized), updatedAt: now })
+      .onConflictDoUpdate({ target: settings.key, set: { value: JSON.stringify(normalized), updatedAt: now } }),
+  );
   return normalized;
 }

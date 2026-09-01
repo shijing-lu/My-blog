@@ -105,7 +105,7 @@ function CommentRow({
     item.authorType === 'github' ? (item.githubLogin ?? 'GitHub 用户') : item.authorName || '匿名';
   return (
     <div className={isReply ? 'mt-2 pl-8' : 'mt-3'}>
-      <div className={`flex items-start gap-2.5 rounded-lg p-2 transition-colors ${isReply ? 'bg-muted/40' : ''}`}>
+      <div className={`flex items-start gap-2.5 rounded-r-lg transition-colors ${isReply ? 'border-l-2 border-primary/25 pl-2.5' : ''}`}>
         <Avatar item={item} size={isReply ? 'xs' : 'sm'} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">

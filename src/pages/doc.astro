@@ -33,7 +33,7 @@ function esc(s: string): string {
 
       {/* 搜索框 */}
       <div class="relative mx-auto mt-6 max-w-xl">
-        <div class="flex items-center gap-2 rounded-full border border-border bg-card/85 px-4 py-2 shadow-sm backdrop-blur-md">
+        <div class="flex items-center gap-2 border-b border-border px-1 py-2">
           <span class="text-muted-foreground">🔍</span>
           <input
             id="doc-search"
@@ -109,8 +109,7 @@ function esc(s: string): string {
                   {c.bundles.map((b) => (
                     <a
                       href={`/doc/${b.id}`}
-                      data-astro-prefetch="viewport"
-                      class="group relative block rounded-lg border border-border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
+                      class="group relative block hairline p-3"
                     >
                       <div class="flex items-start gap-3">
                         <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-lg">
@@ -123,7 +122,7 @@ function esc(s: string): string {
                           </p>
                         </div>
                       </div>
-                      <p class="mt-2 text-[0.6rem] text-muted-foreground">{b.articles.length} 篇文章</p>
+                      <p class="mt-2 text-[0.6rem] text-muted-foreground">{b.articleCount} 篇文章{b.folderCount > 0 ? ` · ${b.folderCount} 个目录` : ''}</p>
                       {isAuthed && (
                         <span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                           <button
@@ -215,7 +214,7 @@ function esc(s: string): string {
 </BaseLayout>
 
 <script>
-  /** 文档库主页：搜索 + 分类/文档 增删改（document 委托 + 实时查询 DOM） */
+  import { on } from '@/lib/dom';
   import { confirmDanger } from '@/lib/confirm';
 
   const DATA = document.getElementById('doc-data');
@@ -281,9 +280,11 @@ function esc(s: string): string {
     }
   }
 
-  searchInput?.addEventListener('input', () => {
+  // 委托绑定（防 SPA 切换后失效）；输入框值按需重查
+  on('doc-search', 'input', () => {
     window.clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(() => void doSearch(searchInput.value), 300);
+    const input = document.getElementById('doc-search') as HTMLInputElement | null;
+    searchTimer = window.setTimeout(() => void doSearch(input?.value ?? ''), 300);
   });
   // 点击外部收起搜索结果
   document.addEventListener('click', (e) => {
@@ -394,6 +395,8 @@ function esc(s: string): string {
     }
     document.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
+      // 编辑/删除按钮嵌在 <a> 链接卡片内：阻止冒泡触发的卡片跳转
+      if (t.closest('[data-doc-bundle-edit], [data-doc-bundle-del]')) e.preventDefault();
       const add = t.closest<HTMLElement>('[data-doc-bundle-add]');
       const edit = t.closest<HTMLElement>('[data-doc-bundle-edit]');
       const dlg = el<HTMLDialogElement>('doc-bundle-dialog');
@@ -475,6 +478,8 @@ function esc(s: string): string {
     document.addEventListener('click', async (e) => {
       const del = (e.target as HTMLElement).closest<HTMLElement>('[data-doc-bundle-del]');
       if (!del) return;
+      // 阻止冒泡触发的卡片跳转
+      e.preventDefault();
       const name = del.dataset.docName ?? '';
       if (!(await confirmDanger(`删除文档「${name}」？其下文章也会一并删除。`))) return;
       try {

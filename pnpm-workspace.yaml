@@ -15,3 +15,7 @@ allowBuilds:
 # 强制所有包引用同一 version 的 unified（避免 11.0.0 / 11.0.5 两个副本导致类型不兼容）
 overrides:
   unified: 11.0.5
+  # hast-util-to-estree（MDX evaluate 路径）依赖 style-to-js；
+  # 1.0.0 为纯 CJS 且用 exports["default"] 括号赋值，Vite interop 识别失败
+  # （报 styleToJs is not a function）。KaTeX 输出带 style 属性时触发，升级到 1.1.x（双 ESM/CJS）。
+  style-to-js: ^1.1.21

@@ -11,6 +11,19 @@ export function json(data: unknown, init: number | ResponseInit = 200): Response
   return new Response(JSON.stringify(data), { status, headers });
 }
 
+/**
+ * 公开 GET 数据的 CDN 缓存响应（短 TTL + stale-while-revalidate）。
+ * 仅用于**公开、低频变化**的读取接口（列表/配置/统计）；登录态、写接口禁用。
+ * 由 Vercel 边缘（及前置 Cloudflare）缓存，显著降低源站/数据库请求量。
+ */
+export function jsonCached(data: unknown, sMaxAge = 30, swr = 300): Response {
+  return json(data, {
+    headers: {
+      'cache-control': `public, s-maxage=${sMaxAge}, stale-while-revalidate=${swr}`,
+    },
+  });
+}
+
 /** 文章实体 → 可序列化对象（Date → ISO 字符串） */
 export function serializeArticle(article: Article): {
   id: string;

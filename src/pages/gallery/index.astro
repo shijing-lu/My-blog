@@ -4,16 +4,21 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { countPhotos, getTimeline, listPhotos } from '@/lib/photos';
+import Timeline from '@/components/Timeline.astro';
+import { countPhotos, getPhotoTags, getTimeline, listPhotos } from '@/lib/photos';
 import { verifyRequest } from '@/lib/auth';
 
 /* ===== Logic ===== */
 /** 每页照片数（与 /api/photos 默认一致） */
 const PAGE_SIZE = 30;
 
-const photos = await listPhotos(PAGE_SIZE, 0);
-const total = await countPhotos();
+/** 当前标签过滤（?tag=） */
+const activeTag = Astro.url.searchParams.get('tag')?.trim().slice(0, 20) || undefined;
+const filter = activeTag ? { tag: activeTag } : {};
+const photos = await listPhotos(PAGE_SIZE, 0, filter);
+const total = await countPhotos(filter);
 const timeline = await getTimeline();
+const photoTags = await getPhotoTags();
 const isAuthed = verifyRequest(Astro.cookies);
 
 /** 日期 → 本地时区 YYYY-MM-DD（与时间线聚合一致） */
@@ -67,11 +72,31 @@ photos.forEach((p) => {
     </div>
     <div class="pixel-divider mt-6" />
 
+    <!-- 标签筛选 -->
+    <div class="mt-4 flex flex-wrap items-center gap-1.5">
+      <a
+        href="/gallery"
+        class={`rounded px-2 py-0.5 text-xs transition-colors ${!activeTag ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-primary'}`}
+      >
+        全部
+      </a>
+      {
+        photoTags.map((t) => (
+          <a
+            href={`/gallery?tag=${encodeURIComponent(t.tag)}`}
+            class={`rounded px-2 py-0.5 text-xs transition-colors ${activeTag === t.tag ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-primary'}`}
+          >
+            {t.tag} ({t.count})
+          </a>
+        ))
+      }
+    </div>
+
     <!-- 三栏：左侧留白 | 中间瀑布流 | 右侧时间线 -->
     <div class="mt-6 grid gap-6 lg:grid-cols-[190px_minmax(0,1fr)_170px]">
       <!-- 左侧：预留区 -->
       <aside class="hidden lg:block">
-        <div class="sticky top-20 rounded-lg border bg-card p-4">
+        <div class="sticky top-20">
           <p class="pixel-chip mb-2 text-muted-foreground">SIDE</p>
           <p class="text-xs leading-relaxed text-muted-foreground">
             左侧区域预留 —— 未来可放随机照片 / 标签筛选 / 统计等。
@@ -83,7 +108,7 @@ photos.forEach((p) => {
       <div class="min-w-0">
         {
           photos.length === 0 ? (
-            <div class="rounded-lg border bg-card p-10 text-center">
+            <div class="py-10 text-center">
               <p class="font-display text-lg font-semibold">影集还是空的</p>
               <p class="mt-2 text-sm text-muted-foreground">
                 {
@@ -107,7 +132,7 @@ photos.forEach((p) => {
                         {
                           g.photos.map((p) => (
                             <figure
-                              class="photo-card group relative overflow-hidden bg-card"
+                              class="photo-card group relative overflow-hidden"
                               data-date={dateKey(p.takenAt)}
                               data-photo-id={p.id}
                             >
@@ -157,32 +182,11 @@ photos.forEach((p) => {
         }
       </div>
 
-      <!-- 右侧：时间线（上最新下最旧） -->
+      <!-- 右侧：时间线（上最新下最旧，真时间线样式） -->
       <aside class="hidden lg:block">
-        <div class="sticky top-20 rounded-lg border bg-card p-4">
+        <div class="sticky top-20">
           <p class="pixel-chip mb-2 text-muted-foreground">时间线 / TIMELINE</p>
-          {
-            timeline.length === 0 ? (
-              <p class="text-xs text-muted-foreground">暂无照片</p>
-            ) : (
-              <ul class="space-y-1.5">
-                {
-                  timeline.map((t) => (
-                    <li>
-                      <button
-                        type="button"
-                        data-timeline-date={t.date}
-                        class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
-                      >
-                        <span class="font-pixel text-[0.65rem]">{t.date}</span>
-                        <span class="shrink-0 rounded bg-muted px-1.5 text-[0.65rem]">{t.count}</span>
-                      </button>
-                    </li>
-                  ))
-                }
-              </ul>
-            )
-          }
+          <Timeline items={timeline.map((t) => ({ date: t.date, label: t.date, count: t.count }))} emptyText="暂无照片" />
         </div>
       </aside>
     </div>
@@ -227,7 +231,7 @@ photos.forEach((p) => {
   }): string {
     const date = p.takenAt.slice(0, 10);
     const ratioStyle = p.width && p.height ? `style="aspect-ratio: ${p.width} / ${p.height}"` : '';
-    return `<figure class="photo-card group relative overflow-hidden bg-card" data-date="${esc(date)}" data-photo-id="${esc(p.id)}">
+    return `<figure class="photo-card group relative overflow-hidden" data-date="${esc(date)}" data-photo-id="${esc(p.id)}">
       <div class="photo-wrap overflow-hidden" ${ratioStyle} data-lightbox data-caption="${esc(p.title)}">
         <img src="${esc(p.thumbUrl ?? p.url)}" alt="${esc(p.title)}" loading="lazy" decoding="async" class="block w-full cursor-zoom-in object-cover" />
       </div>
@@ -312,7 +316,8 @@ photos.forEach((p) => {
     const btn = el('load-more');
     if (btn) btn.textContent = '加载中…';
     try {
-      const res = await fetch(`/api/photos?limit=${PAGE_SIZE}&offset=${offset}`);
+      const tag = new URLSearchParams(location.search).get('tag') ?? '';
+      const res = await fetch(`/api/photos?limit=${PAGE_SIZE}&offset=${offset}${tag ? `&tag=${encodeURIComponent(tag)}` : ''}`);
       if (!res.ok) throw new Error('bad status');
       const data = (await res.json()) as {
         photos: Array<{

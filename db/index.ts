@@ -58,9 +58,9 @@ const breaker: CircuitBreaker = createCircuitBreaker(endpoints.length, { cooldow
 function createDrizzle(ep: DbEndpoint, index: number): BlogDb {
   if (ep.postgres) {
     const client = postgres(ep.url, {
-      max: 2,
-      idle_timeout: 15,
-      connect_timeout: 10,
+      max: 1,
+      idle_timeout: 5,
+      connect_timeout: 3,
     });
     const guarded = guardSql(client, () => breaker.markDown(index)) as Sql;
     return drizzlePostgresJs(guarded, { schema: pgSchema }) as unknown as BlogDb;
@@ -79,12 +79,80 @@ function getActiveDb(): BlogDb {
   return ep.db;
 }
 
+/** 写操作属性：这些操作会在全部端点（主+备）上执行，保证两库一致 */
+const WRITE_PROPS = new Set(['insert', 'update', 'delete']);
+
+type AnyFn = (...args: never[]) => unknown;
+
+/** 双写镜像：把一次写操作的链式调用镜像到所有端点；await 时全部执行、返回主库结果 */
+function dualWriteProxy(create: (d: BlogDb) => unknown): unknown {
+  const builders: unknown[] = [];
+  const ensureBuilders = (): void => {
+    if (builders.length > 0) return;
+    endpoints.forEach((ep, i) => {
+      if (!ep.db) ep.db = createDrizzle(ep, i);
+      builders.push(create(ep.db!));
+    });
+  };
+  const executeAll = (): Promise<unknown> => {
+    ensureBuilders();
+    return Promise.all(
+      builders.map((b, i) =>
+        Promise.resolve(b as PromiseLike<unknown>).then(
+          (v) => ({ ok: true as const, i, v }),
+          (e) => ({ ok: false as const, i, e: e as Error }),
+        ),
+      ),
+    ).then((results) => {
+      for (const r of results) {
+        if (!r.ok) {
+          breaker.markDown(r.i);
+          console.error(`[dbWrite] 端点 ${endpoints[r.i]!.name} 写入失败:`, r.e);
+        }
+      }
+      const ok = results.find((r) => r.ok);
+      if (ok) return ok.v;
+      const err = results.find((r) => !r.ok) as { e: Error } | undefined;
+      throw err?.e ?? new Error('双写全部失败');
+    });
+  };
+  return new Proxy({} as Record<PropertyKey, unknown>, {
+    get(_t, prop) {
+      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+        return (...args: unknown[]) => {
+          const p = executeAll();
+          const fn = (p as unknown as Record<string, unknown>)[String(prop)];
+          return (fn as AnyFn).apply(p as never, args as never);
+        };
+      }
+      if (typeof prop === 'symbol') return undefined;
+      return (...args: unknown[]) => {
+        ensureBuilders();
+        const next: unknown[] = [];
+        for (const b of builders) {
+          const fn = (b as Record<PropertyKey, unknown>)[prop];
+          if (typeof fn !== 'function') return next[0];
+          next.push((fn as AnyFn).apply(b as never, args as never));
+        }
+        return dualWriteProxy(() => next.shift() as BlogDb);
+      };
+    },
+  });
+}
+
 /**
  * 对外统一数据库句柄：Proxy 使 `db.select/insert/update/delete/...` 每次调用时
- * 动态路由到当前健康端点，从而在端点故障后自动切换。
+ * 动态路由到当前健康端点，从而在端点故障后自动切换；
+ * 其中 `insert/update/delete` 为**双写**（主+备都执行，详见 dualWriteProxy）。
  */
 export const db: BlogDb = new Proxy({} as BlogDb, {
   get(_target, prop) {
+    if (typeof prop === 'string' && WRITE_PROPS.has(prop)) {
+      return (...args: unknown[]) =>
+        dualWriteProxy((d) =>
+          (d as unknown as Record<string, AnyFn>)[prop]!(...(args as never[])),
+        );
+    }
     const active = getActiveDb();
     const value = (active as unknown as Record<PropertyKey, unknown>)[prop as PropertyKey];
     return typeof value === 'function'
@@ -96,4 +164,37 @@ export const db: BlogDb = new Proxy({} as BlogDb, {
 /** 兼容旧导出：返回统一句柄（db / getDb 二者等价） */
 export function getDb(): BlogDb {
   return db;
+}
+
+/**
+ * 全量双写：同一写操作在**全部**端点（主库 + 备用库）上依次执行，保证两库一致。
+ *
+ * 背景：主备熔断按「当前健康端点」路由，若写只落一侧、读落另一侧，会出现
+ * 「页面间值不一致 / 回显旧值 / 数据分叉」等问题。双写后任一端点都持有最新数据，
+ * 读取无论落在哪个端点都一致；主库故障期间的写入落在备库不丢，恢复后由对账脚本回填。
+ *
+ * - 返回**第一个成功**端点（即主库）的结果；其余端点继续尽力执行；
+ * - 某端点失败：仅标记冷却并记录日志，不阻断其余端点（尽力同步）；
+ * - 全部端点失败：抛出最后一次错误；
+ * - 单端点（本地 SQLite / 未配置 FALLBACK）时行为与直接写一致。
+ */
+export async function dbWrite<T>(build: (d: BlogDb) => Promise<T>): Promise<T> {
+  let result: T | undefined;
+  let lastErr: unknown;
+  let anySuccess = false;
+  for (let i = 0; i < endpoints.length; i += 1) {
+    const ep = endpoints[i]!;
+    if (!ep.db) ep.db = createDrizzle(ep, i);
+    try {
+      const r = await build(ep.db);
+      if (result === undefined) result = r; // 保留主库（首个成功端点）的结果
+      anySuccess = true;
+    } catch (err) {
+      lastErr = err;
+      breaker.markDown(i);
+      console.error(`[dbWrite] 端点 ${ep.name} 写入失败:`, err);
+    }
+  }
+  if (!anySuccess && lastErr !== undefined) throw lastErr;
+  return result as T;
 }

@@ -8,7 +8,7 @@
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { fonts, settings } from '../../db/schema.sqlite';
-import { db } from '../../db';
+import { db, dbWrite } from '../../db';
 import type { BlogFont, FontChoice, SiteFonts } from '../../db/types';
 
 /** 字体设置键 */
@@ -67,10 +67,12 @@ export async function getSiteFonts(): Promise<SiteFonts> {
 export async function saveSiteFonts(input: Partial<SiteFonts>): Promise<SiteFonts> {
   const normalized = normalize(input);
   const now = new Date();
-  await db
-    .insert(settings)
-    .values({ key: SETTINGS_KEY, value: JSON.stringify(normalized), updatedAt: now })
-    .onConflictDoUpdate({ target: settings.key, set: { value: JSON.stringify(normalized), updatedAt: now } });
+  await dbWrite((d) =>
+    d
+      .insert(settings)
+      .values({ key: SETTINGS_KEY, value: JSON.stringify(normalized), updatedAt: now })
+      .onConflictDoUpdate({ target: settings.key, set: { value: JSON.stringify(normalized), updatedAt: now } }),
+  );
   return normalized;
 }
 

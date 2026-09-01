@@ -8,13 +8,15 @@
  */
 import { asc, eq, like, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { docArticles, docBundles, docCategories } from '../../db/schema.sqlite';
+import { docArticles, docBundles, docCategories, docNodes } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type {
   DocArticle,
   DocBundle,
   DocCategory,
   DocCategoryView,
+  DocNode,
+  DocNodeView,
   DocSearchResult,
 } from '../../db/types';
 
@@ -25,6 +27,17 @@ export async function listDocTree(): Promise<DocCategoryView[]> {
   const cats = (await db.select().from(docCategories).orderBy(asc(docCategories.sort), asc(docCategories.createdAt))) as DocCategory[];
   const bundles = (await db.select().from(docBundles).orderBy(asc(docBundles.sort), asc(docBundles.createdAt))) as DocBundle[];
   const articles = (await db.select().from(docArticles).orderBy(asc(docArticles.sort), asc(docArticles.createdAt))) as DocArticle[];
+  // 节点统计（嵌套目录下的文章/目录数）
+  const nodeRows = await db
+    .select({ bundleId: docNodes.bundleId, kind: docNodes.kind })
+    .from(docNodes);
+  const nodeStats = new Map<string, { articleCount: number; folderCount: number }>();
+  for (const n of nodeRows) {
+    const s = nodeStats.get(n.bundleId) ?? { articleCount: 0, folderCount: 0 };
+    if (n.kind === 'folder') s.folderCount += 1;
+    else s.articleCount += 1;
+    nodeStats.set(n.bundleId, s);
+  }
 
   const byBundle = new Map<string, Array<Pick<DocArticle, 'id' | 'title' | 'sort'>>>();
   articles.forEach((a) => {
@@ -37,15 +50,20 @@ export async function listDocTree(): Promise<DocCategoryView[]> {
     ...c,
     bundles: bundles
       .filter((b) => b.categoryId === c.id)
-      .map((b) => ({
-        id: b.id,
-        name: b.name,
-        icon: b.icon,
-        summary: b.summary,
-        sort: b.sort,
-        createdAt: b.createdAt,
-        articles: byBundle.get(b.id) ?? [],
-      })),
+      .map((b) => {
+        const stats = nodeStats.get(b.id) ?? { articleCount: 0, folderCount: 0 };
+        return {
+          id: b.id,
+          name: b.name,
+          icon: b.icon,
+          summary: b.summary,
+          sort: b.sort,
+          createdAt: b.createdAt,
+          articles: byBundle.get(b.id) ?? [],
+          articleCount: stats.articleCount,
+          folderCount: stats.folderCount,
+        };
+      }),
   }));
 }
 
@@ -126,6 +144,7 @@ export async function updateDocBundle(
 
 /** 删除文档（级联删除其下文章） */
 export async function deleteDocBundle(id: string): Promise<void> {
+  await db.delete(docNodes).where(eq(docNodes.bundleId, id));
   await db.delete(docArticles).where(eq(docArticles.bundleId, id));
   await db.delete(docBundles).where(eq(docBundles.id, id));
 }
@@ -213,8 +232,19 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     categoryName: r.categoryName ?? '',
   }));
 
-  // 命中文章（title/content 匹配）→ 附带文档名
-  const articleRows = await db
+  // 命中文章（doc_nodes 优先，doc_articles 兜底兼容；按 id 去重）
+  const nodeRows2 = await db
+    .select({
+      id: docNodes.id,
+      title: docNodes.title,
+      bundleId: docNodes.bundleId,
+      bundleName: docBundles.name,
+    })
+    .from(docNodes)
+    .leftJoin(docBundles, eq(docNodes.bundleId, docBundles.id))
+    .where(or(like(docNodes.title, query), like(docNodes.content, query)))
+    .limit(limit);
+  const legacyArticleRows = await db
     .select({
       id: docArticles.id,
       title: docArticles.title,
@@ -225,7 +255,131 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     .leftJoin(docBundles, eq(docArticles.bundleId, docBundles.id))
     .where(or(like(docArticles.title, query), like(docArticles.content, query)))
     .limit(limit);
-  const articles = articleRows.map((r) => ({ id: r.id, title: r.title, bundleId: r.bundleId, bundleName: r.bundleName ?? '' }));
+  const seen = new Set<string>();
+  const articles = [...nodeRows2, ...legacyArticleRows]
+    .filter((r) => !seen.has(r.id) && (seen.add(r.id), true))
+    .map((r) => ({ id: r.id, title: r.title, bundleId: r.bundleId, bundleName: r.bundleName ?? '' }));
 
   return { bundles, articles };
+}
+
+
+/* ---------------- 节点 CRUD（册内多级目录） ---------------- */
+
+/** 列出某文档下的全部节点（含正文；供详情页三栏渲染与树构建） */
+export async function listBundleNodes(bundleId: string): Promise<DocNode[]> {
+  return db
+    .select()
+    .from(docNodes)
+    .where(eq(docNodes.bundleId, bundleId))
+    .orderBy(asc(docNodes.sort), asc(docNodes.createdAt)) as Promise<DocNode[]>;
+}
+
+/** 节点数组 → 嵌套树（folder 可含 children） */
+export function buildNodeTree(nodes: DocNode[]): DocNodeView[] {
+  const map = new Map<string, DocNodeView>();
+  nodes.forEach((n) =>
+    map.set(n.id, {
+      id: n.id,
+      bundleId: n.bundleId,
+      parentId: n.parentId,
+      kind: n.kind as 'folder' | 'article',
+      title: n.title,
+      sort: n.sort,
+      createdAt: n.createdAt,
+      updatedAt: n.updatedAt,
+      children: [],
+    }),
+  );
+  const roots: DocNodeView[] = [];
+  map.forEach((v) => {
+    if (v.parentId && map.has(v.parentId)) {
+      map.get(v.parentId)!.children.push(v);
+    } else {
+      roots.push(v);
+    }
+  });
+  const sortRec = (list: DocNodeView[]): void => {
+    list.sort((a, b) => a.sort - b.sort || a.createdAt.getTime() - b.createdAt.getTime());
+    list.forEach((n) => sortRec(n.children));
+  };
+  sortRec(roots);
+  return roots;
+}
+
+/** 按 id 取节点 */
+export async function getDocNode(id: string): Promise<DocNode | null> {
+  const rows = await db.select().from(docNodes).where(eq(docNodes.id, id)).limit(1);
+  return (rows[0] as DocNode | undefined) ?? null;
+}
+
+/** 新建节点（folder=目录 / article=文章） */
+export async function createDocNode(input: {
+  bundleId: string;
+  parentId: string | null;
+  kind: 'folder' | 'article';
+  title: string;
+  content: string;
+  sort: number;
+}): Promise<DocNode> {
+  const now = new Date();
+  const rows = await db
+    .insert(docNodes)
+    .values({
+      id: randomUUID(),
+      bundleId: input.bundleId,
+      parentId: input.parentId,
+      kind: input.kind,
+      title: input.title,
+      content: input.content,
+      sort: input.sort,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+  return rows[0] as DocNode;
+}
+
+/** 更新节点（标题/正文/父目录/排序） */
+export async function updateDocNode(
+  id: string,
+  patch: { title?: string; content?: string; parentId?: string | null; sort?: number },
+): Promise<DocNode | null> {
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.title !== undefined) set.title = patch.title;
+  if (patch.content !== undefined) set.content = patch.content;
+  if (patch.parentId !== undefined) set.parentId = patch.parentId;
+  if (patch.sort !== undefined) set.sort = patch.sort;
+  const rows = await db.update(docNodes).set(set).where(eq(docNodes.id, id)).returning();
+  return (rows[0] as DocNode | undefined) ?? null;
+}
+
+/** 删除节点（级联删除其所有子孙） */
+export async function deleteDocNode(id: string): Promise<DocNode | null> {
+  const node = await getDocNode(id);
+  if (!node) return null;
+  const all = await listBundleNodes(node.bundleId);
+  // 收集子孙 id（BFS）
+  const childrenOf = new Map<string, string[]>();
+  all.forEach((n) => {
+    if (!n.parentId) return;
+    const list = childrenOf.get(n.parentId) ?? [];
+    list.push(n.id);
+    childrenOf.set(n.parentId, list);
+  });
+  const toDelete = new Set<string>([id]);
+  const queue = [id];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const cid of childrenOf.get(cur) ?? []) {
+      if (!toDelete.has(cid)) {
+        toDelete.add(cid);
+        queue.push(cid);
+      }
+    }
+  }
+  for (const did of toDelete) {
+    await db.delete(docNodes).where(eq(docNodes.id, did));
+  }
+  return node;
 }

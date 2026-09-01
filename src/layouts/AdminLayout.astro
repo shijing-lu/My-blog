@@ -42,19 +42,21 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
         My Blog
       </a>
       <nav class="flex items-center gap-2 text-xs sm:gap-3 sm:text-sm">
-        <a href="/admin" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+        {/* 后台互跳用整页刷新（data-astro-reload）：后台页面内联脚本只在首次加载执行，
+            直接元素绑定与页面状态会在 SPA 切换后失效（点击无反应）——整页刷新保证状态新鲜 */}
+        <a href="/admin" data-astro-reload class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
           文章
         </a>
-        <a href="/admin/mindmaps" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+        <a href="/admin/mindmaps" data-astro-reload class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
           思维导图
         </a>
-        <a href="/admin/nav" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+        <a href="/admin/nav" data-astro-reload class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
           导航
         </a>
-        <a href="/admin/settings" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+        <a href="/admin/settings" data-astro-reload class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
           设置
         </a>
-        <a href="/" class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
+        <a href="/" data-astro-reload class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
           查看文章
         </a>
         {
@@ -73,8 +75,9 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
 </html>
 
 <script>
-  /** 退出登录：POST /api/logout 后回首页 */
-  document.getElementById('admin-logout')?.addEventListener('click', async () => {
+  import { on } from '@/lib/dom';
+  /** 退出登录：POST /api/logout 后回首页（委托绑定，防 SPA 后失效） */
+  on('admin-logout', 'click', async () => {
     try {
       await fetch('/api/logout', { method: 'POST' });
     } catch {
