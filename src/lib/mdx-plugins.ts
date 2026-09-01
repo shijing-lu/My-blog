@@ -14,6 +14,7 @@ import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import rehypePrismPlus from 'rehype-prism-plus';
 import rehypeKatex from 'rehype-katex';
+import { toHtml } from 'hast-util-to-html';
 import type { Root, RootContent, Node } from 'mdast';
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
 
@@ -25,10 +26,12 @@ export type AdmonitionType = (typeof ADMONITION_TYPES)[number];
 export interface TocItem {
   /** 标题 id（由 rehype-slug 生成） */
   id: string;
-  /** 标题文本 */
+  /** 标题文本（KaTeX 节点取 LaTeX 源码，纯文本展示用） */
   text: string;
-  /** 级别（2=H2，3=H3） */
-  level: 2 | 3;
+  /** 级别（2=H2，3=H3，4=H4） */
+  level: 2 | 3 | 4;
+  /** 标题内层 HTML（含 KaTeX 渲染标记，供目录富文本渲染；纯文本场景可忽略） */
+  html?: string;
 }
 
 /** 块级锚点条目（思维导图节点引用段落用） */
@@ -118,15 +121,63 @@ export function remarkDirectiveToJsx() {
   };
 }
 
-/** 递归提取元素文本（跳过 autolink 锚点子节点） */
+/** 读取元素 class 列表 */
+function classListOf(node: Element): string[] {
+  // hast 的 className 类型在不同子包里声明不一（string / string[] / 混合），统一按 unknown 收窄
+  const cls = node.properties?.className as unknown;
+  if (Array.isArray(cls)) return cls.map((c) => String(c));
+  if (typeof cls === 'string') return cls.split(/\s+/).filter(Boolean);
+  return [];
+}
+
+/** 在 KaTeX 节点内找 LaTeX 源码（annotation encoding="application/x-tex"） */
+function findTexSource(node: Element): string {
+  let out = '';
+  const walk = (n: Element | ElementContent): void => {
+    if (n.type === 'element' && n.tagName === 'annotation') {
+      const enc = n.properties?.encoding;
+      if (enc === 'application/x-tex' && Array.isArray(n.children)) {
+        out = n.children.map((c) => (c.type === 'text' ? String(c.value ?? '') : '')).join('').trim();
+      }
+    }
+    if (n.type === 'element' && Array.isArray(n.children)) {
+      n.children.forEach((c) => walk(c as ElementContent));
+    }
+  };
+  walk(node);
+  return out;
+}
+
+/**
+ * 递归提取标题纯文本（目录 text 字段）：
+ * - 跳过 autolink 锚点 <a>（rehype-autolink-headings 注入的 # 链接）
+ * - KaTeX 节点（.katex）取 annotation 里的 LaTeX 源码，跳过 MathML/视觉区避免重复噪音
+ */
 function textContent(node: ElementContent | undefined): string {
   if (!node) return '';
   if (node.type === 'text') return String(node.value ?? '');
-  if ('tagName' in node && node.tagName === 'a') return '';
-  if ('children' in node && Array.isArray(node.children)) {
-    return node.children.map((child) => textContent(child as ElementContent)).join('');
+  if (node.type === 'element') {
+    if (node.tagName === 'a') return '';
+    const classes = classListOf(node);
+    if (classes.includes('katex')) return findTexSource(node);
+    if (classes.includes('katex-mathml')) return '';
+    if (Array.isArray(node.children)) {
+      return node.children.map((child) => textContent(child as ElementContent)).join('');
+    }
   }
   return '';
+}
+
+/**
+ * 序列化标题内层子树为 HTML（目录 html 字段，含 KaTeX 标记）。
+ * 过滤 autolink <a> 子节点；KaTeX/strong/em/code 等富文本原样保留，
+ * 依赖页面已引入的 katex.min.css 即可渲染公式。
+ */
+function tocHtml(node: Element): string {
+  const children = (node.children ?? []).filter(
+    (c) => !(c.type === 'element' && (c as Element).tagName === 'a'),
+  );
+  return children.map((c) => toHtml(c as ElementContent)).join('');
 }
 
 /**
@@ -223,21 +274,24 @@ export function remarkLegacyFootnotes() {
 }
 
 /**
- * rehype 插件：采集 h2/h3 标题到 `file.data.toc`。
- * 必须在 `rehype-slug` 之后运行以获得标题 id。
+ * rehype 插件：采集 h2/h3/h4 标题到 `file.data.toc`。
+ * 必须在 `rehype-slug` 之后运行以获得标题 id；
+ * 若管线含 `rehype-katex`，须在其之后运行，html 字段才能带上公式标记。
  */
 export function rehypeTocCollector() {
   return (tree: HastRoot, file: { data: Record<string, unknown> }) => {
     const toc: TocItem[] = [];
     const walk = (node: Element | HastRoot): void => {
       if (node.type === 'element') {
-        if (node.tagName === 'h2' || node.tagName === 'h3') {
+        if (node.tagName === 'h2' || node.tagName === 'h3' || node.tagName === 'h4') {
           const id = node.properties?.id;
           if (typeof id === 'string') {
+            const level = node.tagName === 'h2' ? 2 : node.tagName === 'h3' ? 3 : 4;
             toc.push({
               id,
               text: textContent(node).trim() || id,
-              level: node.tagName === 'h2' ? 2 : 3,
+              level,
+              html: tocHtml(node) || undefined,
             });
           }
         }

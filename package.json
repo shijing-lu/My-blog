@@ -54,6 +54,7 @@
     "giscus": "^1.6.0",
     "github-slugger": "^2.0.0",
     "gsap": "^3.15.0",
+    "hast-util-to-html": "^9.0.5",
     "katex": "^0.18.5",
     "lucide-react": "^1.33.0",
     "lunar-javascript": "^1.7.7",

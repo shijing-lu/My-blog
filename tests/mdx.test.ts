@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderMdx } from '../src/lib/mdx';
+import { buildTocTree, renderTocTreeHtml } from '../src/lib/toc-tree';
 
 describe('renderMdx', () => {
   it('渲染 GFM 表格', async () => {
@@ -63,5 +64,68 @@ describe('renderMdx', () => {
     const { html } = await renderMdx('```bash\necho $HOME\n```');
     expect(html).not.toContain('katex');
     expect(html).toContain('$HOME');
+  });
+});
+
+describe('目录：层级、KaTeX 与树形渲染', () => {
+  it('从 h2/h3/h4 提取目录（h4 亦采集）', async () => {
+    const { toc } = await renderMdx('## A\n### B\n#### C\n## D');
+    expect(toc.map((t) => t.level)).toEqual([2, 3, 4, 2]);
+    expect(toc.map((t) => t.text)).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('标题含 LaTeX 时 html 字段带 KaTeX 标记、text 为 LaTeX 源码', async () => {
+    const { toc } = await renderMdx('## 范德蒙行列式 $V_n$ 的性质\n### 展开 $D_n = \\prod$');
+    expect(toc).toHaveLength(2);
+    expect(toc[0]!.html).toContain('class="katex"');
+    expect(toc[0]!.text).toContain('V_n');
+    expect(toc[0]!.text).not.toContain('$'); // $ 定界符不残留
+    expect(toc[1]!.html).toContain('class="katex"');
+  });
+
+  it('纯文本标题 html 字段为普通标记（无 katex）', async () => {
+    const { toc } = await renderMdx('## 普通标题');
+    expect(toc[0]!.html).toContain('普通标题');
+    expect(toc[0]!.html).not.toContain('katex');
+  });
+
+  it('buildTocTree：扁平 → 嵌套树（跳级挂最近浅级）', () => {
+    const tree = buildTocTree([
+      { id: 'a', text: 'A', level: 2 },
+      { id: 'b', text: 'B', level: 3 },
+      { id: 'c', text: 'C', level: 4 },
+      { id: 'd', text: 'D', level: 2 },
+    ]);
+    expect(tree.map((n) => n.item.id)).toEqual(['a', 'd']);
+    expect(tree[0]!.children.map((n) => n.item.id)).toEqual(['b']);
+    expect(tree[0]!.children[0]!.children.map((n) => n.item.id)).toEqual(['c']);
+    expect(tree[1]!.children).toHaveLength(0);
+  });
+
+  it('renderTocTreeHtml：有子级才有折叠按钮，层级类名正确', () => {
+    const out = renderTocTreeHtml([
+      { id: 'a', text: 'A', level: 2 },
+      { id: 'b', text: 'B', level: 3 },
+      { id: 'd', text: 'D', level: 2 },
+    ]);
+    expect(out).toContain('toc-node');
+    expect(out).toContain('data-doc-anchor');
+    expect(out).toContain('toc-l2');
+    expect(out).toContain('toc-l3');
+    // A 节点带折叠按钮；叶子 B/D 用占位符
+    expect((out.match(/class="toc-fold"/g) ?? []).length).toBe(1);
+    expect(out).toContain('toc-fold-spacer');
+    expect(out).toContain('href="#a"');
+    expect(out).toContain('href="#b"');
+  });
+
+  it('renderTocTreeHtml：KaTeX html 字段注入，纯文本转义', () => {
+    const out = renderTocTreeHtml([
+      { id: 'a', text: 'A <对比>', level: 2, html: '<span class="katex">x</span>' },
+      { id: 'b', text: 'B <对比>', level: 2 },
+    ]);
+    expect(out).toContain('<span class="katex">x</span>'); // html 原样注入
+    expect(out).toContain('B &lt;对比&gt;'); // text 转义
+    expect(out).not.toContain('>B <对比><'); // 未转义原文不出现
   });
 });

@@ -14,8 +14,10 @@ import { evaluate } from '@mdx-js/mdx';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import remarkRehype from 'remark-rehype';
 import rehypeSlug from 'rehype-slug';
+import rehypeKatex from 'rehype-katex';
 import rehypeStringify from 'rehype-stringify';
 import rehypeParse from 'rehype-parse';
 import { remarkPlugins, rehypePlugins, rehypeTocCollector, type TocItem, type BlockAnchorMap, type BlockAnchorItem } from './mdx-plugins';
@@ -71,7 +73,11 @@ export interface RenderedMdx {
 }
 
 /**
- * 提取目录（独立轻量管线：remark → rehype → slug → tocCollector）
+ * 提取目录（独立轻量管线：remark → rehype → slug → katex → tocCollector）
+ *
+ * 与主渲染管线同构地跑 remarkMath/rehypeKatex：
+ * 标题里的 `$...$` 会被渲染成 KaTeX HTML，collector 由此产出
+ * `html` 字段（富文本目录用）与 `text` 字段（LaTeX 源码纯文本）。
  *
  * @param source MDX 源码
  * @returns 目录项数组
@@ -81,8 +87,10 @@ export async function extractToc(source: string): Promise<TocItem[]> {
   const file = (await unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkMath)
     .use(remarkRehype)
     .use(rehypeSlug)
+    .use(rehypeKatex)
     .use(rehypeTocCollector)
     .use(rehypeStringify)
     .process(normalized)) as unknown as { data: Record<string, unknown> };

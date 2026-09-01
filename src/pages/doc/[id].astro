@@ -4,6 +4,8 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import { verifyRequest } from '@/lib/auth';
 import { buildNodeTree, getBundle, listBundleNodes, listDocTree } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
+import { renderTocTreeHtml } from '@/lib/toc-tree';
+import type { TocItem } from '@/lib/mdx-plugins';
 import type { DocNodeView } from '../../../db/types';
 
 /* ===== Logic ===== */
@@ -24,12 +26,14 @@ const activeNode =
   articleNodes.find((n) => n.id === hashId) ?? articleNodes[0] ?? null;
 
 let html = '';
-let toc: Array<{ id: string; text: string; level: number }> = [];
+let toc: TocItem[] = [];
 if (activeNode) {
   const r = await renderMdx(activeNode.content);
   html = r.html;
   toc = r.toc;
 }
+/** 树形目录 HTML（SSR 初始渲染；客户端切换文章时由同一模块重建） */
+const tocTreeHtml = renderTocTreeHtml(toc);
 
 // 面包屑：分类名（通过列表匹配，可选）
 const allCategories = await listDocTree();
@@ -115,29 +119,43 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     </div>
 
     <div class="mx-auto w-full max-w-6xl px-4 py-6">
-      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（默认 280px；可折叠为 44px，仅留按钮） */}
-      <div id="doc-3col" data-toc-collapsed="false" class="grid gap-6 transition-[grid-template-columns] duration-200 lg:grid-cols-[220px_minmax(0,1fr)_var(--toc-w,280px)]">
-        {/* 左栏：册内目录树 */}
-        <aside class="lg:sticky lg:top-20 lg:self-start lg:border-r lg:border-border lg:pr-4">
-          <div class="lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
-            <div class="flex items-center justify-between px-1">
-              <p class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">本册目录</p>
+      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（默认左220px右280px；均可折叠为44px仅留按钮） */}
+      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)_var(--toc-w,280px)]">
+        {/* 左栏：册内目录树（可折叠，与右栏对称交互） */}
+        <aside id="doc-ltoc-aside" class="lg:sticky lg:top-20 lg:self-start">
+          <div class="lg:border-r lg:border-border lg:pr-4">
+            <div class="flex items-center justify-between gap-2 pl-1">
+              <p data-ltoc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">本册目录</p>
               {
                 isAuthed && (
-                  <span class="flex items-center gap-1">
+                  <span data-ltoc-label class="flex items-center gap-1">
                     <button id="doc-add-root-folder" type="button" title="新建目录" aria-label="新建目录" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋目录</button>
                     <button id="doc-add-root-article" type="button" title="新建文章" aria-label="新建文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋文章</button>
                   </span>
                 )
               }
+              <button
+                id="doc-ltoc-toggle"
+                type="button"
+                title="收起 / 展开目录"
+                aria-label="收起或展开目录"
+                aria-controls="doc-ltoc-body"
+                aria-expanded="true"
+                class="hidden h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-primary lg:inline-flex"
+              >
+                <svg data-ltoc-icon-collapse class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
+                <svg data-ltoc-icon-expand class="hidden h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
+              </button>
             </div>
-            <nav class="mt-3 space-y-0.5 text-base" aria-label="本册目录">
-              {treeHtml !== '' ? (
-                <div class="space-y-0.5" set:html={treeHtml} />
-              ) : (
-                <p class="px-1 py-2 text-xs text-muted-foreground">暂无内容 —— 管理员可新建目录或文章。</p>
-              )}
-            </nav>
+            <div id="doc-ltoc-body" class="mt-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+              <nav class="space-y-0.5 text-base" aria-label="本册目录">
+                {treeHtml !== '' ? (
+                  <div class="space-y-0.5" set:html={treeHtml} />
+                ) : (
+                  <p class="px-1 py-2 text-xs text-muted-foreground">暂无内容 —— 管理员可新建目录或文章。</p>
+                )}
+              </nav>
+            </div>
           </div>
         </aside>
 
@@ -156,9 +174,10 @@ const folderOptionsJson = JSON.stringify(folderOptions);
           )}
         </main>
 
-        {/* 右栏：文章内目录（可折叠——折叠时仅保留按钮） */}
+        {/* 右栏：文章内目录（可折叠整栏 + 树形层级折叠 + 独立滚动） */}
         <aside id="doc-toc-aside" class="hidden lg:block">
-          <div id="doc-toc-rail" class="sticky top-20 relative border-l border-border pl-4">
+          <div class="sticky top-20">
+            {/* 标题行：整栏收起按钮（固定不滚） */}
             <div class="flex items-start justify-between gap-2">
               <p data-toc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
               <button
@@ -174,21 +193,14 @@ const folderOptionsJson = JSON.stringify(folderOptions);
                 <svg data-toc-icon-expand class="hidden h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
               </button>
             </div>
-            {toc.length > 0 ? (
-              <div id="doc-toc-list" data-toc-label class="mt-3 space-y-2.5">
-                {toc.map((item) => (
-                  <a
-                    data-doc-anchor
-                    class={'block text-base leading-snug text-muted-foreground transition-colors hover:text-primary ' + (item.level === 3 ? 'pl-4 text-[0.95rem]' : '')}
-                    href={`#${item.id}`}
-                  >
-                    {esc(item.text)}
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <p data-toc-label class="mt-2 text-xs text-muted-foreground">无目录</p>
-            )}
+            {/* 目录滚动区：悬停滚动时仅滚自身（overscroll-behavior:contain 阻断联动正文） */}
+            <div id="doc-toc-rail" class="mt-3 max-h-[calc(100vh-8rem)] overflow-y-auto overscroll-contain border-l border-border pl-3 [scrollbar-width:thin]">
+              {toc.length > 0 ? (
+                <div id="doc-toc-list" data-toc-label class="flex flex-col gap-1.5 pr-1" set:html={tocTreeHtml} />
+              ) : (
+                <p data-toc-label class="mt-2 text-xs text-muted-foreground">无目录</p>
+              )}
+            </div>
           </div>
         </aside>
       </div>
@@ -259,26 +271,89 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 </BaseLayout>
 
 <style is:global>
-  /* ===== /doc/[id] 三栏右目录：可折叠展开 ===== */
-  /* 默认宽度（与 grid 模板里 --toc-w 默认值保持一致） */
-  #doc-3col { --toc-w: 280px; }
-  /* 折叠态：只留按钮条 */
+  /* ===== /doc/[id] 三栏：左右目录均可整栏折叠 ===== */
+  /* 默认宽度（与 grid 模板里 --toc-lw / --toc-w 默认值保持一致） */
+  #doc-3col { --toc-lw: 220px; --toc-w: 280px; }
+  /* 左栏折叠态：只留按钮条 */
+  #doc-3col[data-ltoc-collapsed='true'] { --toc-lw: 44px; }
+  /* 右栏折叠态：只留按钮条 */
   #doc-3col[data-toc-collapsed='true'] { --toc-w: 44px; }
-  /* 折叠态：隐藏标题/列表，竖线缩窄；按钮居中 */
+
+  /* —— 左栏折叠：隐藏标题/新建按钮/树，竖线缩窄；按钮居中 —— */
+  #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-label] { display: none; }
+  #doc-3col[data-ltoc-collapsed='true'] #doc-ltoc-body { display: none; }
+  #doc-3col[data-ltoc-collapsed='true'] #doc-ltoc-toggle { margin-left: auto; margin-right: auto; }
+  #doc-3col[data-ltoc-collapsed='true'] #doc-ltoc-aside .lg\:border-r { border-right-width: 0; padding-right: 0; }
+  /* 左栏折叠态按钮图标切换（折叠图隐藏，展开图显示） */
+  #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-icon-collapse] { display: none; }
+  #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-icon-expand] { display: inline-block; }
+  #doc-3col[data-ltoc-collapsed='false'] [data-ltoc-icon-collapse] { display: inline-block; }
+  #doc-3col[data-ltoc-collapsed='false'] [data-ltoc-icon-expand] { display: none; }
+
+  /* —— 右栏折叠：隐藏标题/列表，竖线缩窄；按钮居中 —— */
   #doc-3col[data-toc-collapsed='true'] #doc-toc-rail { padding-left: 0; border-left-width: 0; }
   #doc-3col[data-toc-collapsed='true'] [data-toc-label] { display: none; }
   #doc-3col[data-toc-collapsed='true'] #doc-toc-toggle { margin-left: auto; margin-right: auto; }
-  /* 折叠态下按钮图标切换（折叠图隐藏，展开图显示） */
+  /* 右栏折叠态按钮图标切换（折叠图隐藏，展开图显示） */
   #doc-3col[data-toc-collapsed='true'] [data-toc-icon-collapse] { display: none; }
   #doc-3col[data-toc-collapsed='true'] [data-toc-icon-expand] { display: inline-block; }
   /* 展开态下折叠图显示、展开图隐藏（默认状态） */
   #doc-3col[data-toc-collapsed='false'] [data-toc-icon-collapse] { display: inline-block; }
   #doc-3col[data-toc-collapsed='false'] [data-toc-icon-expand] { display: none; }
+
+  /* —— 折叠/展开过渡：淡出→瞬切宽度→淡入（opacity 走合成器，避免 grid 列宽布局动画导致全文档每帧重排卡顿） —— */
+  #doc-3col { transition: opacity 0.12s ease; }
+  #doc-3col.rail-anim { opacity: 0; }
+
+  /* ===== 树形目录：层级递归折叠 ===== */
+  .toc-row { display: flex; align-items: flex-start; gap: 0.125rem; }
+  .toc-fold {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-muted-foreground);
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: color 0.15s;
+  }
+  .toc-fold:hover { color: var(--color-primary); }
+  .toc-fold .toc-chevron { width: 0.7rem; height: 0.7rem; transition: transform 0.15s ease; }
+  .toc-node.folded > .toc-row .toc-chevron { transform: rotate(-90deg); }
+  .toc-node.folded > .toc-children { display: none; }
+  .toc-fold-spacer { flex-shrink: 0; width: 1rem; height: 1.4rem; }
+  .toc-children {
+    margin-left: 1.05rem;
+    margin-top: 0.375rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+  .toc-item {
+    display: block;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    color: var(--color-muted-foreground);
+    transition: color 0.2s;
+    min-width: 0;
+  }
+  .toc-item:hover { color: var(--color-primary); }
+  .toc-l3 { font-size: 0.9rem; }
+  .toc-l4 { font-size: 0.85rem; }
+
+  /* ===== 目录内 KaTeX：缩小字号防撑行；display 公式收敛为块内展示 ===== */
+  #doc-toc-list .katex { font-size: 0.85em; }
+  #doc-toc-list .katex-display { margin: 0.2em 0; }
+  #doc-toc-list .katex-display > .katex { display: inline-block; white-space: nowrap; }
 </style>
 
 <script>
   /** 文档详情页：目录树文章切换 + 节点 CRUD（目录/文章 增删改移动）+ 预览 */
   import { confirmDanger } from '@/lib/confirm';
+  import { renderTocTreeHtml } from '@/lib/toc-tree';
+  import type { TocItem } from '@/lib/mdx-plugins';
 
   const DATA = document.getElementById('doc-detail-data');
   const IS_AUTHED = DATA?.dataset.authed === '1';
@@ -323,17 +398,16 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     }
     try {
       const res = await fetch(`/api/doc/nodes/${id}/render`);
-      const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: Array<{ id: string; text: string; level: number }>; error?: string };
+      const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: TocItem[]; error?: string };
       if (!res.ok || typeof d.html !== 'string') throw new Error(d.error ?? '加载失败');
       const h1 = document.querySelector('main h1');
       if (h1 && d.title) h1.textContent = d.title;
       const article = document.querySelector<HTMLElement>('main article.prose');
       if (article) article.innerHTML = d.html;
+      // 重建树形目录（与 SSR 同一实现：层级折叠 + KaTeX 富文本）
       const tocWrap = document.getElementById('doc-toc-list');
       if (tocWrap && Array.isArray(d.toc)) {
-        tocWrap.innerHTML = d.toc.length
-          ? d.toc.map((item) => `<a data-doc-anchor class="block text-base leading-snug text-muted-foreground transition-colors hover:text-primary ${item.level === 3 ? 'pl-4 text-[0.95rem]' : ''}" href="#${item.id}">${escHtml(item.text)}</a>`).join('')
-          : '<p class="text-xs text-muted-foreground">无目录</p>';
+        tocWrap.innerHTML = d.toc.length ? renderTocTreeHtml(d.toc) : '<p class="text-xs text-muted-foreground">无目录</p>';
       }
       document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
       history.replaceState(null, '', `#${id}`);
@@ -357,31 +431,75 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   document.addEventListener('astro:page-load', () => setActiveArticle(currentActiveId()));
   setActiveArticle(currentActiveId());
 
-  /* ================= 右栏目录：可折叠展开（localStorage 持久化） ================= */
-  // 状态：默认展开；收起后右栏仅显示按钮，正文自动变宽
-  const TOC_KEY = 'doc-toc-collapsed';
-  const grd = el<HTMLDivElement>('doc-3col');
-  const tocToggle = el<HTMLButtonElement>('doc-toc-toggle');
-  if (grd && tocToggle) {
+  /* ================= 树形目录：层级折叠/展开（事件委托，动态重建安全） ================= */
+  // 点击折叠箭头 → 折叠/展开该节点全部子孙；点击目录链接仍正常锚点跳转
+  document.addEventListener('click', (e) => {
+    const fold = (e.target as HTMLElement).closest<HTMLElement>('.toc-fold');
+    if (!fold) return;
+    const node = fold.closest<HTMLElement>('.toc-node');
+    if (!node) return;
+    const folded = node.classList.toggle('folded');
+    fold.setAttribute('aria-expanded', String(!folded));
+    fold.setAttribute('aria-label', folded ? '展开子目录' : '折叠子目录');
+  });
+
+  /* ================= 左右目录栏：整栏可折叠/展开（高性能：淡出→瞬切→淡入） ================= */
+  // 状态：默认展开；收起后该栏仅留按钮，正文自动变宽。
+  // 关键性能点：不动画 grid-template-columns（布局属性，每帧触发全文档重排卡顿），
+  // 改为「淡出 → 一次性切换列宽 → 淡入」，opacity 走合成器零 layout 开销。
+  const RAIL_ANIM_MS = 120;
+  interface RailCfg {
+    grid: HTMLDivElement;
+    toggle: HTMLButtonElement;
+    key: string;
+    attr: 'tocCollapsed' | 'ltocCollapsed';
+  }
+  function setupRailToggle(cfg: RailCfg): void {
+    const { grid, toggle, key, attr } = cfg;
     const apply = (collapsed: boolean): void => {
-      grd.dataset.tocCollapsed = collapsed ? 'true' : 'false';
-      tocToggle.setAttribute('aria-expanded', String(!collapsed));
-      tocToggle.setAttribute('aria-label', collapsed ? '展开目录' : '收起目录');
-      tocToggle.title = collapsed ? '展开目录' : '收起目录';
+      grid.dataset[attr] = collapsed ? 'true' : 'false';
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      toggle.setAttribute('aria-label', collapsed ? '展开目录' : '收起目录');
+      toggle.title = collapsed ? '展开目录' : '收起目录';
     };
     let initial = false;
     try {
-      initial = window.localStorage.getItem(TOC_KEY) === '1';
+      initial = window.localStorage.getItem(key) === '1';
     } catch { /* 忽略隐私模式等异常 */ }
     apply(initial);
 
-    tocToggle.addEventListener('click', () => {
-      const next = grd.dataset.tocCollapsed !== 'true';
-      apply(next);
-      try {
-        window.localStorage.setItem(TOC_KEY, next ? '1' : '0');
-      } catch { /* 忽略 */ }
+    let animating = false;
+    toggle.addEventListener('click', () => {
+      if (animating) return;
+      const next = grid.dataset[attr] !== 'true';
+      animating = true;
+      grid.classList.add('rail-anim'); // 淡出（合成器动画）
+      window.setTimeout(() => {
+        apply(next); // 瞬切列宽（单次 reflow）
+        try {
+          window.localStorage.setItem(key, next ? '1' : '0');
+        } catch { /* 忽略 */ }
+        // 强制一帧后再淡入，确保宽度切换已完成重排
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            grid.classList.remove('rail-anim'); // 淡入
+            window.setTimeout(() => { animating = false; }, RAIL_ANIM_MS);
+          });
+        });
+      }, RAIL_ANIM_MS);
     });
+  }
+
+  // 右栏实例
+  const grd = el<HTMLDivElement>('doc-3col');
+  const tocToggle = el<HTMLButtonElement>('doc-toc-toggle');
+  if (grd && tocToggle) {
+    setupRailToggle({ grid: grd, toggle: tocToggle, key: 'doc-toc-collapsed', attr: 'tocCollapsed' });
+  }
+  // 左栏实例
+  const lTocToggle = el<HTMLButtonElement>('doc-ltoc-toggle');
+  if (grd && lTocToggle) {
+    setupRailToggle({ grid: grd, toggle: lTocToggle, key: 'doc-ltoc-collapsed', attr: 'ltocCollapsed' });
   }
 
   /* ================= 节点 CRUD（登录） ================= */

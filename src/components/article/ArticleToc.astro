@@ -1,11 +1,13 @@
 ---
 /* ===== Props ===== */
 interface Props {
-  /** 目录项（h2/h3） */
+  /** 目录项（h2/h3/h4） */
   toc: import('@/lib/mdx-plugins').TocItem[];
 }
 
 const { toc } = Astro.props;
+/** 层级缩进（h3/h4 逐级加深） */
+const indent = (level: number): string => (level === 3 ? ' pl-7' : level === 4 ? ' pl-10' : '');
 ---
 <!-- ===== Template ===== -->
 {
@@ -16,7 +18,7 @@ const { toc } = Astro.props;
         {
           toc.map((item) => (
             <a
-              class={'toc-link' + (item.level === 3 ? ' pl-7' : '')}
+              class={'toc-link' + indent(item.level)}
               href={`#${item.id}`}
             >
               {item.text}
