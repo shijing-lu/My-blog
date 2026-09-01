@@ -54,13 +54,14 @@ Cloudflare R2 的规则是：
 ## 3. 上线步骤
 
 ### 3.1 Vercel 环境变量
-到 **Vercel → Project → Settings → Environment Variables**，按 2.1 加 5 个 `R2_*`（覆盖所有环境），并确认 `DATABASE_URL` 指向 Supabase（Postgres）。
+到 **Vercel → Project → Settings → Environment Variables**，按 2.1 加 5 个 `R2_*`（覆盖所有环境）。
+数据库为**主备双库**：`DATABASE_URL` = 主库（Vercel/Neon），`DATABASE_URL_FALLBACK` = 从库（Supabase **连接池**串，见 `docs/DEPLOY.md`）。
 
 > `.env` 不在 git 里，Vercel 看不到；这 5 个必须在 Vercel 平台配。
+> ⚠️ Supabase 必须用 `aws-0-<region>.pooler.supabase.com`（IPv4）串，不要用 `db.<ref>.supabase.co`（仅 IPv6，Vercel 会 ENOTFOUND）。
 
-### 3.2 给生产库加列（Supabase）
-代码会新增列，生产 `images`/`photos` 表需一致。连生产 `DATABASE_URL` 后执行：
-
+### 3.2 给两库加列（主库 + 从库都要）
+代码新增列，生产 `images`/`photos` 表需一致。**主库、从库各执行一次**（`DATABASE_URL` 分别指向主/从）：
 ```bash
 pnpm db:generate:pg && pnpm db:migrate:pg
 ```
@@ -76,20 +77,22 @@ pnpm db:generate:pg && pnpm db:migrate:pg
 
 部署完成后，**新上传的图片直接进 R2**；旧图片仍按 base64 路径显示，页面不坏。
 
-### 3.4 迁生产存量数据到 R2（可选但推荐，做完才算彻底下线旧的 base64/Blob）
+### 3.4 迁存量数据到 R2（可选但推荐，**主库 + 从库各跑一次**）
 ```bash
-# 干跑预览（--database-url 填 Supabase 生产连接串，勿用本地 file: 的 SQLite）
-node scripts/migrate-images-to-r2-pg.mjs --database-url "postgres://user:pass@host/db?sslmode=require"
+# 干跑预览（--database-url 分别指向主库 / 从库，勿用本地 file: 的 SQLite）
+node scripts/migrate-images-to-r2-pg.mjs --database-url "postgres://主库...?sslmode=require"
+node scripts/migrate-images-to-r2-pg.mjs --database-url "postgres://从库...?sslmode=require"
 
-# 确认数量无误后真正执行
-node scripts/migrate-images-to-r2-pg.mjs --database-url "postgres://..." --apply
+# 确认数量无误后真正执行（两库都跑）
+node scripts/migrate-images-to-r2-pg.mjs --database-url "postgres://主库..." --apply
+node scripts/migrate-images-to-r2-pg.mjs --database-url "postgres://从库..." --apply
 ```
 - 脚本会：`images.data`(base64) → 上传 `images/<id>` + `images/<id>_thumb` → 清空 `data` 并写入 `key/url/thumb/dims`；
   `photos.url`(Vercel Blob) → 下载 → 上传 `photos/<id>`(+thumb) → 写入 `key/thumb_key`。
 - **幂等**：已有 `key` 的行跳过；默认干跑。
-- 需能访问 Supabase + R2 + 下载旧的 Blob 图，且有网络。
+- 需能访问库 + R2 + 下载旧的 Blob 图，且有网络。
 
-> 生产库迁移前建议先备份一次 Supabase。
+> 两库迁移前建议各备份一次。
 
 ---
 
