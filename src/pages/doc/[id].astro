@@ -115,8 +115,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     </div>
 
     <div class="mx-auto w-full max-w-6xl px-4 py-6">
-      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（左右栏无卡片，仅竖线分隔） */}
-      <div class="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)_180px]">
+      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（默认 280px；可折叠为 44px，仅留按钮） */}
+      <div id="doc-3col" data-toc-collapsed="false" class="grid gap-6 transition-[grid-template-columns] duration-200 lg:grid-cols-[220px_minmax(0,1fr)_var(--toc-w,280px)]">
         {/* 左栏：册内目录树 */}
         <aside class="lg:sticky lg:top-20 lg:self-start lg:border-r lg:border-border lg:pr-4">
           <div class="lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
@@ -149,19 +149,33 @@ const folderOptionsJson = JSON.stringify(folderOptions);
                 <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(activeNode.title)}</h1>
                 <div class="pixel-divider mt-4" />
               </header>
-              <article class="prose mt-6 max-w-none" set:html={html} />
+              <article class="prose mt-6 max-w-none break-words [overflow-wrap:anywhere]" set:html={html} />
             </>
           ) : (
             <p class="mt-10 text-center text-sm text-muted-foreground">该文档暂无文章。</p>
           )}
         </main>
 
-        {/* 右栏：文章内目录 */}
-        <aside class="hidden lg:block">
-          <div class="sticky top-20 border-l border-border pl-4">
-            <p class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
+        {/* 右栏：文章内目录（可折叠——折叠时仅保留按钮） */}
+        <aside id="doc-toc-aside" class="hidden lg:block">
+          <div id="doc-toc-rail" class="sticky top-20 relative border-l border-border pl-4">
+            <div class="flex items-start justify-between gap-2">
+              <p data-toc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
+              <button
+                id="doc-toc-toggle"
+                type="button"
+                title="收起 / 展开目录"
+                aria-label="收起或展开目录"
+                aria-controls="doc-toc-list"
+                aria-expanded="true"
+                class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                <svg data-toc-icon-collapse class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
+                <svg data-toc-icon-expand class="hidden h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
+              </button>
+            </div>
             {toc.length > 0 ? (
-              <div id="doc-toc-list" class="mt-3 space-y-2.5">
+              <div id="doc-toc-list" data-toc-label class="mt-3 space-y-2.5">
                 {toc.map((item) => (
                   <a
                     data-doc-anchor
@@ -173,7 +187,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
                 ))}
               </div>
             ) : (
-              <p class="mt-2 text-xs text-muted-foreground">无目录</p>
+              <p data-toc-label class="mt-2 text-xs text-muted-foreground">无目录</p>
             )}
           </div>
         </aside>
@@ -243,6 +257,24 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     </div>
   </dialog>
 </BaseLayout>
+
+<style is:global>
+  /* ===== /doc/[id] 三栏右目录：可折叠展开 ===== */
+  /* 默认宽度（与 grid 模板里 --toc-w 默认值保持一致） */
+  #doc-3col { --toc-w: 280px; }
+  /* 折叠态：只留按钮条 */
+  #doc-3col[data-toc-collapsed='true'] { --toc-w: 44px; }
+  /* 折叠态：隐藏标题/列表，竖线缩窄；按钮居中 */
+  #doc-3col[data-toc-collapsed='true'] #doc-toc-rail { padding-left: 0; border-left-width: 0; }
+  #doc-3col[data-toc-collapsed='true'] [data-toc-label] { display: none; }
+  #doc-3col[data-toc-collapsed='true'] #doc-toc-toggle { margin-left: auto; margin-right: auto; }
+  /* 折叠态下按钮图标切换（折叠图隐藏，展开图显示） */
+  #doc-3col[data-toc-collapsed='true'] [data-toc-icon-collapse] { display: none; }
+  #doc-3col[data-toc-collapsed='true'] [data-toc-icon-expand] { display: inline-block; }
+  /* 展开态下折叠图显示、展开图隐藏（默认状态） */
+  #doc-3col[data-toc-collapsed='false'] [data-toc-icon-collapse] { display: inline-block; }
+  #doc-3col[data-toc-collapsed='false'] [data-toc-icon-expand] { display: none; }
+</style>
 
 <script>
   /** 文档详情页：目录树文章切换 + 节点 CRUD（目录/文章 增删改移动）+ 预览 */
@@ -324,6 +356,33 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   }
   document.addEventListener('astro:page-load', () => setActiveArticle(currentActiveId()));
   setActiveArticle(currentActiveId());
+
+  /* ================= 右栏目录：可折叠展开（localStorage 持久化） ================= */
+  // 状态：默认展开；收起后右栏仅显示按钮，正文自动变宽
+  const TOC_KEY = 'doc-toc-collapsed';
+  const grd = el<HTMLDivElement>('doc-3col');
+  const tocToggle = el<HTMLButtonElement>('doc-toc-toggle');
+  if (grd && tocToggle) {
+    const apply = (collapsed: boolean): void => {
+      grd.dataset.tocCollapsed = collapsed ? 'true' : 'false';
+      tocToggle.setAttribute('aria-expanded', String(!collapsed));
+      tocToggle.setAttribute('aria-label', collapsed ? '展开目录' : '收起目录');
+      tocToggle.title = collapsed ? '展开目录' : '收起目录';
+    };
+    let initial = false;
+    try {
+      initial = window.localStorage.getItem(TOC_KEY) === '1';
+    } catch { /* 忽略隐私模式等异常 */ }
+    apply(initial);
+
+    tocToggle.addEventListener('click', () => {
+      const next = grd.dataset.tocCollapsed !== 'true';
+      apply(next);
+      try {
+        window.localStorage.setItem(TOC_KEY, next ? '1' : '0');
+      } catch { /* 忽略 */ }
+    });
+  }
 
   /* ================= 节点 CRUD（登录） ================= */
   if (IS_AUTHED) {
