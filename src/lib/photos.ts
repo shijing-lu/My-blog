@@ -6,7 +6,7 @@
  * - 时间线聚合在 JS 层完成（避免 SQLite/PG 日期函数方言差异），照片量级下无性能问题；
  * - tags 以 JSON 文本存储（string[]），上传时可设置、影集页可过滤、可批量维护。
  */
-import { and, count, desc, eq, like } from 'drizzle-orm';
+import { count, desc, eq, like } from 'drizzle-orm';
 import { photos } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type { NewPhoto, Photo } from '../../db/types';

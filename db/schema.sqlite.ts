@@ -347,6 +347,36 @@ export const webCategories = sqliteTable(
   ],
 );
 
+/**
+ * 网址导航·子分类
+ *
+ * 主分类（web_categories）下的二级分组：
+ * - 不在左侧/顶部「分类列表」里平铺，只在该分类的内容面板内以分组区块呈现；
+ * - 独立建表而非给 web_categories 加 parentId，避免污染主分类的排序/级联删除/拖拽逻辑；
+ * - 删除子分类时其下网站回到主分类的「未分组」区（subCategoryId 置空），不丢数据。
+ */
+export const navSubCategories = sqliteTable(
+  'nav_sub_categories',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属主分类 */
+    categoryId: text('category_id').notNull(),
+    /** 子分类名 */
+    name: text('name').notNull(),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestampMs('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index('nav_sub_categories_category_idx').on(table.categoryId),
+    index('nav_sub_categories_sort_idx').on(table.sort),
+  ],
+);
+
 /** 网址导航·网站 */
 export const websites = sqliteTable(
   'websites',
@@ -355,6 +385,8 @@ export const websites = sqliteTable(
     id: text('id').primaryKey(),
     /** 所属分类 */
     categoryId: text('category_id').notNull(),
+    /** 所属子分类（可空 = 该主分类的「未分组」区） */
+    subCategoryId: text('sub_category_id'),
     /** 网站名 */
     name: text('name').notNull(),
     /** 网址 */
@@ -372,6 +404,7 @@ export const websites = sqliteTable(
   },
   (table) => [
     index('websites_category_idx').on(table.categoryId),
+    index('websites_sub_category_idx').on(table.subCategoryId),
     index('websites_sort_idx').on(table.sort),
   ],
 );

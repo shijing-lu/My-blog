@@ -1,15 +1,15 @@
 /**
  * POST/PUT/DELETE /api/nav/sites —— 网站管理（管理员）
  *
- * POST:   { categoryId, name, url, icon?, desc?, sort? } → 201 { website }
- * PUT:    { id, categoryId?, name?, url?, icon?, desc?, sort? } → { website }
- *         （改 categoryId 即「移动分类」）
+ * POST:   { categoryId, subCategoryId?, name, url, icon?, desc?, sort? } → 201 { website }
+ * PUT:    { id, categoryId?, subCategoryId?, name?, url?, icon?, desc?, sort? } → { website }
+ *         （改 categoryId 即「移动分类」，此时自动清空 subCategoryId）
  * DELETE: { id } → { ok }
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
 import { verifyRequest } from '@/lib/auth';
-import { createWebsite, deleteWebsite, getWebsite, updateWebsite } from '@/lib/nav';
+import { createWebsite, deleteWebsite, getWebsite, subCategoryBelongsTo, updateWebsite } from '@/lib/nav';
 import { fetchSiteMeta } from '@/lib/nav-metadata';
 
 export const prerender = false;
@@ -21,10 +21,19 @@ const MAX_DESC = 200;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
-  let body: { categoryId?: unknown; name?: unknown; url?: unknown; icon?: unknown; desc?: unknown; sort?: unknown };
+  let body: {
+    categoryId?: unknown;
+    subCategoryId?: unknown;
+    name?: unknown;
+    url?: unknown;
+    icon?: unknown;
+    desc?: unknown;
+    sort?: unknown;
+  };
   try {
     body = (await request.json()) as {
       categoryId?: unknown;
+      subCategoryId?: unknown;
       name?: unknown;
       url?: unknown;
       icon?: unknown;
@@ -40,6 +49,12 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   if (!categoryId) return json({ error: '请选择分类' }, 400);
   if (!name) return json({ error: '请填写网站名' }, 400);
   if (!url) return json({ error: '请填写网址' }, 400);
+  // 子分类可空；若提供则必须属于该主分类，避免跨分类悬挂
+  const subCategoryId =
+    typeof body.subCategoryId === 'string' && body.subCategoryId.trim() ? body.subCategoryId.trim() : null;
+  if (subCategoryId && !(await subCategoryBelongsTo(subCategoryId, categoryId))) {
+    return json({ error: '子分类不属于该分类' }, 400);
+  }
   let icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
   let desc = typeof body.desc === 'string' && body.desc.trim() ? body.desc.trim().slice(0, MAX_DESC) : null;
   const sort = Number.isFinite(Number(body.sort)) ? Math.max(0, Math.floor(Number(body.sort))) : 0;
@@ -50,7 +65,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     if (meta?.icon && !icon) icon = meta.icon.slice(0, MAX_ICON);
   }
   try {
-    const website = await createWebsite({ categoryId, name, url, icon, desc, sort });
+    const website = await createWebsite({ categoryId, subCategoryId, name, url, icon, desc, sort });
     return json({ website }, 201);
   } catch (err) {
     console.error('[api/nav/sites]', err);
@@ -70,6 +85,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
   if (!id) return json({ error: '缺少网站 ID' }, 400);
   const patch: {
     categoryId?: string;
+    subCategoryId?: string | null;
     name?: string;
     url?: string;
     icon?: string | null;
@@ -80,6 +96,21 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
     const v = typeof body.categoryId === 'string' && body.categoryId.trim() ? body.categoryId.trim() : '';
     if (!v) return json({ error: '请选择分类' }, 400);
     patch.categoryId = v;
+  }
+  // 目标主分类：优先取本次要改成的，否则沿用原站点的（用于校验子分类归属）
+  let targetCategoryId = patch.categoryId;
+  if (body.subCategoryId !== undefined) {
+    const v = typeof body.subCategoryId === 'string' && body.subCategoryId.trim() ? body.subCategoryId.trim() : null;
+    patch.subCategoryId = v;
+    if (v) {
+      if (!targetCategoryId) {
+        const existing = await getWebsite(id);
+        targetCategoryId = existing?.categoryId;
+      }
+      if (!targetCategoryId || !(await subCategoryBelongsTo(v, targetCategoryId))) {
+        return json({ error: '子分类不属于该分类' }, 400);
+      }
+    }
   }
   if (body.name !== undefined) {
     const v = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';

@@ -310,10 +310,21 @@ export interface WebCategory {
   createdAt: Date;
 }
 
+/** 网址导航·子分类（主分类下的二级分组，仅在该分类内容面板内展示） */
+export interface NavSubCategory {
+  id: string;
+  categoryId: string;
+  name: string;
+  sort: number;
+  createdAt: Date;
+}
+
 /** 网址导航·网站 */
 export interface Website {
   id: string;
   categoryId: string;
+  /** 所属子分类（null = 该主分类的「未分组」区） */
+  subCategoryId: string | null;
   name: string;
   url: string;
   icon: string | null;
@@ -322,13 +333,16 @@ export interface Website {
   createdAt: Date;
 }
 
-/** 网址导航·聚合视图（公共页渲染：分类 + 其下网站） */
+/** 网址导航·聚合视图（公共页渲染：分类 + 子分类 + 其下网站） */
 export interface NavCategoryView {
   id: string;
   name: string;
   icon: string | null;
   sort: number;
-  sites: Array<Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc' | 'categoryId'>>;
+  /** 该分类下全部网站（含子分类归属信息，前端据此分组） */
+  sites: Array<Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc' | 'categoryId' | 'subCategoryId'>>;
+  /** 该分类下的子分类（按 sort 升序） */
+  subCategories: Array<Pick<NavSubCategory, 'id' | 'name' | 'sort'>>;
 }
 
 /** 学习模式·番茄记录（公开统计） */

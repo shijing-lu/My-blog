@@ -10,7 +10,18 @@ const totalSites = categories.reduce((n, c) => n + c.sites.length, 0);
 /** 管理员：显示删除叉 / 添加加号 / 支持拖拽移动 */
 const isAuthed = verifyRequest(Astro.cookies);
 /** 全量分类数据（编辑弹窗用，经隐藏 div 注入） */
-const categoriesJson = JSON.stringify(categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, sites: c.sites })));
+const categoriesJson = JSON.stringify(
+  categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    icon: c.icon,
+    sites: c.sites,
+    subCategories: c.subCategories,
+  })),
+);
+/** 子分类 id → 名称（「全部网站」面板标注归属用） */
+const subNames = new Map<string, string>();
+categories.forEach((c) => c.subCategories.forEach((s) => subNames.set(s.id, s.name)));
 
 interface SiteLike {
   id: string;
@@ -19,6 +30,9 @@ interface SiteLike {
   icon: string | null;
   desc: string | null;
   categoryId: string;
+  subCategoryId?: string | null;
+  /** 「全部网站」面板里的归属标注（hover 提示） */
+  groupLabel?: string;
 }
 
 /** HTML 转义 */
@@ -50,6 +64,7 @@ function renderSite(site: SiteLike, authed: boolean): string {
   return (
     `<div class="group relative">` +
     `<a href="${esc(site.url)}"${dragAttr} target="_blank" rel="noopener noreferrer" ` +
+    (site.groupLabel ? `title="${esc(site.groupLabel)}" ` : '') +
     `class="flex items-center gap-2.5 p-2.5 transition-colors duration-200 hover:bg-accent/60">` +
     `<span class="relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">` +
     `<img class="nav-icon size-5 object-contain" src="${esc(iconSrc)}" alt="" loading="lazy" data-google="${esc(google)}" data-name="${esc(name)}" />` +
@@ -60,15 +75,85 @@ function renderSite(site: SiteLike, authed: boolean): string {
   );
 }
 
-/** 分类下的网站网格（含底部「+ 添加网址」） */
-function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): string {
+/** 与「＋ 添加网址」一致的虚线圆角按钮样式 */
+const ADD_BTN_CLASS =
+  'rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary';
+
+/** 分组内的网站网格（含底部「+ 添加网址」，携带子分类归属） */
+function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean, subCategoryId = ''): string {
   const cards = sites.map((s) => renderSite(s, authed)).join('');
   const addBtn = authed
     ? `<div class="mt-3 flex justify-center">` +
-      `<button type="button" data-site-add="${categoryId}" ` +
-      `class="rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋ 添加网址</button></div>`
+      `<button type="button" data-site-add="${categoryId}" data-site-sub="${esc(subCategoryId)}" ` +
+      `class="${ADD_BTN_CLASS}">＋ 添加网址</button></div>`
     : '';
   return `<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">${cards}</div>${addBtn}`;
+}
+
+/** 子分类区块：虚线分隔 + 标题行（名称/计数/管理员操作）+ 该分组的网站网格 */
+function subBlock(
+  categoryId: string,
+  sub: { id: string; name: string; sort: number },
+  sites: SiteLike[],
+  authed: boolean,
+): string {
+  const actions = authed
+    ? `<span class="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">` +
+      `<button type="button" data-sub-edit="${sub.id}" data-sub-name="${esc(sub.name)}" title="重命名子分类" aria-label="重命名子分类" ` +
+      `class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">✎</button>` +
+      `<button type="button" data-sub-del="${sub.id}" data-sub-name="${esc(sub.name)}" data-sub-num="${sites.length}" title="删除子分类" aria-label="删除子分类" ` +
+      `class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive">×</button>` +
+      `</span>`
+    : '';
+  const head =
+    `<div class="group mb-2.5 flex items-center gap-2">` +
+    `<h3 class="text-sm font-medium" data-sub-title="${sub.id}">${esc(sub.name)}</h3>` +
+    `<span class="font-pixel text-[0.55rem] text-muted-foreground" data-sub-count="${sub.id}">${sites.length}</span>` +
+    actions +
+    `</div>`;
+  return (
+    `<div data-group data-group-cat="${categoryId}" data-group-sub="${sub.id}" ` +
+    `class="mt-4 border-t border-dashed border-border pt-4">${head}${siteGrid(sites, categoryId, authed, sub.id)}</div>`
+  );
+}
+
+/**
+ * 主分类面板内容：未分组区 + 各子分类区块（虚线分隔）+ 底部添加子分类表单。
+ *
+ * 「添加子分类」的输入框与按钮紧邻最后一个「＋ 添加网址」按钮，样式一致。
+ */
+function categoryPanel(c: (typeof categories)[number], authed: boolean): string {
+  const subIds = new Set(c.subCategories.map((s) => s.id));
+  // 无子分类归属、或引用了已删子分类（历史数据）的网站，都归入「未分组」
+  const ungrouped = c.sites.filter((s) => !s.subCategoryId || !subIds.has(s.subCategoryId));
+  // 该分类完全为空且无子分类 → 空态提示
+  if (c.sites.length === 0 && c.subCategories.length === 0) {
+    return authed
+      ? `<div data-group data-group-cat="${c.id}" data-group-sub="">${siteGrid([], c.id, authed, '')}</div>` +
+          addSubForm(c.id)
+      : `<p class="text-sm text-muted-foreground">该分类暂无网站。</p>`;
+  }
+  // 有子分类且未分组为空 → 不渲染空的未分组区（避免空网格占位）
+  const showUngrouped = ungrouped.length > 0 || c.subCategories.length === 0;
+  let html = showUngrouped
+    ? `<div data-group data-group-cat="${c.id}" data-group-sub="">${siteGrid(ungrouped, c.id, authed, '')}</div>`
+    : '';
+  for (const sub of c.subCategories) {
+    html += subBlock(c.id, sub, c.sites.filter((s) => s.subCategoryId === sub.id), authed);
+  }
+  if (authed) html += addSubForm(c.id);
+  return html;
+}
+
+/** 添加子分类内联表单（输入框 + 按钮，与「添加网址」同一行排列，样式一致） */
+function addSubForm(categoryId: string): string {
+  return (
+    `<div class="mt-3 flex flex-wrap items-center justify-center gap-2" data-sub-add-form="${categoryId}">` +
+    `<input type="text" maxlength="50" placeholder="新子分类名" aria-label="新子分类名" data-sub-input="${categoryId}" ` +
+    `class="w-40 rounded-full border border-dashed border-border bg-background px-4 py-1.5 text-center text-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50" />` +
+    `<button type="button" data-sub-add="${categoryId}" class="${ADD_BTN_CLASS}">＋ 添加子分类</button>` +
+    `</div>`
+  );
 }
 ---
 <BaseLayout title="导航" description="精选网站导航 —— My Blog Navigation">
@@ -210,18 +295,27 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
             }
             </div>
             <div class="mt-6">
+              {/* 「全部网站」面板：跨分类平铺，hover 提示「分类 / 子分类」归属 */}
               <div data-cat-panel="all">
-                <Fragment set:html={siteGrid(categories.flatMap((c) => c.sites), '', false)} />
+                <Fragment
+                  set:html={siteGrid(
+                    categories.flatMap((c) =>
+                      c.sites.map((s) => ({
+                        ...s,
+                        groupLabel: c.subCategories.length
+                          ? `${c.name}${s.subCategoryId && subNames.has(s.subCategoryId) ? ` / ${subNames.get(s.subCategoryId)}` : ''}`
+                          : c.name,
+                      })),
+                    ),
+                    '',
+                    false,
+                  )}
+                />
               </div>
+              {/* 各主分类面板：未分组区 + 子分类分组（虚线分隔）+ 添加子分类 */}
               {categories.map((c) => (
                 <div data-cat-panel={c.id} class="hidden">
-                  {
-                    c.sites.length === 0 && !isAuthed ? (
-                      <p class="text-sm text-muted-foreground">该分类暂无网站。</p>
-                    ) : (
-                      <Fragment set:html={siteGrid(c.sites, c.id, isAuthed)} />
-                    )
-                  }
+                  <Fragment set:html={categoryPanel(c, isAuthed)} />
                 </div>
               ))}
             </div>
@@ -474,7 +568,13 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
 
     // 编辑（卡片右上角 ✎）——居中弹窗
     interface NavSiteJson { id: string; name: string; url: string; icon: string | null; desc: string | null; categoryId: string }
-    interface NavCatJson { id: string; name: string; icon: string | null; sites: NavSiteJson[] }
+    interface NavCatJson {
+      id: string;
+      name: string;
+      icon: string | null;
+      sites: NavSiteJson[];
+      subCategories?: Array<{ id: string; name: string; sort: number }>;
+    }
     const NAV_DATA = JSON.parse(
       (document.getElementById('nav-data') as HTMLElement).dataset.categories ?? '[]',
     ) as NavCatJson[];
@@ -560,8 +660,9 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       }
     });
 
-  // ---- 添加（分类面板底部 ＋）----
+  // ---- 添加（分组区块底部 ＋，可指定子分类）----
   let addCategoryId = '';
+  let addSubCategoryId = '';
   function domainFromUrl(url: string): string {
     try {
       return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
@@ -579,8 +680,13 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     const addStatus = $('nav-add-status');
     if (!addDialog) return;
     addCategoryId = add.dataset.siteAdd ?? '';
-    const catName = add.closest('[data-cat-panel]')?.querySelector('[data-cat-tab]')?.textContent?.trim() ?? '';
-    if (addTarget) addTarget.textContent = catName ? `添加到「${catName}」` : '';
+    addSubCategoryId = add.dataset.siteSub ?? '';
+    // 目标文案：「主分类」或「主分类 / 子分类」
+    const catName = NAV_DATA.find((c) => c.id === addCategoryId)?.name ?? '';
+    const subName = addSubCategoryId
+      ? (add.closest<HTMLElement>('[data-group]')?.querySelector<HTMLElement>(`[data-sub-title="${addSubCategoryId}"]`)?.textContent?.trim() ?? '')
+      : '';
+    if (addTarget) addTarget.textContent = catName ? `添加到「${catName}${subName ? ` / ${subName}` : ''}」` : '';
     if (addUrl) addUrl.value = '';
     if (addName) addName.value = '';
     addStatus?.classList.add('hidden');
@@ -614,7 +720,12 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       const res = await fetch('/api/nav/sites', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ categoryId: addCategoryId, name, url }),
+        body: JSON.stringify({
+          categoryId: addCategoryId,
+          subCategoryId: addSubCategoryId || null,
+          name,
+          url,
+        }),
       });
       const d = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -668,6 +779,148 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: siteId, categoryId }),
+    });
+    if (res.ok) window.location.reload();
+  });
+
+  // ---- 子分类：添加（内联输入 + 按钮 / 回车）/ 重命名（内联编辑）/ 删除（网站回未分组）----
+  let addingSub = false;
+
+  /** 在输入框上提示错误（红色边框 + placeholder 文案，聚焦即清除） */
+  function subInputError(input: HTMLInputElement, msg: string): void {
+    input.classList.add('border-destructive');
+    input.placeholder = msg;
+    input.title = msg;
+    const clear = (): void => {
+      input.classList.remove('border-destructive');
+      input.placeholder = '新子分类名';
+      input.removeAttribute('title');
+      input.removeEventListener('input', clear);
+    };
+    input.addEventListener('input', clear);
+  }
+
+  async function submitSubCategory(categoryId: string): Promise<void> {
+    if (addingSub) return;
+    const input = document.querySelector<HTMLInputElement>(`[data-sub-input="${categoryId}"]`);
+    if (!input) return;
+    const name = input.value.trim();
+    if (!name) {
+      subInputError(input, '请输入子分类名');
+      input.focus();
+      return;
+    }
+    addingSub = true;
+    input.disabled = true;
+    try {
+      const res = await fetch('/api/nav/sub-categories', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ categoryId, name }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        input.disabled = false;
+        subInputError(input, d.error ?? '添加失败');
+        input.focus();
+        return;
+      }
+      window.location.reload();
+    } catch {
+      input.disabled = false;
+      subInputError(input, '添加失败');
+    } finally {
+      addingSub = false;
+    }
+  }
+
+  // 点击「＋ 添加子分类」按钮
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-add]');
+    if (!btn) return;
+    void submitSubCategory(btn.dataset.subAdd ?? '');
+  });
+  // 输入框内回车提交
+  document.addEventListener('keydown', (e) => {
+    const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-sub-input]');
+    if (!input) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void submitSubCategory(input.dataset.subInput ?? '');
+    } else if (e.key === 'Escape') {
+      input.value = '';
+      input.blur();
+    }
+  });
+
+  // 重命名子分类（点击 ✎ 就地变输入框；回车保存 / Esc 取消 / 失焦保存）
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-edit]');
+    if (!btn) return;
+    const subId = btn.dataset.subEdit;
+    if (!subId) return;
+    const title = document.querySelector<HTMLElement>(`[data-sub-title="${subId}"]`);
+    // 已在编辑态则忽略
+    if (!title || title.querySelector('input')) return;
+    const oldName = btn.dataset.subName ?? title.textContent?.trim() ?? '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 50;
+    input.value = oldName;
+    input.className =
+      'w-40 rounded-md border border-input bg-background px-2 py-0.5 text-sm font-medium outline-none focus-visible:border-ring';
+    input.setAttribute('aria-label', '子分类名');
+    title.textContent = '';
+    title.appendChild(input);
+    input.focus();
+    input.select();
+    let settled = false;
+    const finish = async (save: boolean): Promise<void> => {
+      if (settled) return;
+      settled = true;
+      const next = input.value.trim();
+      if (save && next && next !== oldName) {
+        const res = await fetch('/api/nav/sub-categories', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: subId, name: next }),
+        });
+        if (res.ok) {
+          window.location.reload();
+          return;
+        }
+      }
+      title.textContent = oldName;
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        void finish(true);
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        void finish(false);
+      }
+    });
+    input.addEventListener('blur', () => void finish(true));
+  });
+
+  // 删除子分类（其下网站回到主分类「未分组」，不删网站）
+  document.addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-del]');
+    if (!btn) return;
+    const id = btn.dataset.subDel;
+    if (!id) return;
+    const name = btn.dataset.subName ?? '';
+    const count = Number(btn.dataset.subNum ?? '0');
+    const msg =
+      count > 0
+        ? `删除子分类「${name}」？其下 ${count} 个网站会移到「未分组」，不会被删除。`
+        : `删除子分类「${name}」？`;
+    if (!(await confirmDanger(msg))) return;
+    const res = await fetch('/api/nav/sub-categories', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
     });
     if (res.ok) window.location.reload();
   });
@@ -790,9 +1043,11 @@ function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean): strin
     const cat = NAV_DATA.find((c) => c.id === catId);
     const catName = del.dataset.catName ?? cat?.name ?? '';
     const count = cat?.sites.length ?? 0;
+    const subCount = cat?.subCategories?.length ?? 0;
+    const extra = subCount > 0 ? `（含 ${subCount} 个子分类）` : '';
     const msg = count > 0
-      ? `删除分类「${catName}」？其下 ${count} 个网站也会一并删除。`
-      : `删除分类「${catName}」？`;
+      ? `删除分类「${catName}」？其下 ${count} 个网站${extra}也会一并删除。`
+      : `删除分类「${catName}」？${extra}`;
     if (!(await confirmDanger(msg))) return;
     const res = await fetch('/api/nav/categories', {
       method: 'DELETE',

@@ -74,6 +74,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
       (pathname === '/api/migrate-photos-tags' && context.request.method === 'POST') ||
       (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
       (isMomentsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
+      // 导航：分类/子分类/网站的写方法需登录（GET 聚合数据公开）
+      (pathname.startsWith('/api/nav/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(context.request.method)) ||
       (pathname === '/api/profile' && context.request.method === 'PUT') ||
       protectedStudyApi ||
       protectedDocApi);
