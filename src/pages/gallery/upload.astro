@@ -167,7 +167,9 @@ const todayStr = dateKey(today);
     <!-- ===== 已有照片管理 ===== -->
     <div class="pt-8">
       <div class="flex items-center justify-between">
-        <p class="pixel-chip text-muted-foreground">已有照片 / {photos.length}</p>
+        <p class="pixel-chip text-muted-foreground">
+          已有照片 / <span id="manage-photo-count" data-initial={photos.length}>{photos.length}</span>
+        </p>
       </div>
       {
         photos.length === 0 ? (
@@ -177,6 +179,7 @@ const todayStr = dateKey(today);
             <!-- ===== 批量标签工具条 ===== -->
             <div
               id="batch-bar"
+              data-manage-area
               class="mt-4 flex flex-wrap items-end gap-3 rounded-md border border-border/70 bg-card/40 px-3 py-3"
             >
               <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -221,7 +224,7 @@ const todayStr = dateKey(today);
               <span id="batch-status" class="text-xs text-muted-foreground"></span>
             </div>
 
-            <div id="manage-grid" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
+            <div id="manage-grid" data-manage-area class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
               {
                 photos.map((p) => (
                   <div class="manage-card p-1" data-photo-id={p.id}>
@@ -285,6 +288,11 @@ const todayStr = dateKey(today);
                 ))
               }
             </div>
+
+            <!-- 客户端把最后一张也删掉时的空态（平时隐藏；配合 data-manage-area 切换） -->
+            <p id="manage-empty" class="mt-4 hidden text-sm text-muted-foreground">
+              影集还是空的，上传第一张吧。
+            </p>
           </>
         )
       }
@@ -640,8 +648,7 @@ const todayStr = dateKey(today);
       // 乐观移除：DELETE 涉及 R2 删除 + 主备双库双写，耗时可达数秒，
       // 若等响应再移除，卡片会长时间占着网格位置（用户会以为删除没生效）。
       const card = delBtn.closest<HTMLElement>('.manage-card');
-      card?.remove();
-      syncBatchState();
+      removeManageCard(id, card); // 释放 DOM 插槽 + 同步计数/空态/批量勾选（见 helper）
       try {
         const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });
         if (!res.ok) {
@@ -662,6 +669,46 @@ const todayStr = dateKey(today);
   const checkedCount = el('checked-count');
   const batchApply = el<HTMLButtonElement>('batch-apply');
   const batchStatus = el('batch-status');
+
+  /**
+   * 从管理网格移除一张照片卡片，并同步派生状态，彻底释放其占用的位置/空间。
+   *
+   * 这是全页唯一的「删除后释放展示插槽」入口：
+   * 1. 移除 `.manage-card` DOM 节点（CSS grid 自动回流，不留空洞）；
+   * 2. 递减头部「已有照片 / N」实时计数；
+   * 3. 若网格删空，隐藏批量工具条与网格、展示空态文案（避免陈旧框架继续占位）；
+   * 4. 刷新批量勾选态（被删卡片的勾选随之消失）。
+   * 无论单张删除、未来新增的批量删除/清空回收站，都应复用本函数，避免各自手写移除导致残留。
+   *
+   * @param id    照片 id（供日志/去重）
+   * @param card  可选：已定位的 `.manage-card`；缺省时按 data-photo-id 查找
+   * @returns 是否确实移除了一张卡片
+   */
+  function removeManageCard(id: string, card?: HTMLElement | null): boolean {
+    const target = card && card.isConnected ? card : document.querySelector<HTMLElement>(`.manage-card[data-photo-id="${CSS.escape(id)}"]`);
+    if (!target || !target.isConnected) return false;
+    target.remove();
+
+    // 删除后：实时计数与空态都以「当前仍在 DOM 的卡片数」为准，确保不留陈旧计数/占位
+    const remaining = document.querySelectorAll<HTMLElement>('.manage-card').length;
+    const countNode = el('manage-photo-count');
+    if (countNode) {
+      countNode.dataset.initial = String(remaining);
+      countNode.textContent = String(remaining);
+    }
+
+    // 网格已删空 → 释放整片管理区（隐藏批量工具条/网格），展示空态文案
+    const emptyNode = el('manage-empty');
+    if (remaining === 0) {
+      document.querySelectorAll<HTMLElement>('[data-manage-area]').forEach((area) => area.classList.add('hidden'));
+      emptyNode?.classList.remove('hidden');
+    } else {
+      emptyNode?.classList.add('hidden');
+    }
+
+    syncBatchState();
+    return true;
+  }
 
   /** 当前勾选的照片 id（DOM 每次实时查询，避免缓存失效；本页为 AdminLayout 无 SPA 切换） */
   function checkedIds(): string[] {
