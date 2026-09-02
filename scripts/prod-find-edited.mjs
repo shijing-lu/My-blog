@@ -31,7 +31,7 @@ import { chromium } from 'playwright-core';
   }
   recent.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
   console.log('articles scanned:', recent.length);
-  const top = recent.slice(0, 8);
+  const top = recent;
   console.log('top recent:', top.map((t) => ({ title: t.title?.slice(0, 20), upd: t.updatedAt })));
   // 3) 逐个 render 检查 katex-error
   for (const n of top) {
