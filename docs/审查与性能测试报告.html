@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My-Blog 全项目审查 + 性能测试报告</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --line:#e5e7eb; --p0:#dc2626; --p1:#d97706; --p2:#2563eb;
+    --ok:#16a34a; --chip:#eef2ff; --chip-ink:#3730a3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.7;font-size:15px}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+  header.top{border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:8px}
+  h1{font-size:26px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13px}
+  h2{font-size:21px;margin:40px 0 6px;padding-left:10px;border-left:5px solid var(--p2)}
+  h3{font-size:16px;margin:24px 0 8px}
+  .lead{color:var(--muted);font-size:14px;margin:0 0 18px}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:18px 0}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .stat .n{font-size:24px;font-weight:700}
+  .stat .l{font-size:12px;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .card+.card{margin-top:10px}
+  .sev{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;color:#fff;margin-right:8px}
+  .sev.p0{background:var(--p0)} .sev.p1{background:var(--p1)} .sev.p2{background:var(--p2)}
+  .loc{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#f3f4f6;border:1px solid var(--line);padding:1px 6px;border-radius:5px;color:#0f172a}
+  .loc-b{display:inline-block;font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#f3f4f6;border:1px solid var(--line);padding:1px 6px;border-radius:5px;color:#0f172a;margin:2px 0}
+  ul.issues{margin:6px 0;padding-left:0;list-style:none}
+  ul.issues>li{margin:10px 0;padding-left:18px;position:relative}
+  ul.issues>li::before{content:"";position:absolute;left:2px;top:9px;width:7px;height:7px;border-radius:50%;background:var(--line)}
+  ul.issues>li.p0::before{background:var(--p0)}
+  ul.issues>li.p1::before{background:var(--p1)}
+  ul.issues>li.p2::before{background:var(--p2)}
+  .tag{display:inline-block;font-size:11px;background:var(--chip);color:var(--chip-ink);border-radius:999px;padding:1px 8px;margin-right:6px;white-space:nowrap}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#f3f4f6;font-weight:600}
+  .num{font-family:ui-monospace,Consolas,monospace;text-align:right}
+  .bad{color:var(--p0);font-weight:700}
+  .warn{color:var(--p1);font-weight:700}
+  .good{color:var(--ok);font-weight:700}
+  .bar{height:10px;border-radius:5px;background:#eef2ff;position:relative;overflow:hidden;display:inline-block;vertical-align:middle}
+  .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--p2);border-radius:5px}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:13px;margin:10px 0}
+  .ok-note{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:13px;margin:10px 0}
+  .pill{display:inline-block;font-size:12px;padding:2px 10px;border-radius:999px;margin:4px 6px 0 0}
+  .pill.p0{background:#fee2e2;color:var(--p0)} .pill.p1{background:#ffedd5;color:var(--p1)} .pill.p2{background:#dbeafe;color:var(--p2)}
+  footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>My-Blog 全项目审查 &amp; 性能测试报告</h1>
+  <div class="sub">Astro 7 SSR 个人博客 · 审查日期 2026-09-02 · 覆盖：性能 / UI·UX / 代码冗余与架构 / 代码质量与可维护性 / 性能基准测试</div>
+</header>
+
+<p class="lead">本报告基于四个维度的并行代码审查（每个维度逐文件定位到「文件+行号」），叠加线上真机性能测试（playwright 驱动 Edge 实测生产站 <span class="loc">www.byqx-blog.online</span>）与构建产物分析。问题按严重程度分 P0（应立即修，安全/首屏/核心功能）/ P1（重要，影响体验与可维护性）/ P2（优化项）三级，最后给出整体重构优先级。</p>
+
+<!-- ============ 一、性能瓶颈 ============ -->
+<h2>一、性能维度</h2>
+<p class="lead">最核心的发现集中在「首屏请求爆炸」与「全量查询」。测试实测数据见第五节。</p>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">首屏</span><strong>动态页 /moments 请求爆炸 —— 全站最严重瓶颈</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：<span class="loc">src/pages/moments/index.astro:209</span>（<code>&lt;Comments client:load ...&gt;</code>）；<span class="loc">src/components/interact/Comments.tsx:243,261,288,323,350,375</span>；点赞见 <span class="loc">LikeButton.tsx:44-47,76</span></li>
+    <li class="p0"><b>问题</b>：每条动态挂一个 <code>client:load</code> 评论岛（含点赞）。每条动态页面加载即发起 <code>/api/auth/user/me</code> + <code>/api/comments</code> + <code>/api/likes/summary</code> + 图片等请求。<b>实测该页 87 个请求，其中 52 个是 API</b>，远超任何其它页面。</li>
+    <li class="p0"><b>方案</b>：① 评论/点赞改 <code>client:visible</code>（进入视口再 hydration）或聚合为「点击展开评论区」延迟加载；② 用 <code>countLikesByTargets</code>（页面已批量预取 likeMap）替代每条点赞再发一次 summary；③ 评论列表改为懒加载分页接口。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">查询</span><strong>ActivityHeatmap / 首页数据全量查询正文</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：活动热力图组件（<span class="loc">src/components/activity/ActivityHeatmap*</span>）——为渲染热力图把每篇已发布文章的<b>正文 content 全量取出</b>。</li>
+    <li class="p0"><b>问题</b>：文章正文往往数十 KB，仅用于统计字数/日期，属典型「大字段全表捞」。数据量大时显著拖慢首页与学习页 TTFB。</li>
+    <li class="p0"><b>方案</b>：SQL 仅 select <code>id, createdAt, (length/字数) 预聚合</code>，或建 <code>post_stats</code> 表在写入时冗余统计；Drizzle 用 <code>.select({id, createdAt})</code> 明确列裁剪。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">N+1</span><strong>影集 batchUpdateTags / 相册卡片存在 N+1 查询</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：<span class="loc">src/pages/api/photos/batch-tags.ts</span>（批量打标签逐条 update）；相册列表逐张查归属/标签。</li>
+    <li class="p0"><b>问题</b>：批量操作与列表渲染按条/按张发 SQL，N 越大越慢。</li>
+    <li class="p0"><b>方案</b>：批量操作改单条 <code>UPDATE ... WHERE id IN (...)</code> 或事务内 prepared；列表用一次 <code>IN</code> 关联查询填充标签。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">搜索</span><strong>/api/search 全量拉取后内存过滤</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：<span class="loc">src/pages/api/search.ts</span></li>
+    <li class="p1"><b>问题</b>：把全表文章一次性取出在 JS 内存里做 includes 过滤，且不搜正文（MEMORY 已记：只匹配 title/summary/tags）。数据量大时内存与延迟双高。</li>
+    <li class="p1"><b>方案</b>：改 SQL <code>LIKE</code> + <code>LIMIT</code>（SQLite/PG 均支持），必要时引入 FTS5 / pg_trgm 全文索引。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">体积</span><strong>构建产物体积大，最大 chunk 超 500KB</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：<span class="loc">.vercel/output/static/_astro/</span>（部署产物）—— 49 个 JS 共 1454KB + CSS 443KB。</li>
+    <li class="p1"><b>问题</b>：<span class="loc-b">MarkdownEditor.js 534KB</span>、<span class="loc-b">ThemeHead.css 419KB</span>、<span class="loc-b">simple-mind-map.js 331KB</span>、<span class="loc-b">client.CZ1JDvuH.js 179KB</span>。文章页实测 JS 365KB + CSS 475KB，首屏（load 4038ms）受拖累。</li>
+    <li class="p1"><b>方案</b>：① 大编辑器/思维导图确认是否 <code>client:load</code>，改 <code>client:visible</code> 或独立路由异步分包（<code>import()</code>）；② 关注 `simple-mind-map` 全量打包是否可 tree-shake；③ CSS 检查重复主题变体。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">hydration</span><strong>多页面 client:load 全量水合</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：思维导图、评论区、点赞组件等大量 <code>client:load</code>。</li>
+    <li class="p1"><b>问题</b>：进入视口前即 hydration，占用主线程，与「折叠栏卡顿」叠加。</li>
+    <li class="p1"><b>方案</b>：按交互优先级改为 <code>client:visible</code> / <code>client:idle</code>。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p2">P2</span><span class="tag">索引/写</span><strong>缺索引 + dbWrite 串行 + 图片重复转换</strong>
+  <ul class="issues">
+    <li class="p2"><b>位置</b>：点赞/评论/文档关联表缺复合索引；<span class="loc">src/lib/db</span> 双写串行等待主备。</li>
+    <li class="p2"><b>问题</b>：点赞计数唯一约束虽保幂等但无索引查询慢；主备串行写抬升高频写延迟。</li>
+    <li class="p2"><b>方案</b>：为 <code>(targetType,targetId)</code> 加索引；写路径并行化或用队列批量；base64 图避免每次请求重新 sharp 转换（结果缓存/预转换）。</li>
+  </ul>
+</div>
+
+<!-- ============ 二、UI/UX ============ -->
+<h2>二、UI/UX 维度</h2>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">移动端</span><strong>移动端导航溢出 / 不可达</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：顶部/侧边导航（<span class="loc">src/components/layout/Header.astro</span> 等）。</li>
+    <li class="p0"><b>问题</b>：导航项在窄屏溢出或被裁切；hover-only 管理按钮在触屏与纯键盘下完全无法触发。</li>
+    <li class="p0"><b>方案</b>：移动端改抽屉/汉堡菜单；管理按钮提供 <code>focus-visible</code> 与 touch 触发路径。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">可访问性</span><strong>reduced-motion 覆盖不全 + 搜索框无焦点样式</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：折叠动画、背景特效、搜索输入框。</li>
+    <li class="p1"><b>问题</b>：动画与交互未全部包裹 <code>prefers-reduced-motion</code>；搜索框无清晰 <code>:focus</code> 态，键盘导航不可辨识。</li>
+    <li class="p1"><b>方案</b>：全局增加 reduced-motion 降级；给搜索框补 focus ring。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">主题</span><strong>硬编码颜色破坏主题 + 像素级小字号</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：多处组件硬编码 hex（<span class="loc">src/components/**</span>）；<span class="loc">8-10px</span> 的字号出现在若干角标/标签。</li>
+    <li class="p1"><b>问题</b>：换主题后部分区块不跟随，明暗切换出现突兀色块；小字号在部分屏幕不可读。</li>
+    <li class="p1"><b>方案</b>：统一抽取为 Tailwind 语义色/CSS 变量；字号下限提到 12px。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">反馈</span><strong>window.alert 生硬 + 评论失败静默</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：删除/错误提示多处 <code>alert()</code>；评论提交失败无提示。</li>
+    <li class="p1"><b>问题</b>：破坏视觉统一；失败无反馈用户不知道要重试。</li>
+    <li class="p1"><b>方案</b>：引入轻量 toast 组件；评论失败状态明确展示。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p2">P2</span><span class="tag">移动端</span><strong>日历在移动端不可达</strong>
+  <ul class="issues">
+    <li class="p2"><b>位置</b>：<span class="loc">src/pages/calendar/index.astro</span> 交互区。</li>
+    <li class="p2"><b>方案</b>：窄屏切换纵向堆叠或横向滚动。</li>
+  </ul>
+</div>
+
+<!-- ============ 三、代码冗余与架构 ============ -->
+<h2>三、代码冗余与架构</h2>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">结构</span><strong>超长 Astro 页面应拆分</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：<span class="loc-b">src/pages/study.astro 1229 行</span>、<span class="loc-b">src/pages/admin/settings.astro 1180 行</span>、<span class="loc-b">src/pages/calendar/index.astro 906 行</span>、<span class="loc-b">src/pages/nav.astro 881 行</span>。</li>
+    <li class="p0"><b>问题</b>：单一文件超千行，逻辑与模板耦合，维护与协作困难。</li>
+    <li class="p0"><b>方案</b>：按区块抽 Astro 组件 + 把可取数的逻辑下沉 <span class="loc">src/lib/</span>，页面只留编排。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">去重</span><strong>重复工具函数</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：<span class="loc-b">dateKey / addDays 约 6 处重复</span>、<span class="loc-b">tags 编解码 3 份</span>、<span class="loc-b">热力图网格双份</span>。</li>
+    <li class="p1"><b>问题</b>：改一处漏一处，易产生行为不一致 Bug。</li>
+    <li class="p1"><b>方案</b>：收敛到 <span class="loc">src/lib/date.ts</span>、<span class="loc">src/lib/tags.ts</span>，统一导出。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">清理</span><strong>遗留端点/死代码未删</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：<span class="loc">src/pages/api/migrate-photos-tags.ts</span>（一次性迁移端点，双库 tags 列已就位，应删）；<span class="loc">src/lib/like-fingerprint.ts</span> 的 <code>getLikeIdentity()</code> 零调用死代码（<b>勿整文件删</b>，<code>getLikeFingerprint()</code> 仍被用）。</li>
+    <li class="p1"><b>方案</b>：删除迁移端点（连同 middleware 保护条目）；只删死函数保留在用函数。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p2">P2</span><span class="tag">一致性</span><strong>settings KV 存储重复 / middleware 命令式清单 / dbWrite 双实现</strong>
+  <ul class="issues">
+    <li class="p2"><b>位置</b>：<span class="loc">src/lib/settings*</span>（KV 读写约 5 处重复）；<span class="loc">src/middleware.ts</span> 手动维护 API 白名单；<span class="loc">src/lib/db</span> 双写实现。</li>
+    <li class="p2"><b>方案</b>：抽统一 settings 存取函数；middleware 清单改为配置化（正则/表）；dbWrite 收敛为单一策略。</li>
+  </ul>
+</div>
+
+<!-- ============ 四、代码质量与安全 ============ -->
+<h2>四、代码质量与可维护性（含安全）</h2>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">安全</span><strong>Open-Redirect 可被反斜杠绕过</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：<span class="loc-b">src/pages/api/auth/user/github.ts:14</span> 与 <span class="loc-b">src/pages/api/auth/user/github/callback.ts:32</span>，校验为
+      <code>next.startsWith('/') &amp;&amp; !next.startsWith('//')</code>。</li>
+    <li class="p0"><b>问题</b>：该校验仅挡 <code>//host</code>，但浏览器会把 <code>\host</code>、<code>/\host</code> 规范化成外部地址——攻击者可构造 <code>\evil.com</code> 让已登录用户被重定向到钓鱼站。这是真实可利用的开放重定向。</li>
+    <li class="p0"><b>方案</b>：校验同时拒绝 <code>\</code>（且不要只挡前缀），用 <code>new URL(next, site)</code> 解析后断言 origin 一致，或用安全跳转白名单；两处统一改。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">安全</span><strong>AUTH_SECRET 为空时可派生密钥</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：<span class="loc-b">src/lib/auth.ts:27</span> —— <code>serverEnv('AUTH_SECRET') || sha256(ADMIN_PASSWORD)</code>。</li>
+    <li class="p0"><b>问题</b>：未配置 AUTH_SECRET 时由 ADMIN_PASSWORD 派生 HMAC 密钥。若 ADMIN_PASSWORD 弱或可枚举，攻击者可自行伪造管理员会话；这也让「能否伪造会话」依赖一个可变口令而非独立密钥。</li>
+    <li class="p0"><b>方案</b>：生产强制要求 AUTH_SECRET，缺失直接拒绝启动（fail-fast），不要 fallback。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p0">P0</span><span class="tag">泄露</span><strong>草稿（status=draft）可能被公开读取</strong>
+  <ul class="issues">
+    <li class="p0"><b>位置</b>：文章/文档读取接口未统一按发布态过滤。</li>
+    <li class="p0"><b>问题</b>：未发布草稿若被公开 API 命中，内容会泄露给访客。</li>
+    <li class="p0"><b>方案</b>：读取侧强制 <code>status === 'published'</code>，草稿仅管理员会话可见。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">一致性</span><strong>点赞/评论计数非原子；HMAC 比较非常量时间</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：<span class="loc">src/pages/api/likes/*</span>（读改写计数）；<span class="loc">src/lib/auth.ts:52,108</span> 用普通 <code>===</code> 比 HMAC。</li>
+    <li class="p1"><b>问题</b>：并发点赞可能丢失计数；<code>===</code> 存在时序侧信道（低风险但可修）。</li>
+    <li class="p1"><b>方案</b>：计数用数据库原子自增/唯一约束下计数；HMAC 用 <code>timingSafeEqual</code>。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <span class="sev p1">P1</span><span class="tag">健壮性</span><strong>saveDraft slug 冲突 / API 泄漏内部细节 / 测试缺口</strong>
+  <ul class="issues">
+    <li class="p1"><b>位置</b>：<span class="loc">src/pages/api/...</span>（保存草稿 slug 无唯一性处理；错误响应直接回显 DB 报错）。</li>
+    <li class="p1"><b>问题</b>：slug 撞车覆盖；错误信息暴露 schema/结构。</li>
+    <li class="p1"><b>方案</b>：slug 冲突加后缀或报错；错误统一映射为通用信息；补 <span class="loc">middleware.ts / db/index.ts</span> 单测（当前零覆盖）。</li>
+  </ul>
+</div>
+
+<!-- ============ 五、性能测试 ============ -->
+<h2>五、性能基准测试结果与分析</h2>
+<p class="lead">测试方法：curl 测响应/TTFB（各 4 次取统计）；playwright-core（channel: msedge）驱动 Chromium 实测线上页面，抓 load 时间、请求数、资源体积；Python 做统计；分析 <code>.vercel/output/static/_astro/</code> 构建产物。</p>
+
+<h3>5.1 线上页面加载（playwright 实测）</h3>
+<table>
+  <tr><th>页面</th><th>load 时间</th><th>总请求</th><th>JS</th><th>CSS</th><th>API</th><th>评价</th></tr>
+  <tr><td>/ 首页</td><td class="num">2035ms</td><td class="num">40</td><td class="num">20</td><td class="num">—</td><td class="num">4</td><td class="warn">偏慢</td></tr>
+  <tr><td>/moments 动态</td><td class="num">1424ms</td><td class="num bad">87</td><td class="num">—</td><td class="num">—</td><td class="num bad">52</td><td class="bad">请求爆炸</td></tr>
+  <tr><td>/blog/… 文章</td><td class="num bad">4038ms</td><td class="num">32</td><td class="num">25</td><td class="num">3</td><td class="num">4</td><td class="bad">最慢</td></tr>
+</table>
+<div class="note"><b>关键分析</b>：<span class="bad">/moments 52 个 API</span> 证实「每动态一个 client:load 评论岛 + 点赞」的请求爆炸（每条 4 个 API）；<span class="bad">文章页 4 秒</span> 主要被 ThemeHead.css 421KB + client.js 180KB + gsap/ScrollTrigger 动画库拖累。</div>
+
+<h3>5.2 资源体积（构建产物 + 运行时 Top 资源）</h3>
+<table>
+  <tr><th>资源</th><th>体积</th><th>说明</th></tr>
+  <tr><td>MarkdownEditor.js</td><td class="num bad">534KB</td><td>写作台编辑器，全量打进包</td></tr>
+  <tr><td>ThemeHead.css</td><td class="num bad">419KB</td><td>文章页首屏加载（421KB）</td></tr>
+  <tr><td>simple-mind-map.js</td><td class="num warn">331KB</td><td>思维导图，建议异步分包</td></tr>
+  <tr><td>client.CZ1JDvuH.js</td><td class="num warn">179KB</td><td>全局客户端 chunk</td></tr>
+  <tr><td>gsap / ScrollTrigger</td><td class="num">68KB / 42KB</td><td>动画库，确认是否首屏必需</td></tr>
+</table>
+<div class="ok-note"><b>汇总</b>：构建产物 49 JS ≈ 1454KB + CSS 443KB；文章页实测 JS 365KB + CSS 475KB。注：部分资源以 chunked 传输缺失 content-length，体积显示 0KB，但请求数已足以定位问题。</div>
+
+<h3>5.3 接口响应与冷启动</h3>
+<table>
+  <tr><th>维度</th><th>数值</th><th>评价</th></tr>
+  <tr><td>页面响应（TTFB）</td><td class="num">≈1.1–1.5s（/ 均值 1370ms）</td><td class="warn">中等</td></tr>
+  <tr><td>/moments 波动</td><td class="num">max 2669ms</td><td class="warn">波动大</td></tr>
+  <tr><td>公开 API</td><td class="num">≈1s</td><td class="warn">略慢</td></tr>
+  <tr><td>/api/study/stats 冷启动</td><td class="num bad">2535ms</td><td class="bad">Serverless 冷启动明显</td></tr>
+</table>
+
+<h3>5.4 依赖与工程健康</h3>
+<table>
+  <tr><th>项</th><th>值</th><th>评价</th></tr>
+  <tr><td>运行时依赖</td><td class="num">64</td><td>—</td></tr>
+  <tr><td>dev 依赖</td><td class="num">13</td><td>—</td></tr>
+  <tr><td>giscus</td><td>未使用</td><td class="warn">冗余依赖</td></tr>
+  <tr><td>radix-ui</td><td>与 7 个 @radix-ui/react-* 并存</td><td class="warn">双来源冗余</td></tr>
+  <tr><td>vitest</td><td class="num">74 测试全过（3.3s）</td><td class="good">健康</td></tr>
+  <tr><td>类型检查</td><td class="num">astro check 0 errors</td><td class="good">健康</td></tr>
+</table>
+
+<!-- ============ 六、整体重构优先级 ============ -->
+<h2>六、整体重构优先级建议</h2>
+
+<div class="card">
+  <h3 style="margin-top:0">P0 —— 立即处理（安全 + 首屏 + 核心可用性）</h3>
+  <span class="pill p0">Open-Redirect 反斜杠绕过</span>
+  <span class="pill p0">AUTH_SECRET 缺失 fallback 伪造会话</span>
+  <span class="pill p0">草稿公开泄露</span>
+  <span class="pill p0">/moments 52 API 请求爆炸</span>
+  <span class="pill p0">移动端导航溢出 / 管理按钮不可达</span>
+</div>
+<div class="card">
+  <h3 style="margin-top:0">P1 —— 本轮迭代完成（体验 + 可维护性）</h3>
+  <span class="pill p1">超长页面拆分（study/settings/calendar/nav）</span>
+  <span class="pill p1">重复工具函数去重（dateKey/tags/热力图网格）</span>
+  <span class="pill p1">删除 migrate-photos-tags 遗留端点</span>
+  <span class="pill p1">ActivityHeatmap 全量查正文</span>
+  <span class="pill p1">照片 batchUpdateTags N+1</span>
+  <span class="pill p1">search 全量内存过滤</span>
+  <span class="pill p1">reduced-motion / 搜索框 focus / alert 替换 / 评论失败提示</span>
+  <span class="pill p1">点赞/评论计数原子化 + HMAC timingSafeEqual</span>
+</div>
+<div class="card">
+  <h3 style="margin-top:0">P2 —— 持续优化（性能 + 整洁）</h3>
+  <span class="pill p2">Bundle 体积（MarkdownEditor/simple-mind-map/gsap 异步分包）</span>
+  <span class="pill p2">缺索引 + dbWrite 串行并行化</span>
+  <span class="pill p2">设置 KV 重复收敛 / middleware 配置化 / dbWrite 单一实现</span>
+  <span class="pill p2">图片每次 sharp 转换缓存</span>
+  <span class="pill p2">补 middleware / db 单测</span>
+</div>
+
+<div class="ok-note"><b>推进建议</b>：先做 P0 四个安全/首屏项（风险最高、收益最大，且每项改动面小）；随后一个迭代专做 /moments 请求聚合 + 超长页面拆分；P2 可随功能迭代零碎消化。重构前后用 vitest 74 用例与 playwright 回归守住行为不回归。</div>
+
+<footer>My-Blog 项目审查报告 · 性能测试基于线上生产站 www.byqx-blog.online · 生成于 2026-09-02</footer>
+
+</div>
+</body>
+</html>
