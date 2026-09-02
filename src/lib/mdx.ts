@@ -112,6 +112,31 @@ export function normalizeBackticks(source: string): string {
  * - `\$` 转义美元保留原样（想显示字面 `$$` 请写作 `\$\$$`）；
  * - 单个 `$` 的行内数学不受影响（只拆连续两个 `$`）。
  */
+/**
+ * 渲染前源码规整（数学 + MDX 安全化）。含两类修复，按行分类处理：
+ *
+ * ① 数学块分隔符（非表格行）：把「意图为 display math」的非转义 `$$` 拆到独占行。
+ *    背景（复现+生产确认）：remark-math（micromark mathFlow）只认 `$$` fence 独占一行；
+ *    `$$x^2$$` 同行成对不被识别、`内容与 $$ 同行`会吞后续正文+残留 `$$` →
+ *    KaTeX 收到含 `$$` 的非法 TeX → `.katex-error` 红字（「编辑正常、阅读红字」根因）。
+ *
+ * ② 表格行：remark-math 的 `$…$` 在 GFM 表格单元格内**不激活**
+ *    （micromark-extension-gfm-table 的 cell tokenizer 不含 math text tokenizer，
+ *      与插件顺序无关，实测确认）。于是表格里的 LaTeX 花括号 `{dx}`、`{2a}` 会以
+ *     **裸文本**进入 MDX → micromark-extension-mdx-expression 把 `{` 当 JS 表达式 →
+ *     acorn 解析 `{2a}` 抛「Identifier directly after number」→ 整篇 evaluate 失败
+ *     （/render 500，生产日志 api/doc/nodes/render 50:103 即积分公式表）。
+ *     处理：剥掉成对 `$`（以干净字面 LaTeX 显示），裸 `{`/`}` 转义为 `\{`/`\}`。
+ *     （备注：曾试过表格 cell 内嵌 `<Tex/>` JSX 组件渲染 KaTeX——cell 内 JSX 属性
+ *      不支持反斜杠转义/表达式属性，micromark 限制，放弃；Tex 组件保留供段落下
+ *      显式内嵌公式使用。）
+ *
+ * 保守策略（防误伤，勿回退）：
+ * - ``` / ~~~ 围栏内容整行跳过（状态机）；缩进 ≥4 空格的缩进代码行跳过；
+ * - 含反引号的行跳过（行内代码里的标记是字面，改坏代码）；
+ * - `\$` 转义保留；单个 `$` 行内数学不受影响（只拆连续两个 `$`）；
+ * - 表格行判定：顶格或缩进 ≤3 且行首为 `|`（GFM 表格数据行特征）。
+ */
 export function normalizeMathFences(source: string): string {
   const lines = source.split('\n');
   const out: string[] = [];
@@ -128,7 +153,16 @@ export function normalizeMathFences(source: string): string {
       out.push(t);
       continue;
     }
-    // 拆分行内所有非转义 `$$` 为独立行（每段一行，保持内容原样）
+    // ② 表格数据行（顶格/≤3 缩进 + 行首 `|`）：remark-math 的 `$…$` 在 GFM 表格
+    //    cell 内不激活 → 剥掉 `$` 以干净字面 LaTeX 显示，并把裸 `{`/`}` 转义为
+    //    `\{`/`\}`（MDX 文本原样输出），阻止表达式解析崩溃（见 tableLineToSafe）。
+    //    ⚠️ 勿加「缩进 ≥4 空格行跳过」分支：列表/引用内常有缩进 display 数学
+    //    （如 `  $$ … $$`），跳过会破坏其拆分（曾在生产文档引发 acorn 崩溃回归）。
+    if (/^\s{0,3}\|/.test(t)) {
+      out.push(tableLineToSafe(t));
+      continue;
+    }
+    // ① 非表格行：拆分行内所有非转义 `$$` 为独立行（每段一行，保持内容原样）
     const segs: string[] = [];
     let buf = '';
     for (let i = 0; i < t.length; ) {
@@ -158,6 +192,71 @@ export function normalizeMathFences(source: string): string {
     }
   }
   return out.join('\n');
+}
+
+/**
+ * 表格行 MDX 安全化（normalizeMathFences 的 ② 分支实现）。
+ *
+ * 逐字符扫描一行 markdown 表格行：
+ * - 非转义单个 `$…$` 成对且内容合理 → 剥掉两个 `$`，内容原样输出（LaTeX 字面，
+ *   无 $ 噪音）。表格内 math 节点不激活（micromark 局限），保留 `$` 无益且显脏；
+ * - 连续 `$$`：`$` 本身在文本层无害（不触发 MDX 语法），直接保留；
+ * - 裸 `{`/`}` → `\{`/`\}`（MDX 文本层原样输出花括号；裸 `{` 会被当作 JS/JSX
+ *   表达式起始，acorn 解析 `{2a}` 抛 "Identifier directly after number" → 整篇
+ *   evaluate 失败 → /render 500，即生产日志 api/doc/nodes/render 50:103）；
+ * - 已转义序列（`\X`）原样保留（含 `\$`、`\|`、`\{` 等）。
+ */
+function tableLineToSafe(t: string): string {
+  let out = '';
+  const flushLiteral = (ch: string): void => {
+    // 裸 `{`/`}` 会被 MDX 当作 JS/JSX 表达式起始 → `\{`/`\}` 原样输出
+    // 裸 `<`（如数学文本 `\alpha<1`）会被 MDX 当作 JSX 标签起始（`<1`）→ `\<` 原样输出
+    if (ch === '{' || ch === '}' || ch === '<') out += `\\${ch}`;
+    else out += ch;
+  };
+  for (let i = 0; i < t.length; ) {
+    const ch = t[i];
+    if (ch === '\\' && i + 1 < t.length) {
+      out += ch + t[i + 1]; // 已转义序列保持
+      i += 2;
+      continue;
+    }
+    if (ch === '$' && t[i + 1] === '$') {
+      out += '$$';
+      i += 2;
+      continue;
+    }
+    if (ch === '$') {
+      // 找同行闭合 `$`（跳过转义）；内容合理则剥掉 `$` 后原样输出
+      let j = i + 1;
+      let close = -1;
+      while (j < t.length) {
+        if (t[j] === '\\' && t[j + 1] === '$') {
+          j += 2;
+          continue;
+        }
+        if (t[j] === '$') {
+          close = j;
+          break;
+        }
+        j += 1;
+      }
+      if (close > i + 1) {
+        const inner = t.slice(i + 1, close);
+        if (inner.trim() !== '' && !/^\s/.test(inner) && !/\s$/.test(inner)) {
+          for (const c of inner) flushLiteral(c);
+          i = close + 1;
+          continue;
+        }
+      }
+      out += '$';
+      i += 1;
+      continue;
+    }
+    flushLiteral(ch);
+    i += 1;
+  }
+  return out;
 }
 
 /**
