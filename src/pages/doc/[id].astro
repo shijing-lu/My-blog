@@ -7,6 +7,7 @@ import { renderMdx } from '@/lib/mdx';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import type { TocItem } from '@/lib/mdx-plugins';
 import type { DocNodeView } from '../../../db/types';
+import DocInlineEditor from '@/components/doc/DocInlineEditor';
 
 /* ===== Logic ===== */
 const { id } = Astro.params;
@@ -41,8 +42,9 @@ const catName = allCategories.find((c) => c.bundles.some((b) => b.id === bundle.
 
 // 节点元数据注入：去掉 content(MDX 源码)——大文档首页 HTML 体积断崖下降。
 // 节点编辑/移动时按需走 /api/doc/nodes/${id} 取单节点详情（已有 PATCH/GET 接口）。
+// updatedAt 作为 /render 的版本号 v：编辑后它变化 → URL 变化 → CDN 旧缓存自动失效
 const nodesJson = JSON.stringify(
-  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title })),
+  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title, updatedAt: n.updatedAt })),
 );
 const bundleJson = JSON.stringify({ id: bundle.id, name: bundle.name, icon: bundle.icon, summary: bundle.summary });
 const activeNodeId = activeNode?.id ?? '';
@@ -166,10 +168,27 @@ const folderOptionsJson = JSON.stringify(folderOptions);
           {activeNode ? (
             <>
               <header>
-                <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(activeNode.title)}</h1>
+                <div class="flex items-start gap-3">
+                  <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(activeNode.title)}</h1>
+                  {
+                    isAuthed && (
+                      <button
+                        id="doc-inline-edit"
+                        type="button"
+                        title="原地编辑本文"
+                        aria-label="原地编辑本文"
+                        class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                      >
+                        编辑
+                      </button>
+                    )
+                  }
+                </div>
                 <div class="pixel-divider mt-4" />
               </header>
               <article class="prose mt-6 max-w-none break-words" set:html={html} />
+              {/* 正文原编辑岛：仅登录用户加载（client:idle 延后到空闲，不拖阅读首屏） */}
+              {isAuthed && <DocInlineEditor client:idle />}
             </>
           ) : (
             <p class="mt-10 text-center text-sm text-muted-foreground">该文档暂无文章。</p>
@@ -365,17 +384,48 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   #doc-toc-list .katex-display { margin: 0.2em 0; }
   #doc-toc-list .katex-display > .katex { display: inline-block; white-space: nowrap; }
 
-  /* 正文 KaTeX：与 prose 行高对齐 + 行间公式独立滚动 + 行内公式微间距
-     （之前正文零覆盖：行内/行间公式贴字、宽公式溢出、与 prose 行高 1.75 不一致） */
+  /* ===== 正文 KaTeX：解拥挤（行内留白 / 含公式段落加行距 / 行间公式舒展） =====
+     注意：CSS 只能改善「间距与留白」，改不了 KaTeX 对行内/展示模式的判定。
+     \int_0^x、\lim_{x\to 0} 这类多上下标公式若写在 $…$ 里仍按行内紧凑排版，
+     根本解法是在源码里改用 $$…$$（或 \[ … \]）走展示模式。 */
   .prose .katex { font-size: 1.05em; line-height: 1.6; }
+  /* 行内公式左右留白：0.05em → 0.18em，避免与相邻文字粘连 */
+  .prose p .katex,
+  .prose li .katex { padding: 0 0.18em; }
+  /* 含公式的段落/列表项放宽行距：\frac / \int 等"高"公式不再顶到相邻行 */
+  .prose p:has(.katex),
+  .prose li:has(.katex) { line-height: 2; }
+  /* 行间公式：上下留白更舒展，横向溢出时独立滚动而不是撑破栏宽 */
   .prose .katex-display {
-    margin: 0.8em 0;
+    margin: 1.3em 0;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0.2em 0;
+    padding: 0.35em 0;
   }
   .prose .katex-display > .katex { display: inline-block; white-space: nowrap; }
-  .prose p .katex { padding: 0 0.05em; }
+  /* 窄屏下宽公式轻微降字号，换取横向空间（宁可小一点，也不要挤成滚动条） */
+  @media (max-width: 767px) {
+    .prose .katex-display > .katex { font-size: 0.94em; }
+  }
+
+  /* ===== 长文渲染优化：跳过首屏外区块的布局与绘制 =====
+     实测：243KB 文章渲染出约 1.9 万个 DOM 标签，浏览器一次性 layout 是
+     「切到大文章卡一下」的主因（服务端有 LRU 后仅 0.1ms，网络 gzip 后也很小）。
+     content-visibility:auto 让视口外区块跳过 layout/paint，只算可见部分；
+     contain-intrinsic-size 的 `auto` 前缀会记住真实高度，避免滚动条反复抖动。
+     权衡：未渲染过的区块用估算高度，首次锚点/TOC 跳转可能有轻微偏移；
+     打印时必须还原 visible，否则视口外内容不会进打印结果。 */
+  main article.prose > * {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
+  }
+  @media print {
+    main article.prose > * { content-visibility: visible; }
+  }
+
+  /* ===== 编辑态：正文解除 572px 阅读宽锁，给双栏编辑让出空间 =====
+     编辑容器替换 <article> 所在位置（其上方内容不变），故滚动位置不受影响。 */
+  #doc-3col[data-editing='true'] > main { max-width: none; }
 </style>
 
 <script>
@@ -391,9 +441,17 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     const d = document.getElementById('doc-detail-data');
     return JSON.parse(d?.dataset.bundle ?? '{}') as { id: string; name: string; icon: string | null; summary: string | null };
   }
-  function readNodes(): Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string }> {
+  /** 注入的节点元信息（updatedAt 用作 /render 的缓存版本号 v） */
+  interface NodeMeta {
+    id: string;
+    parentId: string | null;
+    kind: 'folder' | 'article';
+    title: string;
+    updatedAt?: string;
+  }
+  function readNodes(): NodeMeta[] {
     const d = document.getElementById('doc-detail-data');
-    return JSON.parse(d?.dataset.nodes ?? '[]') as Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string }>;
+    return JSON.parse(d?.dataset.nodes ?? '[]') as NodeMeta[];
   }
   function readFolders(): Array<{ id: string; title: string }> {
     const d = document.getElementById('doc-detail-data');
@@ -417,6 +475,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     if (t.closest('[data-node-edit], [data-node-del], [data-node-move], [data-node-add-article], [data-node-add-folder]')) return;
     const link = t.closest<HTMLElement>('[data-article-switch]');
     if (!link) return;
+    // 编辑中禁止切换文章：否则编辑器里的旧正文会被保存/渲染到新文章上（数据覆盖）
+    if (document.getElementById('doc-3col')?.getAttribute('data-editing') === 'true') return;
     e.preventDefault();
     const id = link.dataset.articleSwitch;
     if (!id) return;
@@ -426,7 +486,11 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       return;
     }
     try {
-      const res = await fetch(`/api/doc/nodes/${id}/render`);
+      // 带版本号 v（= updatedAt）：命中 CDN 长缓存，大文章二次切换近乎瞬时；
+      // 无 updatedAt（数据缺失）时退化为不带 v，仍可用，只是每次回源重渲。
+      const meta = readNodes().find((n) => n.id === id);
+      const v = meta?.updatedAt ? `?v=${encodeURIComponent(meta.updatedAt)}` : '';
+      const res = await fetch(`/api/doc/nodes/${id}/render${v}`);
       const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: TocItem[]; error?: string };
       if (!res.ok || typeof d.html !== 'string') throw new Error(d.error ?? '加载失败');
       const h1 = document.querySelector('main h1');
@@ -459,6 +523,22 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   }
   document.addEventListener('astro:page-load', () => setActiveArticle(currentActiveId()));
   setActiveArticle(currentActiveId());
+
+  /* ================= 正文原编辑（无弹窗；滚动位置由岛内部保持） ================= */
+  // 岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s，避免点击无响应
+  document.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('#doc-inline-edit')) return;
+    let tries = 0;
+    const tryOpen = (): void => {
+      const bridge = (window as unknown as { __docInlineEditor?: { open: () => void } }).__docInlineEditor;
+      if (bridge) {
+        bridge.open();
+        return;
+      }
+      if (tries++ < 20) window.setTimeout(tryOpen, 100);
+    };
+    tryOpen();
+  });
 
   /* ================= 树形目录：层级折叠/展开（事件委托，动态重建安全） ================= */
   // 点击折叠箭头 → 折叠/展开该节点全部子孙；点击目录链接仍正常锚点跳转

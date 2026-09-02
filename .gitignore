@@ -31,3 +31,4 @@ scripts/_diag-*.png
 
 .vercel
 .env*
+.diag/
