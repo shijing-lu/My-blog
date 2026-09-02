@@ -101,7 +101,12 @@ const blockMapJson = JSON.stringify(blockMap);
           <div class="min-h-0 flex-1">
             {mapPanels.map((m, i) => (
               <div data-map-panel={m.id} class={i === 0 ? 'h-full' : 'hidden h-full'}>
-                <MindMapViewer client:load mapId={m.id} data={m.data} blockMap={JSON.parse(blockMapJson)} />
+                <!-- 性能优化：抽屉初始是收起的（translate-x-full，在视口外），
+                     但 client:load 会让岛在首屏立即挂载，进而触发组件内的
+                     dynamic import，把 300KB+ 的 simple-mind-map 拉进首屏关键路径。
+                     改用 client:idle：等浏览器空闲再水合，正文与样式优先。
+                     （不可用 client:visible —— 抽屉在视口外，永远不会交叉触发） -->
+                <MindMapViewer client:idle mapId={m.id} data={m.data} blockMap={JSON.parse(blockMapJson)} />
               </div>
             ))}
           </div>

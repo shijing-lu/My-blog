@@ -9,6 +9,7 @@ import {
   fetchGitHubUser,
   getOAuthStateNext,
   OAUTH_STATE_COOKIE,
+  safeNextPath,
   setUserSessionCookie,
   verifyOAuthState,
 } from '@/lib/auth';
@@ -27,9 +28,9 @@ export const GET: APIRoute = async ({ request, cookies, redirect }) => {
     return redirect('/?login=oauth-invalid');
   }
 
-  // 登录后跳回来源页（state 中 next），仅站内路径
-  const next = getOAuthStateNext(state) ?? '/moments';
-  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/moments';
+  // 登录后跳回来源页（state 中 next）。即使 state 已验签，仍要重新校验 next：
+  // state 的 next 来自用户可控的 ?next=，且旧版本签发时未做严格校验。
+  const safeNext = safeNextPath(getOAuthStateNext(state));
 
   try {
     const token = await exchangeGitHubCode(code);

@@ -108,7 +108,8 @@
   <span class="sev p1">P1</span><span class="tag">体积</span><strong>构建产物体积大，最大 chunk 超 500KB</strong>
   <ul class="issues">
     <li class="p1"><b>位置</b>：<span class="loc">.vercel/output/static/_astro/</span>（部署产物）—— 49 个 JS 共 1454KB + CSS 443KB。</li>
-    <li class="p1"><b>问题</b>：<span class="loc-b">MarkdownEditor.js 534KB</span>、<span class="loc-b">ThemeHead.css 419KB</span>、<span class="loc-b">simple-mind-map.js 331KB</span>、<span class="loc-b">client.CZ1JDvuH.js 179KB</span>。文章页实测 JS 365KB + CSS 475KB，首屏（load 4038ms）受拖累。</li>
+    <li class="p1"><b>问题</b>：<span class="loc-b">MarkdownEditor.js 534KB</span>、<span class="loc-b">ThemeHead.css 419KB</span>、<span class="loc-b">simple-mind-map.js 331KB</span>、<span class="loc-b">client.CZ1JDvuH.js 179KB</span>。</li>
+    <li class="p1"><b>已核实修正</b>：<code>simple-mind-map</code> 在 <span class="loc">MindMapViewer.tsx:15-16</span> 与 <span class="loc">MindMapEditor.tsx:12-13</span> 均为 <code>import type</code>，运行时走动态 <code>import()</code>（viewer:241 / editor:43），<b>已做代码分割</b>，不会无条件进入所有页面。真正的隐患是 <code>client:load</code> 让岛在首屏挂载后立即触发该动态导入。</li>
     <li class="p1"><b>方案</b>：① 大编辑器/思维导图确认是否 <code>client:load</code>，改 <code>client:visible</code> 或独立路由异步分包（<code>import()</code>）；② 关注 `simple-mind-map` 全量打包是否可 tree-shake；③ CSS 检查重复主题变体。</li>
   </ul>
 </div>
@@ -238,11 +239,10 @@
 </div>
 
 <div class="card">
-  <span class="sev p0">P0</span><span class="tag">泄露</span><strong>草稿（status=draft）可能被公开读取</strong>
+  <span class="sev p2">已排除</span><span class="tag">误报</span><strong>草稿（status=draft）公开泄露 —— 经核实不成立</strong>
   <ul class="issues">
-    <li class="p0"><b>位置</b>：文章/文档读取接口未统一按发布态过滤。</li>
-    <li class="p0"><b>问题</b>：未发布草稿若被公开 API 命中，内容会泄露给访客。</li>
-    <li class="p0"><b>方案</b>：读取侧强制 <code>status === 'published'</code>，草稿仅管理员会话可见。</li>
+    <li class="p2"><b>核实结论</b>：<code>db/schema.sqlite.ts:32-64</code> 的 <code>articles</code> 表<strong>根本不存在 status / draft 字段</strong>（仅有 <code>type: tech|note|photo</code>）。项目当前没有草稿机制，因此不存在该泄露面。</li>
+    <li class="p2"><b>处理</b>：该项已从事实清单中移除，无需改动。若未来引入草稿功能，届时再补发布态过滤。</li>
   </ul>
 </div>
 

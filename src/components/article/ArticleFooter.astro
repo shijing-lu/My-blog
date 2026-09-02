@@ -73,6 +73,8 @@ function formatShort(date: Date): string {
     }
   </nav>
 
-  <!-- 点赞 + 评论（自建评论区，点赞在评论按钮旁） -->
-  <Comments client:load targetType="article" targetId={article.id} initialCount={likeCount} />
+  <!-- 点赞 + 评论（自建评论区，点赞在评论按钮旁）
+       性能优化：评论区位于文章末尾，基本都在首屏之外。改用 client:visible
+       延后到滚动进入视口再水合，让首屏优先下载/渲染正文与样式。 -->
+  <Comments client:visible targetType="article" targetId={article.id} initialCount={likeCount} />
 </footer>

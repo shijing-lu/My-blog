@@ -43,6 +43,39 @@ interface CommentsProps {
 
 const PAGE_SIZE = 6;
 
+/** GitHub 登录用户信息（未登录为 null） */
+interface GithubUserInfo {
+  login: string;
+  name: string;
+  avatarUrl: string;
+}
+
+/**
+ * 当前登录用户信息的**共享**请求。
+ *
+ * 背景：动态列表页会给每条动态挂一个评论岛，原先每个岛 mount 时各发一次
+ * `/api/auth/user/me` —— 20 条动态就是 20 次完全相同的请求。
+ * 登录态是全站唯一的，这里用模块级 in-flight Promise 做去重：
+ * 同一时刻并发的岛共用一次网络请求，后续挂载的岛直接复用已解析结果。
+ */
+let currentUserPromise: Promise<GithubUserInfo | null> | null = null;
+
+/** 登录态变化（退出/重新登录）后清空缓存，下次挂载重新拉取 */
+function resetCurrentUserCache(): void {
+  currentUserPromise = null;
+}
+
+/** 获取（并缓存）当前登录用户；失败按未登录处理，不抛给调用方 */
+function fetchCurrentUser(): Promise<GithubUserInfo | null> {
+  if (!currentUserPromise) {
+    currentUserPromise = fetch('/api/auth/user/me')
+      .then((r) => (r.ok ? (r.json() as Promise<{ user: GithubUserInfo | null }>) : null))
+      .then((d) => d?.user ?? null)
+      .catch(() => null);
+  }
+  return currentUserPromise;
+}
+
 /** 相对时间 */
 function timeAgo(iso: string): string {
   const t = new Date(iso).getTime();
@@ -221,7 +254,7 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
   const [authorName, setAuthorName] = useState('');
   const [content, setContent] = useState('');
   const [replyText, setReplyText] = useState('');
-  const [githubUser, setGithubUser] = useState<{ login: string; name: string; avatarUrl: string } | null>(null);
+  const [githubUser, setGithubUser] = useState<GithubUserInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [replyBusy, setReplyBusy] = useState(false);
@@ -255,15 +288,12 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
     [targetType, targetId],
   );
 
-  // 初始加载 + GitHub 登录态
+  // 初始加载 + GitHub 登录态（登录态走共享请求，N 个岛只发 1 次）
   useEffect(() => {
     mounted.current = true;
-    fetch('/api/auth/user/me')
-      .then((r) => (r.ok ? (r.json() as Promise<{ user: { login: string; name: string; avatarUrl: string } | null }>) : null))
-      .then((d) => {
-        if (d?.user && mounted.current) setGithubUser(d.user);
-      })
-      .catch(() => {});
+    void fetchCurrentUser().then((u) => {
+      if (u && mounted.current) setGithubUser(u);
+    });
     void load(1, 'hot');
     return () => {
       mounted.current = false;
@@ -487,6 +517,7 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
                     type="button"
                     onClick={() => {
                       void fetch('/api/auth/user/logout', { method: 'POST' }).then(() => {
+                        resetCurrentUserCache();
                         setGithubUser(null);
                         window.location.reload();
                       });

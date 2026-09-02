@@ -73,7 +73,7 @@ function renderVideo(url: string): string {
         </div>
         <div class="flex items-center gap-3">
           {avatarSrc ? (
-            <img src={avatarSrc} alt={nickname} class="size-10 rounded-full border border-border object-cover" />
+            <img src={avatarSrc} alt={nickname} decoding="async" class="size-10 rounded-full border border-border object-cover" />
           ) : (
             <span class="inline-flex size-10 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
               {nickname.slice(0, 1)}
@@ -162,8 +162,11 @@ function renderVideo(url: string): string {
             moments.map((m) => (
               <article class="moment-card group hairline p-4">
                 <div class="flex items-start gap-3">
+                  {/* 性能优化：动态列表里每张卡片的头像都是同一个 URL，原先不带
+                      loading=lazy，N 张卡片会在首屏并发发起 N 次相同请求。
+                      加上 lazy + async 解码后，视口外的卡片不再触发请求。 */}
                   {avatarSrc ? (
-                    <img src={avatarSrc} alt={nickname} class="size-10 shrink-0 rounded-full border border-border object-cover" />
+                    <img src={avatarSrc} alt={nickname} loading="lazy" decoding="async" class="size-10 shrink-0 rounded-full border border-border object-cover" />
                   ) : (
                     <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
                       {nickname.slice(0, 1)}
@@ -205,8 +208,12 @@ function renderVideo(url: string): string {
                     <div class="mt-2" set:html={renderMedia(m.media)} />
                   </div>
                 </div>
-                <!-- 点赞（内容）+ 评论（自建评论区，点赞在评论按钮旁） -->
-                <Comments client:load targetType="moment" targetId={m.id} initialCount={likeMap[m.id] ?? 0} />
+                <!-- 点赞（内容）+ 评论（自建评论区，点赞在评论按钮旁）
+                     性能优化：动态列表会渲染大量评论岛，若用 client:load 会在首屏
+                     一次性水合全部岛屿并各发 /api/comments + /api/likes/summary，
+                     请求数随动态条数线性增长。改为 client:visible 后仅当岛屿滚动进
+                     视口才水合，首屏请求数从「条数 × N」降到「可见条数 × N」。 -->
+                <Comments client:visible targetType="moment" targetId={m.id} initialCount={likeMap[m.id] ?? 0} />
               </article>
             ))
           )

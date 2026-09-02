@@ -22,9 +22,21 @@ export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** OAuth state 有效期：10 分钟 */
 const STATE_TTL_MS = 10 * 60 * 1000;
 
-/** HMAC 密钥（AUTH_SECRET 优先，缺省由 ADMIN_PASSWORD 派生） */
+/**
+ * HMAC 密钥来源。
+ *
+ * 安全约束（不要回退）：AUTH_SECRET 缺失时**不再**由 ADMIN_PASSWORD 派生。
+ * 派生密钥意味着「能否伪造任意管理员会话」只取决于一个可能被暴力枚举的口令，
+ * 且口令一改历史会话全部失效、泄漏面更大。生产环境必须显式配置 AUTH_SECRET，
+ * 缺失直接抛错（fail-fast），避免带着可被伪造的会话签名的进程静默启动。
+ */
 function secret(): Buffer {
-  const raw = serverEnv('AUTH_SECRET') || createHash('sha256').update(serverEnv('ADMIN_PASSWORD')).digest('hex');
+  const raw = serverEnv('AUTH_SECRET');
+  if (!raw) {
+    throw new Error(
+      'AUTH_SECRET 未配置：拒绝以 ADMIN_PASSWORD 派生会话签名密钥。请在环境变量中设置足够长的随机 AUTH_SECRET。',
+    );
+  }
   return createHash('sha256').update(raw).digest();
 }
 
@@ -146,6 +158,40 @@ export function checkPassword(input: string): boolean {
   const a = createHash('sha256').update(input).digest();
   const b = createHash('sha256').update(expected).digest();
   return timingSafeEqual(a, b);
+}
+
+/** OAuth 登录后默认回跳路径 */
+export const DEFAULT_OAUTH_NEXT = '/moments';
+
+/**
+ * 规范化「登录后回跳路径」，防开放重定向。
+ *
+ * 必须同时挡住以下几类绕过（仅检查 `startsWith('/') && !startsWith('//')` 是不够的）：
+ * - `//evil.com`      —— 协议相对 URL，浏览器会跳到外站
+ * - `/\evil.com`、`\evil.com` —— 浏览器把反斜杠规范化为正斜杠，`\e` 会变成 `//e` 从而绕过 `//` 检查
+ * - `http://evil.com`、`javascript:...`、`data:...` —— 绝对 URL 与其它 scheme
+ * - 控制字符 / 空白 —— 防 Location 响应头注入与解析歧义
+ *
+ * 通过校验的路径保证是「以单个 `/` 开头的同源相对路径」。
+ */
+export function safeNextPath(raw: string | null | undefined, fallback: string = DEFAULT_OAUTH_NEXT): string {
+  if (typeof raw !== 'string' || raw.length === 0) return fallback;
+  const value = raw.trim().slice(0, 500);
+  // 必须是站内相对路径，且不是协议相对 URL
+  if (!value.startsWith('/') || value.startsWith('//')) return fallback;
+  // 反斜杠会被浏览器规范化为正斜杠，是 `//` 检查的绕过手段
+  if (value.includes('\\')) return fallback;
+  // 控制字符与空白：防响应头注入
+  if (/[\u0000-\u001F\u007F\s]/.test(value)) return fallback;
+  try {
+    // 以不可能冲突的主机作 base 解析：任何绝对 URL 都会产生不同的 origin
+    const parsed = new URL(value, 'http://internal.invalid');
+    if (parsed.origin !== 'http://internal.invalid') return fallback;
+    const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return path.startsWith('/') ? path : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 /** 签发 OAuth state（防 CSRF；可选携带登录后跳转路径 next） */
