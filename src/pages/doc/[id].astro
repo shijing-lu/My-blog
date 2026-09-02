@@ -119,8 +119,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     </div>
 
     <div class="mx-auto w-full max-w-6xl px-4 py-6">
-      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（默认左220px右280px；均可折叠为44px仅留按钮） */}
-      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)_var(--toc-w,280px)]">
+      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（默认左220px右420px；均可折叠为44px仅留按钮） */}
+      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)_var(--toc-w,420px)]">
         {/* 左栏：册内目录树（可折叠，与右栏对称交互） */}
         <aside id="doc-ltoc-aside" class="lg:sticky lg:top-20 lg:self-start">
           <div class="lg:border-r lg:border-border lg:pr-4">
@@ -272,8 +272,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
 <style is:global>
   /* ===== /doc/[id] 三栏：左右目录均可整栏折叠 ===== */
-  /* 默认宽度（与 grid 模板里 --toc-lw / --toc-w 默认值保持一致） */
-  #doc-3col { --toc-lw: 220px; --toc-w: 280px; }
+  /* 默认宽度（与 grid 模板里 --toc-lw / --toc-w 默认值保持一致；右栏 280px→420px，1.5×） */
+  #doc-3col { --toc-lw: 220px; --toc-w: 420px; }
   /* 左栏折叠态：只留按钮条 */
   #doc-3col[data-ltoc-collapsed='true'] { --toc-lw: 44px; }
   /* 右栏折叠态：只留按钮条 */
