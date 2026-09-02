@@ -321,7 +321,7 @@ function buildDecorations(state: EditorState): DecorationSet {
         const from = line.from + open;
         const to = line.from + closeSame + 2;
         if (!selectionInside(sel, from, to)) {
-          items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner, true) }) });
+          items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner.trim(), true) }) });
         }
         blocked.add(i);
         i += 1;
@@ -350,7 +350,8 @@ function buildDecorations(state: EditorState): DecorationSet {
           const from = line.from + open;
           const to = lines[closed]!.from + closeCol + 2;
           if (!selectionInside(sel, from, to)) {
-            items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner, true) }) });
+            // 跨行内容：去掉首尾空白（含换行），让 KaTeX 解析时把多行公式当作合法输入
+            items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner.trim(), true) }) });
           }
           for (let k = i; k <= closed; k += 1) blocked.add(k);
           i = closed + 1;

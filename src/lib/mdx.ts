@@ -92,6 +92,57 @@ export function normalizeBackticks(source: string): string {
 }
 
 /**
+ * 数学块分隔符规整：修复「公式内容与 $$ 闭合分隔符同行」导致的渲染失败。
+ *
+ * 背景（根因，已本地复现 + 生产 4 篇文章确认）：
+ * remark-math 的 display 数学（micromark mathFlow）要求 `$$` fence **独占一行**。
+ * 若源码写成 `\end{cases} $$`（内容与闭 `$$` 同行），fence 不被识别为闭合，
+ * 直到下一个独立 `$$` 行才闭合 → KaTeX 收到**残留 `$$`** 的非法 TeX →
+ * throwOnError:false 输出 `.katex-error` 红色源码（阅读模式红字）。
+ * 编辑器（cm-wysiwyg）词法对 `$$` 位置不敏感 → 同一内容渲染正常 →
+ * 表现为「编辑正常、阅读红字」。
+ *
+ * 修复：渲染前把「行尾单独一个 `$$`、其左侧有非空公式内容」的行拆为两行
+ * （内容行 + `$$` 独占行），让 remark-math 正确闭合。
+ * 保守策略（防误伤，勿回退）：
+ * - ``` 代码围栏内容整行跳过（状态机跟踪，含围栏语言标记行）；
+ * - 含反引号的行跳过（行内代码里出现行尾 `$$` 是字面文本，拆分会改坏代码）；
+ * - 仅匹配行尾可带空白的单个 `$$`（`x $$`、`… \end{cases} $$`）；
+ * - 成对同行 `$$…$$`（micromark 视为合法同行 display）不匹配、原样保留；
+ * - 纯 `$$` 独立行不匹配。
+ * 该转换只改变分隔符行结构，不触碰公式字符 → 渲染语义不变。
+ */
+export function normalizeMathFences(source: string): string {
+  const lines = source.split('\n');
+  const out: string[] = [];
+  let inFence = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const t = lines[i]!;
+    // 围栏状态机：``` 或 ~~~ 起止（整行匹配围栏标记，含语言说明）
+    const isFenceLine = /^\s*(?:```+|~~~+)/.test(t);
+    if (isFenceLine) {
+      inFence = !inFence;
+      out.push(t);
+      continue;
+    }
+    if (inFence || t.includes('`')) {
+      out.push(t);
+      continue;
+    }
+    // 行尾单独 `$$`（左侧有内容 + 至少一空白）：拆成 内容行 / $$ 行
+    const m = t.match(/^(\s*)(\S(?:.*\S)?)(\s+)\$\$\s*$/);
+    if (m) {
+      const [indent, content] = [m[1]!, m[2]!];
+      out.push(`${indent}${content}`);
+      out.push(`${indent}$$`);
+    } else {
+      out.push(t);
+    }
+  }
+  return out.join('\n');
+}
+
+/**
  * 纯 Markdown → HTML（轻量管线，无 JSX 组件）
  *
  * 用于日记悬浮预览等"只需渲染成 HTML"的场景，比 evaluate 轻量得多。
@@ -198,7 +249,9 @@ export function collectBlockMapFromHtml(html: string): BlockAnchorMap {
 export async function renderMdx(source: string, options: RenderOptions = {}): Promise<RenderedMdx> {
   const merged: MDXComponentMap = { ...mdxComponents, ...(options.components ?? {}) };
   // 反引号变体规范化：全角/修饰符变体 → ASCII，修复行内代码渲染失败
-  const normalized = normalizeBackticks(source);
+  // 数学 fence 规整：内容与 $$ 同行 → 拆为独占行（remark-math fence 语法要求），
+  // 修复「编辑正常、阅读红字」（KaTeX 收到含 $$ 的非法 TeX → .katex-error）
+  const normalized = normalizeMathFences(normalizeBackticks(source));
 
   // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果
   if (!options.components) {
