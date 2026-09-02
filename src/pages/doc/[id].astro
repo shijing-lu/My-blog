@@ -166,11 +166,12 @@ const folderOptionsJson = JSON.stringify(folderOptions);
           </button>
         </aside>
 
-        {/* 中栏：正文（锁阅读宽 680px；右侧目录为悬浮面板不占布局列，可用宽度完整给正文）
-            ⚠️ 勿加 justify-self-start：grid item 在非 stretch 对齐下 auto 宽度退化为
-            shrink-to-fit（跟随内容最窄处，长文正文会被压缩到 ~414px）。默认 stretch +
-            max-width:680 即「贴列左缘、上限 680」，效果等价且宽度稳定。 */}
-        <main class="min-w-0 lg:max-w-[680px]">
+        {/* 中栏：正文（占满 grid 第二列 ≈ 1044px；右侧目录为悬浮面板不占布局列，
+            可用宽度完整给正文，行长宽松更舒展。过长行内/块级公式仍按 katex-display
+            overflow-x:auto 横向滚动。⚠️ 勿加 justify-self-start：grid item 在非 stretch
+            对齐下 auto 宽度退化为 shrink-to-fit（跟随内容最窄处），正文中段会缩到
+            ~414px。默认 stretch + 无 max-width 即占满 1fr 列、贴列左缘。 */}
+        <main class="min-w-0">
           {activeNode ? (
             <>
               <header>
@@ -434,9 +435,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     main article.prose > * { content-visibility: visible; }
   }
 
-  /* ===== 编辑态：正文解除阅读宽锁；宽屏同时让出 TOC 悬浮区（360px ≈ 面板 340 + 20 间隙） =====
-     编辑容器替换 <article> 所在位置（其上方内容不变），故滚动位置不受影响。 */
-  #doc-3col[data-editing='true'] > main { max-width: none; }
+  /* ===== 编辑态：宽屏让出 TOC 悬浮区（360px ≈ 面板 340 + 20 间隙） =====
+     编辑器占满 main（main 已在阅读态取消 680 限宽，编辑态不需再 max-width:none）。 */
   @media (min-width: 1320px) {
     #doc-3col[data-editing='true'] { padding-right: 360px; }
   }
