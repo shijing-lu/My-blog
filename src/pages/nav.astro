@@ -111,9 +111,11 @@ function subBlock(
     `<span class="font-pixel text-[0.55rem] text-muted-foreground" data-sub-count="${sub.id}">${sites.length}</span>` +
     actions +
     `</div>`;
+  const tip = authed ? ` title="拖拽网站到此处归入「${esc(sub.name)}」"` : '';
   return (
-    `<div data-group data-group-cat="${categoryId}" data-group-sub="${sub.id}" ` +
-    `class="mt-4 border-t border-dashed border-border pt-4">${head}${siteGrid(sites, categoryId, authed, sub.id)}</div>`
+    `<div data-group data-group-cat="${categoryId}" data-group-sub="${sub.id}" data-drop-sub="${sub.id}"` +
+    ` class="nav-drop-group mt-4 rounded-lg border-t border-dashed border-border pt-4 transition-shadow"${tip}>` +
+    `${head}${siteGrid(sites, categoryId, authed, sub.id)}</div>`
   );
 }
 
@@ -129,14 +131,18 @@ function categoryPanel(c: (typeof categories)[number], authed: boolean): string 
   // 该分类完全为空且无子分类 → 空态提示
   if (c.sites.length === 0 && c.subCategories.length === 0) {
     return authed
-      ? `<div data-group data-group-cat="${c.id}" data-group-sub="">${siteGrid([], c.id, authed, '')}</div>` +
+      ? `<div data-group data-group-cat="${c.id}" data-group-sub="" data-drop-sub="" ` +
+          `class="nav-drop-group rounded-lg transition-shadow" title="拖拽网站到此处归入该分类（未分组）">` +
+          `${siteGrid([], c.id, authed, '')}</div>` +
           addSubForm(c.id)
       : `<p class="text-sm text-muted-foreground">该分类暂无网站。</p>`;
   }
   // 有子分类且未分组为空 → 不渲染空的未分组区（避免空网格占位）
   const showUngrouped = ungrouped.length > 0 || c.subCategories.length === 0;
+  const unTip = authed ? ` title="拖拽网站到此处归入该分类（未分组）"` : '';
   let html = showUngrouped
-    ? `<div data-group data-group-cat="${c.id}" data-group-sub="">${siteGrid(ungrouped, c.id, authed, '')}</div>`
+    ? `<div data-group data-group-cat="${c.id}" data-group-sub="" data-drop-sub="" ` +
+        `class="nav-drop-group rounded-lg transition-shadow"${unTip}>${siteGrid(ungrouped, c.id, authed, '')}</div>`
     : '';
   for (const sub of c.subCategories) {
     html += subBlock(c.id, sub, c.sites.filter((s) => s.subCategoryId === sub.id), authed);
@@ -285,7 +291,7 @@ function addSubForm(categoryId: string): string {
                           ＋ 添加分类
                         </button>
                         <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
-                          提示：拖拽网站卡片到分类移动；拖拽分类可排序
+                          提示：拖网站卡片到分类（或分类内子分类块）移动；拖分类可排序
                         </p>
                       </>
                     )}
@@ -567,7 +573,15 @@ function addSubForm(categoryId: string): string {
     });
 
     // 编辑（卡片右上角 ✎）——居中弹窗
-    interface NavSiteJson { id: string; name: string; url: string; icon: string | null; desc: string | null; categoryId: string }
+    interface NavSiteJson {
+      id: string;
+      name: string;
+      url: string;
+      icon: string | null;
+      desc: string | null;
+      categoryId: string;
+      subCategoryId?: string | null;
+    }
     interface NavCatJson {
       id: string;
       name: string;
@@ -742,45 +756,120 @@ function addSubForm(categoryId: string): string {
     }
   });
 
-  // ---- 拖拽移动（卡片 → 分类）----
+  // ---- 拖拽移动（卡片 → 分类 / 分类内子分类块）----
+  // 落点模型：网站可归到「主分类顶层（未分组）」或「主分类下某个子分类」。
+  // - 左侧栏分类按钮 [data-drop-cat]（或面板「未分组」区 [data-drop-sub=""]）→ 顶层/未分组（场景1）
+  // - 面板内的子分类块 [data-drop-sub={subId}] → 归入该子分类（场景2）
   let draggingSiteId: string | null = null;
+  /** 被拖卡片的当前归属（categoryId / subCategoryId），用于判断是否为无效拖拽 */
+  let dragSource: { categoryId: string; subCategoryId: string } = { categoryId: '', subCategoryId: '' };
+  /** 当前高亮的落点元素（组块或侧栏按钮） */
+  let activeDropZone: HTMLElement | null = null;
+
+  /** 取被拖卡片当前所在分组归属（卡片必在某个 [data-drop-sub] 内；找不到则兜底查数据） */
+  function readSourceZone(card: HTMLElement): { categoryId: string; subCategoryId: string } {
+    const g = card.closest<HTMLElement>('[data-drop-sub]');
+    if (g && g.dataset.groupCat) {
+      return { categoryId: g.dataset.groupCat, subCategoryId: g.dataset.groupSub ?? '' };
+    }
+    const id = card.dataset.siteId;
+    if (id) {
+      for (const c of NAV_DATA) {
+        const s = c.sites.find((x) => x.id === id);
+        if (s) return { categoryId: c.id, subCategoryId: s.subCategoryId ?? '' };
+      }
+    }
+    return { categoryId: '', subCategoryId: '' };
+  }
+
+  /** 清除所有落点高亮（组块 .nav-drop-over + 侧栏按钮高亮） */
+  function clearDropHighlights(): void {
+    document.querySelectorAll('.nav-drop-over').forEach((el) => el.classList.remove('nav-drop-over'));
+    document.querySelectorAll('[data-drop-cat]').forEach((el) => el.classList.remove('bg-primary/10', 'text-primary'));
+    activeDropZone = null;
+  }
+
+  /** 解析事件目标命中的落点；无合法落点返回 null */
+  function resolveDropZone(target: EventTarget | null): HTMLElement | null {
+    const el = target as HTMLElement | null;
+    if (!el || !el.closest) return null;
+    return el.closest<HTMLElement>('[data-drop-sub], [data-drop-cat]');
+  }
+
+  /** 给命中的落点上高亮（组块描边 / 侧栏按钮底色） */
+  function highlightDropZone(zone: HTMLElement): void {
+    if (zone.dataset.dropSub !== undefined) {
+      zone.classList.add('nav-drop-over'); // 子分类块 / 未分组块
+    } else {
+      zone.classList.add('bg-primary/10', 'text-primary'); // 侧栏分类按钮
+    }
+  }
+
   document.addEventListener('dragstart', (e) => {
     const card = (e.target as HTMLElement).closest<HTMLElement>('[data-site-id]');
-    if (!card) return;
+    if (!card || !IS_AUTHED) return;
     draggingSiteId = card.dataset.siteId ?? null;
+    dragSource = readSourceZone(card);
     e.dataTransfer?.setData('text/plain', draggingSiteId ?? '');
-    e.dataTransfer!.effectAllowed = 'move';
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
   });
   document.addEventListener('dragover', (e) => {
-    const dropCat = (e.target as HTMLElement).closest<HTMLElement>('[data-drop-cat]');
-    if (!dropCat) return;
+    if (!draggingSiteId) return; // 仅网站拖拽响应；分类排序走 [data-cat-id] 分支
+    const zone = resolveDropZone(e.target);
+    if (!zone) return;
     e.preventDefault();
-    dropCat.classList.add('bg-primary/10');
-    dropCat.classList.add('text-primary');
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    // 高亮只在命中落点变化时刷新，避免子元素间移动反复加/删
+    if (zone !== activeDropZone) {
+      if (activeDropZone) activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
+      highlightDropZone(zone);
+      activeDropZone = zone;
+    }
   });
   document.addEventListener('dragleave', (e) => {
-    const dropCat = (e.target as HTMLElement).closest<HTMLElement>('[data-drop-cat]');
-    if (dropCat) {
-      dropCat.classList.remove('bg-primary/10');
-      dropCat.classList.remove('text-primary');
+    if (!draggingSiteId) return;
+    // 判断是否真的离开当前落点（relatedTarget 仍在落点内则忽略）
+    const rt = e.relatedTarget as HTMLElement | null;
+    if (activeDropZone && rt && activeDropZone.contains(rt)) return;
+    if (activeDropZone) {
+      activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
+      activeDropZone = null;
     }
   });
   document.addEventListener('drop', async (e) => {
-    const dropCat = (e.target as HTMLElement).closest<HTMLElement>('[data-drop-cat]');
-    dropCat?.classList.remove('bg-primary/10', 'text-primary');
-    if (!dropCat || !draggingSiteId) return;
+    if (!draggingSiteId) return;
     e.preventDefault();
-    const categoryId = dropCat.dataset.dropCat;
-    if (!categoryId) return;
+    const zone = resolveDropZone(e.target);
+    if (activeDropZone) activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
     const siteId = draggingSiteId;
     draggingSiteId = null;
-    if (dropCat.dataset.catTab === siteId) return; // 拖到自身分类忽略
+    activeDropZone = null;
+    if (!zone) return;
+    // 解析目标归属
+    let categoryId: string;
+    let subCategoryId: string;
+    if (zone.dataset.dropSub !== undefined) {
+      // 内容区组块：data-group-cat=主分类, data-group-sub=子分类(空=未分组/顶层)
+      categoryId = zone.dataset.groupCat ?? '';
+      subCategoryId = zone.dataset.groupSub ?? '';
+    } else {
+      // 侧栏分类按钮：归入该分类顶层（未分组）
+      categoryId = zone.dataset.dropCat ?? '';
+      subCategoryId = '';
+    }
+    if (!categoryId) return;
+    // 无效拖拽：未换分类且未换子分类 → 忽略
+    if (categoryId === dragSource.categoryId && (subCategoryId || '') === (dragSource.subCategoryId || '')) return;
     const res = await fetch('/api/nav/sites', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: siteId, categoryId }),
+      body: JSON.stringify({ id: siteId, categoryId, subCategoryId: subCategoryId || null }),
     });
     if (res.ok) window.location.reload();
+  });
+  document.addEventListener('dragend', () => {
+    draggingSiteId = null;
+    clearDropHighlights();
   });
 
   // ---- 子分类：添加（内联输入 + 按钮 / 回车）/ 重命名（内联编辑）/ 删除（网站回未分组）----
@@ -1121,6 +1210,7 @@ function addSubForm(categoryId: string): string {
   document.addEventListener('astro:page-load', () => {
     activate('all');
     document.querySelectorAll('[data-drop-cat]').forEach((el) => el.classList.remove('bg-primary/10', 'text-primary'));
+    document.querySelectorAll('.nav-drop-over').forEach((el) => el.classList.remove('nav-drop-over'));
     document.querySelectorAll('.cat-drag-top, .cat-drag-bottom').forEach((el) => el.classList.remove('cat-drag-top', 'cat-drag-bottom'));
   });
 </script>
@@ -1132,5 +1222,11 @@ function addSubForm(categoryId: string): string {
   }
   .cat-drag-bottom {
     box-shadow: inset 0 -2px 0 0 var(--color-primary);
+  }
+
+  /* 网站拖到分组块（子分类 / 未分组区）的落点高亮：虚线内圈 + 淡色底色 */
+  .nav-drop-over {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 55%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 6%, transparent);
   }
 </style>
