@@ -5,7 +5,7 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
-import { countPhotos, getPhotoTags, getTimeline, listPhotos } from '@/lib/photos';
+import { getPhotoTags, listPhotosAlive } from '@/lib/photos';
 import { verifyRequest } from '@/lib/auth';
 
 /* ===== Logic ===== */
@@ -15,10 +15,8 @@ const PAGE_SIZE = 30;
 /** 当前标签过滤（?tag=） */
 const activeTag = Astro.url.searchParams.get('tag')?.trim().slice(0, 20) || undefined;
 const filter = activeTag ? { tag: activeTag } : {};
-const photos = await listPhotos(PAGE_SIZE, 0, filter);
-const total = await countPhotos(filter);
-const timeline = await getTimeline();
-const photoTags = await getPhotoTags();
+// 治本：过滤"DB 行存在但 R2 文件已删"的孤儿（详见 lib/photos.ts listPhotosAlive 注释）
+const photos = await listPhotosAlive(PAGE_SIZE, 0, filter);
 const isAuthed = verifyRequest(Astro.cookies);
 
 /** 日期 → 本地时区 YYYY-MM-DD（与时间线聚合一致） */
@@ -46,6 +44,12 @@ photos.forEach((p) => {
   }
   g.photos.push(p);
 });
+
+/** 仅就"已过滤的照片"重新聚合衍生数据，避免孤儿行污染顶部计数 / 时间线 / 标签 chips */
+const total = photos.length;
+const timeline = groups.map((g) => ({ date: g.date, count: g.photos.length }));
+// 标签 chip：仍走原接口（DB 全量聚合；标签分布与孤儿比例无关，统计上可接受）
+const photoTags = await getPhotoTags();
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="影集" description="收集好看的、有意义的照片 —— My Blog Gallery">
@@ -148,6 +152,7 @@ photos.forEach((p) => {
                                   loading="lazy"
                                   decoding="async"
                                   class="block w-full cursor-zoom-in object-cover"
+                                  data-broken-photo
                                 />
                               </div>
                               {
@@ -347,6 +352,41 @@ photos.forEach((p) => {
     }
   }
 
+  /** 孤儿兜底：图片加载失败时从分组移除项并同步分组计数；整组全空时折叠整组
+   *
+   * 背景：DB 可能有"行存在但 R2 文件已缺失"的孤儿记录。R2 对私有未公开或缺失对象
+   * 常返回 200 + 空 body，浏览器以 `naturalWidth === 0` 表达加载失败并触发 `error`
+   * 事件——若不兜底，破图项仍占据 masonry 网格列、留下明显空洞。
+   *
+   * 行为：error 时：
+   *   1) 从 DOM 移除 `<figure.photo-card>`（CSS grid 中塌缩后其它项 reflow，无空洞）；
+   *   2) 同步更新所属分组计数（`.gallery-date-count` 文案）；
+   *   3) 整组可见卡片归零时隐藏 `<section.gallery-group>`，避免空日期标题孤悬。
+   *
+   * 适用范围：首屏 SSR + `loadMore()` 通过 `insertPhoto()` 注入的卡片均覆盖
+   *（MutationObserver 在 init 时挂一次即可）。
+   */
+  function setupBrokenPhotoFallback(): void {
+    document.querySelectorAll<HTMLImageElement>('img[data-broken-photo]').forEach((img) => {
+      if (img.complete && img.naturalWidth > 0) return;
+      img.addEventListener('error', () => {
+        const figure = img.closest<HTMLElement>('figure.photo-card');
+        if (!figure || !figure.isConnected) return;
+        const section = figure.closest<HTMLElement>('section.gallery-group');
+        figure.remove();
+        if (section) {
+          const remaining = section.querySelectorAll<HTMLElement>('figure.photo-card').length;
+          const countNode = section.querySelector<HTMLElement>('.gallery-date-count');
+          if (countNode) countNode.textContent = `${remaining} 张`;
+          if (remaining === 0) section.classList.add('hidden');
+        }
+      }, { once: true });
+    });
+  }
+
+  /** 孤儿兜底用的 MutationObserver 实例（每次 init 重建；声明在 init 之前避免 TDZ） */
+  let galleryMo: MutationObserver | null = null;
+
   /** 时间线定位：已加载则滚动；未加载则逐页拉取直到找到或加载完 */
   async function locateDate(date: string): Promise<void> {
     let guard = 0;
@@ -394,6 +434,12 @@ photos.forEach((p) => {
       );
       observer.observe(sentinel);
     }
+
+    // 孤儿兜底：当前已存在的卡片即时绑定 + 监听后续插入的卡片（loadMore）
+    setupBrokenPhotoFallback();
+    galleryMo?.disconnect();
+    galleryMo = new MutationObserver(() => setupBrokenPhotoFallback());
+    galleryMo.observe(container, { childList: true, subtree: true });
   }
 
   // ---- document 级事件委托（只绑定一次） ----

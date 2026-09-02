@@ -4,13 +4,14 @@
 
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
-import { listPhotos } from '@/lib/photos';
+import { listPhotosAlive } from '@/lib/photos';
 import { photoStorageEnabled } from '@/lib/photo-storage';
 
 /* ===== Logic ===== */
 /** 管理列表最多展示数 */
 const MANAGE_LIMIT = 200;
-const photos = await listPhotos(MANAGE_LIMIT, 0);
+// 治本：过滤"DB 行存在但 R2 文件已删"的孤儿（详见 lib/photos.ts listPhotosAlive 注释）
+const photos = await listPhotosAlive(MANAGE_LIMIT, 0);
 const today = new Date();
 
 /** 日期 → 本地时区 YYYY-MM-DD */
@@ -234,6 +235,8 @@ const todayStr = dateKey(today);
                         alt={p.title || '照片'}
                         class="aspect-video w-full rounded object-cover"
                         loading="lazy"
+                        data-broken-photo={p.id}
+                        onerror="var c=this.closest('.manage-card');if(!c||c.dataset.fallback)return;c.dataset.fallback='1';c.remove();var n=document.getElementById('manage-photo-count');if(n)n.textContent=String(document.querySelectorAll('.manage-card').length);var e=document.getElementById('manage-empty'),r=document.querySelectorAll('.manage-card').length;r===0?(document.querySelectorAll('[data-manage-area]').forEach(function(a){a.classList.add('hidden')}),e&&e.classList.remove('hidden')):e&&e.classList.add('hidden')"
                       />
                       <input
                         type="checkbox"
@@ -710,6 +713,35 @@ const todayStr = dateKey(today);
     return true;
   }
 
+  /** 孤儿兜底：图片加载失败时复用 removeManageCard 释放网格槽位与计数
+   *
+   * 背景：DB 中可能存在"行存在但 R2 文件已缺失"的孤儿记录（典型来源：迁库/迁存储
+   *  期间只删了存储未删行，或手动从 R2 删了文件没回写 DB）。浏览器拿到 `<img>` 的
+   *  src 后会按状态码/响应体判定加载失败——R2 对私有未公开或缺失对象常返回 200 + 空
+   *  body，浏览器以 `naturalWidth === 0` 表达加载失败、触发 `error` 事件。
+   *
+   * 行为：每个 `[data-broken-photo]` 的 `<img>` 一旦触发 error，立刻调
+   *  `removeManageCard(id, card)`，复用统一的释放入口（删 DOM + 同步计数 + 空态
+   *  切换 + 刷新批量勾选）。listener 一次性 `{ once: true }` 避免重复触发。
+   *
+   * 注：此为治标——释放 UI 槽位让用户视觉上不再看到破图占位；治本是 DB 中物理删除
+   * 孤儿行（需 R2 SDK 探测，另作管理 API；本次不在范围内）。
+   */
+  function setupBrokenPhotoFallback(): void {
+    document.querySelectorAll<HTMLImageElement>('#manage-grid img[data-broken-photo]').forEach((img) => {
+      // 浏览器缓存命中且已成功加载的图片直接跳过
+      if (img.complete && img.naturalWidth > 0) return;
+      // 已触发过 error 的 `<img>` 标记一下，避免与 onerror 重复移除
+      if ((img as HTMLImageElement & { dataset?: { handled?: string } }).dataset?.handled) return;
+      img.addEventListener('error', () => {
+        const card = img.closest<HTMLElement>('.manage-card');
+        if (!card) return;
+        const id = card.dataset.photoId ?? img.dataset.brokenPhoto ?? '';
+        removeManageCard(id, card);
+      }, { once: true });
+    });
+  }
+
   /** 当前勾选的照片 id（DOM 每次实时查询，避免缓存失效；本页为 AdminLayout 无 SPA 切换） */
   function checkedIds(): string[] {
     return [...document.querySelectorAll<HTMLInputElement>('[data-photo-check]')]
@@ -779,5 +811,13 @@ const todayStr = dateKey(today);
     });
 
     syncBatchState();
+  }
+
+  // 孤儿兜底：DOM 就绪后给所有管理卡片图绑一次性 error 监听；DOMContentLoaded
+  // 之后节点也可能由其它代码插入，但本页无运行时插入卡片，故无需 observer
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupBrokenPhotoFallback, { once: true });
+  } else {
+    setupBrokenPhotoFallback();
   }
 </script>

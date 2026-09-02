@@ -10,6 +10,7 @@ import { and, count, desc, eq, like } from 'drizzle-orm';
 import { photos } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type { NewPhoto, Photo } from '../../db/types';
+import { headObject, r2Enabled } from '@/lib/object-storage';
 
 /** 数据库原始行类型 */
 type PhotoRow = typeof photos.$inferSelect;
@@ -98,6 +99,86 @@ export async function listPhotos(limit: number, offset: number, filter: PhotoFil
     .limit(Math.max(1, limit))
     .offset(Math.max(0, offset));
   return rows.map(mapRow);
+}
+
+/**
+ * 探测一张照片对应的 R2 对象是否仍存在（用于过滤"DB 行存在但 R2 文件已删"的孤儿）
+ *
+ * 仅当 R2 已配置、URL 指向 R2 公开域时探测；非 R2（Vercel Blob / 外部直链）一律视为存活。
+ * 设计目的：治本根因 A（数据层不过滤孤儿）；不可达/网络错误按"存活"处理，宁可多渲染
+ * 一张破图也不误删（孤儿识别交由前端的内联 onerror 兜底）。
+ *
+ * **进程内 LRU 缓存**：默认 TTL 5 分钟，避免每次 SSR 渲染都对同一 key 重复 HEAD。
+ * - 键：R2 对象 key（不含域名）
+ * - 值：{ alive, ts }，alive=true 表示 200 OK / 不可达；false 表示 404
+ * - 上限 500 项，超出按插入顺序淘汰；Vercel Serverless 进程复用可跨请求命中。
+ * - 写入/删除路径（putPhoto/deletePhoto）无需主动失效缓存：TTL 到期自动刷新。
+ *
+ * @param photo 照片实体
+ * @returns R2 对象是否 200 OK（不可达 = true）
+ */
+const ALIVE_TTL_MS = 5 * 60 * 1000;
+const ALIVE_CACHE_MAX = 500;
+const aliveCache = new Map<string, { alive: boolean; ts: number }>();
+
+async function probeAlive(key: string): Promise<boolean> {
+  const now = Date.now();
+  const hit = aliveCache.get(key);
+  if (hit && now - hit.ts < ALIVE_TTL_MS) return hit.alive;
+  // 简单 LRU：超出上限时删最早插入的
+  if (aliveCache.size >= ALIVE_CACHE_MAX) {
+    const firstKey = aliveCache.keys().next().value;
+    if (firstKey !== undefined) aliveCache.delete(firstKey);
+  }
+  const alive = await headObject(key);
+  aliveCache.set(key, { alive, ts: now });
+  return alive;
+}
+
+export async function isR2Alive(photo: Photo): Promise<boolean> {
+  if (!r2Enabled()) return true;
+  const url = photo.thumbUrl ?? photo.url ?? '';
+  if (!url) return true;
+  // 非 R2 域（Vercel Blob / 外部直链）跳过
+  if (!/r2\.(dev|cloudflarestorage\.com)|byqx-blog\.online/i.test(url)) return true;
+  let key: string;
+  try {
+    key = new URL(url).pathname.replace(/^\/+/, '');
+  } catch {
+    return true;
+  }
+  if (!key) return true;
+  try {
+    return await probeAlive(key);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 列出"存活"照片（在 listPhotos 基础上按 R2 探测过滤孤儿）
+ *
+ * 实现策略：先多取一些（limit × 2 + 5 上限补偿），再并发探测 R2 存活，按原序截取 limit。
+ * - **不修改 DB**：过滤仅作用于本次返回，供渲染层直接使用；
+ * - **不走主备双写**：探测是只读 HEAD，不会触发回写；
+ * - **批量并发**：用 Promise.all 把 R2 HEAD 串行→并发（46 张串行 ~10s，并发 ~1s）。
+ *
+ * 注：DB 物理清理（gc）由独立 API 端点（POST /api/photos/gc）负责，本函数只"过滤掉不显示"。
+ *
+ * @param limit 每页数量
+ * @param offset 起始偏移
+ * @param filter 筛选条件
+ * @returns 仅含 R2 存活对象的照片实体数组（顺序与 listPhotos 一致）
+ */
+export async function listPhotosAlive(limit: number, offset: number, filter: PhotoFilter = {}): Promise<Photo[]> {
+  if (!r2Enabled()) return listPhotos(limit, offset, filter);
+  const want = Math.max(1, limit);
+  const start = Math.max(0, offset);
+  // 多取 2× + 5 张上限补偿（孤儿比例较低时足够；极端孤儿场景由前端分页兜底）
+  const candidate = await listPhotos(want * 2 + 5, start, filter);
+  const probed = await Promise.all(candidate.map(async (p) => ({ p, alive: await isR2Alive(p) })));
+  const alive = probed.filter((x) => x.alive).map((x) => x.p);
+  return alive.slice(0, want);
 }
 
 /** 照片总数（可选按标签过滤） */

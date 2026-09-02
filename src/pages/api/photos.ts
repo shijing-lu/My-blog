@@ -11,10 +11,7 @@ import { randomUUID } from 'node:crypto';
 import {
   MAX_TAGS,
   addPhoto,
-  batchUpdateTags,
-  countPhotos,
-  getTimeline,
-  listPhotos,
+  listPhotosAlive,
 } from '@/lib/photos';
 import { json, jsonCached } from '@/lib/api';
 import { photoStorageEnabled, uploadPhotoObject } from '@/lib/photo-storage';
@@ -53,11 +50,19 @@ export const GET: APIRoute = async ({ url }) => {
   const tag = (url.searchParams.get('tag') ?? '').trim().slice(0, 20) || undefined;
   const filter = tag ? { tag } : {};
 
-  const [items, total, timeline] = await Promise.all([
-    listPhotos(limit, offset, filter),
-    countPhotos(filter),
-    getTimeline(),
-  ]);
+  // 治本：listPhotosAlive 已过滤 R2 孤儿；total = 当前页返回数（避免孤儿行污染顶部计数）
+  const items = await listPhotosAlive(limit, offset, filter);
+  const total = items.length;
+  // 时间线仅按当前已过滤的 photos 重新聚合（孤儿不在结果里，count 准确）
+  const tlMap = new Map<string, number>();
+  for (const p of items) {
+    const d = p.takenAt;
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    tlMap.set(key, (tlMap.get(key) ?? 0) + 1);
+  }
+  const timeline = [...tlMap.entries()]
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return jsonCached({
     photos: items.map((p) => ({
