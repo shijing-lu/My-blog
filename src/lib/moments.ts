@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, like, lt, or } from 'drizzle-orm';
 import { moments } from '../../db/schema.sqlite';
 import { db } from '../../db';
+import { renderMarkdownHtml } from './mdx';
 import type { Moment, MomentMedia } from '../../db/types';
 
 /** 媒体类型白名单 */
@@ -185,6 +186,23 @@ export async function getMomentTimeline(): Promise<Array<{ date: string; count: 
     map.set(key, (map.get(key) ?? 0) + 1);
   }
   return Array.from(map, ([date, count]) => ({ date, count }));
+}
+
+/** 动态对外视图：raw content + tags + 服务端渲染的 Markdown HTML */
+export interface MomentView extends Moment {
+  /** Markdown 渲染后的 HTML（remark-gfm 纯 Markdown 管线，XSS 安全） */
+  contentHtml: string;
+}
+
+/**
+ * Moment → 对外视图（含服务端渲染的 Markdown HTML）。
+ *
+ * 渲染原则：SSR 首屏、load-more、预览一律用同一份 `renderMarkdownHtml`
+ * 在服务端产出 `contentHtml`，前端只 `set:html` 这份服务端结果，绝不用
+ * 原始 content 在前端拼 HTML（与日记渲染先例一致）。
+ */
+export async function toMomentView(m: Moment): Promise<MomentView> {
+  return { ...m, contentHtml: await renderMarkdownHtml(m.content) };
 }
 
 /** 是否为同一天 */

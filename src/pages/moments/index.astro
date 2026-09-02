@@ -5,7 +5,7 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
-import { formatRelativeTime, getMomentTimeline, listMoments } from '@/lib/moments';
+import { formatRelativeTime, getMomentTimeline, listMoments, toMomentView, type MomentView } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
 import { verifyRequest } from '@/lib/auth';
 import { countLikesByTargets } from '@/lib/likes';
@@ -13,7 +13,9 @@ import Comments from '@/components/interact/Comments';
 
 /* ===== Logic ===== */
 const PAGE_SIZE = 20;
-const moments = await listMoments(PAGE_SIZE, 0);
+const rawMoments = await listMoments(PAGE_SIZE, 0);
+/** 服务端渲染 Markdown → contentHtml（首屏与 load-more 同一管线） */
+const moments: MomentView[] = await Promise.all(rawMoments.map((m) => toMomentView(m)));
 const momentTimeline = await getMomentTimeline();
 const profile = await getProfile();
 const isAuthed = verifyRequest(Astro.cookies);
@@ -92,9 +94,10 @@ function renderVideo(url: string): string {
               id="moment-content"
               rows="3"
               maxlength="2000"
-              placeholder="记录点什么…（支持文字 + 图片/GIF + 视频链接）"
+              placeholder="记录点什么…（支持 Markdown / 文字 + 图片/GIF + 视频链接）"
               class="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring"
             />
+            <div id="moment-content-preview" class="prose mt-2 hidden max-h-64 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm"></div>
             <input
               id="moment-tags-input"
               type="text"
@@ -105,6 +108,9 @@ function renderVideo(url: string): string {
             <div id="moment-media-preview" class="mt-2 grid grid-cols-4 gap-2"></div>
             <div class="mt-3 flex flex-wrap items-center gap-2">
               <input id="moment-file" type="file" accept="image/*" multiple class="hidden" />
+              <button id="moment-preview-toggle" type="button" class="hidden rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">
+                预览
+              </button>
               <button id="moment-upload" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary">
                 图片 / GIF
               </button>
@@ -151,7 +157,7 @@ function renderVideo(url: string): string {
       </div>
 
       <!-- 动态流 -->
-      <div id="moment-stream" class="mt-4 space-y-4" data-offset={moments.length}>
+      <div id="moment-stream" class="mt-4 space-y-4" data-offset={moments.length} data-authed={isAuthed ? '1' : '0'}>
         {
           moments.length === 0 ? (
             <div class="py-10 text-center">
@@ -189,7 +195,9 @@ function renderVideo(url: string): string {
                         )
                       }
                     </div>
-                    {m.content ? <p class="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p> : null}
+                    {m.content ? (
+                      <div class="moment-content prose prose-sm mt-1.5 max-w-none text-sm leading-relaxed" set:html={m.contentHtml} />
+                    ) : null}
                     {
                       m.tags.length > 0 && (
                         <div class="mt-2 flex flex-wrap gap-1.5">
@@ -240,8 +248,24 @@ function renderVideo(url: string): string {
 
   <!-- 编辑动态弹窗 -->
   <dialog id="moment-edit-dialog" class="m-auto w-[min(92vw,40rem)] rounded-lg border border-border bg-card p-5 shadow-xl backdrop:bg-black/40">
-    <h3 class="font-medium">编辑动态</h3>
-    <textarea id="moment-edit-content" rows="3" maxlength="2000" class="mt-3 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring" placeholder="动态内容…"></textarea>
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="font-medium">编辑动态</h3>
+      <span class="text-xs text-muted-foreground">支持 Markdown（粗体、列表、链接、引用、代码…）</span>
+    </div>
+    <div class="mt-3 flex items-center justify-end gap-1">
+      <button id="moment-edit-preview-btn" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">预览</button>
+    </div>
+    <div class="mt-2 grid gap-2 md:grid-cols-2">
+      <textarea
+        id="moment-edit-content"
+        spellcheck="false"
+        rows="3"
+        maxlength="2000"
+        placeholder="Markdown 正文…"
+        class="h-48 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring"
+      ></textarea>
+      <div id="moment-edit-preview" class="prose h-48 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm empty:border-dashed"></div>
+    </div>
     <input id="moment-edit-tags" type="text" maxlength="200" placeholder="标签（逗号分隔）" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
     <p id="moment-edit-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
     <div class="mt-3 flex justify-end gap-2">
@@ -273,6 +297,34 @@ function renderVideo(url: string): string {
       const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
       return map[c] ?? c;
     });
+  }
+
+  /** 是否管理员（决定发布框/编辑框预览是否可用；SSR 仅在 isAuthed 时渲染这些框） */
+  const IS_AUTHED = document.getElementById('moment-stream')?.dataset.authed === '1';
+
+  /** Markdown → HTML 预览：请求服务端同一渲染管线，保证预览 == 实际卡片渲染 */
+  async function renderPreview(source: string, previewEl: HTMLElement | null): Promise<void> {
+    if (!previewEl) return;
+    try {
+      const res = await fetch('/api/moments/preview', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ source }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { html?: string; error?: string };
+      previewEl.innerHTML = d.html ?? `<p class="text-destructive">${esc(d.error ?? '渲染失败')}</p>`;
+    } catch {
+      previewEl.innerHTML = '<p class="text-destructive">渲染失败</p>';
+    }
+  }
+
+  /** 简易防抖（预览输入实时刷新用） */
+  function debounce(fn: () => void, wait = 400): () => void {
+    let t = 0;
+    return () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(fn, wait);
+    };
   }
 
   // ---------- 发布 ----------
@@ -399,6 +451,27 @@ function renderVideo(url: string): string {
     })();
   });
 
+  // ---------- 发布框：Markdown 实时预览（管理员） ----------
+  let publishPreviewOn = false;
+  const pubToggle = el<HTMLButtonElement>('moment-preview-toggle');
+  const pubBox = el('moment-content-preview');
+  if (IS_AUTHED && pubToggle) pubToggle.classList.remove('hidden');
+  const pubPreviewSoon = debounce(() => {
+    if (!publishPreviewOn) return;
+    void renderPreview(el<HTMLTextAreaElement>('moment-content')?.value ?? '', pubBox);
+  });
+  document.addEventListener('input', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.id === 'moment-content') pubPreviewSoon();
+  });
+  document.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('#moment-preview-toggle')) return;
+    publishPreviewOn = !publishPreviewOn;
+    if (pubToggle) pubToggle.textContent = publishPreviewOn ? '收起预览' : '预览';
+    if (pubBox) pubBox.classList.toggle('hidden', !publishPreviewOn);
+    if (publishPreviewOn) void renderPreview(el<HTMLTextAreaElement>('moment-content')?.value ?? '', pubBox);
+  });
+
   // 初始 offset（服务端注入）；SPA 切换后 DOM 换新，需在 page-load 重新同步
   function syncPagination(): void {
     offset = Number(el('moment-stream')?.dataset.offset ?? 0);
@@ -428,7 +501,7 @@ function renderVideo(url: string): string {
 
   function cardHtml(m: {
     id: string;
-    content: string;
+    contentHtml: string;
     media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>;
     tags: string[];
     createdAt: string;
@@ -454,7 +527,7 @@ function renderVideo(url: string): string {
             <time class="text-xs text-muted-foreground"></time>
             <span class="ml-auto flex items-center gap-2"><button type="button" data-moment-edit="${esc(m.id)}" class="text-xs text-muted-foreground hover:underline">编辑</button><button type="button" data-moment-del="${esc(m.id)}" class="text-xs text-destructive hover:underline" aria-label="删除动态">删除</button></span>
           </div>
-          ${m.content ? `<p class="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">${esc(m.content)}</p>` : ''}
+          ${m.contentHtml ? `<div class="moment-content prose prose-sm mt-1.5 max-w-none text-sm leading-relaxed">${m.contentHtml}</div>` : ''}
           ${tagHtml ? `<div class="mt-2 flex flex-wrap gap-1.5">${tagHtml}</div>` : ''}
           <div class="mt-2">${mediaHtml}</div>
         </div>
@@ -475,7 +548,7 @@ function renderVideo(url: string): string {
       const res = await fetch(`/api/moments?${params}`);
       if (!res.ok) throw new Error('bad status');
       const data = (await res.json()) as {
-        moments: Array<{ id: string; content: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; tags: string[]; createdAt: string }>;
+        moments: Array<{ id: string; contentHtml: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; tags: string[]; createdAt: string }>;
       };
       const stream = el('moment-stream');
       data.moments.forEach((m) => {
@@ -634,6 +707,12 @@ function renderVideo(url: string): string {
           const tg = el<HTMLInputElement>('moment-edit-tags');
           if (c) c.value = d.moment.content;
           if (tg) tg.value = (d.moment.tags ?? []).join(', ');
+          // 重置预览状态
+          editPreviewOn = false;
+          const pv = el('moment-edit-preview');
+          if (pv) pv.innerHTML = '';
+          const pvBtn = el<HTMLButtonElement>('moment-edit-preview-btn');
+          if (pvBtn) pvBtn.textContent = '预览';
           el('moment-edit-status')?.classList.add('hidden');
           el<HTMLDialogElement>('moment-edit-dialog')?.showModal();
         });
@@ -660,5 +739,23 @@ function renderVideo(url: string): string {
     } catch (err) {
       if (status) { status.textContent = err instanceof Error ? err.message : '保存失败'; status.classList.remove('hidden'); }
     }
+  });
+
+  // ---------- 编辑弹窗：Markdown 实时预览（管理员） ----------
+  let editPreviewOn = false;
+  const editPreviewSoon = debounce(() => {
+    if (!editPreviewOn) return;
+    void renderPreview(el<HTMLTextAreaElement>('moment-edit-content')?.value ?? '', el('moment-edit-preview'));
+  });
+  document.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('#moment-edit-preview-btn')) return;
+    editPreviewOn = !editPreviewOn;
+    const pvBtn = el<HTMLButtonElement>('moment-edit-preview-btn');
+    if (pvBtn) pvBtn.textContent = editPreviewOn ? '收起预览' : '预览';
+    if (editPreviewOn) void renderPreview(el<HTMLTextAreaElement>('moment-edit-content')?.value ?? '', el('moment-edit-preview'));
+  });
+  document.addEventListener('input', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.id === 'moment-edit-content') editPreviewSoon();
   });
 </script>

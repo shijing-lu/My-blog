@@ -73,7 +73,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
       (pathname === '/api/sync-databases' && context.request.method === 'POST') ||
       (pathname === '/api/migrate-photos-tags' && context.request.method === 'POST') ||
       (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
-      (isMomentsApi && ['POST', 'DELETE'].includes(context.request.method)) ||
+      (isMomentsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
       (pathname === '/api/profile' && context.request.method === 'PUT') ||
       protectedStudyApi ||
       protectedDocApi);

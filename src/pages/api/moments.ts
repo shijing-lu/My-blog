@@ -5,7 +5,7 @@
  * - POST：发布（管理员，中间件保护）；支持 tags: string[]
  */
 import type { APIRoute } from 'astro';
-import { addMoment, isValidMedia, listMoments, MAX_TAGS } from '@/lib/moments';
+import { addMoment, isValidMedia, listMoments, MAX_TAGS, toMomentView } from '@/lib/moments';
 import { json, jsonCached } from '@/lib/api';
 
 export const prerender = false;
@@ -34,10 +34,12 @@ export const GET: APIRoute = async ({ url }) => {
     q: q || undefined,
     date: dateValid,
   });
+  const views = await Promise.all(items.map((m) => toMomentView(m)));
   return jsonCached({
-    moments: items.map((m) => ({
+    moments: views.map((m) => ({
       id: m.id,
       content: m.content,
+      contentHtml: m.contentHtml,
       media: m.media,
       tags: m.tags,
       createdAt: m.createdAt.toISOString(),

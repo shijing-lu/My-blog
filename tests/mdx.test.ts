@@ -2,7 +2,7 @@
  * MDX 渲染管线单元测试
  */
 import { describe, expect, it } from 'vitest';
-import { renderMdx } from '../src/lib/mdx';
+import { renderMdx, renderMarkdownHtml } from '../src/lib/mdx';
 import { buildTocTree, renderTocTreeHtml } from '../src/lib/toc-tree';
 
 describe('renderMdx', () => {
@@ -127,5 +127,46 @@ describe('目录：层级、KaTeX 与树形渲染', () => {
     expect(out).toContain('<span class="katex">x</span>'); // html 原样注入
     expect(out).toContain('B &lt;对比&gt;'); // text 转义
     expect(out).not.toContain('>B <对比><'); // 未转义原文不出现
+  });
+});
+
+/**
+ * renderMarkdownHtml —— 动态（moments）正文渲染的同一轻量 GFM 管线。
+ * 与列表 / load-more / 预览共用此实现，故此处锁定其契约：
+ * GFM 语法生效、原始 HTML 不注入（XSS 安全）、空串输出空 HTML。
+ */
+describe('renderMarkdownHtml', () => {
+  it('渲染粗体与行内代码', async () => {
+    const html = await renderMarkdownHtml('**你好** 与 `code`');
+    expect(html).toContain('<strong>你好</strong>');
+    expect(html).toContain('<code>code</code>');
+  });
+
+  it('渲染列表与链接', async () => {
+    const html = await renderMarkdownHtml('- 第一项\n- 第二项\n\n[官网](https://example.com)');
+    expect(html).toContain('<li>第一项</li>');
+    expect(html).toContain('href="https://example.com"');
+  });
+
+  it('渲染 GFM 表格', async () => {
+    const html = await renderMarkdownHtml('| a | b |\n| --- | --- |\n| 1 | 2 |');
+    expect(html).toContain('<table>');
+  });
+
+  it('原始 HTML 不注入（标签被剥离，只保留纯文本）', async () => {
+    // 无 rehype-raw：脚本块被整体丢弃 → 绝不输出可执行脚本
+    const script = await renderMarkdownHtml('<script>alert(1)</script>');
+    expect(script).not.toContain('<script>');
+    expect(script).not.toContain('alert(1)');
+    // 行内 HTML 标签同样被剥离，仅保留文本，事件属性不会外泄
+    const inline = await renderMarkdownHtml('a <b onclick="x">bold</b> c');
+    expect(inline).not.toContain('<b');
+    expect(inline).not.toContain('onclick');
+    expect(inline).toContain('bold');
+  });
+
+  it('空内容输出空（或空白）', async () => {
+    expect(await renderMarkdownHtml('')).toBe('');
+    expect((await renderMarkdownHtml('   ')).trim()).toBe('');
   });
 });
