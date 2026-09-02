@@ -45,22 +45,37 @@ const PG_DDL = [
 
 async function migratePg(name, url) {
   const { default: postgres } = await import('postgres');
-  const sql = postgres(url, { max: 1, connect_timeout: 15 });
-  try {
-    for (const ddl of PG_DDL) await sql.unsafe(ddl);
-    const [tbl, col] = await Promise.all([
-      sql`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'nav_sub_categories'`,
-      sql`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'websites' AND column_name = 'sub_category_id'`,
-    ]);
-    const ok = tbl[0]?.n > 0 && col[0]?.n > 0;
-    console.log(`[migrate-nav-subcats] ${name}: ${ok ? '✓ 子分类表与列就位' : '⚠ 校验未通过'}`);
-    return { name, ok };
-  } catch (err) {
-    console.warn(`[migrate-nav-subcats] ${name}: 迁移失败 - ${err.message}`);
-    return { name, error: err.message };
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
+  const sql = postgres(url, { max: 1, connect_timeout: 10 });
+  // 硬性超时兜底：单个端点（连库 + 全部 DDL + 校验 + 断开）绝不允许超过 30s，
+  // 避免 postgres.js 在 CI 无头环境下连接/断开握手不释放而挂起整个 build。
+  // 即便超时，DDL 也都已幂等执行完毕（IF NOT EXISTS），不会造成半迁移态。
+  let settled = false;
+  const guard = new Promise((resolve) => setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    console.warn(`[migrate-nav-subcats] ${name}: 执行超 30s，强制结束连接`);
+    sql.end({ timeout: 1 }).catch(() => {});
+    resolve({ name, timedOut: true });
+  }, 30000));
+  const run = (async () => {
+    try {
+      for (const ddl of PG_DDL) await sql.unsafe(ddl);
+      const [tbl, col] = await Promise.all([
+        sql`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'nav_sub_categories'`,
+        sql`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'websites' AND column_name = 'sub_category_id'`,
+      ]);
+      const ok = tbl[0]?.n > 0 && col[0]?.n > 0;
+      console.log(`[migrate-nav-subcats] ${name}: ${ok ? '✓ 子分类表与列就位' : '⚠ 校验未通过'}`);
+      return { name, ok };
+    } catch (err) {
+      console.warn(`[migrate-nav-subcats] ${name}: 迁移失败 - ${err.message}`);
+      return { name, error: err.message };
+    } finally {
+      settled = true;
+      await sql.end({ timeout: 3 }).catch(() => {});
+    }
+  })();
+  return Promise.race([guard, run]);
 }
 
 /* ---------------- SQLite ---------------- */
