@@ -107,7 +107,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 <BaseLayout title={`${bundle.name} · 文档`} description={bundle.summary ?? `${bundle.name} 文档`}>
   <section data-authed={isAuthed ? '1' : '0'}>
     {/* 面包屑 */}
-    <div class="mx-auto w-full max-w-6xl px-4 pt-6 text-sm text-muted-foreground">
+    <div class="mx-auto w-full max-w-[1320px] px-4 pt-6 text-sm text-muted-foreground">
       <a href="/doc" class="transition-colors hover:text-primary">文档</a>
       {catName && <span class="mx-1">/</span>}
       {catName && <span>{esc(catName)}</span>}
@@ -118,9 +118,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       )}
     </div>
 
-    <div class="mx-auto w-full max-w-6xl px-4 py-6">
-      {/* 三栏布局：左=目录树 / 中=正文 / 右=文章内目录（默认左220px右420px；均可折叠为44px仅留按钮） */}
-      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)_var(--toc-w,420px)]">
+    <div class="mx-auto w-full max-w-[1320px] px-4 py-6">
+      {/* 三栏布局：左=目录树 / 中=正文(锁 572px 阅读宽,不随右栏变宽而缩窄) / 右=文章内目录(默认 220/280px；xl≥1280px 起右栏 420px 只向右延展，正文列宽不受挤占；均可折叠为44px仅留按钮) */}
+      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)_var(--toc-w,280px)]">
         {/* 左栏：册内目录树（可折叠，与右栏对称交互） */}
         <aside id="doc-ltoc-aside" class="lg:sticky lg:top-20 lg:self-start">
           <div class="lg:border-r lg:border-border lg:pr-4">
@@ -159,8 +159,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
           </div>
         </aside>
 
-        {/* 中栏：正文 */}
-        <main class="min-w-0">
+        {/* 中栏：正文（锁阅读宽：右栏加宽只向右占空间，正文 max-width 恒定 = 旧 max-w-6xl 满宽时的 572px） */}
+        <main class="min-w-0 lg:max-w-[572px] lg:justify-self-start">
           {activeNode ? (
             <>
               <header>
@@ -272,12 +272,20 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
 <style is:global>
   /* ===== /doc/[id] 三栏：左右目录均可整栏折叠 ===== */
-  /* 默认宽度（与 grid 模板里 --toc-lw / --toc-w 默认值保持一致；右栏 280px→420px，1.5×） */
-  #doc-3col { --toc-lw: 220px; --toc-w: 420px; }
+  /* 默认宽度（与 grid 模板里 --toc-lw / --toc-w 默认值保持一致）：
+     - 默认(<xl)右栏 280px：与旧 max-w-6xl 时代一致，正文不受影响
+     - xl(≥1280px) 起右栏 420px：主区容器已放宽到 1320px，正文列有 max-w 锁
+       定，目录只向右占空白空间，不挤压正文 */
+  #doc-3col { --toc-lw: 220px; --toc-w: 280px; }
+  @media (min-width: 1280px) {
+    #doc-3col { --toc-w: 420px; }
+  }
   /* 左栏折叠态：只留按钮条 */
   #doc-3col[data-ltoc-collapsed='true'] { --toc-lw: 44px; }
   /* 右栏折叠态：只留按钮条 */
   #doc-3col[data-toc-collapsed='true'] { --toc-w: 44px; }
+  /* 右栏折叠后正文不再锁宽，回落到全可用宽度（收起目录让出的空间给正文，行为同旧版） */
+  #doc-3col[data-toc-collapsed='true'] > main { max-width: none; }
 
   /* —— 左栏折叠：隐藏标题/新建按钮/树，竖线缩窄；按钮居中 —— */
   #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-label] { display: none; }
