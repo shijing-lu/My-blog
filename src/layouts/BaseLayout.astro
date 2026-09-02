@@ -170,7 +170,7 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
     <!-- 全局动效：滚动进度条 + 卡片入场动画 + GSAP 分割线展开 -->
     <script>
       import { initReveals } from '@/lib/anim';
-      import { restoreTheme, readState } from '@/lib/theme';
+      import { restoreTheme, readState, isDark } from '@/lib/theme';
       import { getCustomThemes, injectCustomThemeCss } from '@/lib/custom-theme';
 
       // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
@@ -279,8 +279,40 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           }, 1200);
         });
       }
+      /**
+       * 主题无闪烁恢复（关键修复）：
+       * Astro View Transitions 的 swap 会用新文档（SSR 输出，无主题属性的
+       * `<html lang="zh-CN">`）替换根元素的 class/attributes，导致暗黑模式
+       * 下 SPA 跳转瞬间回落到 :root 默认亮色（闪白）。
+       * 在 swap 前把当前主题状态（data-theme/.dark/data-mode + 自定义主题 CSS）
+       * 预写入 newDocument 的 <html>，让新页面根元素天生带正确主题，从根上消除闪烁。
+       */
+      document.addEventListener('astro:before-swap', (ev) => {
+        try {
+          const doc = (ev as unknown as { newDocument?: Document }).newDocument;
+          if (!doc) return;
+          const root = doc.documentElement;
+          const state = readState();
+          if (state.themeId) root.setAttribute('data-theme', state.themeId);
+          else root.removeAttribute('data-theme');
+          root.classList.toggle('dark', isDark(state));
+          root.setAttribute('data-mode', state.mode);
+          // 自定义主题：把当前注入的 #custom-theme-css 原样复制进新文档 head，
+          // 否则 swap 替换 head 后自定义主题 CSS 丢失（内置主题 CSS 在 #theme-styles 里会随 head 一并替换，无需处理）
+          const existing = document.getElementById('custom-theme-css') as HTMLStyleElement | null;
+          if (existing && !doc.getElementById('custom-theme-css')) {
+            const st = doc.createElement('style');
+            st.id = 'custom-theme-css';
+            st.textContent = existing.textContent;
+            doc.head.appendChild(st);
+          }
+        } catch (e) { /* 失败则回落 after-swap/page-load 兜底，不影响导航 */ }
+      });
+
       document.addEventListener('astro:page-load', () => {
         // View Transition 后恢复主题（data-theme / 暗色 / 自定义主题 CSS 会被新 head 替换丢失）
+        // 注意：主题的「无闪烁恢复」已由 astro:before-swap 提前到 swap 前处理；
+        // 这里仅作幂等兜底（before-swap 覆盖不到的极端场景），重复应用无害。
         try {
           restoreTheme();
           const state = readState();
