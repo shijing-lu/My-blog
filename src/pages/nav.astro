@@ -112,10 +112,17 @@ function subBlock(
     actions +
     `</div>`;
   const tip = authed ? ` title="拖拽网站到此处归入「${esc(sub.name)}」"` : '';
+  // 空子分类：加一个明显的虚线占位区，让管理员清楚知道"这里就是放置区"
+  // （原 0 高度 grid 加上紧贴的 addSubForm 容易让人误以为整片都是 drop 目标，
+  //  其实只有 data-drop-sub 块内才是。占位区本身也属于子分类块，仍是合法落点）
+  const emptyHint = authed && sites.length === 0
+    ? `<div class="my-2 flex min-h-[56px] items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/30 px-4 text-xs text-muted-foreground" data-drop-hint>` +
+      `↓ 拖拽网站到此处归入「${esc(sub.name)}」</div>`
+    : '';
   return (
     `<div data-group data-group-cat="${categoryId}" data-group-sub="${sub.id}" data-drop-sub="${sub.id}"` +
     ` class="nav-drop-group mt-4 rounded-lg border-t border-dashed border-border pt-4 transition-shadow"${tip}>` +
-    `${head}${siteGrid(sites, categoryId, authed, sub.id)}</div>`
+    `${head}${emptyHint}${siteGrid(sites, categoryId, authed, sub.id)}</div>`
   );
 }
 
@@ -147,7 +154,11 @@ function categoryPanel(c: (typeof categories)[number], authed: boolean): string 
   for (const sub of c.subCategories) {
     html += subBlock(c.id, sub, c.sites.filter((s) => s.subCategoryId === sub.id), authed);
   }
-  if (authed) html += addSubForm(c.id);
+  // 在"添加新子分类"表单前加分隔线，避免和上面子分类块的"拖拽归入"区视觉粘连
+  if (authed) {
+    if (c.subCategories.length > 0) html += `<div class="mt-6 border-t border-border/60 pt-4"></div>`;
+    html += addSubForm(c.id);
+  }
   return html;
 }
 
