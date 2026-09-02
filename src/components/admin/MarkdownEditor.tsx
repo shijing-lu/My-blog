@@ -42,6 +42,14 @@ interface MarkdownEditorProps {
   onSave?: () => void;
   /** 容器额外样式类 */
   className?: string;
+  /**
+   * 单栏所见即所得模式（Obsidian 即时渲染式）：
+   * - 启用后用 cm-wysiwyg 扩展替代 livePreview（数学公式 KaTeX 实时渲染 +
+   *   列表圆点/数字/checkbox widget + 标题/引用内行内标记渲染）；
+   * - 隐藏行号（所见即所得下行号是噪音）；
+   * - 与 livePreview 互斥：两者都提供 decorations，叠加会装饰重叠。
+   */
+  wysiwyg?: boolean;
 }
 
 /** CodeMirror 主题（跟随站点主题） */
@@ -116,12 +124,14 @@ function nameFromUrl(url: string): string {
  * 可复用所见即所得编辑器
  */
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { initialContent, onChange, onSave, className },
+  { initialContent, onChange, onSave, className, wysiwyg = false },
   ref,
 ): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const themeCompartment = useRef(new Compartment());
+  /** wysiwyg 装饰扩展的注入位：模块动态加载完成后 reconfigure（见初始化 effect） */
+  const wysiwygCompartment = useRef(new Compartment());
   const onChangeRef = useRef<(v: string) => void>(() => {});
   const onSaveRef = useRef<(() => void) | undefined>(undefined);
   const onPasteRef = useRef<(e: ClipboardEvent) => boolean>(() => false);
@@ -289,7 +299,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       state: EditorState.create({
         doc: contentRef.current,
         extensions: [
-          lineNumbers(),
+          // WYSIWYG 模式隐藏行号（所见即所得下行号是视觉噪音）
+          ...(wysiwyg ? [] : [lineNumbers()]),
           drawSelection(),
           history(),
           keymap.of([
@@ -326,12 +337,28 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             },
           }),
           markdown({ base: markdownLanguage, codeLanguages }),
-          livePreview(),
+          // 装饰扩展互斥：wysiwyg 模块动态加载后注入（见下方 import('./cm-wysiwyg')），
+          // 写作台等非 wysiwyg 场景零 katex 负担；livePreview 为写作台轻量版
+          wysiwyg ? wysiwygCompartment.current.of([]) : livePreview(),
           themeCompartment.current.of(buildTheme(editorIsDark())),
         ],
       }),
     });
     viewRef.current = view;
+
+    // WYSIWYG：懒加载 cm-wysiwyg 模块（内含静态 import katex，构建进独立 chunk）→
+    // reconfigure 注入装饰扩展，公式/列表/行内标记即刻渲染。勿改回静态 import 或
+    // import('katex')：前者让写作台（非 wysiwyg）也拉 katex，后者在 vite dev 下挂起。
+    if (wysiwyg) {
+      void import('./cm-wysiwyg')
+        .then((m) => {
+          if (!viewRef.current) return;
+          viewRef.current.dispatch({ effects: wysiwygCompartment.current.reconfigure(m.wysiwygPreview()) });
+        })
+        .catch(() => {
+          /* wysiwyg 模块加载失败：保持源码模式（最坏等价于无装饰，绝不白屏） */
+        });
+    }
 
     const onDragOver = (e: DragEvent): void => {
       e.preventDefault();

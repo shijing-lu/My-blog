@@ -123,8 +123,11 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     </div>
 
     <div class="mx-auto w-full max-w-[1320px] px-4 py-6">
-      {/* 三栏布局：左=目录树 / 中=正文(锁 572px 阅读宽,不随右栏变宽而缩窄) / 右=文章内目录(默认 220/280px；xl≥1280px 起右栏 420px 只向右延展，正文列宽不受挤占；均可折叠为44px仅留按钮) */}
-      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)_var(--toc-w,280px)]">
+      {/* 两栏布局：左=目录树（可折叠 44px）/ 中=正文（锁 680px 阅读宽）。
+          右侧「文章内目录」已脱离文档流：fixed 悬浮贴视口右缘 340px（见 #doc-toc-panel），
+          宽屏（≥1320px）悬浮不遮正文；窄窗自动收起为贴右浮钮，点开为带遮罩的浮层。
+          正文列可用宽度因此完整释放（572px → 680px），与目录互不挤占。 */}
+      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" data-toc-auto="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)]">
         {/* 左栏：册内目录树（可折叠，与右栏对称交互） */}
         <aside id="doc-ltoc-aside" class="lg:sticky lg:top-20 lg:self-start">
           <div id="doc-ltoc-inner" class="lg:border-r lg:border-border lg:pr-4">
@@ -163,8 +166,11 @@ const folderOptionsJson = JSON.stringify(folderOptions);
           </button>
         </aside>
 
-        {/* 中栏：正文（锁阅读宽：右栏加宽只向右占空间，正文 max-width 恒定 = 旧 max-w-6xl 满宽时的 572px） */}
-        <main class="min-w-0 lg:max-w-[572px] lg:justify-self-start">
+        {/* 中栏：正文（锁阅读宽 680px；右侧目录为悬浮面板不占布局列，可用宽度完整给正文）
+            ⚠️ 勿加 justify-self-start：grid item 在非 stretch 对齐下 auto 宽度退化为
+            shrink-to-fit（跟随内容最窄处，长文正文会被压缩到 ~414px）。默认 stretch +
+            max-width:680 即「贴列左缘、上限 680」，效果等价且宽度稳定。 */}
+        <main class="min-w-0 lg:max-w-[680px]">
           {activeNode ? (
             <>
               <header>
@@ -195,28 +201,23 @@ const folderOptionsJson = JSON.stringify(folderOptions);
           )}
         </main>
 
-        {/* 右栏：文章内目录（可折叠整栏 + 树形层级折叠 + 独立滚动） */}
-        <aside id="doc-toc-aside" class="hidden lg:block">
-          <div id="doc-toc-sticky" class="sticky top-20">
-            <div id="doc-toc-content">
-              {/* 标题行 */}
-              <div class="flex items-start justify-between gap-2">
-                <p data-toc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
-              </div>
-            {/* 目录滚动区：悬停滚动时仅滚自身（overscroll-behavior:contain 阻断联动正文） */}
-            <div id="doc-toc-rail" class="mt-3 max-h-[calc(100vh-8rem)] overflow-y-auto overscroll-contain border-l border-border pl-3 [scrollbar-width:thin]">
-              {toc.length > 0 ? (
-                <div id="doc-toc-list" data-toc-label class="flex flex-col gap-1.5 pr-1" set:html={tocTreeHtml} />
-              ) : (
-                <p data-toc-label class="mt-2 text-xs text-muted-foreground">无目录</p>
-              )}
-            </div>
-            </div>
+        {/* 右栏：文章内目录 —— 悬浮面板（fixed 贴视口右缘 340px），状态机见 <script> setupTocRail：
+            ① ≥1320px：悬浮展开，不遮正文（正文右缘与面板间留白 ≥40px）
+            ② <1320px：自动收起为贴右浮钮（#doc-toc-fab）；点开 → 浮层 + 遮罩（#doc-toc-overlay）
+            ③ 用户手动收起（任意宽度）：同 ② 的浮钮形态 */}
+      </div>
+
+      {/* TOC 悬浮面板（置于 grid 外：fixed 定位不参与两栏布局） */}
+      <aside id="doc-toc-aside" class="hidden lg:block">
+        <div id="doc-toc-panel" class="fixed top-20 right-0 z-30 flex max-h-[calc(100vh-6rem)] w-[340px] flex-col border-l border-y border-border bg-card/95 shadow-lg backdrop-blur">
+          {/* 标题行 */}
+          <div class="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
+            <p data-toc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
             <button
               id="doc-toc-toggle"
               type="button"
-              title="收起 / 展开目录"
-              aria-label="收起或展开目录"
+              title="收起目录"
+              aria-label="收起目录"
               aria-controls="doc-toc-list"
               aria-expanded="true"
               class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
@@ -225,8 +226,32 @@ const folderOptionsJson = JSON.stringify(folderOptions);
               <svg data-toc-icon-expand class="hidden h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
             </button>
           </div>
-        </aside>
-      </div>
+          {/* 目录滚动区：悬停滚动时仅滚自身（overscroll-behavior:contain 阻断联动正文） */}
+          <div id="doc-toc-rail" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 [scrollbar-width:thin]">
+            {toc.length > 0 ? (
+              <div id="doc-toc-list" data-toc-label class="flex flex-col gap-1.5" set:html={tocTreeHtml} />
+            ) : (
+              <p data-toc-label class="mt-2 text-xs text-muted-foreground">无目录</p>
+            )}
+          </div>
+        </div>
+
+        {/* 收起后的贴右浮钮（替代旧「44px 窄列」形态） */}
+        <button
+          id="doc-toc-fab"
+          type="button"
+          title="展开目录"
+          aria-label="展开目录"
+          aria-controls="doc-toc-list"
+          aria-expanded="false"
+          class="fixed top-20 right-3 z-30 hidden h-9 w-9 items-center justify-center rounded-full border border-border bg-card/95 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
+        </button>
+      </aside>
+
+      {/* overlay 遮罩：窄窗浮层模式下点击空白处收起目录 */}
+      <div id="doc-toc-overlay" class="fixed inset-0 z-20 hidden bg-black/30 backdrop-blur-[1px]" aria-hidden="true" />
     </div>
   </section>
 
@@ -294,52 +319,36 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 </BaseLayout>
 
 <style is:global>
-  /* ===== /doc/[id] 三栏：左右目录均可整栏折叠 ===== */
-  /* 默认宽度（与 grid 模板里 --toc-lw / --toc-w 默认值保持一致）：
-     - 默认(<xl)右栏 280px：与旧 max-w-6xl 时代一致，正文不受影响
-     - xl(≥1280px) 起右栏 420px：主区容器已放宽到 1320px，正文列有 max-w 锁
-       定，目录只向右占空白空间，不挤压正文 */
-  #doc-3col { --toc-lw: 220px; --toc-w: 280px; }
-  @media (min-width: 1280px) {
-    #doc-3col { --toc-w: 420px; }
-  }
+  /* ===== /doc/[id] 布局：左目录树两栏 grid + 右 TOC 悬浮面板 ===== */
+  /* 左栏宽度（可折叠为 44px 只留按钮条）；右 TOC 为 fixed 悬浮面板，不占布局列 */
+  #doc-3col { --toc-lw: 220px; }
   /* 左栏折叠态：只留按钮条 */
   #doc-3col[data-ltoc-collapsed='true'] { --toc-lw: 44px; }
-  /* 右栏折叠态：只留按钮条 */
-  #doc-3col[data-toc-collapsed='true'] { --toc-w: 44px; }
-  /* 右栏折叠后正文不再锁宽，回落到全可用宽度（收起目录让出的空间给正文，行为同旧版） */
-  #doc-3col[data-toc-collapsed='true'] > main { max-width: none; }
 
-  /* —— 折叠/展开：目录栏内容 transform 滑入滑出（纯合成器动画，正文不参与、零重排零重绘） ——
-     DOM：栏 = [inner 内容(固定展开宽，滑动)] + [折叠按钮(absolute 固定窄条右缘，不随内容滑动)]
-     左栏 inner 向左滑出、右栏 inner 向右滑出；列宽仍由 --toc-lw/--toc-w 瞬切（单次 reflow）。
+  /* —— TOC 悬浮面板三态（状态属性挂在 #doc-toc-aside 上，由 setupTocRail 维护） ——
+     ① data-collapsed='false' + data-auto='false'（≥1320px）：悬浮展开，贴视口右缘不遮正文
+     ② data-collapsed='true'：收起为贴右浮钮（fab）
+     ③ data-collapsed='false' + data-auto='true'（<1320px 手动点开）：浮层 + 遮罩 */
+  #doc-toc-aside[data-collapsed='true'] #doc-toc-panel { display: none; }
+  #doc-toc-aside[data-collapsed='true'] #doc-toc-fab { display: inline-flex; }
+  #doc-toc-aside[data-collapsed='false'][data-auto='true'] ~ #doc-toc-overlay { display: block; }
+  /* 浮层模式下面板抬升层级（高于遮罩 z-20） */
+  #doc-toc-aside[data-auto='true'][data-collapsed='false'] #doc-toc-panel { z-index: 40; }
+
+  /* 左栏折叠动画：inner 向左滑出（纯合成器动画），列宽由 data-* 瞬切（单次 reflow）。
      旧实现把 opacity 过渡挂在 #doc-3col 上导致正文整段淡出 + 巨型合成层卡顿，已废弃。 */
   @media (min-width: 1024px) {
-    #doc-ltoc-aside,
-    #doc-toc-sticky { overflow: hidden; }
+    #doc-ltoc-aside { overflow: hidden; }
     #doc-ltoc-inner { width: 220px; }
-    #doc-toc-content { width: 280px; }
-    #doc-ltoc-inner,
-    #doc-toc-content { transition: transform 0.2s ease; }
+    #doc-ltoc-inner { transition: transform 0.2s ease; }
     #doc-3col[data-ltoc-collapsed='true'] #doc-ltoc-inner { transform: translateX(-100%); }
-    #doc-3col[data-toc-collapsed='true'] #doc-toc-content { transform: translateX(100%); }
-    #doc-ltoc-toggle,
-    #doc-toc-toggle { position: absolute; top: 0; right: 0.5rem; z-index: 10; }
-  }
-  /* 右栏内容宽在 xl 起与 --toc-w 展开值同步扩到 420px */
-  @media (min-width: 1280px) {
-    #doc-toc-content { width: 420px; }
+    #doc-ltoc-toggle { position: absolute; top: 0; right: 0.5rem; z-index: 10; }
   }
   /* 左栏折叠态按钮图标切换（折叠图隐藏，展开图显示） */
   #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-icon-collapse] { display: none; }
   #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-icon-expand] { display: inline-block; }
   #doc-3col[data-ltoc-collapsed='false'] [data-ltoc-icon-collapse] { display: inline-block; }
   #doc-3col[data-ltoc-collapsed='false'] [data-ltoc-icon-expand] { display: none; }
-  /* 右栏折叠态按钮图标切换（折叠图隐藏，展开图显示） */
-  #doc-3col[data-toc-collapsed='true'] [data-toc-icon-collapse] { display: none; }
-  #doc-3col[data-toc-collapsed='true'] [data-toc-icon-expand] { display: inline-block; }
-  #doc-3col[data-toc-collapsed='false'] [data-toc-icon-collapse] { display: inline-block; }
-  #doc-3col[data-toc-collapsed='false'] [data-toc-icon-expand] { display: none; }
 
   /* ===== 树形目录：层级递归折叠 ===== */
   .toc-row { display: flex; align-items: flex-start; gap: 0.125rem; }
@@ -384,11 +393,13 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   #doc-toc-list .katex-display { margin: 0.2em 0; }
   #doc-toc-list .katex-display > .katex { display: inline-block; white-space: nowrap; }
 
-  /* ===== 正文 KaTeX：解拥挤（行内留白 / 含公式段落加行距 / 行间公式舒展） =====
-     注意：CSS 只能改善「间距与留白」，改不了 KaTeX 对行内/展示模式的判定。
-     \int_0^x、\lim_{x\to 0} 这类多上下标公式若写在 $…$ 里仍按行内紧凑排版，
-     根本解法是在源码里改用 $$…$$（或 \[ … \]）走展示模式。 */
-  .prose .katex { font-size: 1.05em; line-height: 1.6; }
+  /* ===== 正文 KaTeX：解拥挤 =====
+     vlist 防御（诊断实验）：.katex 内部行盒必须用 KaTeX 官方行高 1.2 ——
+     覆盖成 1.6 会给每个绝对定位行盒叠加额外前导，分式/上下标嵌套时 bbox 相交
+     数倍增（实测 lh1.6 → 1.2 使 mfrac 重叠显著下降）。段落级行距由
+     p:has(.katex) 的 line-height: 2 独立兜底，两者互不影响。
+     字体失败场景由 html.katex-font-fallback 的 MathML 兜底处理（global.css）。 */
+  .prose .katex { font-size: 1.05em; line-height: 1.2; }
   /* 行内公式左右留白：0.05em → 0.18em，避免与相邻文字粘连 */
   .prose p .katex,
   .prose li .katex { padding: 0 0.18em; }
@@ -423,9 +434,12 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     main article.prose > * { content-visibility: visible; }
   }
 
-  /* ===== 编辑态：正文解除 572px 阅读宽锁，给双栏编辑让出空间 =====
+  /* ===== 编辑态：正文解除阅读宽锁；宽屏同时让出 TOC 悬浮区（360px ≈ 面板 340 + 20 间隙） =====
      编辑容器替换 <article> 所在位置（其上方内容不变），故滚动位置不受影响。 */
   #doc-3col[data-editing='true'] > main { max-width: none; }
+  @media (min-width: 1320px) {
+    #doc-3col[data-editing='true'] { padding-right: 360px; }
+  }
 </style>
 
 <script>
@@ -552,33 +566,29 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     fold.setAttribute('aria-label', folded ? '展开子目录' : '折叠子目录');
   });
 
-  /* ================= 左右目录栏：整栏可折叠/展开（transform 滑入滑出，纯合成器动画） ================= */
+  /* ================= 左栏目录树：整栏可折叠/展开（transform 滑入滑出，纯合成器动画） ================= */
   // 状态：默认展开；收起后该栏仅留按钮，正文自动变宽。
   // 关键性能点：不动画 grid-template-columns（布局属性，每帧触发全文档重排卡顿），
   // 列宽由 data-* 属性一次性切换（单次 reflow）；目录内容用 transform 滑入滑出（合成器，零重排零重绘），
   // 正文永不参与动画（不再淡出消失、不再产生巨型合成层）。
-  interface RailCfg {
-    grid: HTMLDivElement;
-    toggle: HTMLButtonElement;
-    key: string;
-    attr: 'tocCollapsed' | 'ltocCollapsed';
-  }
-  function setupRailToggle(cfg: RailCfg): void {
-    const { grid, toggle, key, attr } = cfg;
+  const grd = el<HTMLDivElement>('doc-3col');
+  const lTocToggle = el<HTMLButtonElement>('doc-ltoc-toggle');
+  if (grd && lTocToggle) {
+    const attr = 'ltocCollapsed' as const;
+    const key = 'doc-ltoc-collapsed';
     const apply = (collapsed: boolean): void => {
-      grid.dataset[attr] = collapsed ? 'true' : 'false';
-      toggle.setAttribute('aria-expanded', String(!collapsed));
-      toggle.setAttribute('aria-label', collapsed ? '展开目录' : '收起目录');
-      toggle.title = collapsed ? '展开目录' : '收起目录';
+      grd.dataset[attr] = collapsed ? 'true' : 'false';
+      lTocToggle.setAttribute('aria-expanded', String(!collapsed));
+      lTocToggle.setAttribute('aria-label', collapsed ? '展开目录' : '收起目录');
+      lTocToggle.title = collapsed ? '展开目录' : '收起目录';
     };
     let initial = false;
     try {
       initial = window.localStorage.getItem(key) === '1';
     } catch { /* 忽略隐私模式等异常 */ }
     apply(initial);
-
-    toggle.addEventListener('click', () => {
-      const next = grid.dataset[attr] !== 'true';
+    lTocToggle.addEventListener('click', () => {
+      const next = grd.dataset[attr] !== 'true';
       apply(next); // 列宽瞬切 + inner transform 过渡自动滑入/滑出
       try {
         window.localStorage.setItem(key, next ? '1' : '0');
@@ -586,16 +596,64 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     });
   }
 
-  // 右栏实例
-  const grd = el<HTMLDivElement>('doc-3col');
+  /* ================= 右栏文章内目录：悬浮面板三态 =================
+     ① ≥1320px：悬浮展开（fixed 贴视口右缘，正文右缘与面板留白 ≥40px，互不遮盖）
+     ② <1320px：自动收起为贴右浮钮（fab）；点开 → 浮层 + 遮罩，点遮罩收起
+     ③ 用户手动收起（任意宽度）：同 ② 浮钮形态
+     正文列与面板永不相交：面板不占布局列，正文可用宽度完整释放。 */
+  const tocAside = el<HTMLElement>('doc-toc-aside');
+  const tocPanel = el<HTMLElement>('doc-toc-panel');
   const tocToggle = el<HTMLButtonElement>('doc-toc-toggle');
-  if (grd && tocToggle) {
-    setupRailToggle({ grid: grd, toggle: tocToggle, key: 'doc-toc-collapsed', attr: 'tocCollapsed' });
-  }
-  // 左栏实例
-  const lTocToggle = el<HTMLButtonElement>('doc-ltoc-toggle');
-  if (grd && lTocToggle) {
-    setupRailToggle({ grid: grd, toggle: lTocToggle, key: 'doc-ltoc-collapsed', attr: 'ltocCollapsed' });
+  const tocFab = el<HTMLButtonElement>('doc-toc-fab');
+  const tocOverlay = el<HTMLElement>('doc-toc-overlay');
+  if (tocAside && tocToggle && tocFab) {
+    const TOC_KEY = 'doc-toc-collapsed';
+    /** 宽屏阈值：≥ 该宽度悬浮展开不遮正文（正文右缘 940px + 面板 340px + 40px 间隙） */
+    const TOC_AUTO_THRESHOLD = 1320;
+
+    const applyToc = (collapsed: boolean, persist: boolean): void => {
+      tocAside.dataset.collapsed = collapsed ? 'true' : 'false';
+      tocToggle.setAttribute('aria-expanded', String(!collapsed));
+      tocToggle.title = collapsed ? '展开目录' : '收起目录';
+      tocFab.setAttribute('aria-expanded', String(!collapsed));
+      if (persist) {
+        try {
+          window.localStorage.setItem(TOC_KEY, collapsed ? '1' : '0');
+        } catch { /* 忽略 */ }
+      }
+    };
+
+    const readStoredCollapsed = (): boolean => {
+      try {
+        return window.localStorage.getItem(TOC_KEY) === '1';
+      } catch {
+        return false;
+      }
+    };
+
+    /** 视口跨阈值时重算 auto 态；窄窗强制收起（不覆盖用户宽屏偏好） */
+    const applyTocAuto = (): void => {
+      const auto = window.innerWidth < TOC_AUTO_THRESHOLD;
+      tocAside.dataset.auto = auto ? 'true' : 'false';
+      if (auto) applyToc(true, false);
+      else applyToc(readStoredCollapsed(), false);
+    };
+    applyTocAuto();
+
+    // 面板头部「收起」按钮：宽屏写入用户偏好，窄窗仅临时收起
+    tocToggle.addEventListener('click', () => {
+      applyToc(true, tocAside.dataset.auto !== 'true');
+    });
+    // 浮钮「展开」：窄窗进入浮层模式，宽屏恢复悬浮展开
+    tocFab.addEventListener('click', () => applyToc(false, tocAside.dataset.auto !== 'true'));
+    // 遮罩点击：收起浮层
+    tocOverlay?.addEventListener('click', () => applyToc(true, false));
+    // 视口尺寸变化：跨阈值重算（防抖 120ms）
+    let tocResizeTimer = 0;
+    window.addEventListener('resize', () => {
+      window.clearTimeout(tocResizeTimer);
+      tocResizeTimer = window.setTimeout(applyTocAuto, 120);
+    });
   }
 
   /* ================= 节点 CRUD（登录） ================= */

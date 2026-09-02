@@ -14,6 +14,15 @@ const {
 /* ===== Imports ===== */
 import '../styles/global.css';
 import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
+// KaTeX 关键字体预热：?url 取打包后哈希 URL，head 里 preload（见模板）。
+// 国内网络下 KaTeX 字体加载失败会导致公式 vlist 行盒塌缩、糊成一团（诊断结论），
+// preload 提前并行拉取 + 页面脚本检测失败后切 MathML 兜底（.katex-font-fallback）。
+import katexMainRegular from 'katex/dist/fonts/KaTeX_Main-Regular.woff2?url';
+import katexMainBold from 'katex/dist/fonts/KaTeX_Main-Bold.woff2?url';
+import katexMathItalic from 'katex/dist/fonts/KaTeX_Math-Italic.woff2?url';
+import katexMathBoldItalic from 'katex/dist/fonts/KaTeX_Math-BoldItalic.woff2?url';
+import katexSize1 from 'katex/dist/fonts/KaTeX_Size1-Regular.woff2?url';
+import katexSize2 from 'katex/dist/fonts/KaTeX_Size2-Regular.woff2?url';
 import { ClientRouter } from 'astro:transitions';
 import ThemeHead from '@/components/ThemeHead.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
@@ -56,6 +65,62 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <ClientRouter fallback="swap" />
     <ThemeHead />
+    {/* KaTeX 关键字体预热（并行提前拉取，缓解弱网下公式字体加载失败） */}
+    <link rel="preload" as="font" type="font/woff2" href={katexMainRegular} crossorigin="anonymous" />
+    <link rel="preload" as="font" type="font/woff2" href={katexMainBold} crossorigin="anonymous" />
+    <link rel="preload" as="font" type="font/woff2" href={katexMathItalic} crossorigin="anonymous" />
+    <link rel="preload" as="font" type="font/woff2" href={katexMathBoldItalic} crossorigin="anonymous" />
+    <link rel="preload" as="font" type="font/woff2" href={katexSize1} crossorigin="anonymous" />
+    <link rel="preload" as="font" type="font/woff2" href={katexSize2} crossorigin="anonymous" />
+    {/* KaTeX 字体韧性检测：字体加载失败 → html.katex-font-fallback → 全站公式切原生 MathML 展示
+        （KaTeX 每个公式同时输出 .katex-html 视觉层 + .katex-mathml 原生层，兜底零渲染成本）。
+        根因背景：KaTeX 字体加载失败时 Times 回退度量使 vlist 行盒塌缩 → 公式糊成一团；
+        MathML 由浏览器排版引擎直接渲染，不依赖任何 web 字体，是最可靠的兜底。 */}
+    <script is:inline>
+      (function () {
+        var marker = 'katex-font-fallback';
+        var done = false;
+        function applyFallback() {
+          if (done) return;
+          done = true;
+          document.documentElement.classList.add(marker);
+        }
+        function verify() {
+          try {
+            if (!document.fonts || typeof document.fonts.check !== 'function') return;
+            Promise.all([
+              document.fonts.load('1em KaTeX_Main'),
+              document.fonts.load('1em KaTeX_Math'),
+            ])
+              .then(function () {
+                // load() 正常 resolve 后再 check：仍缺 KaTeX_Main 说明字体面加载失败（网络/被拦截）
+                if (!document.fonts.check('1em KaTeX_Main')) applyFallback();
+              })
+              .catch(applyFallback);
+          } catch (e) {
+            /* fonts API 异常：保持 HTML 层不动（比误切换更安全） */
+          }
+        }
+        function start() {
+          // 页面没有公式时字体不会被请求，check 为 false 属正常，跳过检测
+          if (!document.querySelector('.katex')) return;
+          verify();
+          // 时序兜底：fonts.ready 过早 resolve 的边缘情况，3s 后再验一次
+          setTimeout(function () {
+            if (!done) verify();
+          }, 3000);
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', start);
+        } else {
+          start();
+        }
+        // SPA（ClientRouter）切页后新正文可能才出现公式：页面加载完成后补检一次
+        document.addEventListener('astro:page-load', function () {
+          if (!done) start();
+        });
+      })();
+    </script>
     {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题字体） */}
     {fontCss !== '' && <style set:html={fontCss} />}
   </head>

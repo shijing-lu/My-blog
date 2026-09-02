@@ -37,5 +37,11 @@ export default defineConfig({
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
+    // 预打包 katex：cm-wysiwyg 在编辑器内 import('katex')（KaTeX 实时渲染）。
+    // dev 下不做预打包时，首次动态 import 会触发运行时二次 optimize + 页面 reload，
+    // 弱网/时序下可能让编辑器挂起的动态 import 落空；显式 include 让 dev 启动即就绪。
+    optimizeDeps: {
+      include: ['katex'],
+    },
   },
 });

@@ -23,13 +23,25 @@ import type { EditorState, Extension } from '@codemirror/state';
 /** 隐藏范围（replace 为空，不占视觉空间，仍可编辑） */
 const hide = Decoration.replace({});
 
-/** 点击渲染块 → 光标移动到该块源码起点（触发选区重建 → 回显源码） */
-function makeClickToPos(dom: HTMLElement, pos: number): void {
+/**
+ * 点击渲染块 → 光标移动到该块源码起点（触发选区重建 → 回显源码）。
+ * 位置用 posAtDOM 动态查询（cm-wysiwyg 复用）：doc 编辑后 widget DOM 会被
+ * eq 复用，固定 pos 闭包会过期导致点击跳错位置；pos 参数仅作查询失败兜底。
+ */
+export function makeClickToPos(dom: HTMLElement, pos: number): void {
   dom.addEventListener('mousedown', (e) => {
     e.preventDefault();
     const view = EditorView.findFromDOM(dom);
-    if (view && pos >= 0) {
-      view.dispatch({ selection: { anchor: pos } });
+    if (!view) return;
+    let target = pos;
+    try {
+      const live = view.posAtDOM(dom, 0);
+      if (live >= 0) target = live;
+    } catch {
+      /* posAtDOM 查询失败：用构建时的 fallback pos */
+    }
+    if (target >= 0) {
+      view.dispatch({ selection: { anchor: target } });
       view.focus();
     }
   });
@@ -108,8 +120,8 @@ class ImageWidget extends WidgetType {
   }
 }
 
-/** 选区是否「位于/进入」某区间（点光标取包含起点、不包含终点） */
-function selectionInside(ranges: ReadonlyArray<readonly [number, number]>, from: number, to: number): boolean {
+/** 选区是否「位于/进入」某区间（点光标取包含起点、不包含终点；cm-wysiwyg 复用） */
+export function selectionInside(ranges: ReadonlyArray<readonly [number, number]>, from: number, to: number): boolean {
   return ranges.some(([a, b]) => (a < to && b > from) || (a >= from && a < to));
 }
 

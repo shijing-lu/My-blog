@@ -1875,6 +1875,113 @@
   border-radius: var(--radius-lg);
 }
 
+/* ==================== cm-wysiwyg：单栏所见即所得（doc 编辑） ==================== */
+/* 块级 $$…$$ 公式：独立成块、可横向滚动（长公式不撑破编辑栏） */
+.cm-wy-math-display {
+  display: block;
+  margin: 0.45em 0;
+  padding: 0.25em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: pointer;
+}
+.cm-wy-math-display .katex {
+  font-size: 1.05em;
+}
+/* 行内 $…$ 公式：与文字基线对齐 */
+.cm-wy-math-inline {
+  display: inline-block;
+  vertical-align: baseline;
+  cursor: pointer;
+}
+.cm-wy-math-inline .katex {
+  font-size: 1.05em;
+  padding: 0 0.12em;
+}
+/* KaTeX 渲染异常兜底：源码以代码样式展示 */
+.cm-wy-math-err {
+  font-family: var(--font-pixel-family);
+  font-size: 0.9em;
+  color: var(--color-destructive, #b91c1c);
+  background: var(--color-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+/* 无序列表圆点：按嵌套深度分级 */
+.cm-wy-bullet {
+  display: inline-block;
+  min-width: 1.1em;
+  text-align: center;
+  color: var(--color-muted-foreground);
+}
+.cm-wy-bullet-d0 { font-size: 1em; }
+.cm-wy-bullet-d1 { font-size: 0.85em; opacity: 0.85; }
+.cm-wy-bullet-d2, .cm-wy-bullet-d3 { font-size: 0.75em; opacity: 0.7; }
+/* 有序列表数字 */
+.cm-wy-num {
+  display: inline-block;
+  min-width: 1.1em;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted-foreground);
+}
+/* 任务列表 checkbox：视觉对齐列表文字 */
+.cm-wy-checkbox {
+  vertical-align: middle;
+  margin-right: 0.35em;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+/* ==================== KaTeX 字体韧性：加载失败 → 全站公式切原生 MathML ====================
+   根因（诊断实验闭环验证）：KaTeX web 字体（KaTeX_Main/Math 等）加载失败时，
+   浏览器以 Times 度量排版 .katex-html 的绝对定位行盒 → vlist 塌缩、公式糊成一团；
+   KaTeX 每个公式同时输出了 .katex-mathml 原生 MathML 层（默认 clip 隐藏），
+   由浏览器排版引擎直接渲染、不依赖任何 web 字体 —— 字体失败时切到它即可完整可读。
+   检测脚本在 BaseLayout（fonts.check 失败 → html.katex-font-fallback）。 */
+.katex-font-fallback .katex .katex-html {
+  display: none !important;
+}
+.katex-font-fallback .katex .katex-mathml {
+  clip: auto !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible !important;
+  position: static !important;
+  font-size: 1.05em;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+/* 行内公式左右留白（与 HTML 层的 .prose p .katex 规则对齐） */
+.katex-font-fallback .prose p .katex-mathml,
+.katex-font-fallback .prose li .katex-mathml {
+  padding: 0 0.18em;
+}
+/* 块级公式：居中、上下留白（与 .prose .katex-display 规则对齐） */
+.katex-font-fallback .prose .katex-display {
+  margin: 1.3em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.katex-font-fallback .prose .katex-display .katex-mathml {
+  display: block;
+  text-align: center;
+  padding: 0.35em 0;
+}
+/* 目录条目：公式回退后与普通文本一致换行，不撑破 340px 面板 */
+.katex-font-fallback #doc-toc-list .katex-mathml {
+  font-size: 0.85em;
+}
+
+/* ==================== 目录条目公式防撑破：允许在任意字符间断行 ==================== */
+.toc-item .katex {
+  overflow-wrap: break-word;
+}
+#doc-toc-list .katex-display {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
 /* ==================== 暗色模式文章正文强制浅色 ==================== *//* prose-invert 依赖 --tw-prose-invert-* 变量链，个别场景可能解析失败导致正文偏深；
    此规则 unlayered（优先于 @layer 内规则），显式保证暗色下正文接近白色、清晰可读 */
 :is(.dark) .prose {
