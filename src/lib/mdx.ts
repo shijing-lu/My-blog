@@ -92,35 +92,34 @@ export function normalizeBackticks(source: string): string {
 }
 
 /**
- * 数学块分隔符规整：修复「公式内容与 $$ 闭合分隔符同行」导致的渲染失败。
+ * 数学块分隔符规整：把文档中所有「意图为 display math」的 `$$` 规范为独立 fence 行。
  *
- * 背景（根因，已本地复现 + 生产 4 篇文章确认）：
- * remark-math 的 display 数学（micromark mathFlow）要求 `$$` fence **独占一行**。
- * 若源码写成 `\end{cases} $$`（内容与闭 `$$` 同行），fence 不被识别为闭合，
- * 直到下一个独立 `$$` 行才闭合 → KaTeX 收到**残留 `$$`** 的非法 TeX →
- * throwOnError:false 输出 `.katex-error` 红色源码（阅读模式红字）。
- * 编辑器（cm-wysiwyg）词法对 `$$` 位置不敏感 → 同一内容渲染正常 →
+ * 背景（根因，本地复现 + 生产 6 篇文章确认）：
+ * remark-math（micromark mathFlow）只认 **`$$` fence 独占一行** 的 display 数学。
+ * 实测其不支持/错吞的形态：
+ * - `$$x^2$$` 同行成对           → 完全不被识别，字面显示
+ * - `$$\nx^2$$` 行尾闭合与内容同行 → math value 吞入后续正文 + 残留 `$$`
+ * - `$$ \begin{cases}…` open 与内容同行 → 同上，KaTeX 收到含 `$$` 的非法 TeX
+ *                                   → throwOnError:false 输出 `.katex-error` 红字
+ * 编辑器（cm-wysiwyg 词法）对 `$$` 位置不敏感 → 同一内容渲染正常 →
  * 表现为「编辑正常、阅读红字」。
  *
- * 修复：渲染前把「行尾单独一个 `$$`、其左侧有非空公式内容」的行拆为两行
- * （内容行 + `$$` 独占行），让 remark-math 正确闭合。
+ * 修复：逐行把每个**非转义** `$$` 拆到独占行（等价于把 display 数学写规范），
+ * 让 remark-math 正确闭合、KaTeX 收到纯净公式。
  * 保守策略（防误伤，勿回退）：
- * - ``` 代码围栏内容整行跳过（状态机跟踪，含围栏语言标记行）；
- * - 含反引号的行跳过（行内代码里出现行尾 `$$` 是字面文本，拆分会改坏代码）；
- * - 仅匹配行尾可带空白的单个 `$$`（`x $$`、`… \end{cases} $$`）；
- * - 成对同行 `$$…$$`（micromark 视为合法同行 display）不匹配、原样保留；
- * - 纯 `$$` 独立行不匹配。
- * 该转换只改变分隔符行结构，不触碰公式字符 → 渲染语义不变。
+ * - ``` / ~~~ 代码围栏内容整行跳过（状态机跟踪，含语言标记行）；
+ * - 含反引号的行跳过（行内代码里的 `$$` 是字面，拆分会改坏代码）；
+ * - `\$` 转义美元保留原样（想显示字面 `$$` 请写作 `\$\$$`）；
+ * - 单个 `$` 的行内数学不受影响（只拆连续两个 `$`）。
  */
 export function normalizeMathFences(source: string): string {
   const lines = source.split('\n');
   const out: string[] = [];
   let inFence = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    const t = lines[i]!;
+  for (const raw of lines) {
+    const t = raw;
     // 围栏状态机：``` 或 ~~~ 起止（整行匹配围栏标记，含语言说明）
-    const isFenceLine = /^\s*(?:```+|~~~+)/.test(t);
-    if (isFenceLine) {
+    if (/^\s*(?:```+|~~~+)/.test(t)) {
       inFence = !inFence;
       out.push(t);
       continue;
@@ -129,14 +128,33 @@ export function normalizeMathFences(source: string): string {
       out.push(t);
       continue;
     }
-    // 行尾单独 `$$`（左侧有内容 + 至少一空白）：拆成 内容行 / $$ 行
-    const m = t.match(/^(\s*)(\S(?:.*\S)?)(\s+)\$\$\s*$/);
-    if (m) {
-      const [indent, content] = [m[1]!, m[2]!];
-      out.push(`${indent}${content}`);
-      out.push(`${indent}$$`);
-    } else {
+    // 拆分行内所有非转义 `$$` 为独立行（每段一行，保持内容原样）
+    const segs: string[] = [];
+    let buf = '';
+    for (let i = 0; i < t.length; ) {
+      if (t[i] === '\\' && t[i + 1] === '$') {
+        buf += '\\$';
+        i += 2;
+        continue;
+      }
+      if (t[i] === '$' && t[i + 1] === '$') {
+        if (buf.trim() !== '') segs.push(buf.trimEnd());
+        segs.push('$$');
+        buf = '';
+        i += 2;
+        continue;
+      }
+      buf += t[i];
+      i += 1;
+    }
+    if (buf.trim() !== '') segs.push(buf.trimEnd());
+    // 行无 `$$` → 原样输出
+    if (segs.length === 0) {
       out.push(t);
+    } else if (segs.length === 1 && segs[0] === '$$' && /^\s*\$\$\s*$/.test(t)) {
+      out.push(t); // 已是标准独立 fence 行：保持原样（含缩进/尾空格）
+    } else {
+      out.push(...segs);
     }
   }
   return out.join('\n');

@@ -12,10 +12,11 @@ $$
 \\end{cases} $$
 关于其他坐标面有类似结论。`;
 
-// 防误伤样例（规整后应与原输入逐行一致）
-const UNTOUCHED_CASES: Array<[string, string]> = [
+// 防误伤样例：[[名称, 源码, 期望输出]] —— 未列 'EXPECT_SAME' 的表示应原样；
+// '$$x^2$$' 同行成对 remark 本不识别（字面显示），规整应转独立行（期望改进）
+const UNTOUCHED_CASES: Array<[string, string, string?]> = [
   ['正常 display 独立 fence', '$$\n\\int_0^1 x dx\n$$'],
-  ['同行 $$x$$ display', '$$x^2$$'],
+  ['同行 $$x$$ display', '$$x^2$$', '$$\nx^2\n$$'],
   ['行内数学', '行内 $x^2$ 与 $\\frac{a}{b}$'],
   ['代码围栏内的行尾 $$', '```ts\nconst s = "x $$";\nconsole.log(s);\n```'],
   ['代码围栏无语言', '```\n$5 元 $$\n```'],
@@ -34,14 +35,14 @@ const UNTOUCHED_CASES: Array<[string, string]> = [
 
   console.log('\n== 防误伤 ==');
   let allOk = true;
-  for (const [name, src] of UNTOUCHED_CASES) {
+  for (const [name, src, expect] of UNTOUCHED_CASES) {
     const out = normalizeMathFences(src);
-    const ok = out === src;
+    const ok = expect === undefined ? out === src : out === expect;
     if (!ok) allOk = false;
     console.log((ok ? 'OK ' : 'CHANGED!') + ' ' + name);
     if (!ok) console.log('   in :', JSON.stringify(src), '\n   out:', JSON.stringify(out));
   }
-  console.log(allOk ? '\n全部未改动 ✓' : '\n存在误伤 ✗');
+  console.log(allOk ? '\n全部符合预期 ✓' : '\n存在偏差 ✗');
 
   const idem = normalizeMathFences(normalizeMathFences(BAD)) === normalizeMathFences(BAD);
   console.log('幂等:', idem);
