@@ -29,6 +29,51 @@ export interface RenderOptions {
   components?: MDXComponentMap;
 }
 
+/* ============== renderMdx 内存 LRU 缓存 ==============
+ * 切换同一篇文章第二次起几乎零延迟；高频访问受益显著。
+ * - key 用源码 hash（djb2 + length 防碰撞），避免 Map 直接持有大字符串作 key
+ * - 容量 100 条；Map 按插入顺序，超限驱逐最旧
+ * - 仅在无自定义 components 时生效（自定义组件会改变渲染结果）
+ * - 单 Vercel Function 实例；冷启动清空；文档更新后由调用方在 cacheKey 上拼 updatedAt
+ * ======================================================= */
+const RENDER_CACHE_MAX = 100;
+const RENDER_CACHE = new Map<string, RenderedMdx>();
+
+function djb2(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) + s.charCodeAt(i)) | 0;
+  return `${h}_${s.length}`;
+}
+
+function cacheGet(key: string): RenderedMdx | null {
+  const hit = RENDER_CACHE.get(key);
+  if (!hit) return null;
+  // 命中后提升到队尾（LRU 语义）
+  RENDER_CACHE.delete(key);
+  RENDER_CACHE.set(key, hit);
+  return hit;
+}
+
+function cacheSet(key: string, value: RenderedMdx): void {
+  if (RENDER_CACHE.has(key)) RENDER_CACHE.delete(key);
+  RENDER_CACHE.set(key, value);
+  while (RENDER_CACHE.size > RENDER_CACHE_MAX) {
+    const oldest = RENDER_CACHE.keys().next().value;
+    if (oldest === undefined) break;
+    RENDER_CACHE.delete(oldest);
+  }
+}
+
+/** 显式失效某源码的渲染缓存（文档更新时由调用方触发） */
+export function invalidateRenderCache(source: string): void {
+  RENDER_CACHE.delete(djb2(source));
+}
+
+/** 清空全部渲染缓存（删除/批量操作等场景使用，LRU 也会自然驱逐） */
+export function clearRenderCache(): void {
+  RENDER_CACHE.clear();
+}
+
 /**
  * 反引号变体 → ASCII 反引号（U+0060）
  *
@@ -155,6 +200,13 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
   // 反引号变体规范化：全角/修饰符变体 → ASCII，修复行内代码渲染失败
   const normalized = normalizeBackticks(source);
 
+  // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果
+  if (!options.components) {
+    const key = djb2(normalized);
+    const hit = cacheGet(key);
+    if (hit) return hit;
+  }
+
   const { default: Content } = await evaluate(normalized, {
     jsx,
     jsxs,
@@ -172,7 +224,11 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
   const toc = await extractToc(normalized);
   const blockMap = collectBlockMapFromHtml(html);
 
-  return { html, toc, blockMap };
+  const result: RenderedMdx = { html, toc, blockMap };
+  if (!options.components) {
+    cacheSet(djb2(normalized), result);
+  }
+  return result;
 }
 
 export { mdxComponents };

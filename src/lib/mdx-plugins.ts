@@ -314,7 +314,7 @@ export const remarkPlugins = [remarkGfm, remarkMath, remarkDirective, remarkDire
 export const rehypePlugins = [
   rehypeSlug,
   rehypeAutolinkHeadings,
-  rehypeKatex,
+  [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
   [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
   rehypeBlockAnchors,
 ];

@@ -10,6 +10,7 @@ import { asc, eq, like, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { docArticles, docBundles, docCategories, docNodes } from '../../db/schema.sqlite';
 import { db } from '../../db';
+import { clearRenderCache, invalidateRenderCache } from './mdx';
 import type {
   DocArticle,
   DocBundle,
@@ -345,6 +346,13 @@ export async function updateDocNode(
   id: string,
   patch: { title?: string; content?: string; parentId?: string | null; sort?: number },
 ): Promise<DocNode | null> {
+  // 内容更新时失效旧源码的渲染缓存（B2 LRU），避免更新后命中旧 HTML
+  if (patch.content !== undefined) {
+    try {
+      const old = await getDocNode(id);
+      if (old) invalidateRenderCache(old.content);
+    } catch { /* 失效失败不影响更新主流程 */ }
+  }
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.title !== undefined) set.title = patch.title;
   if (patch.content !== undefined) set.content = patch.content;
@@ -381,5 +389,7 @@ export async function deleteDocNode(id: string): Promise<DocNode | null> {
   for (const did of toDelete) {
     await db.delete(docNodes).where(eq(docNodes.id, did));
   }
+  // 级联删除涉及多篇文章，保守清空渲染缓存
+  clearRenderCache();
   return node;
 }

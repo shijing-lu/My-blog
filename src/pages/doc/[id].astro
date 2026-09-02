@@ -39,8 +39,10 @@ const tocTreeHtml = renderTocTreeHtml(toc);
 const allCategories = await listDocTree();
 const catName = allCategories.find((c) => c.bundles.some((b) => b.id === bundle.id))?.name ?? '';
 
+// 节点元数据注入：去掉 content(MDX 源码)——大文档首页 HTML 体积断崖下降。
+// 节点编辑/移动时按需走 /api/doc/nodes/${id} 取单节点详情（已有 PATCH/GET 接口）。
 const nodesJson = JSON.stringify(
-  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title, content: n.content })),
+  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title })),
 );
 const bundleJson = JSON.stringify({ id: bundle.id, name: bundle.name, icon: bundle.icon, summary: bundle.summary });
 const activeNodeId = activeNode?.id ?? '';
@@ -167,7 +169,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
                 <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(activeNode.title)}</h1>
                 <div class="pixel-divider mt-4" />
               </header>
-              <article class="prose mt-6 max-w-none break-words [overflow-wrap:anywhere]" set:html={html} />
+              <article class="prose mt-6 max-w-none break-words" set:html={html} />
             </>
           ) : (
             <p class="mt-10 text-center text-sm text-muted-foreground">该文档暂无文章。</p>
@@ -362,6 +364,18 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   #doc-toc-list .katex { font-size: 0.85em; }
   #doc-toc-list .katex-display { margin: 0.2em 0; }
   #doc-toc-list .katex-display > .katex { display: inline-block; white-space: nowrap; }
+
+  /* 正文 KaTeX：与 prose 行高对齐 + 行间公式独立滚动 + 行内公式微间距
+     （之前正文零覆盖：行内/行间公式贴字、宽公式溢出、与 prose 行高 1.75 不一致） */
+  .prose .katex { font-size: 1.05em; line-height: 1.6; }
+  .prose .katex-display {
+    margin: 0.8em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.2em 0;
+  }
+  .prose .katex-display > .katex { display: inline-block; white-space: nowrap; }
+  .prose p .katex { padding: 0 0.05em; }
 </style>
 
 <script>
@@ -377,9 +391,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     const d = document.getElementById('doc-detail-data');
     return JSON.parse(d?.dataset.bundle ?? '{}') as { id: string; name: string; icon: string | null; summary: string | null };
   }
-  function readNodes(): Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string; content: string }> {
+  function readNodes(): Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string }> {
     const d = document.getElementById('doc-detail-data');
-    return JSON.parse(d?.dataset.nodes ?? '[]') as Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string; content: string }>;
+    return JSON.parse(d?.dataset.nodes ?? '[]') as Array<{ id: string; parentId: string | null; kind: 'folder' | 'article'; title: string }>;
   }
   function readFolders(): Array<{ id: string; title: string }> {
     const d = document.getElementById('doc-detail-data');
@@ -530,16 +544,17 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       status?.classList.add('hidden');
       if (previewBox) previewBox.innerHTML = '';
       if (opts.mode === 'edit' && opts.nodeId) {
-        const node = readNodes().find((n) => n.id === opts.nodeId);
-        if (!node) return;
-        el<HTMLHeadingElement>('doc-node-dialog-title')!.textContent = node.kind === 'folder' ? '编辑目录' : '编辑文章';
-        titleInput.value = node.title;
-        kindSelect.value = node.kind;
+        const meta = readNodes().find((n) => n.id === opts.nodeId);
+        if (!meta) return;
+        el<HTMLHeadingElement>('doc-node-dialog-title')!.textContent = meta.kind === 'folder' ? '编辑目录' : '编辑文章';
+        titleInput.value = meta.title;
+        kindSelect.value = meta.kind;
         kindSelect.disabled = true; // 类型不可改
-        parentSelect.value = node.parentId ?? '';
-        if (contentArea) contentArea.value = node.content;
-        if (contentWrap) contentWrap.classList.toggle('hidden', node.kind === 'folder');
-        dlg.dataset.editing = node.id;
+        parentSelect.value = meta.parentId ?? '';
+        // content 字段单独 fetch：首屏已不再注入 MDX 源码（B1），编辑时按需取单节点
+        if (contentArea) contentArea.value = '';
+        if (contentWrap) contentWrap.classList.toggle('hidden', meta.kind === 'folder');
+        dlg.dataset.editing = meta.id;
       } else {
         el<HTMLHeadingElement>('doc-node-dialog-title')!.textContent = opts.kind === 'folder' ? '新建目录' : '新建文章';
         titleInput.value = '';
@@ -552,6 +567,17 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       }
       dlg.showModal();
       titleInput.focus();
+      // 编辑文章时异步拉取 content 填充 textarea（弹窗立刻显示，content 字段 ~200ms 后到位）
+      if (opts.mode === 'edit' && opts.nodeId && contentArea && contentWrap && !contentWrap.classList.contains('hidden')) {
+        const nodeId = opts.nodeId;
+        fetch(`/api/doc/nodes/${nodeId}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            const c = d?.node?.content;
+            if (typeof c === 'string') contentArea.value = c;
+          })
+          .catch(() => { /* 网络失败时 textarea 保持空，用户感知 */ });
+      }
     }
 
     // 打开弹窗：根级新建 / 目录内新建 / 编辑 / 移动
@@ -576,22 +602,37 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       if (wrap) wrap.classList.toggle('hidden', el<HTMLSelectElement>('doc-node-kind')?.value === 'folder');
     });
 
-    // 预览
+    // 预览：防并发/重复触发（AbortController + 序号守卫），按钮禁用避免双击
+    let previewSeq = 0;
+    let previewCtrl: AbortController | null = null;
     document.addEventListener('click', async (e) => {
       if (!(e.target as HTMLElement).closest('#doc-node-preview-btn')) return;
       const source = el<HTMLTextAreaElement>('doc-node-content')?.value ?? '';
       const preview = el('doc-node-preview');
+      const btn = el<HTMLButtonElement>('doc-node-preview-btn');
       if (!preview) return;
+      // 取消上一次未完成请求
+      previewCtrl?.abort();
+      const ctrl = new AbortController();
+      previewCtrl = ctrl;
+      const seq = ++previewSeq;
+      if (btn) btn.disabled = true;
+      preview.innerHTML = '<p class="text-xs text-muted-foreground">渲染中…</p>';
       try {
         const res = await fetch('/api/doc/preview', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ source }),
+          signal: ctrl.signal,
         });
         const d = (await res.json().catch(() => ({}))) as { html?: string; error?: string };
+        if (seq !== previewSeq) return; // 已被新请求覆盖
         preview.innerHTML = d.html ?? `<p class="text-destructive">${d.error ?? '渲染失败'}</p>`;
-      } catch {
+      } catch (err) {
+        if (ctrl.signal.aborted) return; // 主动取消
         preview.innerHTML = '<p class="text-destructive">渲染失败</p>';
+      } finally {
+        if (btn && seq === previewSeq) btn.disabled = false;
       }
     });
 
