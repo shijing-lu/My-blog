@@ -226,6 +226,24 @@ function esc(s: string): string {
     return document.getElementById(id) as T | null;
   }
 
+  /* ================= 文档卡片内嵌按钮：捕获阶段拦截导航 ================= */
+  // 编辑/删除按钮嵌在 <a href="/doc/[id]"> 卡片链接内部。
+  // Astro ClientRouter 在 document 冒泡阶段监听链接点击并触发 SPA 导航，且先于本页
+  // 冒泡阶段的弹窗逻辑执行 —— 导致点按钮时弹窗刚打开页面就跳转到文章详情。
+  // 修复：在【捕获阶段】（先于任何冒泡 handler，含 ClientRouter）对这两个按钮立即
+  // preventDefault()，使 ClientRouter 检查 defaultPrevented=true 时跳过导航；
+  // 弹窗打开/删除确认仍在冒泡阶段正常处理。
+  document.addEventListener(
+    'click',
+    (e) => {
+      const t = e.target as HTMLElement | null;
+      if (t && t.closest('[data-doc-bundle-edit], [data-doc-bundle-del]')) {
+        e.preventDefault();
+      }
+    },
+    true,
+  );
+
   /* ================= 搜索 ================= */
   const searchInput = el<HTMLInputElement>('doc-search');
   const searchPanel = el('doc-search-panel');
