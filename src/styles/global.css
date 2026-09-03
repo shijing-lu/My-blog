@@ -1875,6 +1875,21 @@
   border-radius: var(--radius-lg);
 }
 
+/* ==================== Tiptap 数学节点：块级公式视觉补全 ====================
+   Tiptap v3.31 Mathematics 扩展共享 katexOptions（不消费 blockOptions.displayMode），
+   KaTeX 默认 inline 渲染；通过 CSS 把块级公式外层强制成「块级 + 居中」视觉，
+   等价于服务端 rehype-katex 的 katex-display 容器效果。 */
+.tiptap-mathematics-render[data-type='block-math'] {
+  display: block;
+  text-align: center;
+  padding: 0.5em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.tiptap-mathematics-render[data-type='block-math'] .block-math-inner {
+  display: inline-block;
+}
+
 /* ==================== cm-wysiwyg：单栏所见即所得（doc 编辑） ==================== */
 /* 块级 $$…$$ 公式：独立成块、可横向滚动（长公式不撑破编辑栏） */
 .cm-wy-math-display {

@@ -441,22 +441,27 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     #doc-3col[data-editing='true'] { padding-right: 360px; }
   }
 
-  /* ===== 就地编辑（Obsidian 式原位编辑） =====
-     编辑器=ghost 变体：透明融入正文、无卡片无工具条；高度按正文高计算不跳变。
+  /* ===== 就地编辑（富文本 WYSIWYG 原位编辑） =====
+     编辑器=Tiptap：套 .prose 排版与阅读正文一致；无卡片无工具条；
+     .doc-ie-view 是滚动容器（短文高度=原文高不跳变；超长文内部滚动）。
      host 承接原 <article> 的 mt-6，使编辑内容与阅读正文起点一致。 */
   .doc-ie-host { margin-top: 1.5rem; }
   .doc-ie-view {
-    overflow: hidden;
+    overflow-y: auto;
     border-radius: var(--radius-md);
-    /* 就地编辑态下编辑器处于可点选状态，滚动条细而低调 */
     scrollbar-width: thin;
+    /* 编辑态需可点选，禁用用户选择穿透（文字本身可选中） */
   }
-  .doc-ie-view .cm-editor { border-radius: var(--radius-md); }
-  .doc-ie-view .cm-scroller { scrollbar-width: thin; }
-  /* 正文原位替换时去除 CM 的焦点外框（阅读正文无框，编辑态亦应无框） */
-  .doc-ie-view .cm-editor.cm-focused { outline: none; }
-  /* ghost 编辑器首行/末尾对齐阅读正文间距 */
-  .doc-ie-view .cm-content { padding-top: 0.375rem; }
+  /* ProseMirror 内容宿主：移除默认外框；内容宽度/字号跟随 .prose */
+  .doc-ie-view .ProseMirror { outline: none; min-height: 100%; }
+  /* 编辑态首行/段落间距与阅读正文起点对齐（.prose 已有段落排版，仅顶部微调） */
+  .doc-ie-view .ProseMirror > :first-child { margin-top: 0.375rem; }
+  /* 编辑态下 admonition（:::note 容器）同样获得语义色带（阅读侧 global.css 已定义） */
+  .doc-ie-view .admonition { margin: 1.5em 0; }
+  /* 任务列表 checkbox 可点 */
+  .doc-ie-view ul[data-type='taskList'] { list-style: none; padding-left: 0; }
+  .doc-ie-view ul[data-type='taskList'] li { display: flex; gap: 0.5em; align-items: flex-start; }
+  .doc-ie-view ul[data-type='taskList'] li > label { user-select: none; }
 
   /* 标题旁入口按钮：编辑态 →「完成」高亮（primary 色） */
   #doc-inline-edit.doc-entry-active {

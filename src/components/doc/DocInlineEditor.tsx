@@ -1,31 +1,25 @@
 /**
- * DocInlineEditor.tsx —— 文档文章「就地实时编辑」React 岛（Obsidian 式原位编辑）
+ * DocInlineEditor.tsx —— 文档文章「就地实时编辑」React 岛（富文本 WYSIWYG 原位编辑）
  *
- * 交互（单栏所见即所得 · 就地形态）：阅读页点「编辑」→ 文章正文原位被编辑器
- * 替换（页面不跳转、不弹独立编辑页；标题栏与整页布局保持不变）→ 键入当下实时
- * 渲染为最终格式（cm-wysiwyg：标题/列表/粗斜/代码块/图片/数学公式 KaTeX，
- * 光标处显示源码、移出即渲染）→ 自动保存（1.5s 防抖）。
+ * 交互：阅读页点「编辑」→ 文章正文原位被 Tiptap 富文本编辑器替换（页面不跳转、
+ * 不弹独立编辑页；标题栏与整页布局保持不变）→ 公式/表格/:::note 笔记/代码块
+ * **始终以渲染形态可见**、光标点哪改哪（所见即所得）→ 自动保存（1.5s 防抖）。
  *
- * 就地形态设计：
- * - 编辑器视觉 = ghost 变体（MarkdownEditor variant="ghost"）：透明背景融入
- *   阅读正文、内容宽度跟随正文列、无独立工具条/卡片/边框 —— 页面看起来仍是
- *   「这篇文章」，只是文本可直接编辑。
- * - 高度策略（保滚动不跳）：
- *   · 正文不高于「一屏可用高」→ 编辑视口高 = 原正文高，页面总高几乎不变，
- *     阅读滚动位置天然保持（最丝滑的就地场景）；
- *   · 超长文 → 编辑视口 = 一屏可用高 + 编辑器内滚动（CM 虚拟化仍有效），进入时
- *     把视口滚动到原正文起点并把 CM 内部滚动同步到相近阅读进度，退出恢复原位置。
- * - 保存反馈收敛为一个右下小胶囊（不占文档流、不遮挡正文结构）：「完成」= 保存
- *   并退出；未保存/保存中/已保存/失败状态就近显示。另有标题旁按钮与右侧悬浮框
- *   按钮（编辑中再点 = 保存退出）两条等价退出路径。
- * - 自动保存只 PATCH（编辑态正文隐藏，渲染结果暂时用不到）；关闭编辑器时若本
- *   会话保存过 → 后台补拉 /render 就地替换正文与目录（不 reload）。
+ * 架构（v3，Tiptap 迁移，勿回退）：
+ * - 编辑内核 = DocTiptapEditor（见 ./tiptap/）：**只做编辑**，props 进出都是
+ *   markdown 字符串；本组件保留全部网络 / 生命周期：
+ *   fetch 源码 → 挂载编辑器（contentType markdown 载入）→ onChange 收最新源码
+ *   → 1.5s 防抖 PATCH → updatedAt 回写 → 关闭后台补拉 /render 刷新正文与目录。
+ * - 就地形态视觉 = .prose 排版（阅读正文同源样式）+ 无边框/无工具条；
+ *   高度策略保滚动不跳：短文贴合原正文高、超长文视口内滚动，退出恢复原位置。
+ * - 保存反馈收敛为右下小胶囊；另有标题旁按钮与右侧悬浮框按钮（编辑中再点 =
+ *   保存退出）两条等价退出路径。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import MarkdownEditor from '@/components/admin/MarkdownEditor';
-import type { MarkdownEditorHandle } from '@/components/admin/MarkdownEditor';
+import DocTiptapEditor from '@/components/doc/tiptap/DocTiptapEditor';
+import type { DocTiptapEditorHandle } from '@/components/doc/tiptap/DocTiptapEditor';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import type { TocItem } from '@/lib/mdx-plugins';
 
@@ -85,7 +79,7 @@ function syncEntryButtons(editing: boolean): void {
 
 export default function DocInlineEditor(): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  const editorRef = useRef<DocTiptapEditorHandle | null>(null);
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'saving'>('idle');
@@ -263,23 +257,27 @@ export default function DocInlineEditor(): ReactElement {
       setPhase('idle');
 
       // 布局稳定后：短文无需动滚动（页面总高≈不变）；长文把视口滚到正文起点，
-      // 并将编辑器内部滚动同步到原阅读进度（精确行映射做不到，按像素比例近似）。
+      // 并把编辑器滚动容器对齐到原阅读进度（Tiptap 排版≈prose，比例映射较源码编辑器更准）。
       requestAnimationFrame(() => {
         if (!fit && savedArtTop.current > 0) {
           window.scrollTo({ top: savedArtTop.current - 140, behavior: 'auto' });
         }
-        window.setTimeout(() => {
-          // 进入即交还键盘（光标仍在文档首部，点击任意正文位置即可放置光标）
-          editorRef.current?.focus();
-          const ed = document.querySelector('.doc-ie-view .cm-editor');
-          if (ed && savedProgress.current > 0) {
-            const scroller = ed.querySelector('.cm-scroller') as HTMLElement | null;
-            if (scroller) {
-              const target = scroller.scrollHeight * savedProgress.current - scroller.clientHeight / 2;
-              scroller.scrollTop = Math.max(0, target);
-            }
+        // ProseMirror 异步创建：轮询等待编辑器就绪再聚焦 + 对齐滚动
+        let tries = 0;
+        const settle = (): void => {
+          const view = document.querySelector<HTMLElement>('.doc-ie-view');
+          const pm = view?.querySelector('.tiptap-doc');
+          if (!view || !pm) {
+            if (tries++ < 30) window.setTimeout(settle, 100);
+            return;
           }
-        }, 60);
+          editorRef.current?.focus();
+          if (savedProgress.current > 0) {
+            const target = view.scrollHeight * savedProgress.current - view.clientHeight / 2;
+            view.scrollTop = Math.max(0, target);
+          }
+        };
+        window.setTimeout(settle, 60);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取正文失败');
@@ -323,18 +321,17 @@ export default function DocInlineEditor(): ReactElement {
     <div ref={hostRef} className={open ? 'doc-ie-host' : 'hidden'}>
       {open && (
         <div className="doc-ie-inner relative">
-          {/* 编辑器区：正文原位替换（无卡片/无边框/无工具条），高度按内容策略计算 */}
-          <div className="doc-ie-view" style={{ height: effectiveViewH }}>
+          {/* 编辑器区：正文原位替换（Tiptap WYSIWYG），套 .prose 排版与阅读一致；
+              高度按内容策略计算，编辑态公式/表格/笔记始终渲染可见 */}
+          <div className="doc-ie-view prose max-w-none break-words" style={{ height: effectiveViewH }}>
             {phase === 'loading' ? (
               <p className="px-1 py-6 text-sm text-muted-foreground">正在读取正文…</p>
             ) : (
-              <MarkdownEditor
+              <DocTiptapEditor
                 ref={editorRef}
-                initialContent={content}
+                initialMarkdown={content}
                 onChange={handleContentChange}
                 onSave={() => handleSaveAndClose()}
-                wysiwyg
-                variant="ghost"
                 className="h-full"
               />
             )}
