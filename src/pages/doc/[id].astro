@@ -440,6 +440,30 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   @media (min-width: 1320px) {
     #doc-3col[data-editing='true'] { padding-right: 360px; }
   }
+
+  /* ===== 就地编辑（Obsidian 式原位编辑） =====
+     编辑器=ghost 变体：透明融入正文、无卡片无工具条；高度按正文高计算不跳变。
+     host 承接原 <article> 的 mt-6，使编辑内容与阅读正文起点一致。 */
+  .doc-ie-host { margin-top: 1.5rem; }
+  .doc-ie-view {
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    /* 就地编辑态下编辑器处于可点选状态，滚动条细而低调 */
+    scrollbar-width: thin;
+  }
+  .doc-ie-view .cm-editor { border-radius: var(--radius-md); }
+  .doc-ie-view .cm-scroller { scrollbar-width: thin; }
+  /* 正文原位替换时去除 CM 的焦点外框（阅读正文无框，编辑态亦应无框） */
+  .doc-ie-view .cm-editor.cm-focused { outline: none; }
+  /* ghost 编辑器首行/末尾对齐阅读正文间距 */
+  .doc-ie-view .cm-content { padding-top: 0.375rem; }
+
+  /* 标题旁入口按钮：编辑态 →「完成」高亮（primary 色） */
+  #doc-inline-edit.doc-entry-active {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
 </style>
 
 <script>
@@ -538,20 +562,24 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   document.addEventListener('astro:page-load', () => setActiveArticle(currentActiveId()));
   setActiveArticle(currentActiveId());
 
-  /* ================= 正文原编辑（无弹窗；滚动位置由岛内部保持） ================= */
-  // 岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s，避免点击无响应
+  /* ================= 正文就地编辑（无跳转；滚动保持由岛内部完成） =================
+     标题旁「编辑/完成」按钮：未编辑 → 打开就地编辑；编辑态再点 = 保存并退出。
+     岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s，避免点击无响应。 */
   document.addEventListener('click', (e) => {
     if (!(e.target as HTMLElement).closest('#doc-inline-edit')) return;
+    const grid = document.getElementById('doc-3col');
+    const editing = grid?.dataset.editing === 'true';
     let tries = 0;
-    const tryOpen = (): void => {
-      const bridge = (window as unknown as { __docInlineEditor?: { open: () => void } }).__docInlineEditor;
-      if (bridge) {
-        bridge.open();
+    const tryBridge = (): void => {
+      const bridge = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
+      if (!bridge) {
+        if (tries++ < 20) window.setTimeout(tryBridge, 100);
         return;
       }
-      if (tries++ < 20) window.setTimeout(tryOpen, 100);
+      if (editing && bridge.saveAndClose) bridge.saveAndClose();
+      else bridge.open();
     };
-    tryOpen();
+    tryBridge();
   });
 
   /* ================= 树形目录：层级折叠/展开（事件委托，动态重建安全） ================= */

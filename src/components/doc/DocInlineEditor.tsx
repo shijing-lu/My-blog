@@ -1,36 +1,41 @@
 /**
- * DocInlineEditor.tsx —— 文档文章「原地实时编辑」React 岛
+ * DocInlineEditor.tsx —— 文档文章「就地实时编辑」React 岛（Obsidian 式原位编辑）
  *
- * 交互（单栏所见即所得）：阅读页点「编辑」→ 原地进入编辑态（保持滚动位置）
- * → 键入当下实时渲染为最终格式（cm-wysiwyg：标题/列表/粗斜/代码块/图片/
- *   数学公式 KaTeX，光标处显示源码、移出即渲染）→ 自动保存（1.5s 防抖）。
- * 全程无弹窗、无双栏、无需手动预览。
+ * 交互（单栏所见即所得 · 就地形态）：阅读页点「编辑」→ 文章正文原位被编辑器
+ * 替换（页面不跳转、不弹独立编辑页；标题栏与整页布局保持不变）→ 键入当下实时
+ * 渲染为最终格式（cm-wysiwyg：标题/列表/粗斜/代码块/图片/数学公式 KaTeX，
+ * 光标处显示源码、移出即渲染）→ 自动保存（1.5s 防抖）。
  *
- * 设计要点（性能）：
- * - 编辑器复用 MarkdownEditor（wysiwyg 模式）：**纯客户端**渲染，零网络往返，
- *   输入不卡；cm-wysiwyg 模块（含 katex）由编辑器按需动态加载，写作台零负担。
- * - 进入编辑时把被隐藏 <article> 的高度记为容器 min-height：文档总高不变，
- *   浏览器不夹逼 scrollY，滚动位置天然保持（再显式 scrollTo 兜底）。
- * - 自动保存只 PATCH（编辑态正文隐藏，渲染结果暂时用不到）；关闭编辑器时
- *   若本会话保存过 → 后台补拉 /render 就地替换正文与目录（不 reload）。
- * - 保存互斥锁（savingRef）避免并发 PATCH 导致 updatedAt 回退写错缓存版本号。
+ * 就地形态设计：
+ * - 编辑器视觉 = ghost 变体（MarkdownEditor variant="ghost"）：透明背景融入
+ *   阅读正文、内容宽度跟随正文列、无独立工具条/卡片/边框 —— 页面看起来仍是
+ *   「这篇文章」，只是文本可直接编辑。
+ * - 高度策略（保滚动不跳）：
+ *   · 正文不高于「一屏可用高」→ 编辑视口高 = 原正文高，页面总高几乎不变，
+ *     阅读滚动位置天然保持（最丝滑的就地场景）；
+ *   · 超长文 → 编辑视口 = 一屏可用高 + 编辑器内滚动（CM 虚拟化仍有效），进入时
+ *     把视口滚动到原正文起点并把 CM 内部滚动同步到相近阅读进度，退出恢复原位置。
+ * - 保存反馈收敛为一个右下小胶囊（不占文档流、不遮挡正文结构）：「完成」= 保存
+ *   并退出；未保存/保存中/已保存/失败状态就近显示。另有标题旁按钮与右侧悬浮框
+ *   按钮（编辑中再点 = 保存退出）两条等价退出路径。
+ * - 自动保存只 PATCH（编辑态正文隐藏，渲染结果暂时用不到）；关闭编辑器时若本
+ *   会话保存过 → 后台补拉 /render 就地替换正文与目录（不 reload）。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import MarkdownEditor from '@/components/admin/MarkdownEditor';
+import type { MarkdownEditorHandle } from '@/components/admin/MarkdownEditor';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import type { TocItem } from '@/lib/mdx-plugins';
 
 /** 自动保存防抖（ms）：停顿 1.5s 即静默 PATCH */
 const AUTOSAVE_DEBOUNCE = 1500;
-/** 编辑器单栏高度：几乎占满一屏（阅读态正文隐藏，空间全部让给编辑器） */
-const PANE_HEIGHT = 'calc(100vh - 9rem)';
 
 declare global {
   interface Window {
     /** 供 .astro 页面脚本调用（ClientRouter SPA 下会重新挂载，故用 window 桥接） */
-    __docInlineEditor?: { open: () => void };
+    __docInlineEditor?: { open: () => void; saveAndClose?: () => void };
   }
 }
 
@@ -61,18 +66,39 @@ function syncNodeUpdatedAt(id: string, updatedAt?: string): void {
   }
 }
 
+/** 同步标题旁与右侧悬浮框的编辑入口按钮（进入编辑 → 「完成」态；退出还原） */
+function syncEntryButtons(editing: boolean): void {
+  const mainBtn = document.getElementById('doc-inline-edit');
+  if (mainBtn) {
+    mainBtn.textContent = editing ? '完成' : '编辑';
+    mainBtn.title = editing ? '保存并退出编辑' : '原地编辑本文';
+    mainBtn.setAttribute('aria-label', editing ? '保存并退出编辑' : '原地编辑本文');
+    mainBtn.classList.toggle('doc-entry-active', editing);
+  }
+  const railBtn = document.getElementById('rt-doc-inline-edit');
+  if (railBtn) {
+    railBtn.title = editing ? '保存并退出编辑' : '编辑当前文章';
+    railBtn.setAttribute('aria-label', editing ? '保存并退出编辑' : '编辑当前文章');
+    railBtn.classList.toggle('text-primary', editing);
+  }
+}
+
 export default function DocInlineEditor(): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState('');
+  /** 编辑器视口高度（px；打开时按正文高计算，超长文退化为可用屏高） */
+  const [viewH, setViewH] = useState(0);
 
-  /** 进入编辑前记录的滚动位置与被隐藏正文高度 */
+  /** 进入编辑前记录的滚动位置 / 原文顶部文档坐标 / 阅读进度（供长文对齐） */
   const savedScrollY = useRef(0);
-  const savedHeight = useRef(0);
+  const savedArtTop = useRef(0);
+  const savedProgress = useRef(0);
   /** 当前编辑的文章 id（ref：closeEditor 异步路径里取最新值） */
   const nodeIdRef = useRef('');
   /** 最新正文（saveCore 直接读 ref，避免闭包陈旧内容覆盖新输入） */
@@ -153,14 +179,13 @@ export default function DocInlineEditor(): ReactElement {
       if (grid) grid.setAttribute('data-editing', 'false');
       const art = document.querySelector<HTMLElement>('main article.prose');
       if (art) art.style.display = '';
-      const host = hostRef.current;
-      if (host) host.style.minHeight = '';
       setOpen(false);
+      syncEntryButtons(false);
       setError(null);
       setDirty(false);
       dirtyRef.current = false;
       setPhase('idle');
-      // 兜底：高度变化可能已被浏览器夹逼，显式回到进入前位置
+      // 回到进入编辑前的位置（短文本就未动；长文把视口/文档高度还原后兜底恢复）
       window.scrollTo({ top: savedScrollY.current, behavior: 'auto' });
       // 本会话保存过 → 编辑期间正文已过时，后台补拉最新渲染（不阻塞关闭动作）
       const id = nodeIdRef.current;
@@ -180,65 +205,7 @@ export default function DocInlineEditor(): ReactElement {
     }, AUTOSAVE_DEBOUNCE);
   }, []);
 
-  /** 打开：拉源码 → 隐藏正文 → 撑高容器保滚动 */
-  const openEditor = useCallback(async () => {
-    const id = readActiveNodeId();
-    if (!id) return;
-    if (open) return;
-    savedScrollY.current = window.scrollY;
-
-    const art = document.querySelector<HTMLElement>('main article.prose');
-    savedHeight.current = art ? art.getBoundingClientRect().height : 0;
-
-    setPhase('loading');
-    setError(null);
-    nodeIdRef.current = id;
-    try {
-      const res = await fetch(`/api/doc/nodes/${id}`);
-      const d = (await res.json().catch(() => ({}))) as { node?: { content?: string }; error?: string };
-      if (!res.ok || typeof d.node?.content !== 'string') throw new Error(d.error ?? '读取正文失败');
-      setContent(d.node.content);
-      dirtyRef.current = false;
-      setDirty(false);
-      savedRef.current = false;
-      setLastSavedAt('');
-      if (art) art.style.display = 'none';
-      const host = hostRef.current;
-      if (host && savedHeight.current > 0) host.style.minHeight = `${Math.round(savedHeight.current)}px`;
-      const grid = document.getElementById('doc-3col');
-      if (grid) grid.setAttribute('data-editing', 'true');
-      setOpen(true);
-      setPhase('idle');
-      window.scrollTo({ top: savedScrollY.current, behavior: 'auto' });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '读取正文失败');
-      setPhase('idle');
-      setOpen(true); // 打开容器以展示错误
-    }
-  }, [open]);
-
-  /** 挂载期向页面脚本暴露 open */
-  useEffect(() => {
-    window.__docInlineEditor = { open: () => void openEditor() };
-    return () => {
-      delete window.__docInlineEditor;
-    };
-  }, [openEditor]);
-
-  /** 卸载清理：未决的自动保存定时器 */
-  useEffect(() => () => window.clearTimeout(saveTimer.current), []);
-
-  /** 离页保护：有未保存改动时提示（自动保存不覆盖刷新/关页瞬间） */
-  useEffect(() => {
-    if (!open || !dirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
-      e.preventDefault();
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [open, dirty]);
-
-  /** 手动「保存」：立即保存并退出编辑态（自动保存已覆盖「编辑中不打断」场景） */
+  /** 保存并退出（入口按钮 / 完成胶囊调用） */
   const handleSaveAndClose = useCallback(() => {
     void (async () => {
       window.clearTimeout(saveTimer.current);
@@ -255,59 +222,164 @@ export default function DocInlineEditor(): ReactElement {
     void closeEditor({ discard: true });
   }, [closeEditor]);
 
+  /** 打开：拉源码 → 计算视口高 → 原位替换正文（隐藏 article） */
+  const openEditor = useCallback(async () => {
+    const id = readActiveNodeId();
+    if (!id) return;
+    if (open) return;
+
+    const art = document.querySelector<HTMLElement>('main article.prose');
+    const artTop = art ? art.getBoundingClientRect().top + window.scrollY : window.scrollY;
+    savedScrollY.current = window.scrollY;
+    savedArtTop.current = artTop;
+    // 正文渲染高（隐藏前量取）
+    const artH = art ? art.getBoundingClientRect().height : 0;
+    // 一屏可用编辑高：标题/面包屑约占顶部 220px，底部留 24px
+    const avail = Math.max(320, window.innerHeight - 244);
+    const fit = artH > 0 && artH <= avail;
+    savedProgress.current = fit
+      ? 0
+      : Math.min(1, Math.max(0, (savedScrollY.current - artTop + window.innerHeight / 2) / Math.max(artH, 1)));
+
+    setPhase('loading');
+    setError(null);
+    nodeIdRef.current = id;
+    try {
+      const res = await fetch(`/api/doc/nodes/${id}`);
+      const d = (await res.json().catch(() => ({}))) as { node?: { content?: string }; error?: string };
+      if (!res.ok || typeof d.node?.content !== 'string') throw new Error(d.error ?? '读取正文失败');
+      setContent(d.node.content);
+      dirtyRef.current = false;
+      setDirty(false);
+      savedRef.current = false;
+      setLastSavedAt('');
+      if (art) art.style.display = 'none';
+      // 编辑视口高：短文贴合原正文高（页面不跳）；超长文取可用屏高（编辑器内滚动）
+      setViewH(fit ? Math.max(320, Math.round(artH)) : avail);
+      const grid = document.getElementById('doc-3col');
+      if (grid) grid.setAttribute('data-editing', 'true');
+      setOpen(true);
+      syncEntryButtons(true);
+      setPhase('idle');
+
+      // 布局稳定后：短文无需动滚动（页面总高≈不变）；长文把视口滚到正文起点，
+      // 并将编辑器内部滚动同步到原阅读进度（精确行映射做不到，按像素比例近似）。
+      requestAnimationFrame(() => {
+        if (!fit && savedArtTop.current > 0) {
+          window.scrollTo({ top: savedArtTop.current - 140, behavior: 'auto' });
+        }
+        window.setTimeout(() => {
+          // 进入即交还键盘（光标仍在文档首部，点击任意正文位置即可放置光标）
+          editorRef.current?.focus();
+          const ed = document.querySelector('.doc-ie-view .cm-editor');
+          if (ed && savedProgress.current > 0) {
+            const scroller = ed.querySelector('.cm-scroller') as HTMLElement | null;
+            if (scroller) {
+              const target = scroller.scrollHeight * savedProgress.current - scroller.clientHeight / 2;
+              scroller.scrollTop = Math.max(0, target);
+            }
+          }
+        }, 60);
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读取正文失败');
+      // 错误也走「原位」语义：隐藏正文、编辑视口给可用高，错误行落在正文位置
+      const art = document.querySelector<HTMLElement>('main article.prose');
+      if (art) art.style.display = 'none';
+      setViewH(360);
+      setOpen(true);
+      syncEntryButtons(true);
+      setPhase('idle');
+    }
+  }, [open]);
+
+  /** 挂载期向页面脚本暴露 open / saveAndClose */
+  useEffect(() => {
+    window.__docInlineEditor = { open: () => void openEditor(), saveAndClose: handleSaveAndClose };
+    return () => {
+      delete window.__docInlineEditor;
+    };
+  }, [openEditor, handleSaveAndClose]);
+
+  /** 卸载清理：未决的自动保存定时器 */
+  useEffect(() => () => window.clearTimeout(saveTimer.current), []);
+
+  /** 离页保护：有未保存改动时提示（自动保存不覆盖刷新/关页瞬间） */
+  useEffect(() => {
+    if (!open || !dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [open, dirty]);
+
   const saving = phase === 'saving';
+  const showSaveFail = Boolean(error) && phase === 'idle';
+  /** 错误态也需可用编辑视口高度（空内容编辑器也能落焦） */
+  const effectiveViewH = viewH || 360;
 
   return (
-    <div ref={hostRef} className={open ? 'mt-6' : 'hidden'}>
+    <div ref={hostRef} className={open ? 'doc-ie-host' : 'hidden'}>
       {open && (
-        <div className="rounded-lg border border-border bg-card/40 p-2">
-          {/* 工具条 */}
-          <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
-            <button
-              type="button"
-              data-testid="doc-editor-save"
-              onClick={handleSaveAndClose}
-              disabled={saving}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {saving ? '保存中…' : '保存'}
-            </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={saving}
-              className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
-            >
-              取消
-            </button>
-            {dirty ? (
-              <span className="text-[0.7rem] text-muted-foreground">● {saving ? '自动保存中…' : '未保存（停顿后自动保存）'}</span>
-            ) : lastSavedAt ? (
-              <span className="text-[0.7rem] text-muted-foreground">✓ 已自动保存 {lastSavedAt}</span>
-            ) : null}
-            <span className="ml-auto text-[0.7rem] text-muted-foreground">
-              所见即所得：##␣ 标题 · **粗体** · $x^2$ 公式 · 光标移入回显源码
-            </span>
-          </div>
-
-          {error && (
-            <p className="mb-2 px-1 text-xs text-destructive" role="alert">
-              {error}
-            </p>
-          )}
-
-          {phase === 'loading' ? (
-            <p className="px-1 py-6 text-center text-sm text-muted-foreground">正在读取正文…</p>
-          ) : (
-            /* 单栏编辑器：键入即渲染，无预览栏 */
-            <div className="overflow-hidden rounded-md border border-border" style={{ height: PANE_HEIGHT }}>
+        <div className="doc-ie-inner relative">
+          {/* 编辑器区：正文原位替换（无卡片/无边框/无工具条），高度按内容策略计算 */}
+          <div className="doc-ie-view" style={{ height: effectiveViewH }}>
+            {phase === 'loading' ? (
+              <p className="px-1 py-6 text-sm text-muted-foreground">正在读取正文…</p>
+            ) : (
               <MarkdownEditor
+                ref={editorRef}
                 initialContent={content}
                 onChange={handleContentChange}
                 onSave={() => handleSaveAndClose()}
                 wysiwyg
+                variant="ghost"
                 className="h-full"
               />
+            )}
+          </div>
+
+          {/* 读取/保存失败提示（非胶囊，独立红字行，不遮挡正文） */}
+          {error && (
+            <p className="mt-2 px-1 text-xs text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+
+          {/* 右下角状态胶囊：完成 = 保存退出；状态就近显示（不占文档流） */}
+          {phase !== 'loading' && (
+            <div className="doc-ie-status absolute right-3 bottom-3 z-20 flex items-center gap-1 rounded-full border border-border bg-background/85 py-1 pr-1 pl-3 text-[0.7rem] shadow-sm backdrop-blur">
+              {showSaveFail ? (
+                <span className="text-destructive">保存失败</span>
+              ) : saving ? (
+                <span className="text-muted-foreground">保存中…</span>
+              ) : dirty ? (
+                <span className="text-muted-foreground">● 未保存（自动保存中）</span>
+              ) : lastSavedAt ? (
+                <span className="text-muted-foreground">✓ 已自动保存 {lastSavedAt}</span>
+              ) : (
+                <span className="text-muted-foreground">就地编辑</span>
+              )}
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={saving}
+                title="放弃未保存修改并退出"
+                aria-label="放弃修改并退出"
+                className="rounded-full px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+              >
+                ×
+              </button>
+              <button
+                type="button"
+                data-testid="doc-editor-save"
+                onClick={handleSaveAndClose}
+                disabled={saving}
+                className="rounded-full bg-primary px-2.5 py-0.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? '保存中…' : '完成'}
+              </button>
             </div>
           )}
         </div>

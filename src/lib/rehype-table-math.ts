@@ -42,7 +42,8 @@ const rehypeTableMath: Plugin<[], Root> = () => (tree) => {
       const parts: ElementContent[] = [];
       let split = false;
       while ((m = INLINE_MATH.exec(text)) !== null) {
-        const [full, src] = m;
+        const full = m[0] ?? '';
+        const src = m[1] ?? '';
         if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) });
         const html = katex.renderToString(src, {
           displayMode: false,

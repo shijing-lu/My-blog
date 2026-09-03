@@ -16,7 +16,7 @@ import type { Language } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { javascript } from '@codemirror/lang-javascript';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { oneDark, oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 import { searchKeymap } from '@codemirror/search';
 import { livePreview } from './cm-live-preview';
 import { mdKeymap } from './md-keymap';
@@ -30,6 +30,8 @@ export interface MarkdownEditorHandle {
   jumpToLine(line: number): void;
   /** 获取当前选中的文本（无选区返回空串；供「加入导图引用」用） */
   getSelectionText(): string;
+  /** 聚焦编辑器（就地编辑进入时把光标交还给用户） */
+  focus(): void;
 }
 
 /** 组件 Props */
@@ -50,6 +52,15 @@ interface MarkdownEditorProps {
    * - 与 livePreview 互斥：两者都提供 decorations，叠加会装饰重叠。
    */
   wysiwyg?: boolean;
+  /**
+   * 视觉变体：
+   * - 'panel'（默认）：写作台卡片式外观（`--color-card` 面板背景 + 内容限宽
+   *   44rem 居中 + 图片工具条），供 /admin 等独立编辑页使用；
+   * - 'ghost'：就地编辑外观（Obsidian 式）——透明背景融入阅读正文、内容宽度
+   *   不设限（跟随宿主列宽）、隐藏图片工具条（图片走粘贴/拖拽），供文档详情页
+   *   原位编辑使用。两种模式共用同一 CM 内核与 wysiwyg 装饰。
+   */
+  variant?: 'panel' | 'ghost';
 }
 
 /** CodeMirror 主题（跟随站点主题） */
@@ -91,11 +102,38 @@ const lightChrome = EditorView.theme(
   { dark: false },
 );
 
+/** ghost（就地编辑）：透明融入正文、内容宽度跟随宿主列、字号/行高对齐 prose */
+const ghostChrome = EditorView.theme(
+  {
+    '&': {
+      backgroundColor: 'transparent',
+      color: 'var(--color-foreground)',
+      height: '100%',
+      fontSize: '15px',
+    },
+    '.cm-content': {
+      fontFamily: 'var(--font-sans-family)',
+      padding: '0.125rem 0.25rem 0.5rem',
+      maxWidth: 'none',
+      margin: '0',
+      fontSize: '1.0625rem',
+      lineHeight: '1.9',
+    },
+    '&.cm-focused': { outline: 'none' },
+    '.cm-line': { padding: '0' },
+  },
+  { dark: false },
+);
+
 function editorIsDark(): boolean {
   return document.documentElement.classList.contains('dark');
 }
 
-function buildTheme(dark: boolean): Extension[] {
+function buildTheme(dark: boolean, ghost: boolean): Extension[] {
+  if (ghost) {
+    // 就地编辑：透明背景（阅读正文同底）；暗色下只取语法高亮色板，不引入深色面板底
+    return [ghostChrome, syntaxHighlighting(dark ? oneDarkHighlightStyle : lightHighlight)];
+  }
   return dark ? [oneDark] : [lightChrome, syntaxHighlighting(lightHighlight)];
 }
 
@@ -124,9 +162,10 @@ function nameFromUrl(url: string): string {
  * 可复用所见即所得编辑器
  */
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { initialContent, onChange, onSave, className, wysiwyg = false },
+  { initialContent, onChange, onSave, className, wysiwyg = false, variant = 'panel' },
   ref,
 ): ReactElement {
+  const ghost = variant === 'ghost';
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const themeCompartment = useRef(new Compartment());
@@ -188,10 +227,15 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     return view.state.sliceDoc(sel.from, sel.to).trim();
   }, []);
 
+  /** 聚焦编辑器（就地编辑进入时把光标交还给用户） */
+  const focusEditor = useCallback((): void => {
+    viewRef.current?.focus();
+  }, []);
+
   useImperativeHandle(
     ref,
-    () => ({ insertAtCursor, jumpToLine, getSelectionText }),
-    [insertAtCursor, jumpToLine, getSelectionText],
+    () => ({ insertAtCursor, jumpToLine, getSelectionText, focus: focusEditor }),
+    [insertAtCursor, jumpToLine, getSelectionText, focusEditor],
   );
 
   /** 上传图片并插入 Markdown */
@@ -294,6 +338,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    const ghostMode = ghost;
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -340,7 +385,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           // 装饰扩展互斥：wysiwyg 模块动态加载后注入（见下方 import('./cm-wysiwyg')），
           // 写作台等非 wysiwyg 场景零 katex 负担；livePreview 为写作台轻量版
           wysiwyg ? wysiwygCompartment.current.of([]) : livePreview(),
-          themeCompartment.current.of(buildTheme(editorIsDark())),
+          themeCompartment.current.of(buildTheme(editorIsDark(), ghostMode)),
         ],
       }),
     });
@@ -377,7 +422,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     host.addEventListener('drop', onDrop);
 
     const observer = new MutationObserver(() => {
-      view.dispatch({ effects: themeCompartment.current.reconfigure(buildTheme(editorIsDark())) });
+      view.dispatch({ effects: themeCompartment.current.reconfigure(buildTheme(editorIsDark(), ghostMode)) });
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
@@ -405,44 +450,46 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   return (
     <div className={`flex min-h-0 flex-col ${className ?? ''}`}>
-      {/* 工具条：图片上传 + 网络图片 */}
-      <div className="flex shrink-0 items-center gap-2 border-b bg-background px-3 py-1.5">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleImageFile(file);
-            e.target.value = '';
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary disabled:opacity-50"
-          title="插入本地图片"
-          aria-label="插入本地图片"
-        >
-          {uploading ? '上传中…' : '图片'}
-        </button>
-        <button
-          type="button"
-          onClick={insertNetworkImage}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
-          title="插入网络图片"
-          aria-label="插入网络图片"
-        >
-          网络图片
-        </button>
-        <span className="ml-auto text-[0.65rem] text-muted-foreground">
-          Ctrl/Cmd+B 加粗 · I 斜体 · K 链接 · Alt+H 标题 · S 保存
-        </span>
-      </div>
-      {/* 编辑器区 */}
-      <div className="min-h-0 flex-1 overflow-auto bg-background px-4 lg:px-10">
+      {/* 工具条：图片上传 + 网络图片（ghost 就地编辑隐藏——图片走粘贴/拖拽） */}
+      {!ghost && (
+        <div className="flex shrink-0 items-center gap-2 border-b bg-background px-3 py-1.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleImageFile(file);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary disabled:opacity-50"
+            title="插入本地图片"
+            aria-label="插入本地图片"
+          >
+            {uploading ? '上传中…' : '图片'}
+          </button>
+          <button
+            type="button"
+            onClick={insertNetworkImage}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
+            title="插入网络图片"
+            aria-label="插入网络图片"
+          >
+            网络图片
+          </button>
+          <span className="ml-auto text-[0.65rem] text-muted-foreground">
+            Ctrl/Cmd+B 加粗 · I 斜体 · K 链接 · Alt+H 标题 · S 保存
+          </span>
+        </div>
+      )}
+      {/* 编辑器区：panel 模式给卡片底色 + 横向留白；ghost 透明、宽度跟随宿主（正文同宽） */}
+      <div className={ghost ? 'min-h-0 flex-1 overflow-auto' : 'min-h-0 flex-1 overflow-auto bg-background px-4 lg:px-10'}>
         <div ref={hostRef} className="h-full" />
       </div>
     </div>
