@@ -227,27 +227,16 @@ function tableLineToSafe(t: string): string {
       continue;
     }
     if (ch === '$') {
-      // 找同行闭合 `$`（跳过转义）；内容合理则剥掉 `$` 后原样输出
+      // 保留 $（让 rehype-table-math 插件在 rehype 阶段二次渲染 cell 内公式）——
+      // 此前剥 $ 是因为 cell 内 math 不激活、$ 仅是噪音；现在 rehypeTableMath 接管
+      // 渲染必须保留 $ 作为 katex 激活标记。`{}`/`<` 已转义不触发 MDX expression/JSX ，
+      // 故保留 $ 不会引入 acorn 崩溃。
+      // 找同行闭合 `$`（跳过转义）只为更新 lastIndex，不改变字符
       let j = i + 1;
-      let close = -1;
       while (j < t.length) {
-        if (t[j] === '\\' && t[j + 1] === '$') {
-          j += 2;
-          continue;
-        }
-        if (t[j] === '$') {
-          close = j;
-          break;
-        }
+        if (t[j] === '\\' && t[j + 1] === '$') { j += 2; continue; }
+        if (t[j] === '$') break;
         j += 1;
-      }
-      if (close > i + 1) {
-        const inner = t.slice(i + 1, close);
-        if (inner.trim() !== '' && !/^\s/.test(inner) && !/\s$/.test(inner)) {
-          for (const c of inner) flushLiteral(c);
-          i = close + 1;
-          continue;
-        }
       }
       out += '$';
       i += 1;

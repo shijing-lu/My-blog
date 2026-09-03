@@ -120,6 +120,9 @@ importers:
       gsap:
         specifier: ^3.15.0
         version: 3.15.0
+      hast-util-from-html:
+        specifier: ^2.0.3
+        version: 2.0.3
       hast-util-to-html:
         specifier: ^9.0.5
         version: 9.0.5

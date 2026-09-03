@@ -14,6 +14,7 @@ import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import rehypePrismPlus from 'rehype-prism-plus';
 import rehypeKatex from 'rehype-katex';
+import rehypeTableMath from './rehype-table-math';
 import { toHtml } from 'hast-util-to-html';
 import type { Root, RootContent, Node } from 'mdast';
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
@@ -315,6 +316,8 @@ export const rehypePlugins = [
   rehypeSlug,
   rehypeAutolinkHeadings,
   [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
+  // 表格 cell 内 remark-math 不激活 → 二次扫描 cell text 节点中 $…$ 段用 KaTeX 渲染
+  rehypeTableMath,
   [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
   rehypeBlockAnchors,
 ];
