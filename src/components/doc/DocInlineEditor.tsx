@@ -226,14 +226,9 @@ export default function DocInlineEditor(): ReactElement {
     const artTop = art ? art.getBoundingClientRect().top + window.scrollY : window.scrollY;
     savedScrollY.current = window.scrollY;
     savedArtTop.current = artTop;
-    // 正文渲染高（隐藏前量取）
+    // 正文渲染高（隐藏前量取，作为编辑区 min-height 兜底：保持页面总高 ≈ 阅读态，跳变最小）
     const artH = art ? art.getBoundingClientRect().height : 0;
-    // 一屏可用编辑高：标题/面包屑约占顶部 220px，底部留 24px
-    const avail = Math.max(320, window.innerHeight - 244);
-    const fit = artH > 0 && artH <= avail;
-    savedProgress.current = fit
-      ? 0
-      : Math.min(1, Math.max(0, (savedScrollY.current - artTop + window.innerHeight / 2) / Math.max(artH, 1)));
+    savedProgress.current = 0; // 自然文档流后无需内部滚动比例对齐
 
     setPhase('loading');
     setError(null);
@@ -248,40 +243,30 @@ export default function DocInlineEditor(): ReactElement {
       savedRef.current = false;
       setLastSavedAt('');
       if (art) art.style.display = 'none';
-      // 编辑视口高：短文贴合原正文高（页面不跳）；超长文取可用屏高（编辑器内滚动）
-      setViewH(fit ? Math.max(320, Math.round(artH)) : avail);
+      // 编辑区无固定高度 —— ProseMirror 内容自然撑开，整页滚动接管；minHeight 保短文不塌
+      setViewH(artH > 0 ? Math.max(320, Math.round(artH)) : 320);
       const grid = document.getElementById('doc-3col');
       if (grid) grid.setAttribute('data-editing', 'true');
       setOpen(true);
       syncEntryButtons(true);
       setPhase('idle');
 
-      // 布局稳定后：短文无需动滚动（页面总高≈不变）；长文把视口滚到正文起点，
-      // 并把编辑器滚动容器对齐到原阅读进度（Tiptap 排版≈prose，比例映射较源码编辑器更准）。
+      // 布局稳定后：保留原阅读位置（自然文档流接管，scrollY 自然等价于原正文位置对应源码）。
+      // 不主动 focus 元素 —— 避免浏览器 Element.focus() 默认把 .ProseMirror 元素滚到视口顶，
+      // 破坏"进入编辑保持原阅读位置"的承诺。用户点编辑器任意位置即可激活焦点。
       requestAnimationFrame(() => {
-        if (!fit && savedArtTop.current > 0) {
-          window.scrollTo({ top: savedArtTop.current - 140, behavior: 'auto' });
-        }
-        // ProseMirror 异步创建：轮询等待编辑器就绪再聚焦 + 对齐滚动
         let tries = 0;
         const settle = (): void => {
-          const view = document.querySelector<HTMLElement>('.doc-ie-view');
-          const pm = view?.querySelector('.tiptap-doc');
-          if (!view || !pm) {
+          const pm = document.querySelector('.doc-ie-view .tiptap-doc');
+          if (!pm) {
             if (tries++ < 30) window.setTimeout(settle, 100);
-            return;
-          }
-          editorRef.current?.focus();
-          if (savedProgress.current > 0) {
-            const target = view.scrollHeight * savedProgress.current - view.clientHeight / 2;
-            view.scrollTop = Math.max(0, target);
           }
         };
         window.setTimeout(settle, 60);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取正文失败');
-      // 错误也走「原位」语义：隐藏正文、编辑视口给可用高，错误行落在正文位置
+      // 错误也走「原位」语义：隐藏正文、错误行落在正文位置
       const art = document.querySelector<HTMLElement>('main article.prose');
       if (art) art.style.display = 'none';
       setViewH(360);
@@ -314,16 +299,18 @@ export default function DocInlineEditor(): ReactElement {
 
   const saving = phase === 'saving';
   const showSaveFail = Boolean(error) && phase === 'idle';
-  /** 错误态也需可用编辑视口高度（空内容编辑器也能落焦） */
-  const effectiveViewH = viewH || 360;
 
   return (
     <div ref={hostRef} className={open ? 'doc-ie-host' : 'hidden'}>
       {open && (
         <div className="doc-ie-inner relative">
-          {/* 编辑器区：正文原位替换（Tiptap WYSIWYG），套 .prose 排版与阅读一致；
-              高度按内容策略计算，编辑态公式/表格/笔记始终渲染可见 */}
-          <div className="doc-ie-view prose max-w-none break-words" style={{ height: effectiveViewH }}>
+          {/* 编辑器区：正文原位替换（Tiptap WYSIWYG），套 .prose 排版与阅读一致。
+              不设固定高度 —— 让内容按文档流自然撑开，**整页级滚动接管**，
+              视觉与阅读页逐像素一致（短文 min-height 保可用编辑区域）。 */}
+          <div
+            className="doc-ie-view prose max-w-none break-words"
+            style={viewH ? { minHeight: viewH } : undefined}
+          >
             {phase === 'loading' ? (
               <p className="px-1 py-6 text-sm text-muted-foreground">正在读取正文…</p>
             ) : (
