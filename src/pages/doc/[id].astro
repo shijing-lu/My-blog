@@ -435,12 +435,6 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     main article.prose > * { content-visibility: visible; }
   }
 
-  /* ===== 编辑态：宽屏让出 TOC 悬浮区（360px ≈ 面板 340 + 20 间隙） =====
-     编辑器占满 main（main 已在阅读态取消 680 限宽，编辑态不需再 max-width:none）。 */
-  @media (min-width: 1320px) {
-    #doc-3col[data-editing='true'] { padding-right: 360px; }
-  }
-
   /* ===== 就地编辑（Obsidian 式原位编辑） =====
      编辑器=ghost 变体：透明融入正文、无卡片无工具条；高度按正文高计算不跳变。
      host 承接原 <article> 的 mt-6，使编辑内容与阅读正文起点一致。 */
