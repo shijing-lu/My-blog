@@ -207,17 +207,23 @@ export function normalizeMathFences(source: string): string {
  * - 已转义序列（`\X`）原样保留（含 `\$`、`\|`、`\{` 等）。
  */
 function tableLineToSafe(t: string): string {
+  // 表格行按 `$…$` 段切换 inMath 状态处理：
+  // - inMath=true（公式段内）：字符原样保留——KaTeX 需要裸 `{`/`}` 作分式参数边界，
+  //   若转义成 `\{`/`\}` 会把 \dfrac{1}{x} 渲染成字面 {1}/{1}（此前用户报告的现象）；
+  //   公式段内的 `|`（如 \left| x \right| 的绝对值竖线）必须替换为 `\vert`——
+  //   GFM 会把未转义 `|` 当列分隔符把公式切碎导致 math 无法激活；`\vert` 无 `|`
+  //   字符，gfm 不切 cell，KaTeX 输出同一竖线且 \left\vert…\right\vert 渲染绝对值。
+  // - inMath=false（公式段外：表头/备注/普通文本）：裸 `{`/`}`/`<` 转义
+  //   （防 MDX expression/JSX 解析崩 → acorn 500）。
+  // - `\` 引导的字符：原样保留（GFM 表格 cell 内 `$…$` 经 remark-math 激活为
+  //   inlineMath 节点，value 由 micromark math tokenizer 收集，不经 character-escape，
+  //   LaTeX 命令得以原样传给 KaTeX）。
   let out = '';
-  const flushLiteral = (ch: string): void => {
-    // 裸 `{`/`}` 会被 MDX 当作 JS/JSX 表达式起始 → `\{`/`\}` 原样输出
-    // 裸 `<`（如数学文本 `\alpha<1`）会被 MDX 当作 JSX 标签起始（`<1`）→ `\<` 原样输出
-    if (ch === '{' || ch === '}' || ch === '<') out += `\\${ch}`;
-    else out += ch;
-  };
+  let inMath = false;
   for (let i = 0; i < t.length; ) {
     const ch = t[i];
     if (ch === '\\' && i + 1 < t.length) {
-      out += ch + t[i + 1]; // 已转义序列保持
+      out += ch + t[i + 1]; // 已转义序列保持（\$ \| \{ \} 等）
       i += 2;
       continue;
     }
@@ -227,22 +233,22 @@ function tableLineToSafe(t: string): string {
       continue;
     }
     if (ch === '$') {
-      // 保留 $（让 rehype-table-math 插件在 rehype 阶段二次渲染 cell 内公式）——
-      // 此前剥 $ 是因为 cell 内 math 不激活、$ 仅是噪音；现在 rehypeTableMath 接管
-      // 渲染必须保留 $ 作为 katex 激活标记。`{}`/`<` 已转义不触发 MDX expression/JSX ，
-      // 故保留 $ 不会引入 acorn 崩溃。
-      // 找同行闭合 `$`（跳过转义）只为更新 lastIndex，不改变字符
-      let j = i + 1;
-      while (j < t.length) {
-        if (t[j] === '\\' && t[j + 1] === '$') { j += 2; continue; }
-        if (t[j] === '$') break;
-        j += 1;
-      }
+      inMath = !inMath;
       out += '$';
       i += 1;
       continue;
     }
-    flushLiteral(ch);
+    if (inMath) {
+      out += ch === '|' ? '\\vert' : ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '{' || ch === '}' || ch === '<') {
+      out += `\\${ch}`;
+      i += 1;
+      continue;
+    }
+    out += ch;
     i += 1;
   }
   return out;
