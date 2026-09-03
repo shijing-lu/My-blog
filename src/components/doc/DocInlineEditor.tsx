@@ -1,25 +1,31 @@
 /**
- * DocInlineEditor.tsx —— 文档文章「就地实时编辑」React 岛（富文本 WYSIWYG 原位编辑）
+ * DocInlineEditor.tsx —— 文档文章「就地实时编辑」React 岛（Obsidian 式原位编辑）
  *
- * 交互：阅读页点「编辑」→ 文章正文原位被 Tiptap 富文本编辑器替换（页面不跳转、
- * 不弹独立编辑页；标题栏与整页布局保持不变）→ 公式/表格/:::note 笔记/代码块
- * **始终以渲染形态可见**、光标点哪改哪（所见即所得）→ 自动保存（1.5s 防抖）。
+ * 交互（单栏所见即所得 · 就地形态）：阅读页点「编辑」→ 文章正文原位被编辑器
+ * 替换（页面不跳转、不弹独立编辑页；标题栏与整页布局保持不变）→ 键入当下实时
+ * 渲染为最终格式（cm-wysiwyg：标题/列表/粗斜/代码块/图片/数学公式 KaTeX，
+ * 光标处显示源码、移出即渲染）→ 自动保存（1.5s 防抖）。
  *
- * 架构（v3，Tiptap 迁移，勿回退）：
- * - 编辑内核 = DocTiptapEditor（见 ./tiptap/）：**只做编辑**，props 进出都是
- *   markdown 字符串；本组件保留全部网络 / 生命周期：
- *   fetch 源码 → 挂载编辑器（contentType markdown 载入）→ onChange 收最新源码
- *   → 1.5s 防抖 PATCH → updatedAt 回写 → 关闭后台补拉 /render 刷新正文与目录。
- * - 就地形态视觉 = .prose 排版（阅读正文同源样式）+ 无边框/无工具条；
- *   高度策略保滚动不跳：短文贴合原正文高、超长文视口内滚动，退出恢复原位置。
- * - 保存反馈收敛为右下小胶囊；另有标题旁按钮与右侧悬浮框按钮（编辑中再点 =
- *   保存退出）两条等价退出路径。
+ * 就地形态设计：
+ * - 编辑器视觉 = ghost 变体（MarkdownEditor variant="ghost"）：透明背景融入
+ *   阅读正文、内容宽度跟随正文列、无独立工具条/卡片/边框 —— 页面看起来仍是
+ *   「这篇文章」，只是文本可直接编辑。
+ * - 高度策略（保滚动不跳）：
+ *   · 正文不高于「一屏可用高」→ 编辑视口高 = 原正文高，页面总高几乎不变，
+ *     阅读滚动位置天然保持（最丝滑的就地场景）；
+ *   · 超长文 → 编辑视口 = 一屏可用高 + 编辑器内滚动（CM 虚拟化仍有效），进入时
+ *     把视口滚动到原正文起点并把 CM 内部滚动同步到相近阅读进度，退出恢复原位置。
+ * - 保存反馈收敛为一个右下小胶囊（不占文档流、不遮挡正文结构）：「完成」= 保存
+ *   并退出；未保存/保存中/已保存/失败状态就近显示。另有标题旁按钮与右侧悬浮框
+ *   按钮（编辑中再点 = 保存退出）两条等价退出路径。
+ * - 自动保存只 PATCH（编辑态正文隐藏，渲染结果暂时用不到）；关闭编辑器时若本
+ *   会话保存过 → 后台补拉 /render 就地替换正文与目录（不 reload）。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import DocTiptapEditor from '@/components/doc/tiptap/DocTiptapEditor';
-import type { DocTiptapEditorHandle } from '@/components/doc/tiptap/DocTiptapEditor';
+import MarkdownEditor from '@/components/admin/MarkdownEditor';
+import type { MarkdownEditorHandle } from '@/components/admin/MarkdownEditor';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import type { TocItem } from '@/lib/mdx-plugins';
 
@@ -79,7 +85,7 @@ function syncEntryButtons(editing: boolean): void {
 
 export default function DocInlineEditor(): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const editorRef = useRef<DocTiptapEditorHandle | null>(null);
+  const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
   const [phase, setPhase] = useState<'idle' | 'loading' | 'saving'>('idle');
@@ -226,9 +232,14 @@ export default function DocInlineEditor(): ReactElement {
     const artTop = art ? art.getBoundingClientRect().top + window.scrollY : window.scrollY;
     savedScrollY.current = window.scrollY;
     savedArtTop.current = artTop;
-    // 正文渲染高（隐藏前量取，作为编辑区 min-height 兜底：保持页面总高 ≈ 阅读态，跳变最小）
+    // 正文渲染高（隐藏前量取）
     const artH = art ? art.getBoundingClientRect().height : 0;
-    savedProgress.current = 0; // 自然文档流后无需内部滚动比例对齐
+    // 一屏可用编辑高：标题/面包屑约占顶部 220px，底部留 24px
+    const avail = Math.max(320, window.innerHeight - 244);
+    const fit = artH > 0 && artH <= avail;
+    savedProgress.current = fit
+      ? 0
+      : Math.min(1, Math.max(0, (savedScrollY.current - artTop + window.innerHeight / 2) / Math.max(artH, 1)));
 
     setPhase('loading');
     setError(null);
@@ -243,30 +254,36 @@ export default function DocInlineEditor(): ReactElement {
       savedRef.current = false;
       setLastSavedAt('');
       if (art) art.style.display = 'none';
-      // 编辑区无固定高度 —— ProseMirror 内容自然撑开，整页滚动接管；minHeight 保短文不塌
-      setViewH(artH > 0 ? Math.max(320, Math.round(artH)) : 320);
+      // 编辑视口高：短文贴合原正文高（页面不跳）；超长文取可用屏高（编辑器内滚动）
+      setViewH(fit ? Math.max(320, Math.round(artH)) : avail);
       const grid = document.getElementById('doc-3col');
       if (grid) grid.setAttribute('data-editing', 'true');
       setOpen(true);
       syncEntryButtons(true);
       setPhase('idle');
 
-      // 布局稳定后：保留原阅读位置（自然文档流接管，scrollY 自然等价于原正文位置对应源码）。
-      // 不主动 focus 元素 —— 避免浏览器 Element.focus() 默认把 .ProseMirror 元素滚到视口顶，
-      // 破坏"进入编辑保持原阅读位置"的承诺。用户点编辑器任意位置即可激活焦点。
+      // 布局稳定后：短文无需动滚动（页面总高≈不变）；长文把视口滚到正文起点，
+      // 并将编辑器内部滚动同步到原阅读进度（精确行映射做不到，按像素比例近似）。
       requestAnimationFrame(() => {
-        let tries = 0;
-        const settle = (): void => {
-          const pm = document.querySelector('.doc-ie-view .tiptap-doc');
-          if (!pm) {
-            if (tries++ < 30) window.setTimeout(settle, 100);
+        if (!fit && savedArtTop.current > 0) {
+          window.scrollTo({ top: savedArtTop.current - 140, behavior: 'auto' });
+        }
+        window.setTimeout(() => {
+          // 进入即交还键盘（光标仍在文档首部，点击任意正文位置即可放置光标）
+          editorRef.current?.focus();
+          const ed = document.querySelector('.doc-ie-view .cm-editor');
+          if (ed && savedProgress.current > 0) {
+            const scroller = ed.querySelector('.cm-scroller') as HTMLElement | null;
+            if (scroller) {
+              const target = scroller.scrollHeight * savedProgress.current - scroller.clientHeight / 2;
+              scroller.scrollTop = Math.max(0, target);
+            }
           }
-        };
-        window.setTimeout(settle, 60);
+        }, 60);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取正文失败');
-      // 错误也走「原位」语义：隐藏正文、错误行落在正文位置
+      // 错误也走「原位」语义：隐藏正文、编辑视口给可用高，错误行落在正文位置
       const art = document.querySelector<HTMLElement>('main article.prose');
       if (art) art.style.display = 'none';
       setViewH(360);
@@ -299,26 +316,25 @@ export default function DocInlineEditor(): ReactElement {
 
   const saving = phase === 'saving';
   const showSaveFail = Boolean(error) && phase === 'idle';
+  /** 错误态也需可用编辑视口高度（空内容编辑器也能落焦） */
+  const effectiveViewH = viewH || 360;
 
   return (
     <div ref={hostRef} className={open ? 'doc-ie-host' : 'hidden'}>
       {open && (
         <div className="doc-ie-inner relative">
-          {/* 编辑器区：正文原位替换（Tiptap WYSIWYG），套 .prose 排版与阅读一致。
-              不设固定高度 —— 让内容按文档流自然撑开，**整页级滚动接管**，
-              视觉与阅读页逐像素一致（短文 min-height 保可用编辑区域）。 */}
-          <div
-            className="doc-ie-view prose max-w-none break-words"
-            style={viewH ? { minHeight: viewH } : undefined}
-          >
+          {/* 编辑器区：正文原位替换（无卡片/无边框/无工具条），高度按内容策略计算 */}
+          <div className="doc-ie-view" style={{ height: effectiveViewH }}>
             {phase === 'loading' ? (
               <p className="px-1 py-6 text-sm text-muted-foreground">正在读取正文…</p>
             ) : (
-              <DocTiptapEditor
+              <MarkdownEditor
                 ref={editorRef}
-                initialMarkdown={content}
+                initialContent={content}
                 onChange={handleContentChange}
                 onSave={() => handleSaveAndClose()}
+                wysiwyg
+                variant="ghost"
                 className="h-full"
               />
             )}
