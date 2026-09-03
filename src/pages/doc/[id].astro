@@ -458,6 +458,25 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     color: var(--color-primary);
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
+
+  /* ====== 块级公式行：源 line 文本透明 / 不占布局，仅保留 KaTeX widget ======
+     根因：cm-wysiwyg 的 `Decoration.replace({ widget })` 在 CodeMirror 6 中不会
+     删除源 line 节点（widget 仅替代渲染位置），导致 $$..$$ 行内 KaTeX 字符与
+     源码字符并存甚至被压扁。CSS 层把源文本藏起来 —— 公式始终以 KaTeX 形式可见，
+     透明文本仍可选中（selectionInside 行为完整保留：光标进公式行可改源码）*/
+  .doc-ie-view .cm-line:has(.cm-wy-math-display) {
+    color: transparent;
+    font-size: 0;
+    line-height: 0;
+  }
+  .doc-ie-view .cm-line:has(.cm-wy-math-display) .cm-wy-math-display {
+    display: block;
+    text-align: center;
+    margin: 1em auto;
+    color: var(--color-foreground);
+    font-size: 1rem;
+    line-height: 1.5;
+  }
 </style>
 
 <script>
