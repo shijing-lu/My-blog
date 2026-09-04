@@ -12,6 +12,7 @@ import type { Extension } from '@codemirror/state';
 import { EditorView, drawSelection, keymap, lineNumbers } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { nthHeading, normHeadingText } from '../../lib/heading-index';
 import type { Language } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -28,6 +29,13 @@ export interface MarkdownEditorHandle {
   insertAtCursor(text: string): void;
   /** 跳转到指定行（0 起，用于目录定位） */
   jumpToLine(line: number): void;
+  /**
+   * 跳到第 nth 个（0 起）level 级标题（目录点击定位用）。
+   * 映射用「序列对齐」：目录项顺序 = 渲染管线标题序列，语法树扫描源码得到同一文档的
+   * 标题序列，同 level 各自第 N 个一一对应——不依赖 slug/文本，重名与数学标题免疫。
+   * expectText 仅作一致性校验（不一致 console.warn，仍按序号跳转）。返回是否命中。
+   */
+  jumpToHeading(level: number, nth: number, expectText?: string): boolean;
   /** 获取当前选中的文本（无选区返回空串；供「加入导图引用」用） */
   getSelectionText(): string;
   /** 聚焦编辑器（就地编辑进入时把光标交还给用户） */
@@ -218,6 +226,29 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     view.focus();
   }, []);
 
+  /**
+   * 跳到第 nth 个（0 起）level 级标题（目录点击定位）。
+   * 映射由 src/lib/heading-index.ts 提供（语法树扫描 + 序列对齐）。
+   */
+  const jumpToHeading = useCallback(
+    (level: number, nth: number, expectText?: string): boolean => {
+      const view = viewRef.current;
+      if (!view) return false;
+      const hit = nthHeading(view.state, level, nth);
+      if (!hit) return false;
+      if (expectText !== undefined && normHeadingText(expectText) !== normHeadingText(hit.text)) {
+        // 序列可能已漂移（编辑期间增删标题）：仍按序号跳转，仅告警便于发现目录不同步
+        console.warn('[MarkdownEditor] 目录项与源码标题不一致（仍按序号跳转）', {
+          expectText,
+          actual: hit.text,
+        });
+      }
+      jumpToLine(view.state.doc.lineAt(hit.pos).number - 1);
+      return true;
+    },
+    [jumpToLine],
+  );
+
   /** 获取当前选中的文本（思维导图引用用） */
   const getSelectionText = useCallback((): string => {
     const view = viewRef.current;
@@ -234,8 +265,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useImperativeHandle(
     ref,
-    () => ({ insertAtCursor, jumpToLine, getSelectionText, focus: focusEditor }),
-    [insertAtCursor, jumpToLine, getSelectionText, focusEditor],
+    () => ({ insertAtCursor, jumpToLine, jumpToHeading, getSelectionText, focus: focusEditor }),
+    [insertAtCursor, jumpToLine, jumpToHeading, getSelectionText, focusEditor],
   );
 
   /** 上传图片并插入 Markdown */

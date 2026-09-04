@@ -35,13 +35,43 @@ const AUTOSAVE_DEBOUNCE = 1500;
 declare global {
   interface Window {
     /** 供 .astro 页面脚本调用（ClientRouter SPA 下会重新挂载，故用 window 桥接） */
-    __docInlineEditor?: { open: () => void; saveAndClose?: () => void };
+    __docInlineEditor?: {
+      open: () => void;
+      saveAndClose?: () => void;
+      /** 编辑态目录点击跳转：跳到第 nth 个（0 起）level 级标题；返回是否命中 */
+      jumpToHeading?: (level: number, nth: number) => boolean;
+    };
   }
 }
 
 /** 读取当前激活文章 id（左栏切换文章后会变，故每次 open 时现读） */
 function readActiveNodeId(): string {
   return document.getElementById('doc-detail-data')?.getAttribute('data-active-node') ?? '';
+}
+
+/** 目录快照项（编辑态目录点击跳转的定位依据） */
+interface TocSnapshotItem {
+  level: number;
+  text: string;
+}
+
+/**
+ * 从右侧目录面板采集目录快照（level + 规范化文本，DOM 顺序 = 文档顺序）。
+ * 复用现成 TOC DOM，免新增请求；克隆后移除 .katex-mathml（MathML 可达性副本）
+ * 再取 textContent，避免 KaTeX 富文本把公式源码重复计入。
+ */
+function collectTocSnapshot(): TocSnapshotItem[] {
+  const list = document.getElementById('doc-toc-list');
+  if (!list) return [];
+  const out: TocSnapshotItem[] = [];
+  list.querySelectorAll<HTMLElement>('a.toc-item').forEach((a) => {
+    const m = /toc-l(\d)/.exec(a.className);
+    if (!m) return;
+    const clone = a.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.katex-mathml').forEach((el) => el.remove());
+    out.push({ level: Number(m[1]), text: (clone.textContent ?? '').replace(/\s+/g, ' ').trim() });
+  });
+  return out;
 }
 
 /**
@@ -101,6 +131,8 @@ export default function DocInlineEditor(): ReactElement {
   const savedProgress = useRef(0);
   /** 当前编辑的文章 id（ref：closeEditor 异步路径里取最新值） */
   const nodeIdRef = useRef('');
+  /** 目录快照（openEditor 成功后采集，供编辑态目录点击跳转做序列对齐与文本校验） */
+  const tocSnapshotRef = useRef<TocSnapshotItem[]>([]);
   /** 最新正文（saveCore 直接读 ref，避免闭包陈旧内容覆盖新输入） */
   const contentRef = useRef('');
   contentRef.current = content;
@@ -258,6 +290,7 @@ export default function DocInlineEditor(): ReactElement {
       setViewH(fit ? Math.max(320, Math.round(artH)) : avail);
       const grid = document.getElementById('doc-3col');
       if (grid) grid.setAttribute('data-editing', 'true');
+      tocSnapshotRef.current = collectTocSnapshot();
       setOpen(true);
       syncEntryButtons(true);
       setPhase('idle');
@@ -293,9 +326,17 @@ export default function DocInlineEditor(): ReactElement {
     }
   }, [open]);
 
-  /** 挂载期向页面脚本暴露 open / saveAndClose */
+  /** 挂载期向页面脚本暴露 open / saveAndClose / jumpToHeading */
   useEffect(() => {
-    window.__docInlineEditor = { open: () => void openEditor(), saveAndClose: handleSaveAndClose };
+    window.__docInlineEditor = {
+      open: () => void openEditor(),
+      saveAndClose: handleSaveAndClose,
+      jumpToHeading: (level: number, nth: number): boolean => {
+        // expectText 从快照同 level 第 nth 项取，供编辑器侧做文本一致性告警
+        const expect = tocSnapshotRef.current.filter((t) => t.level === level)[nth]?.text;
+        return editorRef.current?.jumpToHeading(level, nth, expect) ?? false;
+      },
+    };
     return () => {
       delete window.__docInlineEditor;
     };

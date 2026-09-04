@@ -697,6 +697,30 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     });
   }
 
+  /* ================= 编辑态目录点击 → 编辑器内跳转 =================
+     编辑模式正文被 CodeMirror 编辑器原位替换（渲染锚点 #slug 已随正文隐藏），
+     目录链接不能走原生 hash 滚动。必须在【捕获阶段】preventDefault——ClientRouter
+     在 document 冒泡阶段监听 <a> 点击且先于本脚本执行（项目既定约定）。
+     阅读态（data-editing ≠ 'true'）完全不接管，保持原生锚点行为。 */
+  const tocJumpList = document.getElementById('doc-toc-list');
+  if (tocJumpList) {
+    tocJumpList.addEventListener(
+      'click',
+      (e) => {
+        const a = (e.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a[data-doc-anchor]');
+        if (!a) return;
+        if (document.getElementById('doc-3col')?.getAttribute('data-editing') !== 'true') return;
+        e.preventDefault();
+        const level = Number(a.className.match(/toc-l(\d)/)?.[1] ?? 2);
+        // 序列对齐主键：目录里同 level 的第 nth 项 ↔ 源码里第 nth 个该级标题（免 slug 匹配）
+        const same = tocJumpList.querySelectorAll(`a.toc-l${level}`);
+        const nth = Array.prototype.indexOf.call(same, a);
+        if (nth >= 0) window.__docInlineEditor?.jumpToHeading?.(level, nth);
+      },
+      true,
+    );
+  }
+
   /* ================= 节点 CRUD（登录） ================= */
   if (IS_AUTHED) {
     /** 打开节点弹窗：mode=create|edit；parentId 为创建时的所在目录 */
