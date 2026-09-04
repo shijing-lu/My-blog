@@ -37,6 +37,10 @@ export interface MarkdownEditorHandle {
    * expectText 仅作一致性校验（不一致 console.warn，仍按序号跳转）。返回是否命中。
    */
   jumpToHeading(level: number, nth: number, expectText?: string): boolean;
+  /** 当前源码中的 h2–h4 标题（文档顺序；编辑期间目录实时刷新用） */
+  getHeadings(): { level: number; text: string }[];
+  /** 立即触发一次视口标题回调（目录重建后恢复反向高亮用） */
+  emitViewportHeading(): void;
   /** 获取当前选中的文本（无选区返回空串；供「加入导图引用」用） */
   getSelectionText(): string;
   /** 聚焦编辑器（就地编辑进入时把光标交还给用户） */
@@ -309,10 +313,27 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const scheduleViewportHeadingRef = useRef(scheduleViewportHeading);
   scheduleViewportHeadingRef.current = scheduleViewportHeading;
 
+  /** 当前源码中的 h2–h4 标题（文档顺序；目录实时刷新用） */
+  const getHeadings = useCallback((): { level: number; text: string }[] => {
+    const view = viewRef.current;
+    if (!view) return [];
+    return scanHeadings(view.state)
+      .filter((h) => h.level >= 2 && h.level <= 4)
+      .map((h) => ({ level: h.level, text: h.text }));
+  }, []);
+
   useImperativeHandle(
     ref,
-    () => ({ insertAtCursor, jumpToLine, jumpToHeading, getSelectionText, focus: focusEditor }),
-    [insertAtCursor, jumpToLine, jumpToHeading, getSelectionText, focusEditor],
+    () => ({
+      insertAtCursor,
+      jumpToLine,
+      jumpToHeading,
+      getHeadings,
+      emitViewportHeading: emitViewportHeading,
+      getSelectionText,
+      focus: focusEditor,
+    }),
+    [insertAtCursor, jumpToLine, jumpToHeading, getHeadings, emitViewportHeading, getSelectionText, focusEditor],
   );
 
   /** 上传图片并插入 Markdown */

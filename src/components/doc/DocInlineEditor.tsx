@@ -32,6 +32,9 @@ import type { TocItem } from '@/lib/mdx-plugins';
 /** 自动保存防抖（ms）：停顿 1.5s 即静默 PATCH */
 const AUTOSAVE_DEBOUNCE = 1500;
 
+/** 编辑期间目录实时刷新防抖（ms）：比自动保存更跟手 */
+const TOC_REFRESH_DEBOUNCE = 600;
+
 declare global {
   interface Window {
     /** 供 .astro 页面脚本调用（ClientRouter SPA 下会重新挂载，故用 window 桥接） */
@@ -147,6 +150,8 @@ export default function DocInlineEditor(): ReactElement {
   /** 自动保存定时器 + 保存互斥锁（防并发 PATCH 把 updatedAt 写旧） */
   const saveTimer = useRef(0);
   const savingRef = useRef(false);
+  /** 目录实时刷新定时器（编辑期间标题增删 → 重建目录树） */
+  const tocTimer = useRef(0);
 
   /**
    * 后台补拉 /render 并就地替换正文与目录（关闭编辑器后调用，不阻塞 UI）。
@@ -215,6 +220,7 @@ export default function DocInlineEditor(): ReactElement {
   const closeEditor = useCallback(
     async (opts?: { discard?: boolean }) => {
       window.clearTimeout(saveTimer.current);
+      window.clearTimeout(tocTimer.current);
       if (dirtyRef.current && !opts?.discard) {
         const ok = await saveCoreRef.current();
         if (!ok) return; // 保存失败：保持编辑态，error 已提示
@@ -244,16 +250,62 @@ export default function DocInlineEditor(): ReactElement {
     [refreshRendered],
   );
 
-  /** 编辑内容变化：标脏 + 重置自动保存定时器（防抖） */
-  const handleContentChange = useCallback((v: string) => {
-    setContent(v);
-    dirtyRef.current = true;
-    setDirty(true);
-    window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      void saveCoreRef.current();
-    }, AUTOSAVE_DEBOUNCE);
+  /**
+   * 编辑期间目录实时刷新：源码扫描（M1 同款语法树）→ 纯文本 TocItem 重建目录树。
+   * 保留用户折叠状态（level+text 键）；重建后同步快照并重新触发反向高亮。
+   * 目录项退化为纯文本（无 KaTeX 富文本），编辑态可接受；退出编辑补拉渲染即恢复。
+   */
+  const refreshToc = useCallback((): void => {
+    const list = document.getElementById('doc-toc-list');
+    if (!list) return;
+    activeTocElRef.current?.classList.remove('toc-active');
+    activeTocElRef.current = null;
+    const heads = editorRef.current?.getHeadings() ?? [];
+    if (heads.length === 0) {
+      list.innerHTML = '<p class="text-xs text-muted-foreground">无目录</p>';
+      return;
+    }
+    // 记录折叠节点（level+text 键，重建后恢复）
+    const folded = new Set<string>();
+    list.querySelectorAll<HTMLElement>('.toc-node.folded').forEach((n) => {
+      const item = n.querySelector<HTMLElement>('.toc-item');
+      const lv = item ? /toc-l(\d)/.exec(item.className)?.[1] : undefined;
+      if (item && lv) folded.add(`${lv}:${(item.textContent ?? '').trim()}`);
+    });
+    const items = heads.map((h, i) => ({ id: `edit-toc-${i}`, text: h.text, level: h.level as 2 | 3 | 4 }));
+    list.innerHTML = renderTocTreeHtml(items);
+    // 恢复折叠状态
+    list.querySelectorAll<HTMLElement>('.toc-node').forEach((n) => {
+      const item = n.querySelector<HTMLElement>(':scope > .toc-row > .toc-item');
+      const lv = item ? /toc-l(\d)/.exec(item.className)?.[1] : undefined;
+      if (item && lv && folded.has(`${lv}:${(item.textContent ?? '').trim()}`)) {
+        n.classList.add('folded');
+        const btn = n.querySelector('.toc-fold');
+        btn?.setAttribute('aria-expanded', 'false');
+        btn?.setAttribute('aria-label', '展开子目录');
+      }
+    });
+    // 快照与反向高亮同步到新目录
+    tocSnapshotRef.current = collectTocSnapshot();
+    editorRef.current?.emitViewportHeading();
   }, []);
+
+  /** 编辑内容变化：标脏 + 重置自动保存定时器（防抖） */
+  const handleContentChange = useCallback(
+    (v: string) => {
+      setContent(v);
+      dirtyRef.current = true;
+      setDirty(true);
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = window.setTimeout(() => {
+        void saveCoreRef.current();
+      }, AUTOSAVE_DEBOUNCE);
+      // 目录实时刷新（独立防抖，更跟手）
+      window.clearTimeout(tocTimer.current);
+      tocTimer.current = window.setTimeout(refreshToc, TOC_REFRESH_DEBOUNCE);
+    },
+    [refreshToc],
+  );
 
   /**
    * 反向高亮联动（编辑器滚动 → 目录当前小节）：
@@ -407,8 +459,14 @@ export default function DocInlineEditor(): ReactElement {
     };
   }, [openEditor, handleSaveAndClose]);
 
-  /** 卸载清理：未决的自动保存定时器 */
-  useEffect(() => () => window.clearTimeout(saveTimer.current), []);
+  /** 卸载清理：未决的自动保存/目录刷新定时器 */
+  useEffect(
+    () => () => {
+      window.clearTimeout(saveTimer.current);
+      window.clearTimeout(tocTimer.current);
+    },
+    [],
+  );
 
   /** 离页保护：有未保存改动时提示（自动保存不覆盖刷新/关页瞬间） */
   useEffect(() => {
