@@ -386,6 +386,11 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     min-width: 0;
   }
   .toc-item:hover { color: var(--color-primary); }
+  /* 编辑态反向高亮：编辑器滚动 → 当前小节目录项（由 DocInlineEditor 切 class） */
+  #doc-toc-list .toc-item.toc-active {
+    color: var(--color-primary);
+    font-weight: 500;
+  }
   .toc-l3 { font-size: 0.9rem; }
   .toc-l4 { font-size: 0.85rem; }
 

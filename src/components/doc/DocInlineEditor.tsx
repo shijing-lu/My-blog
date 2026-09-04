@@ -133,6 +133,10 @@ export default function DocInlineEditor(): ReactElement {
   const nodeIdRef = useRef('');
   /** 目录快照（openEditor 成功后采集，供编辑态目录点击跳转做序列对齐与文本校验） */
   const tocSnapshotRef = useRef<TocSnapshotItem[]>([]);
+  /** 当前高亮的目录项（反向联动：编辑器滚动 → 目录 toc-active） */
+  const activeTocElRef = useRef<HTMLElement | null>(null);
+  /** 编辑态最后一次目录跳转的锚点（如 '#slug'），退出编辑后恢复阅读位置用 */
+  const lastAnchorRef = useRef<string | null>(null);
   /** 最新正文（saveCore 直接读 ref，避免闭包陈旧内容覆盖新输入） */
   const contentRef = useRef('');
   contentRef.current = content;
@@ -144,8 +148,11 @@ export default function DocInlineEditor(): ReactElement {
   const saveTimer = useRef(0);
   const savingRef = useRef(false);
 
-  /** 后台补拉 /render 并就地替换正文与目录（关闭编辑器后调用，不阻塞 UI） */
-  const refreshRendered = useCallback((id: string) => {
+  /**
+   * 后台补拉 /render 并就地替换正文与目录（关闭编辑器后调用，不阻塞 UI）。
+   * anchor 非空时（编辑期间用目录跳转过），替换完成后回到该标题的阅读位置。
+   */
+  const refreshRendered = useCallback((id: string, anchor?: string | null) => {
     void (async () => {
       try {
         // 不带 v → 绕过 CDN 缓存，强制回源重渲
@@ -157,6 +164,11 @@ export default function DocInlineEditor(): ReactElement {
         const tocWrap = document.getElementById('doc-toc-list');
         if (tocWrap && Array.isArray(d.toc)) {
           tocWrap.innerHTML = d.toc.length ? renderTocTreeHtml(d.toc) : '<p class="text-xs text-muted-foreground">无目录</p>';
+        }
+        // 回到最后跳转的标题（在正文/目录替换后执行，锚点元素已就位）
+        if (anchor && anchor.startsWith('#') && anchor.length > 1) {
+          const target = document.getElementById(decodeURIComponent(anchor.slice(1)));
+          if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
         }
       } catch {
         /* 刷新失败：保留旧正文，下次进入或刷新页面自然更新 */
@@ -219,9 +231,15 @@ export default function DocInlineEditor(): ReactElement {
       setPhase('idle');
       // 回到进入编辑前的位置（短文本就未动；长文把视口/文档高度还原后兜底恢复）
       window.scrollTo({ top: savedScrollY.current, behavior: 'auto' });
+      // 清除目录反向高亮
+      activeTocElRef.current?.classList.remove('toc-active');
+      activeTocElRef.current = null;
       // 本会话保存过 → 编辑期间正文已过时，后台补拉最新渲染（不阻塞关闭动作）
+      // 编辑期间跳转过目录 → 渲染完成后回到最后跳转的标题的阅读位置
       const id = nodeIdRef.current;
-      if (savedRef.current && id) refreshRendered(id);
+      const anchor = lastAnchorRef.current;
+      lastAnchorRef.current = null;
+      if (savedRef.current && id) refreshRendered(id, anchor);
     },
     [refreshRendered],
   );
@@ -236,6 +254,50 @@ export default function DocInlineEditor(): ReactElement {
       void saveCoreRef.current();
     }, AUTOSAVE_DEBOUNCE);
   }, []);
+
+  /**
+   * 反向高亮联动（编辑器滚动 → 目录当前小节）：
+   * 定位目录中「同 level 第 nth 项」（与 M1 跳转同一套序列对齐语义），
+   * 切换 toc-active、展开折叠祖先、面板内滚动跟随。
+   */
+  const handleViewportHeading = useCallback(
+    (h: { level: number; text: string; nth: number } | null): void => {
+      const prev = activeTocElRef.current;
+      if (prev) {
+        prev.classList.remove('toc-active');
+        activeTocElRef.current = null;
+      }
+      if (!h) return;
+      const list = document.getElementById('doc-toc-list');
+      if (!list) return;
+      const el = list.querySelectorAll<HTMLElement>(`a.toc-l${h.level}`)[h.nth] ?? null;
+      if (!el) return;
+      el.classList.add('toc-active');
+      activeTocElRef.current = el;
+
+      // 展开折叠的祖先节点（自身节点的 folded 只影响子级，不动）
+      let parent = el.parentElement?.closest<HTMLElement>('.toc-node');
+      while (parent) {
+        if (parent.classList.contains('folded')) {
+          parent.classList.remove('folded');
+          const foldBtn = parent.querySelector('.toc-fold');
+          foldBtn?.setAttribute('aria-expanded', 'true');
+          foldBtn?.setAttribute('aria-label', '折叠子目录');
+        }
+        parent = parent.parentElement?.closest<HTMLElement>('.toc-node') ?? null;
+      }
+
+      // 面板内滚动跟随：仅在 active 项越出可视区时滚动（#doc-toc-rail 是滚动容器）
+      const rail = document.getElementById('doc-toc-rail');
+      if (rail) {
+        const r = el.getBoundingClientRect();
+        const rr = rail.getBoundingClientRect();
+        if (r.top < rr.top + 8) rail.scrollTop += r.top - rr.top - 8;
+        else if (r.bottom > rr.bottom - 8) rail.scrollTop += r.bottom - rr.bottom + 8;
+      }
+    },
+    [],
+  );
 
   /** 保存并退出（入口按钮 / 完成胶囊调用） */
   const handleSaveAndClose = useCallback(() => {
@@ -334,6 +396,9 @@ export default function DocInlineEditor(): ReactElement {
       jumpToHeading: (level: number, nth: number): boolean => {
         // expectText 从快照同 level 第 nth 项取，供编辑器侧做文本一致性告警
         const expect = tocSnapshotRef.current.filter((t) => t.level === level)[nth]?.text;
+        // 记录锚点：退出编辑补拉渲染后回到该标题的阅读位置
+        const a = document.querySelectorAll<HTMLElement>(`#doc-toc-list a.toc-l${level}`)[nth] ?? null;
+        lastAnchorRef.current = a?.getAttribute('href') ?? null;
         return editorRef.current?.jumpToHeading(level, nth, expect) ?? false;
       },
     };
@@ -377,6 +442,7 @@ export default function DocInlineEditor(): ReactElement {
                 wysiwyg
                 variant="ghost"
                 className="h-full"
+                onViewportHeading={handleViewportHeading}
               />
             )}
           </div>

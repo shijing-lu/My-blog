@@ -12,7 +12,8 @@ import type { Extension } from '@codemirror/state';
 import { EditorView, drawSelection, keymap, lineNumbers } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { nthHeading, normHeadingText } from '../../lib/heading-index';
+import { nthHeading, normHeadingText, scanHeadings } from '../../lib/heading-index';
+import type { HeadingHit } from '../../lib/heading-index';
 import type { Language } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -69,6 +70,12 @@ interface MarkdownEditorProps {
    *   原位编辑使用。两种模式共用同一 CM 内核与 wysiwyg 装饰。
    */
   variant?: 'panel' | 'ghost';
+  /**
+   * 视口标题跟踪（可选，目录高亮联动用）：视口/几何变化时回调「视口顶部之上
+   * 最后一个标题」（含同 level 序号 nth，与目录项序列对齐）。不传则不注册
+   * 监听、零开销（写作台等场景不受影响）。
+   */
+  onViewportHeading?: (h: { level: number; text: string; nth: number } | null) => void;
 }
 
 /** CodeMirror 主题（跟随站点主题） */
@@ -170,7 +177,7 @@ function nameFromUrl(url: string): string {
  * 可复用所见即所得编辑器
  */
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { initialContent, onChange, onSave, className, wysiwyg = false, variant = 'panel' },
+  { initialContent, onChange, onSave, className, wysiwyg = false, variant = 'panel', onViewportHeading },
   ref,
 ): ReactElement {
   const ghost = variant === 'ghost';
@@ -262,6 +269,45 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const focusEditor = useCallback((): void => {
     viewRef.current?.focus();
   }, []);
+
+  /* ---- 视口标题跟踪（目录高亮联动；仅在传入 onViewportHeading 时启用） ---- */
+  const onViewportHeadingRef = useRef(onViewportHeading);
+  onViewportHeadingRef.current = onViewportHeading;
+  const vpRafRef = useRef(0);
+
+  /** 取「视口顶部之上（含）最后一个标题」并回调（当前所在小节） */
+  const emitViewportHeading = useCallback((): void => {
+    const view = viewRef.current;
+    const cb = onViewportHeadingRef.current;
+    if (!view || !cb) return;
+    const hits = scanHeadings(view.state);
+    if (hits.length === 0) {
+      cb(null);
+      return;
+    }
+    // 编辑器内部滚动偏移 ≈ 可视区顶部的文档坐标（短文形态不滚，恒为文档首）
+    const topPos = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 2).from;
+    const seen = new Map<number, number>();
+    let cur: { level: number; text: string; nth: number } | null = null;
+    for (const h of hits) {
+      if (h.pos > topPos) break;
+      const nth = seen.get(h.level) ?? 0;
+      seen.set(h.level, nth + 1);
+      cur = { level: h.level, text: h.text, nth };
+    }
+    cb(cur);
+  }, []);
+
+  /** rAF 节流：滚动/几何变化高频触发，每帧最多 emit 一次 */
+  const scheduleViewportHeading = useCallback((): void => {
+    if (vpRafRef.current) return;
+    vpRafRef.current = requestAnimationFrame(() => {
+      vpRafRef.current = 0;
+      emitViewportHeading();
+    });
+  }, [emitViewportHeading]);
+  const scheduleViewportHeadingRef = useRef(scheduleViewportHeading);
+  scheduleViewportHeadingRef.current = scheduleViewportHeading;
 
   useImperativeHandle(
     ref,
@@ -396,6 +442,16 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
           }),
+          // 视口标题跟踪（可选）：视口移动/几何变化 → rAF 节流回调当前小节
+          ...(onViewportHeading
+            ? [
+                EditorView.updateListener.of((update) => {
+                  if (update.viewportChanged || update.geometryChanged) {
+                    scheduleViewportHeadingRef.current();
+                  }
+                }),
+              ]
+            : []),
           EditorView.domEventHandlers({
             paste: (event) => onPasteRef.current(event),
             beforeinput: (event, v) => {
@@ -421,6 +477,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       }),
     });
     viewRef.current = view;
+
+    // 视口跟踪启用时：布局稳定后先 emit 一次初始小节
+    if (onViewportHeading) {
+      requestAnimationFrame(() => emitViewportHeading());
+    }
 
     // WYSIWYG：懒加载 cm-wysiwyg 模块（内含静态 import katex，构建进独立 chunk）→
     // reconfigure 注入装饰扩展，公式/列表/行内标记即刻渲染。勿改回静态 import 或
@@ -462,6 +523,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       host.removeEventListener('dragover', onDragOver);
       host.removeEventListener('dragleave', onDragLeave);
       host.removeEventListener('drop', onDrop);
+      if (vpRafRef.current) {
+        cancelAnimationFrame(vpRafRef.current);
+        vpRafRef.current = 0;
+      }
       view.destroy();
       viewRef.current = null;
     };
