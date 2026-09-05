@@ -1429,38 +1429,47 @@
     @apply border-t bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground;
   }
 
-  /* ===== 正文图片：按原始尺寸渲染（不拉伸、不放大），仅超限时等比缩小并居中 =====
-     默认 .lightbox-figure 是满宽块级 + img w-full（影集/PhotoLayout 依赖该行为，
-     见 .layout-photo 规则）。正文（.prose）内改为：
-     - figure 收缩包裹图片（fit-content）+ 水平居中，边框贴合图片而非撑满列宽；
-     - img 用 width:auto + max-width:100% —— 原始宽度小于列宽时按原尺寸显示（不放大），
-       大于列宽时等比缩小（不溢出），height:auto 保证比例不被破坏。
+  /* ===== 正文图片：原始形态（左对齐、无说明文字、无边框包裹），仅超限等比缩小 =====
+     默认 .lightbox-figure 是满宽块级 + 边框圆角 + img w-full + figcaption 说明
+     （影集 PhotoLayout 依赖该呈现，见 .layout-photo 规则）。正文（.prose）内：
+     - 去掉边框/圆角/overflow/阴影等一切圈住图片的装饰，恢复最原始形态；
+     - figure 收缩包裹（fit-content）、左对齐，不居中；
+     - img width:auto + max-width:100% —— 原始宽度小于列宽按原尺寸（不放大），
+       超限才等比缩小（不溢出），height:auto 保比例；后端已注入 width/height
+       原始尺寸属性，浏览器据此预留空间、fit-content 容器加载前即有正确宽度；
+     - figcaption（图片名称/说明）display:none 不显示。
      文章详情页与文档详情页正文均在 .prose 内，共用此规则。 */
   .prose .lightbox-figure {
-    display: flex;
-    flex-direction: column;
+    display: block;
     width: -moz-fit-content;
     width: fit-content;
     max-width: 100%;
-    margin-left: auto;
-    margin-right: auto;
+    margin: 1.25rem 0; /* 去居中留白，仅保留段落间隔 */
+    border: none; /* 去边框圆角与 overflow 圈框，恢复最原始图片形态 */
+    border-radius: 0;
+    overflow: visible;
+    background: none;
+    box-shadow: none;
   }
   .prose .lightbox-figure img {
     display: block;
-    width: auto;
-    max-width: 100%;
+    width: auto; /* 左对齐 + 原始尺寸：不强制撑满 */
+    max-width: 100%; /* 超限才等比缩小，绝不放大到超过原始宽度 */
     height: auto;
-    margin-left: auto;
-    margin-right: auto;
+    margin: 0; /* 左对齐，无 auto 居中 */
+    border-radius: 0;
+    box-shadow: none;
   }
-  /* 说明文字过长时不撑宽 figure（换行显示） */
+  /* 说明文字去掉：正文图片下方不显示名称/说明（原 figure 块级边框也一并去掉） */
   .prose .lightbox-figure figcaption {
-    overflow-wrap: break-word;
+    display: none;
   }
-  /* 兜底：正文内不经过灯箱包装的图片同样不拉伸、不溢出 */
+  /* 兜底：正文内不经过灯箱包装的图片同样左对齐、不拉伸、不溢出 */
   .prose img {
+    display: block;
     max-width: 100%;
     height: auto;
+    margin: 0;
   }
 
   /* 灯箱遮罩（JS 动态注入） */

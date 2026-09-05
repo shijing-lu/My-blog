@@ -5,6 +5,7 @@ import type { APIRoute } from 'astro';
 import { getDocNode } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
 import { json, jsonCached } from '@/lib/api';
+import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 
 export const prerender = false;
 
@@ -24,7 +25,10 @@ export const GET: APIRoute = async ({ params, url }) => {
   const node = await getDocNode(id);
   if (!node || node.kind !== 'article') return json({ error: '文章不存在' }, 404);
   try {
-    const { html, toc } = await renderMdx(node.content);
+    const { html: rawHtml, toc } = await renderMdx(node.content);
+    // 正文图片注入原始宽高（DB 图片），消除懒加载宽度跳变
+    const ids = collectImageIdsFromHtml(rawHtml);
+    const html = ids.length > 0 ? injectImageSizeAttrs(rawHtml, await getImageSizes(ids)) : rawHtml;
     const payload = { title: node.title, html, toc };
     return v ? jsonCached(payload, 31_536_000, 86_400) : json(payload);
   } catch (err) {

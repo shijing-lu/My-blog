@@ -9,7 +9,7 @@
  * - `ALLOWED_MIME` / `MAX_IMAGE_BYTES`：上传校验白名单与大小上限。
  */
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { images } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import { r2Enabled, putObject } from '@/lib/object-storage';
@@ -147,10 +147,74 @@ export async function getImage(id: string): Promise<StoredImage | null> {
   };
 }
 
+/** 判定为有效原始尺寸的下限（px）：1×1 等异常占位数据不可注入，否则图片会塌成 1px */
+const MIN_VALID_DIMENSION = 16;
+
+/**
+ * 批量读取图片原始尺寸（只查尺寸列，不触碰 data / R2 对象）。
+ *
+ * 供渲染管线把 width/height 注入 `<img>`：浏览器据此预留空间，懒加载图片
+ * 加载完成时不再出现宽度/高度跳变，也让 `.prose .lightbox-figure` 的
+ * fit-content 容器在图片加载前就拿到正确宽度。上传流程已记录尺寸，本函数只读。
+ * 无效尺寸（缺失或过小）不出现在结果里 —— 对应图片保持无尺寸属性，由 CSS 兜底。
+ */
+export async function getImageSizes(
+  ids: string[],
+): Promise<Map<string, { width: number; height: number }>> {
+  const out = new Map<string, { width: number; height: number }>();
+  const uniq = [...new Set(ids)].filter((id) => typeof id === 'string' && id.length > 0);
+  if (uniq.length === 0) return out;
+  const rows = await db
+    .select({ id: images.id, width: images.width, height: images.height })
+    .from(images)
+    .where(inArray(images.id, uniq));
+  for (const r of rows) {
+    const w = r.width ?? 0;
+    const h = r.height ?? 0;
+    if (w >= MIN_VALID_DIMENSION && h >= MIN_VALID_DIMENSION) out.set(r.id, { width: w, height: h });
+  }
+  return out;
+}
+
 /** 从 MDX 源码提取第一张图片 URL（无则 null） */
 export function extractFirstImage(content: string): string | null {
   const match = content.match(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/);
   return match?.[1] ?? null;
+}
+
+/** 渲染 HTML 中本站 DB 图片的 `<img>`：收集 /api/images/<id> 的 id（不覆盖已有 width/height） */
+export function collectImageIdsFromHtml(html: string): string[] {
+  const out: string[] = [];
+  // <img ... src="/api/images/<uuid>"> ，支持单双引号；已带 width/height 的跳过
+  const re = /<img\b[^>]*\bsrc="\/api\/images\/([0-9a-f-]{8,36})"[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const tag = m[0];
+    if (!/\b(width|height)=/.test(tag)) out.push(m[1]!);
+  }
+  return out;
+}
+
+/**
+ * 给已渲染 HTML 中本站 DB 图片注入 width/height 属性（纯函数；sizes 来自 getImageSizes）。
+ *
+ * 作用：浏览器在图片加载前即预留原始宽高空间，配合 `.prose .lightbox-figure` 的
+ * fit-content 布局，懒加载图片加载完成时不再出现宽度跳变；比例由宽高属性天然保持。
+ * 外部 URL / 已带尺寸 / 无 DB 记录的图片不动（由 CSS max-width 兜底）。
+ */
+export function injectImageSizeAttrs(
+  html: string,
+  sizes: Map<string, { width: number; height: number }>,
+): string {
+  if (sizes.size === 0) return html;
+  return html.replace(/<img\b([^>]*?)\bsrc="\/api\/images\/([0-9a-f-]{8,36})"([^>]*)>/gi, (_full, pre: string, id: string, post: string) => {
+    const s = sizes.get(id);
+    if (!s) return _full;
+    // 去重：若已有任一 width/height 则跳过（保留显式指定）
+    if (/\b(width|height)=/.test(pre + post)) return _full;
+    const seg = `${pre} src="/api/images/${id}" width="${s.width}" height="${s.height}"${post}`;
+    return `<img${seg}>`;
+  });
 }
 
 /**

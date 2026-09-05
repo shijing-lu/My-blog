@@ -4,6 +4,7 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import { verifyRequest } from '@/lib/auth';
 import { buildNodeTree, getBundle, listBundleNodes, listDocTree } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
+import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import type { TocItem } from '@/lib/mdx-plugins';
 import type { DocNodeView } from '../../../db/types';
@@ -30,7 +31,14 @@ let html = '';
 let toc: TocItem[] = [];
 if (activeNode) {
   const r = await renderMdx(activeNode.content);
-  html = r.html;
+  let out = r.html;
+  // 正文图片注入原始宽高（DB 图片；文档正文无影集布局），消除懒加载宽度跳变
+  const ids = collectImageIdsFromHtml(out);
+  if (ids.length > 0) {
+    const sizes = await getImageSizes(ids);
+    if (sizes.size > 0) out = injectImageSizeAttrs(out, sizes);
+  }
+  html = out;
   toc = r.toc;
 }
 /** 树形目录 HTML（SSR 初始渲染；客户端切换文章时由同一模块重建） */

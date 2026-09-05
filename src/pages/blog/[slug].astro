@@ -5,6 +5,7 @@
 /* ===== Imports ===== */
 import { getArticleBySlug, listArticleMeta } from '@/lib/articles';
 import { renderMdx } from '@/lib/mdx';
+import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 import TechLayout from '@/layouts/TechLayout.astro';
 import NoteLayout from '@/layouts/NoteLayout.astro';
 import PhotoLayout from '@/layouts/PhotoLayout.astro';
@@ -16,7 +17,17 @@ const { slug } = Astro.params;
 const article = slug ? await getArticleBySlug(slug) : null;
 if (!article) return Astro.redirect('/404');
 
-const { html, toc, blockMap } = await renderMdx(article.content);
+const { html: rawHtml, toc, blockMap } = await renderMdx(article.content);
+// 正文图片注入原始宽高（DB 图片；避免懒加载时宽度跳变、为 fit-content 预留空间）。
+// photo 类型由 PhotoLayout 的 16/9 aspect-ratio + object-cover 主导排版，不注入。
+let html = rawHtml;
+if (article.type !== 'photo') {
+  const ids = collectImageIdsFromHtml(rawHtml);
+  if (ids.length > 0) {
+    const sizes = await getImageSizes(ids);
+    if (sizes.size > 0) html = injectImageSizeAttrs(rawHtml, sizes);
+  }
+}
 
 // 上一篇 / 下一篇（按更新时间排序，仅取元信息）
 const all = await listArticleMeta();
