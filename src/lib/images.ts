@@ -5,6 +5,9 @@
  *   未配置 R2 时回落 base64 存库（兼容本地/降级）。
  * - 上传时用 sharp 生成「全尺寸(1920 webp) + 缩略图(600 webp)」两档直传 R2，
  *   从而封面/列表直接用缩略图、详情用全图，保留 P0 的体积优化并脱离 DB 热路径。
+ * - **GIF 原样直通（不转码）**：sharp 的 webp 编码默认只取第 1 帧，转码会把
+ *   动图压成静态图；因此 GIF 原始字节直接进 R2（contentType: image/gif），
+ *   不生成缩略图（消费方均有 thumbUrl ?? url 兜底），尺寸仍用 imageMeta 读取。
  * - `extractFirstImage`：从文章 MDX 源码提取第一张图片 URL（首页卡片封面用）；
  * - `ALLOWED_MIME` / `MAX_IMAGE_BYTES`：上传校验白名单与大小上限。
  */
@@ -69,7 +72,7 @@ export function validateImageUpload(mime: unknown, base64: unknown, byteLength: 
  *
  * - 未配置 R2 → 抛错（不回落 base64，保证图片内容绝不入库）。
  * - 光栅图 → 生成全尺寸(1920)+缩略图(600)两档 webp 直传 R2。
- * - SVG → 原样传 R2（矢量，不做转格式）。
+ * - SVG / GIF → 原样传 R2（SVG 矢量；GIF 多帧动画，转码会丢帧变静态图）。
  * - 任何上传失败 → 抛错，由调用方返回 500，避免静默降级存库。
  */
 export async function storeImage(mime: string, dataBase64: string): Promise<StoredImage> {
@@ -80,9 +83,10 @@ export async function storeImage(mime: string, dataBase64: string): Promise<Stor
   const buffer = Buffer.from(dataBase64, 'base64');
   const key = `images/${id}`;
 
-  // SVG（矢量）：原样传 R2，不生成缩略图
-  if (mime === 'image/svg+xml') {
-    const url = await putObject(key, { buffer, contentType: 'image/svg+xml' });
+  // SVG / GIF：原样传 R2，不生成缩略图
+  // GIF 不能走 sharp 转码 —— webp 编码默认只取第 1 帧，动画会被毁成静态图
+  if (mime === 'image/svg+xml' || mime === 'image/gif') {
+    const url = await putObject(key, { buffer, contentType: mime });
     const dims = await imageMeta(buffer);
     const row = {
       id,

@@ -5,7 +5,8 @@
  * 首页卡片只需 ~600px WebP 而非 2MB 原图 → 显著降 LCP 与页面字节。
  *
  * 设计：
- * - 仅处理光栅图（png/jpeg/gif/webp/avif）；SVG 为矢量，原样输出不走 sharp。
+ * - 仅处理光栅图（png/jpeg/webp/avif）；SVG 为矢量、GIF 可能是多帧动画，
+ *   两者都**原样输出不走 sharp**（sharp 默认只编码第 1 帧，会毁掉 GIF 动画）。
  * - sharp 采用**惰性动态 import**（`import('sharp')`）：
  *   · 不在模块顶层加载 → 路由注册不因 sharp native binary 缺失而失败，
  *     无参数（原图）路径始终可用；
@@ -16,11 +17,10 @@
  *   首次请求转换，后续 CDN/边缘命中。
  */
 
-/** 可转换的输入 MIME（光栅；SVG 除外） */
+/** 可转换的输入 MIME（光栅；SVG/GIF 除外 —— SVG 矢量不处理，GIF 多帧不能重编码） */
 const TRANSFORMABLE_INPUT = new Set([
   'image/png',
   'image/jpeg',
-  'image/gif',
   'image/webp',
   'image/avif',
 ]);

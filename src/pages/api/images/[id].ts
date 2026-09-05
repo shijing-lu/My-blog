@@ -9,7 +9,7 @@
  * - **base64 旧数据**（image.data 非空）：原样输出；带 w/f 时用 sharp 按需转换（P0）。
  * - **R2 存储**（image.data 为空且有 url/key）：直接 307 重定向到 R2 公开 URL；
  *   带 w 且有缩略图时重定向到已生成的缩略图（600px webp）。
- * - SVG 为矢量，原样输出不做转换。
+ * - SVG 为矢量、GIF 为多帧动画（转码必丢帧），均原样输出不做转换。
  * - 图片 id 为 uuid，内容永不变 → 响应可 immutable 长缓存。
  */
 import type { APIRoute } from 'astro';
