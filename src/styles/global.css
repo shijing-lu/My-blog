@@ -1429,6 +1429,40 @@
     @apply border-t bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground;
   }
 
+  /* ===== 正文图片：按原始尺寸渲染（不拉伸、不放大），仅超限时等比缩小并居中 =====
+     默认 .lightbox-figure 是满宽块级 + img w-full（影集/PhotoLayout 依赖该行为，
+     见 .layout-photo 规则）。正文（.prose）内改为：
+     - figure 收缩包裹图片（fit-content）+ 水平居中，边框贴合图片而非撑满列宽；
+     - img 用 width:auto + max-width:100% —— 原始宽度小于列宽时按原尺寸显示（不放大），
+       大于列宽时等比缩小（不溢出），height:auto 保证比例不被破坏。
+     文章详情页与文档详情页正文均在 .prose 内，共用此规则。 */
+  .prose .lightbox-figure {
+    display: flex;
+    flex-direction: column;
+    width: -moz-fit-content;
+    width: fit-content;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .prose .lightbox-figure img {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  /* 说明文字过长时不撑宽 figure（换行显示） */
+  .prose .lightbox-figure figcaption {
+    overflow-wrap: break-word;
+  }
+  /* 兜底：正文内不经过灯箱包装的图片同样不拉伸、不溢出 */
+  .prose img {
+    max-width: 100%;
+    height: auto;
+  }
+
   /* 灯箱遮罩（JS 动态注入） */
   .lightbox-overlay {
     @apply fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm;
