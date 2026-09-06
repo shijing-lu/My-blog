@@ -6,6 +6,7 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import HeroQuote from '@/components/HeroQuote.astro';
 import ActivityHeatmap from '@/components/ActivityHeatmap.astro';
+import DeerDots from '@/components/DeerDots.astro';
 import SearchBox from '@/components/SearchBox.astro';
 import Pagination from '@/components/Pagination.astro';
 import { listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
@@ -157,10 +158,13 @@ function formatShort(date?: Date): string {
     </a>
   </section>
 
-  <!-- ===== 数据条 + 文章故事流 ===== -->
-  <section class="mx-auto w-full max-w-6xl px-4 py-12">
-    <!-- 文章活跃热力图 + 月度写作量 -->
-    <ActivityHeatmap />
+  <!-- ===== 落地页以下整体区域（小鹿点阵背景全宽贯穿，顶部渐隐衔接 Hero） ===== -->
+  <div class="relative isolate">
+    <DeerDots />
+    <!-- ===== 数据条 + 文章故事流 ===== -->
+    <section class="mx-auto w-full max-w-6xl px-4 py-12">
+      <!-- 文章活跃热力图 + 月度写作量 -->
+      <ActivityHeatmap />
 
     <!-- 像素统计条 -->
     <div class="pixel-divider mt-8" />
@@ -256,6 +260,7 @@ function formatShort(date?: Date): string {
       </div>
     </div>
   </section>
+  </div>
 
   <!-- 微信好友二维码弹窗 -->
   <dialog id="wechat-dialog" class="wechat-dialog" aria-labelledby="wechat-dialog-title">
