@@ -8,6 +8,7 @@ import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
 import { getSiteBackground } from '@/lib/background';
 import { getLandingHero } from '@/lib/landing';
 import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts';
+import { getSiteName } from '@/lib/site-name';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -19,6 +20,8 @@ const fontSettings = await getSiteFonts();
 const customFonts = await listFontsMeta();
 /** 是否手动设置过字体（false = 跟随主题字体） */
 const hasManualFonts = await hasManualFontSettings();
+/** 当前站点名称（导航栏品牌文字，默认「白衣卿相」） */
+const siteName = await getSiteName();
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="设置">
@@ -31,10 +34,48 @@ const hasManualFonts = await hasManualFontSettings();
 
     <!-- 分区导航（可扩展：新增设置项时在此加 tab） -->
     <nav class="mt-5 flex flex-wrap gap-2" aria-label="设置分区">
+      <a href="#site-name" class="settings-tab">站点名称</a>
       <a href="#hero-quotes" class="settings-tab active">诗词轮播</a>
       <a href="#landing" class="settings-tab">落地页</a>
       <a href="#appearance" class="settings-tab">外观</a>
     </nav>
+
+    <!-- 站点名称分区 -->
+    <section id="site-name" class="border-t border-border pt-6" data-name={siteName}>
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">SITE NAME</p>
+          <h2 class="mt-1 font-medium">站点名称</h2>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        导航栏显示的站点名称（默认「白衣卿相」）。保存后全站生效并持久保存，刷新页面后仍保持。
+      </p>
+
+      <label class="mt-4 block text-xs font-medium text-muted-foreground">
+        名称（1-30 个字符，不能为空）
+        <input
+          id="site-name-input"
+          type="text"
+          maxlength="30"
+          placeholder="白衣卿相"
+          class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+        />
+      </label>
+
+      <p id="site-name-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
+
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <span id="site-name-hint" class="text-xs text-emerald-600"></span>
+        <button
+          id="site-name-save"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          保存并应用
+        </button>
+      </div>
+    </section>
 
     <!-- 诗词轮播分区 -->
     <section id="hero-quotes" class="border-t border-border pt-6" data-settings={heroJson}>
@@ -381,6 +422,60 @@ const hasManualFonts = await hasManualFontSettings();
 <script>
   /** 站点设置页：诗词轮播配置（增删/调速/保存）。配置来自服务端注入 data-settings。 */
   import { confirmDialog, confirmDanger } from '@/lib/confirm';
+
+  /* ---------- 站点名称（导航栏品牌文字） ---------- */
+  const siteNameSection = document.getElementById('site-name');
+  const siteNameInput = document.getElementById('site-name-input') as HTMLInputElement | null;
+  const siteNameErr = document.getElementById('site-name-err');
+  const siteNameHint = document.getElementById('site-name-hint');
+
+  /** 当前生效名称（服务端注入），保存成功后更新为返回值 */
+  let currentSiteName = siteNameSection?.dataset.name ?? '';
+  if (siteNameInput) siteNameInput.value = currentSiteName;
+
+  function setSiteNameErr(msg: string): void {
+    if (!siteNameErr) return;
+    siteNameErr.textContent = msg;
+    siteNameErr.classList.toggle('hidden', !msg);
+  }
+
+  /** 即时更新页面上所有站名展示（导航栏品牌 + 文档标题后缀） */
+  function applySiteName(name: string): void {
+    document.querySelectorAll<HTMLElement>('[data-site-name]').forEach((el) => {
+      el.textContent = name;
+    });
+    if (document.title.includes(currentSiteName) && currentSiteName) {
+      document.title = document.title.replace(currentSiteName, name);
+    }
+    currentSiteName = name;
+  }
+
+  document.getElementById('site-name-save')?.addEventListener('click', async () => {
+    const name = (siteNameInput?.value ?? '').trim();
+    if (!name) {
+      setSiteNameErr('名称不能为空');
+      return;
+    }
+    try {
+      const res = await fetch('/api/site-name', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { name?: string; error?: string };
+      if (!res.ok || !d.name) throw new Error(d.error ?? '保存失败');
+      setSiteNameErr('');
+      applySiteName(d.name);
+      if (siteNameHint) {
+        siteNameHint.textContent = '已保存并应用';
+        window.setTimeout(() => { siteNameHint.textContent = ''; }, 2000);
+      }
+    } catch (err) {
+      setSiteNameErr(err instanceof Error ? err.message : '保存失败，请重试');
+    }
+  });
+
+  /* ---------- 诗词轮播 ---------- */
 
   interface QuoteConfig {
     text: string;

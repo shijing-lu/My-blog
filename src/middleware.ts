@@ -70,6 +70,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
       (pathname === '/api/quote-settings' && context.request.method === 'PUT') ||
       (pathname === '/api/background' && context.request.method === 'PUT') ||
       (pathname === '/api/landing' && context.request.method === 'PUT') ||
+      (pathname === '/api/site-name' && context.request.method === 'PUT') ||
       (pathname === '/api/sync-databases' && context.request.method === 'POST') ||
       (pathname === '/api/migrate-photos-tags' && context.request.method === 'POST') ||
       (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||

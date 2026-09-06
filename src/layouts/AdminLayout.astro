@@ -12,6 +12,7 @@ import '../styles/global.css';
 import ThemeHead from '@/components/ThemeHead.astro';
 import { verifyRequest } from '@/lib/auth';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
+import { getSiteName } from '@/lib/site-name';
 
 /* ===== Logic ===== */
 const isAuthed = verifyRequest(Astro.cookies);
@@ -23,6 +24,8 @@ const customFontIds = [fontSettings.article, fontSettings.ui]
   .map((f) => f.value);
 const customFonts = await getFontsByIds(customFontIds);
 const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
+/** 站点名称（管理员可在 /admin/settings 自定义，默认「白衣卿相」） */
+const siteTitle = await getSiteName();
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -30,7 +33,7 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title} · My Blog</title>
+    <title>{title} · {siteTitle}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <ThemeHead />
     {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题） */}
@@ -38,8 +41,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
   </head>
   <body class="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
     <header class="flex h-12 shrink-0 items-center justify-between border-b px-4">
-      <a href="/" class="font-pixel text-sm tracking-wider text-primary">
-        My Blog
+      <a href="/" data-site-name class="font-pixel text-sm tracking-wider text-primary">
+        {siteTitle}
       </a>
       <nav class="flex items-center gap-2 text-xs sm:gap-3 sm:text-sm">
         {/* 后台互跳用整页刷新（data-astro-reload）：后台页面内联脚本只在首次加载执行，
