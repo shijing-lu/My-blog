@@ -1,15 +1,19 @@
 ---
 /**
- * DeerDots.astro —— 首页落地页以下的「小鹿点阵」装饰背景（致敬 DeepSeek Harness 首页）
+ * DeerDots.astro —— 首页落地页以下的「小鹿点阵」装饰背景
+ *
+ * 鹿形来源：/deer-mask.png —— 直接从用户提供的参考图提取的亮度密度场
+ * （threshold → blur），形状/姿态/消散尾迹与原图 1:1 一致，非手绘临摹。
  *
  * 分层（absolute inset-0、pointer-events:none、-z-10 垫底，置于 relative.isolate 全宽容器内）：
- * 1. 点阵 canvas：内置小鹿剪影（倾斜 ~8° 跃姿）采样出密度场，鹿形内的点高亮、形外近乎隐形；
- *    鼠标 120px 斥力 + 弹簧回位，间距被拉开时相邻点连线（搅动涟漪）；
- *    动感：整体慢摇曳（sin 双频）+ 亮度沿对角线流动的波 + 鹿形内随机星闪。
+ * 1. 点阵 canvas：10px 细密网格采样遮罩密度，核心大点亮、边缘小点消散；无连线，纯点阵。
+ *    鼠标交互「混沌涡流」：经过处粒子绕焦点混乱旋转四散（切向涡流 + 径向外推 + 随机扰动，
+ *    每点旋转方向随机），移开后弹簧恢复整齐点阵。
+ *    动感：整体慢摇曳（sin 双频）+ 亮度沿对角线流动波 + 鹿形内随机星闪。
  * 2. 颗粒：SVG feTurbulence 噪点覆层（mix-blend overlay），消除色带、增加胶片颗粒感。
  * 3. 顶部线性渐隐 mask：与落地页 Hero 底部自然衔接，装饰区无生硬边界（无框感）。
  *
- * 性能（对齐 DeepSeek 的做法）：DPR≤2、30fps 节流、粒子静止自动停帧、
+ * 性能（对齐 DeepSeek 的做法）：DPR≤2、30fps 节流、空闲 3fps 心跳、
  * 离屏（IntersectionObserver）/切后台暂停、触屏不绑鼠标、prefers-reduced-motion 只画静帧。
  * 明暗色板跟随 html.dark（MutationObserver 监听切换）。
  */
@@ -50,51 +54,26 @@
 </style>
 
 <script>
-  /* ---------- 小鹿剪影（viewBox 0 0 120 130，与 .diag/deer.svg 同源） ---------- */
-  const VB_W = 120;
-  const VB_H = 130;
-  const DEER_FILL_BODY =
-    'M 40,60 C 38,52 39,47 42,43 C 41,37 37,31 34,26 C 32,22 29,19 25,18 C 20,18 14,23 11,28 C 10,31 12,33 16,33 C 21,33 26,32 29,31 C 33,32 36,38 39,45 C 43,41 51,40 60,41 C 70,41 80,42 84,48 C 88,53 89,60 86,65 C 83,70 76,73 68,73 C 60,74 50,72 44,68 C 42,66 41,63 40,60 Z';
-  const DEER_FILL_TAIL = 'M86 50 C90 49 92 51 91 55 C90 58 87 58 85 56 Z';
-  const DEER_STROKES: ReadonlyArray<readonly [string, number]> = [
-    ['M45 66 L42 82 L41 102', 3.6],
-    ['M52 68 L53 84 L54 103', 3.6],
-    ['M74 70 L78 84 L76 102', 3.6],
-    ['M82 66 L88 80 L91 99', 3.6],
-    ['M30 17 C31 11 34 6 40 2 M32 11 C36 10 39 8 42 5', 2.4],
-    ['M36 17 C38 11 41 6 47 3 M39 10 C43 9 46 7 49 4', 2.4],
-  ];
+  /* ---------- 遮罩贴图（参考图提取的密度场，public/deer-mask.png，520×453） ---------- */
+  const VB_W = 520;
+  const VB_H = 453;
+  const maskImg = new Image();
+  const maskReady = new Promise<void>((resolve) => {
+    maskImg.onload = () => resolve();
+    maskImg.onerror = () => resolve();
+    maskImg.src = '/deer-mask.png';
+  });
 
-  function drawDeer(ctx: CanvasRenderingContext2D, s: number): void {
-    ctx.save();
-    ctx.scale(s, s);
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = '#fff';
-    ctx.lineCap = 'round';
-    ctx.fill(new Path2D(DEER_FILL_BODY));
-    ctx.fill(new Path2D(DEER_FILL_TAIL));
-    ctx.beginPath();
-    ctx.ellipse(42, 21, 4.5, 2.2, (42 * Math.PI) / 180, 0, Math.PI * 2);
-    ctx.fill();
-    for (const [d, w] of DEER_STROKES) {
-      ctx.lineWidth = w;
-      ctx.stroke(new Path2D(d));
-    }
-    ctx.restore();
-  }
-
-  /* ---------- 色板（明暗跟随 html.dark） ---------- */
+  /* ---------- 色板（明暗跟随 html.dark；浅色主题用深点保证对比度） ---------- */
   interface Palette {
     dot: string;
   }
-  const DARK: Palette = { dot: '168,198,242' };
-  const LIGHT: Palette = { dot: '90,110,150' };
+  const DARK: Palette = { dot: '190,214,250' };
+  const LIGHT: Palette = { dot: '62,84,124' };
 
-  const SPACING = 14;
+  const SPACING = 10;
   const FRAME_MS = 1000 / 30;
-  const MOUSE_R = 120;
-  const STRETCH = 3;
-  const DEER_TILT = (-9 * Math.PI) / 180;
+  const MOUSE_R = 130;
   /* 每点 6 个 float：restX, restY, x, y, vx, vy */
   const STRIDE = 6;
 
@@ -116,6 +95,7 @@
     let baseA = new Float32Array(0);
     let phase = new Float32Array(0);
     let spark = new Float32Array(0);
+    let sizeF = new Float32Array(0);
     let cols = 0;
     let rows = 0;
     let mouse = { x: -9999, y: -9999 };
@@ -127,11 +107,11 @@
 
     const palette = (): Palette => (htmlEl.classList.contains('dark') ? DARK : LIGHT);
 
-    /** 重建网格 + 用小鹿剪影（倾斜跃姿）采样密度场（离屏画布分辨率 = 网格数，天然低耗） */
+    /** 重建网格 + 把遮罩贴图画进「网格分辨率」离屏画布采样密度（天然低耗） */
     function rebuild(): void {
       w = canvas.clientWidth;
       h = canvas.clientHeight;
-      if (w < 2 || h < 2) return;
+      if (w < 2 || h < 2 || !maskImg.naturalWidth) return;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -144,11 +124,14 @@
       const octx0 = off.getContext('2d');
       if (!octx0) return;
       const octx: CanvasRenderingContext2D = octx0;
-      const s = (rows * 0.72) / VB_H;
-      octx.translate(cols * 0.58, rows * 0.52);
-      octx.rotate(DEER_TILT);
-      octx.translate(-(VB_W * s) / 2, -(VB_H * s) / 2);
-      drawDeer(octx, s);
+      const s = Math.min((rows * 0.92) / VB_H, (cols * 0.66) / VB_W);
+      octx.drawImage(
+        maskImg,
+        cols * 0.56 - (VB_W * s) / 2,
+        rows * 0.54 - (VB_H * s) / 2,
+        VB_W * s,
+        VB_H * s,
+      );
       const mask = octx.getImageData(0, 0, cols, rows).data;
 
       const n = cols * rows;
@@ -156,6 +139,7 @@
       baseA = new Float32Array(n);
       phase = new Float32Array(n);
       spark = new Float32Array(n);
+      sizeF = new Float32Array(n);
       for (let j = 0; j < rows; j++) {
         for (let i = 0; i < cols; i++) {
           const k = j * cols + i;
@@ -165,14 +149,16 @@
           dots[k * STRIDE + 1] = y;
           dots[k * STRIDE + 2] = x;
           dots[k * STRIDE + 3] = y;
-          const a = mask[k * 4 + 3] ?? 0;
-          baseA[k] = 0.04 + 0.62 * Math.pow(a / 255, 1.1);
+          const a = mask[k * 4] ?? 0; // 灰度遮罩 → 取红通道作密度
+          baseA[k] = Math.min(1, 0.05 + 0.85 * Math.pow(a / 255, 1.05));
           phase[k] = (i * 7 + j * 13) * 0.55;
+          // 每点随机尺寸系数：大点在核心、小点在边缘，颗粒感更接近手绘粒子画
+          sizeF[k] = 0.75 + Math.random() * 0.7;
         }
       }
     }
 
-    /** 物理 + 绘制一帧，返回最大速度（用于静止停帧） */
+    /** 物理 + 绘制一帧，返回最大速度（用于空闲降频） */
     function draw(t: number): number {
       const pal = palette();
       ctx.clearRect(0, 0, w, h);
@@ -194,12 +180,15 @@
           const d2 = dx * dx + dy * dy;
           if (d2 < MOUSE_R * MOUSE_R && d2 > 0.01) {
             const d = Math.sqrt(d2);
-            const f = (1 - d / MOUSE_R) * 2.6;
-            vx += (dx / d) * f;
-            vy += (dy / d) * f;
+            const fall = 1 - d / MOUSE_R;
+            // 「混沌涡流」：切向绕转（每点方向随机）+ 径向外推 + 随机扰动
+            const spin = (phase[k] ?? 0) % 2 < 1 ? 1 : -1;
+            const swirl = fall * 4.6 * spin;
+            vx += (-dy / d) * swirl + (dx / d) * fall * 1.6 + (Math.random() - 0.5) * fall * 6;
+            vy += (dx / d) * swirl + (dy / d) * fall * 1.6 + (Math.random() - 0.5) * fall * 6;
           }
         }
-        // 弹簧回位 + 阻尼
+        // 弹簧回位 + 阻尼（鼠标离开后逐渐恢复整齐点阵）
         vx = (vx + (rx - x) * 0.06) * 0.82;
         vy = (vy + (ry - y) * 0.06) * 0.82;
         const nx = x + vx;
@@ -212,38 +201,6 @@
         if (v > maxVel) maxVel = v;
       }
 
-      // 连线：相邻点被搅开（间距拉伸）时浮现
-      ctx.lineWidth = 0.5;
-      ctx.strokeStyle = `rgba(${pal.dot},0.3)`;
-      ctx.beginPath();
-      for (let j = 0; j < rows; j++) {
-        for (let i = 0; i < cols; i++) {
-          const k = j * cols + i;
-          const b = k * STRIDE;
-          const ax = dots[b + 2] ?? 0;
-          const ay = dots[b + 1] ?? 0;
-          if (i < cols - 1) {
-            const b2 = b + STRIDE;
-            const bx = dots[b2 + 2] ?? 0;
-            const by = dots[b2 + 3] ?? 0;
-            if (Math.hypot(bx - ax, by - ay) > SPACING + STRETCH) {
-              ctx.moveTo(ax, ay);
-              ctx.lineTo(bx, by);
-            }
-          }
-          if (j < rows - 1) {
-            const b2 = b + cols * STRIDE;
-            const bx = dots[b2 + 2] ?? 0;
-            const by = dots[b2 + 3] ?? 0;
-            if (Math.hypot(bx - ax, by - ay) > SPACING + STRETCH) {
-              ctx.moveTo(ax, ay);
-              ctx.lineTo(bx, by);
-            }
-          }
-        }
-      }
-      ctx.stroke();
-
       // 随机星闪：鹿形内的点偶尔被点亮，随时间衰减
       for (let s = 0; s < 3; s++) {
         if (Math.random() < 0.35) {
@@ -252,7 +209,7 @@
         }
       }
 
-      // 点：鹿形内亮、形外底噪；整体慢摇曳 + 亮度沿对角线流动 + 星闪衰减
+      // 点：核心亮、边缘消散；整体慢摇曳 + 亮度沿对角线流动 + 星闪衰减
       const swayX = Math.sin(t * 0.0006) * 3.4;
       const swayY = Math.sin(t * 0.00042 + 1.3) * 2.4;
       ctx.fillStyle = `rgb(${pal.dot})`;
@@ -265,13 +222,12 @@
           x += swayX;
           y += swayY;
         }
-        const wave = 0.68 + 0.32 * Math.sin(t * 0.0016 - (x + y) * 0.007 + (phase[k] ?? 0) * 0.4);
+        const wave = 0.72 + 0.28 * Math.sin(t * 0.0016 - (x + y) * 0.01 + (phase[k] ?? 0) * 0.4);
         spark[k] = (spark[k] ?? 0) * 0.9;
-        const alpha = Math.min(
-          1,
-          (baseA[k] ?? 0) * wave + (spark[k] ?? 0) * 0.55 * (baseA[k] ?? 0),
-        );
-        const sz = 1.8 + 0.9 * Math.min(1, (baseA[k] ?? 0) * 1.8);
+        const ba = baseA[k] ?? 0;
+        const alpha = Math.min(1, ba * wave + (spark[k] ?? 0) * 0.6 * ba);
+        // 核心大点、边缘小点，叠加每点随机尺寸系数（参考图的有机颗粒感）
+        const sz = (1.6 + 2.2 * Math.min(1, ba * 1.6)) * (sizeF[k] ?? 1);
         ctx.globalAlpha = alpha;
         ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
       }
@@ -291,7 +247,7 @@
       }
       last = ts - ((ts - last) % FRAME_MS);
       const maxVel = draw(ts);
-      // 摇曳/波光/星闪常驻 → 空闲时不完全停帧，降为低频心跳（约 3fps）
+      // 波光/星闪常驻 → 空闲时不完全停帧，降为低频心跳（约 3fps）
       if (maxVel < 0.05) {
         running = false;
         window.setTimeout(() => {
@@ -362,9 +318,11 @@
     wake();
   }
 
-  function initAll(): void {
+  async function initAll(): Promise<void> {
+    await maskReady;
+    if (!maskImg.naturalWidth) return;
     document.querySelectorAll<HTMLCanvasElement>('canvas.deer-canvas').forEach(initDeerCanvas);
   }
-  initAll();
-  document.addEventListener('astro:page-load', initAll);
+  void initAll();
+  document.addEventListener('astro:page-load', () => void initAll());
 </script>
