@@ -34,11 +34,16 @@ import { verifyRequest } from '@/lib/auth';
 import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
+import { getHeroQuoteSettings } from '@/lib/quote-settings';
 
 /** 站点名称（管理员可在 /admin/settings 自定义，默认「白衣卿相」） */
 const siteTitle = await getSiteName();
 /** 文档标题：无页面标题或与站名相同时只显示站名，否则「页面标题 · 站名」 */
 const pageTitle = title === '' || title === siteTitle ? siteTitle : `${title} · ${siteTitle}`;
+/** 页脚标语：每次刷新从诗词轮播配置的名言池随机一条（配置保证至少一条） */
+const heroQuotes = (await getHeroQuoteSettings()).quotes;
+const footerQuote =
+  heroQuotes[Math.floor(Math.random() * heroQuotes.length)]?.text ?? '技术教程 · 学习笔记 · 随笔与摄影';
 
 /* ===== Logic ===== */
 /** 是否已登录（决定是否显示「写作」入口） */
@@ -208,10 +213,10 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
       <div class="mx-auto w-full max-w-6xl px-4 py-6">
         <div class="pixel-divider mb-4" />
         <p class="text-center text-sm text-muted-foreground">
-          技术教程 · 学习笔记 · 随笔与摄影
+          {footerQuote}
         </p>
         <p class="mt-2 text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()} My Blog · Powered by Astro
+          © {new Date().getFullYear()} <span data-site-name>{siteTitle}</span> · Powered by Astro
         </p>
       </div>
     </footer>
