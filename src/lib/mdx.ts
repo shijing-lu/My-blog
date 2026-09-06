@@ -239,7 +239,10 @@ function tableLineToSafe(t: string): string {
       continue;
     }
     if (inMath) {
-      out += ch === '|' ? '\\vert' : ch;
+      // `|` → `\vert ` 必须带尾随空格：KaTeX 控制词按最长字母序列匹配，
+      // 无空格拼接会把后续字母吞进控制词（`$|A|$` → `\vertA` 未定义控制词 → 红字报错）；
+      // 控制词后的空格被 KaTeX 词法消费，不产生可见空隙。
+      out += ch === '|' ? '\\vert ' : ch;
       i += 1;
       continue;
     }

@@ -65,6 +65,25 @@ describe('renderMdx', () => {
     expect(html).not.toContain('katex');
     expect(html).toContain('$HOME');
   });
+
+  it('表格单元格内的 $|A| \\neq 0$ 不产生 \\vertA 红字（回归：| → \\vert 需带边界空格）', async () => {
+    const { html } = await renderMdx('| 条件 | 含义 |\n| --- | --- |\n| $|A| \\neq 0$ | 可逆 |');
+    // tableLineToSafe 把 | 替换为 \vert 时必须留词法边界，
+    // 否则 \vertA 成为未定义控制词 → KaTeX 红字回显源码
+    expect(html).not.toContain('vertA');
+    expect(html).not.toContain('katex-error');
+    // 不等号在 MathML 层为单字形 ≠
+    expect(html).toContain('≠');
+  });
+
+  it('KaTeX 输出类名与 katex.min.css 版本一致（回归：内部类须为 katex- 前缀）', async () => {
+    const { html } = await renderMdx('设 $a \\neq b$ 成立。');
+    // katex ≥0.18 内部类带 katex- 前缀且 CSS 不再含旧无前缀类；
+    // 若 HTML 出现裸 base/strut（0.16 输出）而页面加载 0.18 CSS，
+    // \not= 斜线覆盖层定位失效 → 不等号平铺成 "/="
+    expect(html).toContain('katex-strut');
+    expect(html).not.toMatch(/class="(base|strut|vbox|thinbox)"/);
+  });
 });
 
 describe('目录：层级、KaTeX 与树形渲染', () => {
