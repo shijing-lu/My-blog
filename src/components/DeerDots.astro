@@ -9,7 +9,9 @@
  * 1. 点阵 canvas：10px 细密网格采样遮罩密度，核心大点亮、边缘小点消散；无连线，纯点阵。
  *    鼠标交互「混沌涡流」：经过处粒子绕焦点混乱旋转四散（切向涡流 + 径向外推 + 随机扰动，
  *    每点旋转方向随机），移开后弹簧恢复整齐点阵。
- *    动感：整体慢摇曳（sin 双频）+ 亮度沿对角线流动波 + 鹿形内随机星闪。
+ *    动感：整体慢摇曳（sin 双频）+ 亮度沿对角线流动波 + 鹿形内随机星闪 + 缓慢呼吸（±10%）。
+ *    主题联动：明亮模式整个点阵隐藏；切到暗黑时点阵从暗到亮平滑渐显。
+ *    亮度分层：默认鹿形亮度降一档，鼠标靠近鹿形区域时平滑升回满亮，离开后缓落。
  * 2. 颗粒：SVG feTurbulence 噪点覆层（mix-blend overlay），消除色带、增加胶片颗粒感。
  * 3. 顶部线性渐隐 mask：与落地页 Hero 底部自然衔接，装饰区无生硬边界（无框感）。
  *
@@ -74,6 +76,8 @@
   const SPACING = 10;
   const FRAME_MS = 1000 / 30;
   const MOUSE_R = 130;
+  /** 悬停增亮判定半径：鼠标进入鹿形点此范围内视为「靠近鹿区」 */
+  const BOOST_R = 160;
   /* 每点 6 个 float：restX, restY, x, y, vx, vy */
   const STRIDE = 6;
 
@@ -104,6 +108,10 @@
     let running = false;
     let inView = true;
     let resizeTimer = 0;
+    /** 主题渐显系数 0..1：暗黑=1，明亮=0；切换时每帧向目标缓动（首帧直接取当前主题，避免加载闪变） */
+    let themeMix = htmlEl.classList.contains('dark') ? 1 : 0;
+    /** 悬停增亮系数 0..1：鼠标靠近鹿形区域 → 1，离开 → 0 */
+    let hoverMix = 0;
 
     const palette = (): Palette => (htmlEl.classList.contains('dark') ? DARK : LIGHT);
 
@@ -165,6 +173,20 @@
       let maxVel = 0;
       const mx = mouse.x;
       const my = mouse.y;
+      let nearDeer = false;
+
+      // 主题联动：暗黑渐显（target=1）、明亮隐藏（target=0），每帧向目标缓动
+      const themeTarget = htmlEl.classList.contains('dark') ? 1 : 0;
+      if (reduced) themeMix = themeTarget;
+      else {
+        themeMix += (themeTarget - themeMix) * 0.05;
+        if (Math.abs(themeTarget - themeMix) < 0.003) themeMix = themeTarget;
+      }
+      if (themeMix <= 0.001) {
+        ctx.clearRect(0, 0, w, h);
+        return 0;
+      }
+      const breath = 0.9 + 0.1 * Math.sin(t * 0.00085); // 鹿形缓慢呼吸（周期约 7.4s，±10%）
 
       for (let k = 0; k < cols * rows; k++) {
         const b = k * STRIDE;
@@ -178,6 +200,8 @@
           const dx = x - mx;
           const dy = y - my;
           const d2 = dx * dx + dy * dy;
+          // 悬停增亮判定：鼠标落在鹿形点附近（BOOST_R 内）→ 本帧标记 nearDeer
+          if (!nearDeer && (baseA[k] ?? 0) > 0.25 && d2 < BOOST_R * BOOST_R) nearDeer = true;
           if (d2 < MOUSE_R * MOUSE_R && d2 > 0.01) {
             const d = Math.sqrt(d2);
             const fall = 1 - d / MOUSE_R;
@@ -200,6 +224,15 @@
         const v = Math.abs(vx) + Math.abs(vy);
         if (v > maxVel) maxVel = v;
       }
+
+      // 悬停增亮：靠近鹿形区域 → 平滑升满亮，离开 → 缓落回默认暗一档
+      const hoverTarget = nearDeer ? 1 : 0;
+      if (reduced) hoverMix = hoverTarget;
+      else {
+        hoverMix += (hoverTarget - hoverMix) * 0.06;
+        if (Math.abs(hoverTarget - hoverMix) < 0.003) hoverMix = hoverTarget;
+      }
+      const dimF = 0.6 + 0.4 * hoverMix; // 默认亮度降一档（0.6），悬停回满（1.0）
 
       // 随机星闪：鹿形内的点偶尔被点亮，随时间衰减
       for (let s = 0; s < 3; s++) {
@@ -225,7 +258,9 @@
         const wave = 0.72 + 0.28 * Math.sin(t * 0.0016 - (x + y) * 0.01 + (phase[k] ?? 0) * 0.4);
         spark[k] = (spark[k] ?? 0) * 0.9;
         const ba = baseA[k] ?? 0;
-        const alpha = Math.min(1, ba * wave + (spark[k] ?? 0) * 0.6 * ba);
+        let alpha = Math.min(1, ba * wave + (spark[k] ?? 0) * 0.6 * ba);
+        if (inDeer) alpha *= breath * dimF; // 呼吸 + 悬停增亮只作用于鹿形点
+        alpha *= themeMix; // 主题联动：明亮模式整体隐去，暗黑渐显
         // 核心大点、边缘小点，叠加每点随机尺寸系数（参考图的有机颗粒感）
         const sz = (1.6 + 2.2 * Math.min(1, ba * 1.6)) * (sizeF[k] ?? 1);
         ctx.globalAlpha = alpha;
@@ -247,8 +282,15 @@
       }
       last = ts - ((ts - last) % FRAME_MS);
       const maxVel = draw(ts);
+      // 明亮模式（themeMix 已归零）：完全停帧省电，主题切换时由 MutationObserver 唤醒
+      if (themeMix <= 0.001) {
+        running = false;
+        return;
+      }
       // 波光/星闪常驻 → 空闲时不完全停帧，降为低频心跳（约 3fps）
-      if (maxVel < 0.05) {
+      // 主题渐显 / 悬停增亮过渡中 → 保持 30fps 全速，保证过渡平滑
+      const transitioning = (themeMix > 0.001 && themeMix < 0.999) || (hoverMix > 0.001 && hoverMix < 0.999);
+      if (maxVel < 0.05 && !transitioning) {
         running = false;
         window.setTimeout(() => {
           if (canvas.isConnected && inView && !document.hidden && !running) {

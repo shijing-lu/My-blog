@@ -1157,12 +1157,14 @@
     gap: 1.5rem;
     padding: 1.5rem 0 1.5rem 1rem; /* 左留空给 accent 条 */
     border-bottom: 1px solid var(--color-border);
-    transition: background-color 0.2s ease;
+    border-radius: 6px;
+    /* hover：背景移除（透出小鹿点阵）+ 轻微缩放 + 细边框，均做平滑过渡 */
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
   }
   .post-row:first-child {
     border-top: 1px solid var(--color-border);
   }
-  /* hover：左侧 accent 条展开 + 背景微变 */
+  /* hover：左侧 accent 条展开（选中提示之一，不遮挡背景） */
   .post-row::before {
     content: '';
     position: absolute;
@@ -1178,8 +1180,11 @@
   .post-row:hover::before {
     transform: scaleY(1);
   }
+  /* hover：不加底色遮罩，让小鹿点阵透出；以轻微缩放 + 细主色描边提示选中 */
   .post-row:hover {
-    background: var(--color-accent);
+    background: transparent;
+    transform: scale(1.015);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
   }
   .post-row-main {
     flex: 1 1 auto;
