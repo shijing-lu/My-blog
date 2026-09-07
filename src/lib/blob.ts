@@ -1,9 +1,9 @@
 /**
- * Vercel Blob 公共封装（照片 / 大字体共用）
+ * Vercel Blob 公共封装（仅大字体上传在用；影集/图片已强制走 R2，见 lib/images.ts）
  *
  * - token 从 serverEnv 取（import.meta.env 优先、process.env 兜底）并同步回
  *   process.env（@vercel/blob SDK 内部只读 process.env.BLOB_READ_WRITE_TOKEN）；
- * - 未配置 token 时 blobStorageEnabled 为 false（自动上传不可用，走降级路径）。
+ * - 未配置 token 时 blobStorageEnabled 为 false（大字体直传不可用，走降级路径）。
  */
 import { del } from '@vercel/blob';
 import { hasServerEnv, serverEnv } from '@/lib/env';

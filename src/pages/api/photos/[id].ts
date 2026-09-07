@@ -51,7 +51,7 @@ export const PATCH: APIRoute = async ({ params, request }) => {
   });
 };
 
-/** 删除照片（DB 行 + Blob 对象） */
+/** 删除照片（DB 行 + R2 对象） */
 export const DELETE: APIRoute = async ({ params }) => {
   const id = params.id;
   if (!id) return json({ error: '缺少 id' }, 400);
