@@ -20,7 +20,7 @@ async function migrateEndpoint(name, url) {
     console.log(`[migrate-photos-tags] ${name}: 非 PG 连接串，跳过`);
     return { name, skipped: true };
   }
-  const sql = postgres(url, { max: 1, connect_timeout: 15 });
+  const sql = postgres(url, { max: 1, connect_timeout: 15, onnotice: () => {} });
   try {
     await sql.unsafe(DDL);
     // 双确认：列真的存在

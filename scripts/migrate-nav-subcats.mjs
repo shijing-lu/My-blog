@@ -45,7 +45,7 @@ const PG_DDL = [
 
 async function migratePg(name, url) {
   const { default: postgres } = await import('postgres');
-  const sql = postgres(url, { max: 1, connect_timeout: 10 });
+  const sql = postgres(url, { max: 1, connect_timeout: 10, onnotice: () => {} });
   // 硬性超时兜底：单个端点（连库 + 全部 DDL + 校验 + 断开）绝不允许超过 30s，
   // 避免 postgres.js 在 CI 无头环境下连接/断开握手不释放而挂起整个 build。
   // 即便超时，DDL 也都已幂等执行完毕（IF NOT EXISTS），不会造成半迁移态。
