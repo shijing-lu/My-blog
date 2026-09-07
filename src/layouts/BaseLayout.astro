@@ -29,7 +29,9 @@ import ThemeToggle from '@/components/ThemeToggle.astro';
 import ThemeSettings from '@/components/ThemeSettings.astro';
 import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
-import { canManage, isTopAdmin } from '@/lib/admin-auth';
+import ManageDialog from '@/components/ManageDialog.astro';
+import { canManage } from '@/lib/admin-auth';
+import { isUserGitHubConfigured } from '@/lib/auth';
 import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
@@ -187,13 +189,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           <ThemeToggle />
           <ThemeSettings />
           <ProfileDialog isAuthed={isAuthed} />
-          <!-- 管理入口：身份分支页（顶级管理员→授权管理；普通管理员→无权提示；访客→登录/申请） -->
-          <a
-            href="/manage"
-            class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
-          >
-            管理
-          </a>
+          <!-- 管理入口：模态弹窗（打开时按身份分支渲染，不再跳转独立页） -->
+          <ManageDialog githubEnabled={isUserGitHubConfigured()} />
           {
             isAuthed && (
               <a

@@ -296,7 +296,20 @@ export function isAllowedGitHubLogin(login: string): boolean {
   return Boolean(allowed) && login.toLowerCase() === allowed.toLowerCase();
 }
 
-/** GitHub OAuth 是否已配置（前端据此显示登录按钮） */
+/**
+ * GitHub OAuth 是否已配置（前端据此显示登录按钮）。
+ *
+ * 注意区分两条登录链路的配置门槛（勿回退为单一函数）：
+ * - 用户链路（评论区登录 / 管理弹窗登录，/api/auth/user/github）：只需
+ *   GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET —— 与评论区完全相同；
+ * - 管理员白名单链路（/api/auth/github → 自动授予站主）：额外需要
+ *   ADMIN_GITHUB_LOGIN 白名单，否则该链路无法识别身份。
+ */
+export function isUserGitHubConfigured(): boolean {
+  return Boolean(serverEnv('GITHUB_CLIENT_ID') && serverEnv('GITHUB_CLIENT_SECRET'));
+}
+
+/** GitHub OAuth 管理员白名单登录是否已配置（仅 /login 管理员链路使用） */
 export function isGitHubConfigured(): boolean {
-  return Boolean(serverEnv('GITHUB_CLIENT_ID') && serverEnv('GITHUB_CLIENT_SECRET') && serverEnv('ADMIN_GITHUB_LOGIN'));
+  return isUserGitHubConfigured() && Boolean(serverEnv('ADMIN_GITHUB_LOGIN'));
 }

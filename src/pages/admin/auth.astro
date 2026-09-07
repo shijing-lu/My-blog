@@ -187,6 +187,37 @@ const permEntries = Object.entries(PERMISSION_KEYS);
             </div>
           </div>
 
+          <!-- ===== 添加管理员（按 GitHub 用户名直接建号） ===== -->
+          <div class="mt-6">
+            <h3 class="text-sm font-medium">添加管理员</h3>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+              直接输入 GitHub 用户名建号，无需对方先提交申请。站主可把自己的 GitHub 账号添加为顶级管理员，此后用 GitHub 登录即拥有全部权限。
+            </p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <input
+                id="acc-add-login"
+                type="text"
+                placeholder="GitHub 用户名（如 octocat）"
+                class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              />
+              <select
+                id="acc-add-role"
+                class="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring"
+              >
+                <option value="admin">普通管理员</option>
+                <option value="top">顶级管理员</option>
+              </select>
+              <button
+                id="acc-add-btn"
+                type="button"
+                class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+              >
+                添加
+              </button>
+            </div>
+            <p id="acc-add-msg" class="mt-2 hidden text-xs" role="status" />
+          </div>
+
           <!-- ===== GitHub 资料同步（个人信息设置） ===== -->
           <div class="mt-10">
             <h2 class="font-display text-lg font-semibold">个人资料同步（GitHub）</h2>
@@ -313,6 +344,50 @@ const permEntries = Object.entries(PERMISSION_KEYS);
           },
         );
       }
+      return;
+    }
+
+    /* 添加管理员：POST /api/admin-auth/accounts { login, role } */
+    if (target.closest('#acc-add-btn')) {
+      const input = document.getElementById('acc-add-login') as HTMLInputElement | null;
+      const roleSel = document.getElementById('acc-add-role') as HTMLSelectElement | null;
+      const btn = document.getElementById('acc-add-btn') as HTMLButtonElement | null;
+      const msg = document.getElementById('acc-add-msg');
+      if (!btn) return;
+      const login = (input?.value ?? '').trim();
+      const role = roleSel?.value === 'top' ? 'top' : 'admin';
+      if (!login) {
+        if (msg) {
+          msg.textContent = '请输入 GitHub 用户名';
+          msg.className = 'mt-2 text-xs text-destructive';
+          msg.classList.remove('hidden');
+        }
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '添加中…';
+      request(
+        '/api/admin-auth/accounts',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ login, role }),
+        },
+        (data) => {
+          btn.disabled = false;
+          btn.textContent = '添加';
+          if (msg) {
+            if (data.error) {
+              msg.textContent = data.error;
+              msg.className = 'mt-2 text-xs text-destructive';
+            } else {
+              msg.textContent = '已添加，列表已刷新。';
+              msg.className = 'mt-2 text-xs text-primary';
+            }
+            msg.classList.remove('hidden');
+          }
+        },
+      );
       return;
     }
 

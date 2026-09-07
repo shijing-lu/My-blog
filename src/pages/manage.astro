@@ -5,7 +5,7 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { getAdminIdentity, isTopAdmin } from '@/lib/admin-auth';
-import { isGitHubConfigured, getCurrentUserId } from '@/lib/auth';
+import { isUserGitHubConfigured, getCurrentUserId } from '@/lib/auth';
 import { getGithubUserById } from '@/lib/github-users';
 
 /* ===== Logic ===== */
@@ -18,7 +18,7 @@ import { getGithubUserById } from '@/lib/github-users';
  */
 const identity = await getAdminIdentity(Astro.cookies);
 if (await isTopAdmin(Astro.cookies)) return Astro.redirect('/admin/auth');
-const githubEnabled = isGitHubConfigured();
+const githubEnabled = isUserGitHubConfigured();
 /** 普通管理员：展示已有权限 */
 const isAdmin = identity.kind === 'github';
 const account = isAdmin ? identity.account : null;

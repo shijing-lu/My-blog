@@ -1511,7 +1511,8 @@
 .wechat-dialog,
 .profile-dialog,
 .all-events-dialog,
-.login-dialog {
+.login-dialog,
+.manage-dialog {
   /* margin:auto 保证屏幕居中（Tailwind preflight 会覆盖原生 dialog 的居中） */
   margin: auto;
   width: min(92vw, 26rem);
@@ -1537,7 +1538,8 @@
 .wechat-dialog::backdrop,
 .profile-dialog::backdrop,
 .all-events-dialog::backdrop,
-.login-dialog::backdrop {
+.login-dialog::backdrop,
+.manage-dialog::backdrop {
   background: rgb(0 0 0 / 0.45);
   backdrop-filter: blur(2px);
 }
@@ -1546,7 +1548,8 @@
 .wechat-dialog[open],
 .profile-dialog[open],
 .all-events-dialog[open],
-.login-dialog[open] {
+.login-dialog[open],
+.manage-dialog[open] {
   animation: dialog-in 0.18s ease-out;
 }
 @keyframes dialog-in {

@@ -1,0 +1,323 @@
+---
+/* ===== Props ===== */
+interface Props {
+  /** GitHub 用户登录链路是否已配置（决定未登录分支是否展示 GitHub 登录按钮） */
+  githubEnabled: boolean;
+}
+
+const { githubEnabled } = Astro.props;
+
+/* ===== Logic ===== */
+/**
+ * 「管理」入口弹窗：点击导航栏「管理」不再跳转 /manage 独立页，改为打开本模态框。
+ * 打开时实时请求 /api/admin-auth/me 判定身份，按四种身份分支渲染（与 /manage 页一致）：
+ * - top：站主（顶级管理员）→ 引导进入授权管理页 /admin/auth；
+ * - github：GitHub 授权管理员 → 展示角色与已授权权限；
+ * - visitor：已登录 GitHub 未授权 → 「申请管理员权限」按钮；
+ * - anonymous：未登录 → GitHub 登录（与评论区同一链路）+ 站主密码登录。
+ * 用户数据一律 textContent 写入（防 XSS）；document 级事件委托，兼容 View Transitions。
+ */
+---
+<!-- ===== Template ===== -->
+<!-- 导航入口按钮（与原「管理」链接同款样式） -->
+<button
+  id="manage-entry-btn"
+  type="button"
+  class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
+>
+  管理
+</button>
+
+<!-- 管理弹窗（身份分支在打开时由客户端渲染） -->
+<dialog id="manage-dialog" class="manage-dialog" aria-labelledby="manage-title">
+  <div class="settings-header">
+    <div>
+      <p class="pixel-chip text-primary">MANAGE</p>
+      <h2 id="manage-title" class="mt-1 font-display text-xl font-semibold">管理</h2>
+    </div>
+    <button id="manage-close" type="button" aria-label="关闭" class="settings-close">×</button>
+  </div>
+  <div class="pixel-divider" />
+
+  <!-- 加载中 -->
+  <div id="manage-loading" class="py-8 text-center text-sm text-muted-foreground">正在获取身份…</div>
+
+  <!-- top：站主 / 顶级管理员 -->
+  <div id="manage-top" class="hidden py-4">
+    <p class="text-sm leading-relaxed text-muted-foreground">
+      您当前是顶级管理员，可管理授权管理员、审批权限申请与同步个人资料。
+    </p>
+    <a
+      href="/admin/auth"
+      class="mt-4 flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+    >
+      进入授权管理页
+    </a>
+  </div>
+
+  <!-- github：授权管理员 -->
+  <div id="manage-github" class="hidden py-4">
+    <div class="flex items-center gap-3 rounded-md border border-border p-4">
+      <img id="manage-gh-avatar" src="" alt="" class="hidden size-9 rounded-full" loading="lazy" />
+      <div class="min-w-0 flex-1">
+        <p id="manage-gh-name" class="truncate text-sm font-medium"></p>
+        <p id="manage-gh-login" class="text-xs text-muted-foreground"></p>
+      </div>
+      <span id="manage-gh-role" class="pixel-chip rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground"></span>
+    </div>
+    <p class="mt-3 text-xs text-muted-foreground">已授予权限：</p>
+    <div id="manage-gh-perms" class="mt-1 flex flex-wrap gap-1.5"></div>
+  </div>
+
+  <!-- visitor：已登录 GitHub 访客 -->
+  <div id="manage-visitor" class="hidden py-4">
+    <div class="flex items-center gap-3 rounded-md border border-border p-4">
+      <img id="manage-visitor-avatar" src="" alt="" class="hidden size-9 rounded-full" loading="lazy" />
+      <div class="min-w-0 flex-1">
+        <p id="manage-visitor-name" class="truncate text-sm font-medium"></p>
+        <p id="manage-visitor-login" class="text-xs text-muted-foreground"></p>
+      </div>
+    </div>
+    <p class="mt-3 text-sm leading-relaxed text-muted-foreground">
+      提交申请后将进入待审列表，由顶级管理员同意并逐项授权后，你即可按所授予权限管理博客。
+    </p>
+    <button
+      id="manage-apply-btn"
+      type="button"
+      class="mt-4 w-full rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+    >
+      申请管理员权限
+    </button>
+    <p id="manage-apply-msg" class="mt-2 hidden text-xs" role="status"></p>
+  </div>
+
+  <!-- anonymous：未登录 -->
+  <div id="manage-anonymous" class="hidden py-4">
+    <div>
+      <p class="text-sm font-medium">GitHub 登录</p>
+      <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+        与评论区登录一致：登录后可用 GitHub 身份评论、点赞，并可申请管理员权限。
+      </p>
+      {
+        githubEnabled ? (
+          <a
+            id="manage-gh-login-link"
+            href="/api/auth/user/github?next=/"
+            class="mt-2 flex items-center justify-center gap-2 rounded-md border border-border px-4 py-2 text-sm transition-colors duration-200 hover:bg-accent"
+          >
+            <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true">
+              <path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.09.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.7 0 0 .84-.28 2.75 1.05a9.36 9.36 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.4.2 2.44.1 2.7.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.8-4.57 5.06.36.32.68.94.68 1.9v2.81c0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z" />
+            </svg>
+            使用 GitHub 登录
+          </a>
+        ) : (
+          <p class="mt-2 text-xs text-destructive">GitHub 登录未配置（需要 GITHUB_CLIENT_ID 等环境变量）。</p>
+        )
+      }
+    </div>
+    <div class="mt-5 border-t border-border pt-4">
+      <p class="text-sm font-medium">站主登录</p>
+      <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">站主即顶级管理员，登录后进入授权管理页。</p>
+      <form id="manage-top-login-form" class="mt-2 space-y-2">
+        <input
+          id="manage-top-login-password"
+          type="password"
+          required
+          autocomplete="current-password"
+          placeholder="站主密码"
+          class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        />
+        <button
+          type="submit"
+          class="w-full rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+        >
+          站主登录
+        </button>
+        <p id="manage-top-login-error" class="hidden text-xs text-destructive" role="alert"></p>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  /* ===== 管理弹窗：打开时拉取身份并渲染对应分支（document 委托，兼容 View Transitions） ===== */
+
+  function dialogEl(): HTMLDialogElement | null {
+    return document.getElementById('manage-dialog') as HTMLDialogElement | null;
+  }
+
+  /** 只显示指定分支（loading 为打开时的过渡态） */
+  function showBranch(id: 'manage-loading' | 'manage-top' | 'manage-github' | 'manage-visitor' | 'manage-anonymous'): void {
+    for (const key of ['manage-loading', 'manage-top', 'manage-github', 'manage-visitor', 'manage-anonymous']) {
+      document.getElementById(key)?.classList.toggle('hidden', key !== id);
+    }
+  }
+
+  /** 填充用户资料行（textContent 防注入） */
+  function fillUser(prefix: 'gh' | 'visitor', user: { login: string; name: string; avatarUrl: string } | null): void {
+    const avatar = document.getElementById(`manage-${prefix}-avatar`) as HTMLImageElement | null;
+    const name = document.getElementById(`manage-${prefix}-name`);
+    const login = document.getElementById(`manage-${prefix}-login`);
+    if (avatar) {
+      if (user?.avatarUrl) {
+        avatar.src = user.avatarUrl;
+        avatar.classList.remove('hidden');
+      } else {
+        avatar.classList.add('hidden');
+      }
+    }
+    if (name) name.textContent = user?.name || user?.login || 'GitHub 用户';
+    if (login) login.textContent = user?.login ? `@${user.login}` : '';
+  }
+
+  async function openManage(): Promise<void> {
+    const dlg = dialogEl();
+    if (!dlg) return;
+    dlg.showModal();
+    showBranch('manage-loading');
+    let data: {
+      identity?: string;
+      account?: { role?: string; permissions?: string[]; login?: string; name?: string; avatarUrl?: string };
+      user?: { login?: string; name?: string; avatarUrl?: string } | null;
+      error?: string;
+    } = {};
+    try {
+      const res = await fetch('/api/admin-auth/me');
+      data = (await res.json()) as typeof data;
+    } catch {
+      /* 网络错误按 anonymous 渲染，可走站主密码登录 */
+    }
+    switch (data.identity) {
+      case 'top': {
+        showBranch('manage-top');
+        break;
+      }
+      case 'github': {
+        const acc = data.account;
+        fillUser('gh', acc ? { login: acc.login ?? '', name: acc.name ?? '', avatarUrl: acc.avatarUrl ?? '' } : null);
+        const role = document.getElementById('manage-gh-role');
+        if (role) role.textContent = acc?.role === 'top' ? '顶级管理员' : '普通管理员';
+        const perms = document.getElementById('manage-gh-perms');
+        if (perms) {
+          perms.replaceChildren();
+          const list = acc?.permissions ?? [];
+          if (list.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'text-xs text-muted-foreground';
+            empty.textContent = '暂无（等待顶级管理员授权）';
+            perms.appendChild(empty);
+          } else {
+            for (const p of list) {
+              const chip = document.createElement('span');
+              chip.className = 'rounded bg-muted px-2 py-0.5 text-xs';
+              chip.textContent = p;
+              perms.appendChild(chip);
+            }
+          }
+        }
+        showBranch('manage-github');
+        break;
+      }
+      case 'visitor': {
+        const u = data.user;
+        fillUser('visitor', u ? { login: u.login ?? '', name: u.name ?? '', avatarUrl: u.avatarUrl ?? '' } : null);
+        showBranch('manage-visitor');
+        break;
+      }
+      default: {
+        // GitHub 登录回跳当前页（回调侧 safeNextPath 兜底防开放重定向）
+        const link = document.getElementById('manage-gh-login-link') as HTMLAnchorElement | null;
+        if (link) link.href = `/api/auth/user/github?next=${encodeURIComponent(location.pathname + location.search)}`;
+        showBranch('manage-anonymous');
+        break;
+      }
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#manage-entry-btn')) {
+      void openManage();
+      return;
+    }
+    if (target.closest('#manage-close')) {
+      dialogEl()?.close();
+      return;
+    }
+    if (target.closest('#manage-apply-btn')) {
+      const btn = target.closest<HTMLButtonElement>('#manage-apply-btn')!;
+      const msg = document.getElementById('manage-apply-msg');
+      btn.disabled = true;
+      btn.textContent = '提交中…';
+      fetch('/api/admin-auth/applications', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+        .then(async (res) => {
+          const out = (await res.json()) as { error?: string };
+          if (res.ok) {
+            if (msg) {
+              msg.textContent = '申请已提交，请等待顶级管理员审批。';
+              msg.className = 'mt-2 text-xs text-primary';
+              msg.classList.remove('hidden');
+            }
+            btn.textContent = '已提交';
+            return;
+          }
+          if (msg) {
+            msg.textContent = out.error ?? '提交失败';
+            msg.className = 'mt-2 text-xs text-destructive';
+            msg.classList.remove('hidden');
+          }
+          btn.disabled = false;
+          btn.textContent = '申请管理员权限';
+        })
+        .catch(() => {
+          if (msg) {
+            msg.textContent = '网络错误，请重试';
+            msg.className = 'mt-2 text-xs text-destructive';
+            msg.classList.remove('hidden');
+          }
+          btn.disabled = false;
+          btn.textContent = '申请管理员权限';
+        });
+      return;
+    }
+    // 点击遮罩关闭
+    const dlg = dialogEl();
+    if (dlg && target === dlg && dlg.open) dlg.close();
+  });
+
+  /* 站主密码登录：成功后跳授权管理页 */
+  document.addEventListener('submit', (e) => {
+    const form = e.target as HTMLFormElement;
+    if (form.id !== 'manage-top-login-form') return;
+    e.preventDefault();
+    const errorEl = document.getElementById('manage-top-login-error');
+    const input = document.getElementById('manage-top-login-password') as HTMLInputElement | null;
+    errorEl?.classList.add('hidden');
+    fetch('/api/admin-auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: input?.value ?? '' }),
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as { error?: string };
+        if (res.ok) {
+          window.location.href = '/admin/auth';
+          return;
+        }
+        if (errorEl) {
+          errorEl.textContent = data.error ?? '登录失败';
+          errorEl.classList.remove('hidden');
+        }
+      })
+      .catch(() => {
+        if (errorEl) {
+          errorEl.textContent = '网络错误，请重试';
+          errorEl.classList.remove('hidden');
+        }
+      });
+  });
+</script>

@@ -32,6 +32,7 @@ import {
   verifySignedPayload,
   verifyRequest,
   getCurrentUserId,
+  isAllowedGitHubLogin,
   SESSION_TTL_MS,
 } from './auth';
 import type { AdminAccount, AdminApplication, AdminApplicationStatus, AdminRole } from '../../db/types';
@@ -136,7 +137,7 @@ export type AdminIdentity =
 
 /**
  * 判定当前请求身份（可能触发一次 DB 查询：GitHub 登录者查授权表）。
- * 判定顺序：站主会话 → GitHub 授权账号 → GitHub 访客 → 匿名。
+ * 判定顺序：站主会话 → GitHub 白名单（站主本尊）→ GitHub 授权账号 → GitHub 访客 → 匿名。
  */
 export async function getAdminIdentity(cookies: AstroCookies): Promise<AdminIdentity> {
   // 站主：顶级会话，或现有管理员会话（口令 / GitHub 白名单登录，持有人即站主）
@@ -148,6 +149,9 @@ export async function getAdminIdentity(cookies: AstroCookies): Promise<AdminIden
   const rows = await db.select().from(githubUsers).where(eq(githubUsers.id, uid)).limit(1);
   const gh = rows[0];
   if (!gh) return { kind: 'anonymous' };
+  // 站主通过评论区链路（user_session）登录 GitHub 且账号命中 ADMIN_GITHUB_LOGIN
+  // 白名单时，同样视为顶级管理员——不能因为走的是用户登录链路就降级为访客。
+  if (isAllowedGitHubLogin(gh.login)) return { kind: 'top' };
   const accRows = await db.select().from(adminAccounts).where(eq(adminAccounts.githubId, gh.githubId)).limit(1);
   const acc = accRows[0];
   if (!acc) return { kind: 'visitor', githubId: gh.githubId };
@@ -382,14 +386,19 @@ export async function setApplicationStatus(
 /** 拉取 GitHub 公开资料（无 token 的公开接口，60 req/h 足够管理页低频使用） */
 export async function fetchGitHubPublicProfile(
   login: string,
-): Promise<{ login: string; name: string; avatarUrl: string } | null> {
+): Promise<{ id: number; login: string; name: string; avatarUrl: string } | null> {
   const res = await fetch(`https://api.github.com/users/${encodeURIComponent(login)}`, {
     headers: { accept: 'application/vnd.github+json', 'user-agent': 'my-blog' },
   });
   if (!res.ok) return null;
-  const data = (await res.json()) as { login?: string; name?: string | null; avatar_url?: string | null };
-  if (!data.login) return null;
-  return { login: data.login, name: data.name || data.login, avatarUrl: data.avatar_url || '' };
+  const data = (await res.json()) as {
+    id?: number;
+    login?: string;
+    name?: string | null;
+    avatar_url?: string | null;
+  };
+  if (!data.login || typeof data.id !== 'number') return null;
+  return { id: data.id, login: data.login, name: data.name || data.login, avatarUrl: data.avatar_url || '' };
 }
 
 /** 将指定 GitHub 账号的头像/昵称写入个人中心（site_profile），返回同步结果 */
