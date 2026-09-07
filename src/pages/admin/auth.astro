@@ -123,6 +123,9 @@ const permEntries = Object.entries(PERMISSION_KEYS);
                       {acc.role === 'top' ? '顶级管理员' : '普通管理员'}
                     </span>
                   </div>
+                  {acc.role === 'top' && (
+                    <p class="mt-2 text-xs text-primary">顶级管理员自动拥有全部权限（无需逐项授权，后续新增功能亦自动获得）。</p>
+                  )}
                   {acc.role === 'admin' && (
                     <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
                       {permEntries.map(([key, label]) => (
@@ -191,7 +194,7 @@ const permEntries = Object.entries(PERMISSION_KEYS);
           <div class="mt-6">
             <h3 class="text-sm font-medium">添加管理员</h3>
             <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
-              直接输入 GitHub 用户名建号，无需对方先提交申请。站主可把自己的 GitHub 账号添加为顶级管理员，此后用 GitHub 登录即拥有全部权限。
+              直接输入 GitHub 用户名建号，无需对方先提交申请。角色选「顶级管理员」即自动拥有全部权限（无需逐项授权）；选「普通管理员」则需在列表中逐项勾选。站主可把自己的 GitHub 账号添加为顶级管理员，此后用 GitHub 登录即拥有全部权限。
             </p>
             <div class="mt-2 flex flex-wrap gap-2">
               <input

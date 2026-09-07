@@ -218,18 +218,26 @@ const { githubEnabled } = Astro.props;
         const perms = document.getElementById('manage-gh-perms');
         if (perms) {
           perms.replaceChildren();
-          const list = acc?.permissions ?? [];
-          if (list.length === 0) {
-            const empty = document.createElement('span');
-            empty.className = 'text-xs text-muted-foreground';
-            empty.textContent = '暂无（等待顶级管理员授权）';
-            perms.appendChild(empty);
+          if (acc?.role === 'top') {
+            // 顶级管理员：自动拥有全部权限（勿显示「暂无」误导为没权限）
+            const note = document.createElement('span');
+            note.className = 'text-xs text-primary';
+            note.textContent = '顶级管理员自动拥有全部权限，无需逐项授权';
+            perms.appendChild(note);
           } else {
-            for (const p of list) {
-              const chip = document.createElement('span');
-              chip.className = 'rounded bg-muted px-2 py-0.5 text-xs';
-              chip.textContent = p;
-              perms.appendChild(chip);
+            const list = acc?.permissions ?? [];
+            if (list.length === 0) {
+              const empty = document.createElement('span');
+              empty.className = 'text-xs text-muted-foreground';
+              empty.textContent = '暂无（等待顶级管理员授权）';
+              perms.appendChild(empty);
+            } else {
+              for (const p of list) {
+                const chip = document.createElement('span');
+                chip.className = 'rounded bg-muted px-2 py-0.5 text-xs';
+                chip.textContent = p;
+                perms.appendChild(chip);
+              }
             }
           }
         }

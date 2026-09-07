@@ -51,7 +51,15 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const profile = await fetchGitHubPublicProfile(login);
   if (!profile) return json({ error: 'GitHub 用户不存在或获取失败' }, 404);
   const existing = await getAdminAccountByGithubId(profile.id);
-  if (existing) return json({ error: `该 GitHub 账号已在管理员列表中（@${existing.login}）`, account: existing }, 409);
+  if (existing) {
+    return json(
+      {
+        error: `该 GitHub 账号已在管理员列表中（@${existing.login}，当前角色：${existing.role === 'top' ? '顶级管理员' : '普通管理员'}）。如需调整角色，请在列表中使用「设为顶级管理员」。`,
+        account: existing,
+      },
+      409,
+    );
+  }
   const account = await createAdminAccount({
     githubId: profile.id,
     login: profile.login,

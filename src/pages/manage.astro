@@ -49,8 +49,13 @@ const ghLoginUrl = '/api/auth/user/github?next=/manage';
             </div>
             <p class="mt-3 text-xs text-muted-foreground">已授予权限：</p>
             <div class="mt-1 flex flex-wrap gap-1.5">
-              {account.permissions.length === 0 && <span class="text-xs text-muted-foreground">暂无（等待顶级管理员授权）</span>}
-              {account.permissions.map((p) => <span class="rounded bg-muted px-2 py-0.5 text-xs">{p}</span>)}
+              {account.role === 'top' ? (
+                <span class="text-xs text-primary">顶级管理员 · 自动拥有全部权限，无需逐项授权</span>
+              ) : account.permissions.length === 0 ? (
+                <span class="text-xs text-muted-foreground">暂无（等待顶级管理员授权）</span>
+              ) : (
+                account.permissions.map((p) => <span class="rounded bg-muted px-2 py-0.5 text-xs">{p}</span>)
+              )}
             </div>
           </div>
         </div>
