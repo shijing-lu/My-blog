@@ -1,0 +1,360 @@
+---
+/* ===== Props ===== */
+/* （授权管理页无 Props） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { getProfile } from '@/lib/profile';
+import {
+  isTopAdmin,
+  listAdminAccounts,
+  listApplications,
+  PERMISSION_KEYS,
+} from '@/lib/admin-auth';
+
+/* ===== Logic ===== */
+/**
+ * 授权管理页（仅顶级管理员：站主密码会话 / 站主通用会话 / role=top 的 GitHub 管理员）。
+ *
+ * - 申请审批：访客的 GitHub 权限申请（同意时逐项勾选授权；拒绝即驳回）；
+ * - 管理员列表：逐项权限管理、设置其他顶级管理员、移除授权账号；
+ * - GitHub 资料同步：把博客头像与个人中心设置为指定 GitHub 账号的资料（顶级管理员权限）。
+ *   非顶级管理员访问：渲染「无权进入该页面」。
+ */
+const top = await isTopAdmin(Astro.cookies);
+const applications = top ? await listApplications('pending') : [];
+const accounts = top ? await listAdminAccounts() : [];
+const profile = top ? await getProfile() : null;
+const permEntries = Object.entries(PERMISSION_KEYS);
+---
+<!-- ===== Template ===== -->
+<BaseLayout title="授权管理" description="授权管理（仅顶级管理员）">
+  <section class="mx-auto w-full max-w-3xl px-4 py-12">
+    {
+      !top ? (
+        <div class="p-6">
+          <p class="pixel-chip text-primary">AUTH</p>
+          <h1 class="mt-1 font-display text-2xl font-semibold">无权进入该页面</h1>
+          <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+            授权管理页仅顶级管理员（站主）可进入。请通过导航栏「管理」入口以站主身份登录。
+          </p>
+          <a
+            href="/manage"
+            class="mt-4 inline-flex rounded-md border border-border px-4 py-2 text-sm transition-colors duration-200 hover:bg-accent"
+          >
+            返回管理入口
+          </a>
+        </div>
+      ) : (
+        <div>
+          <p class="pixel-chip text-primary">AUTH</p>
+          <h1 class="mt-1 font-display text-2xl font-semibold">授权管理</h1>
+          <p class="mt-1 text-sm text-muted-foreground">管理 GitHub 授权管理员、审批权限申请、同步个人资料。</p>
+
+          <!-- ===== 权限申请审批 ===== -->
+          <div class="mt-8">
+            <h2 class="font-display text-lg font-semibold">权限申请</h2>
+            <div id="app-list" class="mt-3 space-y-3">
+              {
+                applications.length === 0 && (
+                  <p class="rounded-md border border-border p-4 text-sm text-muted-foreground">暂无待审申请。</p>
+                )
+              }
+              {applications.map((app) => (
+                <div class="rounded-md border border-border p-4" data-app-id={app.id}>
+                  <div class="flex items-center gap-3">
+                    {app.avatarUrl && <img src={app.avatarUrl} alt="" class="size-9 rounded-full" loading="lazy" />}
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">{app.name || app.login}</p>
+                      <p class="text-xs text-muted-foreground">@{app.login}</p>
+                    </div>
+                    <span class="pixel-chip rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">待审</span>
+                  </div>
+                  {app.note && <p class="mt-2 text-sm text-muted-foreground">{app.note}</p>}
+                  <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                    {permEntries.map(([key, label]) => (
+                      <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <input type="checkbox" data-app-perm={key} class="accent-[var(--color-primary)]" />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <div class="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      data-action="approve"
+                      class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+                    >
+                      同意并授权
+                    </button>
+                    <button
+                      type="button"
+                      data-action="reject"
+                      class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-accent"
+                    >
+                      拒绝
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <!-- ===== 管理员列表 ===== -->
+          <div class="mt-10">
+            <h2 class="font-display text-lg font-semibold">授权管理员</h2>
+            <div id="acc-list" class="mt-3 space-y-3">
+              {
+                accounts.length === 0 && (
+                  <p class="rounded-md border border-border p-4 text-sm text-muted-foreground">
+                    暂无 GitHub 授权管理员 —— 同意访客申请后自动建立。
+                  </p>
+                )
+              }
+              {accounts.map((acc) => (
+                <div class="rounded-md border border-border p-4" data-acc-id={acc.id}>
+                  <div class="flex items-center gap-3">
+                    {acc.avatarUrl && <img src={acc.avatarUrl} alt="" class="size-9 rounded-full" loading="lazy" />}
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-medium">{acc.name || acc.login}</p>
+                      <p class="text-xs text-muted-foreground">@{acc.login}</p>
+                    </div>
+                    <span class={`pixel-chip rounded px-2 py-0.5 text-xs ${acc.role === 'top' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                      {acc.role === 'top' ? '顶级管理员' : '普通管理员'}
+                    </span>
+                  </div>
+                  {acc.role === 'admin' && (
+                    <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                      {permEntries.map(([key, label]) => (
+                        <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            data-acc-perm={key}
+                            checked={acc.permissions.includes(key)}
+                            class="accent-[var(--color-primary)]"
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    {acc.role === 'admin' ? (
+                      <>
+                        <button
+                          type="button"
+                          data-action="save"
+                          class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+                        >
+                          保存权限
+                        </button>
+                        <button
+                          type="button"
+                          data-action="promote"
+                          class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-accent"
+                        >
+                          设为顶级管理员
+                        </button>
+                        <button
+                          type="button"
+                          data-action="remove"
+                          class="rounded-md border border-destructive/40 px-3 py-1.5 text-xs text-destructive transition-colors duration-200 hover:bg-destructive/10"
+                        >
+                          移除
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          data-action="demote"
+                          class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-accent"
+                        >
+                          降为普通管理员
+                        </button>
+                        <button
+                          type="button"
+                          data-action="remove"
+                          class="rounded-md border border-destructive/40 px-3 py-1.5 text-xs text-destructive transition-colors duration-200 hover:bg-destructive/10"
+                        >
+                          移除
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <!-- ===== GitHub 资料同步（个人信息设置） ===== -->
+          <div class="mt-10">
+            <h2 class="font-display text-lg font-semibold">个人资料同步（GitHub）</h2>
+            <p class="mt-1 text-sm leading-relaxed text-muted-foreground">
+              将博客头像与个人中心设置为指定 GitHub 账号的资料，头像与昵称自动从 GitHub 获取。当前：{profile?.nickname || '博主'}
+            </p>
+            <div class="mt-3 flex gap-2">
+              <input
+                id="gh-sync-login"
+                type="text"
+                placeholder="GitHub 用户名（如 octocat）"
+                class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              />
+              <button
+                id="gh-sync-btn"
+                type="button"
+                class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+              >
+                同步资料
+              </button>
+            </div>
+            <p id="gh-sync-msg" class="mt-2 hidden text-xs" role="status" />
+          </div>
+        </div>
+      )
+    }
+  </section>
+</BaseLayout>
+
+<script>
+  /** 从容器内收集勾选的权限键 */
+  function collectPerms(container: HTMLElement, attr: string): string[] {
+    return Array.from(container.querySelectorAll<HTMLInputElement>(`input[${attr}]:checked`)).map((el) =>
+      el.getAttribute(attr) ?? '',
+    ).filter(Boolean);
+  }
+
+  /** 统一请求 + 结果反馈后刷新（SSR 重渲染最新状态） */
+  function request(url: string, init: RequestInit, done: (data: { error?: string }) => void): void {
+    fetch(url, init)
+      .then(async (res) => {
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          done(data);
+          return;
+        }
+        window.location.reload();
+      })
+      .catch(() => done({ error: '网络错误，请重试' }));
+  }
+
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+
+    /* 申请审批：同意（带勾选权限）/ 拒绝 */
+    const appBtn = target.closest<HTMLButtonElement>('[data-action="approve"], [data-action="reject"]');
+    if (appBtn) {
+      const row = appBtn.closest<HTMLElement>('[data-app-id]');
+      const id = row?.dataset.appId;
+      if (!row || !id) return;
+      const approve = appBtn.dataset.action === 'approve';
+      const perms = approve ? collectPerms(row, 'data-app-perm') : [];
+      appBtn.disabled = true;
+      request(
+        '/api/admin-auth/applications',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id, action: approve ? 'approve' : 'reject', permissions: perms }),
+        },
+        (data) => {
+          appBtn.disabled = false;
+          alert(data.error ?? '操作失败');
+        },
+      );
+      return;
+    }
+
+    /* 管理员列表：保存权限 / 升降级 / 移除 */
+    const accBtn = target.closest<HTMLButtonElement>('[data-action="save"], [data-action="promote"], [data-action="demote"], [data-action="remove"]');
+    if (accBtn) {
+      const row = accBtn.closest<HTMLElement>('[data-acc-id]');
+      const id = row?.dataset.accId;
+      if (!row || !id) return;
+      const action = accBtn.dataset.action ?? '';
+      accBtn.disabled = true;
+      if (action === 'save') {
+        request(
+          '/api/admin-auth/accounts',
+          {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id, permissions: collectPerms(row, 'data-acc-perm') }),
+          },
+          (data) => {
+            accBtn.disabled = false;
+            alert(data.error ?? '操作失败');
+          },
+        );
+      } else if (action === 'promote' || action === 'demote') {
+        request(
+          '/api/admin-auth/accounts',
+          {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id, role: action === 'promote' ? 'top' : 'admin' }),
+          },
+          (data) => {
+            accBtn.disabled = false;
+            alert(data.error ?? '操作失败');
+          },
+        );
+      } else {
+        if (!window.confirm('确定移除该授权管理员？移除后其将失去全部管理权限。')) {
+          accBtn.disabled = false;
+          return;
+        }
+        request(
+          `/api/admin-auth/accounts?id=${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+          (data) => {
+            accBtn.disabled = false;
+            alert(data.error ?? '操作失败');
+          },
+        );
+      }
+      return;
+    }
+
+    /* GitHub 资料同步 */
+    if (target.closest('#gh-sync-btn')) {
+      const input = document.getElementById('gh-sync-login') as HTMLInputElement | null;
+      const msg = document.getElementById('gh-sync-msg');
+      const btn = document.getElementById('gh-sync-btn') as HTMLButtonElement | null;
+      if (!btn) return;
+      const login = (input?.value ?? '').trim();
+      if (!login) {
+        if (msg) {
+          msg.textContent = '请输入 GitHub 用户名';
+          msg.classList.remove('hidden');
+          msg.classList.add('text-destructive');
+        }
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '同步中…';
+      request(
+        '/api/admin-auth/profile-sync',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ login }),
+        },
+        (data) => {
+          btn.disabled = false;
+          btn.textContent = '同步资料';
+          if (msg) {
+            if (data.error) {
+              msg.textContent = data.error;
+              msg.className = 'mt-2 text-xs text-destructive';
+            } else {
+              msg.textContent = '已同步：博客头像与个人中心已更新为该 GitHub 账号的资料。';
+              msg.className = 'mt-2 text-xs text-primary';
+            }
+            msg.classList.remove('hidden');
+          }
+        },
+      );
+    }
+  });
+</script>

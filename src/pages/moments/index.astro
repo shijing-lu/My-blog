@@ -7,18 +7,19 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
 import { formatRelativeTime, getMomentTimeline, listMoments, toMomentView, type MomentView } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 import { countLikesByTargets } from '@/lib/likes';
 import Comments from '@/components/interact/Comments';
 
 /* ===== Logic ===== */
 const PAGE_SIZE = 20;
-const rawMoments = await listMoments(PAGE_SIZE, 0);
+/** 管理员视角（站主或持有 moments 权限）：列表与时间线包含私密动态（普通访客仅见公开） */
+const isAuthed = await canManage(Astro.cookies, 'moments');
+const rawMoments = await listMoments(PAGE_SIZE, 0, { includePrivate: isAuthed });
 /** 服务端渲染 Markdown → contentHtml（首屏与 load-more 同一管线） */
 const moments: MomentView[] = await Promise.all(rawMoments.map((m) => toMomentView(m)));
-const momentTimeline = await getMomentTimeline();
+const momentTimeline = await getMomentTimeline(isAuthed);
 const profile = await getProfile();
-const isAuthed = verifyRequest(Astro.cookies);
 const now = new Date();
 const avatarSrc = profile.avatar || '';
 const nickname = profile.nickname || '博主';
@@ -123,10 +124,21 @@ function renderVideo(url: string): string {
               <button id="moment-video-add" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary">
                 添加视频
               </button>
+              <label class="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                <span class="sr-only">可见性</span>
+                <select
+                  id="moment-visibility"
+                  class="rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none transition-colors focus-visible:border-ring"
+                  aria-label="动态可见性"
+                >
+                  <option value="public">公开发布</option>
+                  <option value="private">私密发布（仅自己可见）</option>
+                </select>
+              </label>
               <button
                 id="moment-publish"
                 type="button"
-                class="ml-auto rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+                class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90"
               >
                 发布
               </button>
@@ -182,6 +194,17 @@ function renderVideo(url: string): string {
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium">{nickname}</span>
                       <time class="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt, now)}</time>
+                      {
+                        isAuthed && m.visibility === 'private' && (
+                          <span class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] text-amber-600 dark:text-amber-400" title="仅自己可见">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-2.5" aria-hidden="true">
+                              <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                            私密
+                          </span>
+                        )
+                      }
                       {
                         isAuthed && (
                           <span class="ml-auto flex items-center gap-2">
@@ -267,6 +290,16 @@ function renderVideo(url: string): string {
       <div id="moment-edit-preview" class="prose h-48 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm empty:border-dashed"></div>
     </div>
     <input id="moment-edit-tags" type="text" maxlength="200" placeholder="标签（逗号分隔）" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+      <label for="moment-edit-visibility">可见性</label>
+      <select
+        id="moment-edit-visibility"
+        class="rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
+      >
+        <option value="public">公开发布</option>
+        <option value="private">私密发布（仅自己可见）</option>
+      </select>
+    </div>
     <p id="moment-edit-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
     <div class="mt-3 flex justify-end gap-2">
       <button id="moment-edit-cancel" type="button" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">取消</button>
@@ -393,10 +426,11 @@ function renderVideo(url: string): string {
     try {
       const tagsRaw = (el<HTMLInputElement>('moment-tags-input')?.value ?? '').trim();
       const tags = tagsRaw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+      const visibility = el<HTMLSelectElement>('moment-visibility')?.value === 'private' ? 'private' : 'public';
       const res = await fetch('/api/moments', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content, media: pendingMedia, tags }),
+        body: JSON.stringify({ content, media: pendingMedia, tags, visibility }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? '发布失败');
@@ -504,6 +538,7 @@ function renderVideo(url: string): string {
     contentHtml: string;
     media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>;
     tags: string[];
+    visibility?: 'public' | 'private';
     createdAt: string;
   }): string {
     const images = m.media.filter((x) => x.type === 'image' || x.type === 'gif');
@@ -519,12 +554,18 @@ function renderVideo(url: string): string {
     const tagHtml = (m.tags ?? [])
       .map((t) => `<button type="button" data-moment-tag="${esc(t)}" class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary">${esc(t)}</button>`)
       .join('');
+    // 私密徽标：load-more 返回的私密动态只可能到达管理员会话（API 已过滤）
+    const privateBadge =
+      m.visibility === 'private'
+        ? `<span class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] text-amber-600 dark:text-amber-400" title="仅自己可见"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-2.5" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>私密</span>`
+        : '';
     return `<article class="moment-card group hairline p-4">
       <div class="flex items-start gap-3">
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium"></span>
             <time class="text-xs text-muted-foreground"></time>
+            ${privateBadge}
             <span class="ml-auto flex items-center gap-2"><button type="button" data-moment-edit="${esc(m.id)}" class="text-xs text-muted-foreground hover:underline">编辑</button><button type="button" data-moment-del="${esc(m.id)}" class="text-xs text-destructive hover:underline" aria-label="删除动态">删除</button></span>
           </div>
           ${m.contentHtml ? `<div class="moment-content prose prose-sm mt-1.5 max-w-none text-sm leading-relaxed">${m.contentHtml}</div>` : ''}
@@ -548,7 +589,7 @@ function renderVideo(url: string): string {
       const res = await fetch(`/api/moments?${params}`);
       if (!res.ok) throw new Error('bad status');
       const data = (await res.json()) as {
-        moments: Array<{ id: string; contentHtml: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; tags: string[]; createdAt: string }>;
+        moments: Array<{ id: string; contentHtml: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; tags: string[]; visibility?: 'public' | 'private'; createdAt: string }>;
       };
       const stream = el('moment-stream');
       data.moments.forEach((m) => {
@@ -701,12 +742,14 @@ function renderVideo(url: string): string {
       editingMomentId = editBtn.dataset.momentEdit ?? '';
       fetch(`/api/moments/${editingMomentId}`)
         .then((r) => r.json())
-        .then((d: { moment?: { content: string; tags: string[] } }) => {
+        .then((d: { moment?: { content: string; tags: string[]; visibility?: 'public' | 'private' } }) => {
           if (!d.moment) return;
           const c = el<HTMLTextAreaElement>('moment-edit-content');
           const tg = el<HTMLInputElement>('moment-edit-tags');
+          const vis = el<HTMLSelectElement>('moment-edit-visibility');
           if (c) c.value = d.moment.content;
           if (tg) tg.value = (d.moment.tags ?? []).join(', ');
+          if (vis) vis.value = d.moment.visibility === 'private' ? 'private' : 'public';
           // 重置预览状态
           editPreviewOn = false;
           const pv = el('moment-edit-preview');
@@ -727,12 +770,13 @@ function renderVideo(url: string): string {
     const content = (el<HTMLTextAreaElement>('moment-edit-content')?.value ?? '').trim();
     const tagsRaw = (el<HTMLInputElement>('moment-edit-tags')?.value ?? '').trim();
     const tags = tagsRaw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+    const visibility = el<HTMLSelectElement>('moment-edit-visibility')?.value === 'private' ? 'private' : 'public';
     const status = el('moment-edit-status');
     try {
       const res = await fetch(`/api/moments/${editingMomentId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content, tags }),
+        body: JSON.stringify({ content, tags, visibility }),
       });
       if (!res.ok) throw new Error('保存失败');
       window.location.reload();

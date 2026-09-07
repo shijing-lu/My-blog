@@ -11,10 +11,18 @@ import { and, desc, eq, gte, like, lt, or } from 'drizzle-orm';
 import { moments } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import { renderMarkdownHtml } from './mdx';
-import type { Moment, MomentMedia } from '../../db/types';
+import type { Moment, MomentMedia, MomentVisibility } from '../../db/types';
 
 /** 媒体类型白名单 */
 export const MEDIA_TYPES = ['image', 'gif', 'video'] as const;
+
+/** 可见性白名单：public 公开（所有人可见）/ private 私密（仅管理员可见） */
+export const MOMENT_VISIBILITIES = ['public', 'private'] as const;
+
+/** 可见性入参规整（纯函数，可单测）：非法值回落 public */
+export function normalizeVisibility(v: unknown): MomentVisibility {
+  return v === 'private' ? 'private' : 'public';
+}
 
 /** 标签数量上限 / 单标签长度上限 / 内容长度上限 */
 export const MAX_TAGS = 10;
@@ -77,9 +85,14 @@ export function serializeTags(tags: string[]): string {
   return JSON.stringify(clean);
 }
 
-/** 行 → 实体 */
+/** 行 → 实体（visibility 规整白名单，库中脏值回落 public） */
 function mapRow(row: typeof moments.$inferSelect): Moment {
-  return { ...row, media: parseMedia(row.media), tags: parseTags(row.tags) };
+  return {
+    ...row,
+    media: parseMedia(row.media),
+    tags: parseTags(row.tags),
+    visibility: normalizeVisibility(row.visibility),
+  };
 }
 
 /** 动态列表筛选条件 */
@@ -90,6 +103,8 @@ export interface MomentFilter {
   q?: string;
   /** 日期 YYYY-MM-DD：按当天过滤 */
   date?: string;
+  /** 是否包含私密动态（仅管理员视角传 true；默认只列公开） */
+  includePrivate?: boolean;
 }
 
 /** 时间补零 */
@@ -106,6 +121,10 @@ function pad(n: number): string {
  */
 export async function listMoments(limit: number, offset: number, filter: MomentFilter = {}): Promise<Moment[]> {
   const conds = [];
+  // 普通访客只见公开动态；管理员（includePrivate）可见全部
+  if (!filter.includePrivate) {
+    conds.push(eq(moments.visibility, 'public'));
+  }
   if (filter.tag) {
     conds.push(like(moments.tags, `%"${filter.tag}"%`));
   }
@@ -132,8 +151,13 @@ export async function listMoments(limit: number, offset: number, filter: MomentF
   return rows.map(mapRow);
 }
 
-/** 新增动态 */
-export async function addMoment(content: string, media: MomentMedia[], tags: string[] = []): Promise<Moment> {
+/** 新增动态（visibility 默认 public） */
+export async function addMoment(
+  content: string,
+  media: MomentMedia[],
+  tags: string[] = [],
+  visibility: MomentVisibility = 'public',
+): Promise<Moment> {
   const now = new Date();
   const rows = await db
     .insert(moments)
@@ -142,6 +166,7 @@ export async function addMoment(content: string, media: MomentMedia[], tags: str
       content,
       media: serializeMedia(media),
       tags: serializeTags(tags),
+      visibility,
       createdAt: now,
       updatedAt: now,
     })
@@ -161,26 +186,28 @@ export async function getMoment(id: string): Promise<Moment | null> {
   return rows[0] ? mapRow(rows[0] as typeof moments.$inferSelect) : null;
 }
 
-/** 更新动态（内容 + 标签） */
+/** 更新动态（内容 + 标签 + 可见性） */
 export async function updateMoment(
   id: string,
-  patch: { content?: string; tags?: string[] },
+  patch: { content?: string; tags?: string[]; visibility?: MomentVisibility },
 ): Promise<Moment | null> {
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.content !== undefined) set.content = patch.content.trim().slice(0, MAX_CONTENT);
   if (patch.tags !== undefined) set.tags = serializeTags(patch.tags);
+  if (patch.visibility !== undefined) set.visibility = patch.visibility;
   const rows = await db.update(moments).set(set).where(eq(moments.id, id)).returning();
-  return rows[0] ? mapRow(rows[0] as typeof moments.$inferSelect) : null;
+  return rows[0] ? mapRow(rows[0]) : null;
 }
 
-/** 动态日期时间线（按天聚合，仅取 createdAt 列；数量少，JS 聚合即可跨方言） */
-export async function getMomentTimeline(): Promise<Array<{ date: string; count: number }>> {
+/** 动态日期时间线（按天聚合；includePrivate=false 时仅统计公开动态） */
+export async function getMomentTimeline(includePrivate = false): Promise<Array<{ date: string; count: number }>> {
   const rows = await db
-    .select({ createdAt: moments.createdAt })
+    .select({ createdAt: moments.createdAt, visibility: moments.visibility })
     .from(moments)
     .orderBy(desc(moments.createdAt));
   const map = new Map<string, number>();
   for (const r of rows) {
+    if (!includePrivate && r.visibility !== 'public') continue;
     const d = r.createdAt;
     const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     map.set(key, (map.get(key) ?? 0) + 1);

@@ -194,6 +194,8 @@ export const moments = sqliteTable('moments', {
   media: text('media').notNull().default('[]'),
   /** 标签：JSON 编码的 string[]（便于搜索/筛选/时间线归类） */
   tags: text('tags').notNull().default('[]'),
+  /** 可见性：public 公开（所有人可见）/ private 私密（仅管理员可见） */
+  visibility: text('visibility').notNull().default('public'),
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
@@ -243,6 +245,56 @@ export const githubUsers = sqliteTable('github_users', {
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
+});
+
+/** 授权管理员（GitHub 授权账号；role=top 顶级管理员 / admin=普通管理员） */
+export const adminAccounts = sqliteTable('admin_accounts', {
+  /** UUID 主键 */
+  id: text('id').primaryKey(),
+  /** GitHub 用户 ID（唯一） */
+  githubId: integer('github_id').notNull().unique(),
+  /** GitHub 用户名 */
+  login: text('login').notNull(),
+  /** 显示昵称 */
+  name: text('name').notNull().default(''),
+  /** 头像 URL */
+  avatarUrl: text('avatar_url').notNull().default(''),
+  /** 角色：top 顶级管理员 / admin 普通管理员 */
+  role: text('role').notNull().default('admin'),
+  /** 逐项权限：JSON 编码的 string[]（键见 src/lib/admin-auth.ts PERMISSION_KEYS） */
+  permissions: text('permissions').notNull().default('[]'),
+  /** 授权时间 */
+  createdAt: timestampMs('created_at')
+    .notNull()
+    .$defaultFn(() => new Date()),
+  /** 最近更新时间 */
+  updatedAt: timestampMs('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/** 管理员权限申请（访客 GitHub 登录后提交，顶级管理员审批） */
+export const adminApplications = sqliteTable('admin_applications', {
+  /** UUID 主键 */
+  id: text('id').primaryKey(),
+  /** GitHub 用户 ID（唯一：同一账号只有一条申请记录，重复申请覆盖重置为 pending） */
+  githubId: integer('github_id').notNull().unique(),
+  /** GitHub 用户名 */
+  login: text('login').notNull(),
+  /** 显示昵称 */
+  name: text('name').notNull().default(''),
+  /** 头像 URL */
+  avatarUrl: text('avatar_url').notNull().default(''),
+  /** 申请留言（可空） */
+  note: text('note').notNull().default(''),
+  /** 状态：pending 待审 / approved 已同意 / rejected 已拒绝 */
+  status: text('status').notNull().default('pending'),
+  /** 申请时间 */
+  createdAt: timestampMs('created_at')
+    .notNull()
+    .$defaultFn(() => new Date()),
+  /** 处理时间（可空） */
+  processedAt: timestampMs('processed_at'),
 });
 
 /** 评论（文章/动态通用，支持嵌套回复；作者可为匿名或 GitHub 登录） */

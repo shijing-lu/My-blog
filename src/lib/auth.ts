@@ -50,14 +50,14 @@ function hmac(data: string): string {
   return createHmac('sha256', secret()).update(data).digest('hex');
 }
 
-/** 签名一个带过期时间的令牌（payload.hmac） */
-function signPayload(payload: Record<string, unknown>): string {
+/** 签名一个带过期时间的令牌（payload.hmac；导出供顶级管理员会话等扩展令牌复用） */
+export function signPayload(payload: Record<string, unknown>): string {
   const body = b64url(JSON.stringify(payload));
   return `${body}.${hmac(body)}`;
 }
 
-/** 校验签名令牌（HMAC 恒定时间比较 + 过期检查） */
-function verifySignedPayload(token: string | undefined | null): boolean {
+/** 校验签名令牌（HMAC 恒定时间比较 + 过期检查；导出供扩展令牌复用） */
+export function verifySignedPayload(token: string | undefined | null): boolean {
   if (!token) return false;
   const [payload, sig] = token.split('.');
   if (!payload || !sig) return false;

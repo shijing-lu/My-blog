@@ -29,8 +29,7 @@ import ThemeToggle from '@/components/ThemeToggle.astro';
 import ThemeSettings from '@/components/ThemeSettings.astro';
 import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
-import LoginDialog from '@/components/LoginDialog.astro';
-import { verifyRequest } from '@/lib/auth';
+import { canManage, isTopAdmin } from '@/lib/admin-auth';
 import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
@@ -46,8 +45,8 @@ const footerQuote =
   heroQuotes[Math.floor(Math.random() * heroQuotes.length)]?.text ?? '技术教程 · 学习笔记 · 随笔与摄影';
 
 /* ===== Logic ===== */
-/** 是否已登录（决定是否显示「写作」入口） */
-const isAuthed = verifyRequest(Astro.cookies);
+/** 是否具备文章管理权限（站主或 GitHub 授权管理员，决定「写作」入口与「管理」按钮形态） */
+const isAuthed = await canManage(Astro.cookies, 'articles');
 /** 全站背景配置（统一背景 / 按页面独立，设置页可配） */
 const bg = await getSiteBackground();
 /** 当前页面应渲染的背景（null = 不渲染） */
@@ -188,8 +187,15 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           <ThemeToggle />
           <ThemeSettings />
           <ProfileDialog isAuthed={isAuthed} />
+          <!-- 管理入口：身份分支页（顶级管理员→授权管理；普通管理员→无权提示；访客→登录/申请） -->
+          <a
+            href="/manage"
+            class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
+          >
+            管理
+          </a>
           {
-            isAuthed ? (
+            isAuthed && (
               <a
                 href="/edit/new"
                 data-astro-reload
@@ -197,8 +203,6 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
               >
                 写作
               </a>
-            ) : (
-              <LoginDialog isAuthed={false} />
             )
           }
         </nav>

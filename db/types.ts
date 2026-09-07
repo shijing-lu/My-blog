@@ -157,6 +157,9 @@ export interface MomentMedia {
   poster?: string | null;
 }
 
+/** 动态可见性：public 公开（所有人可见）/ private 私密（仅管理员可见） */
+export type MomentVisibility = 'public' | 'private';
+
 /** 动态（动态圈） */
 export interface Moment {
   id: string;
@@ -166,6 +169,8 @@ export interface Moment {
   media: MomentMedia[];
   /** 标签（便于搜索/筛选） */
   tags: string[];
+  /** 可见性（公开 / 仅管理员） */
+  visibility: MomentVisibility;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -176,6 +181,7 @@ export interface NewMoment {
   content: string;
   media: MomentMedia[];
   tags: string[];
+  visibility: MomentVisibility;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -220,6 +226,39 @@ export interface GithubUser {
   /** 头像 URL */
   avatarUrl: string;
   createdAt: Date;
+}
+
+/** 授权管理员角色：top 顶级管理员 / admin 普通管理员 */
+export type AdminRole = 'top' | 'admin';
+
+/** 授权管理员（GitHub 授权账号） */
+export interface AdminAccount {
+  id: string;
+  githubId: number;
+  login: string;
+  name: string;
+  avatarUrl: string;
+  role: AdminRole;
+  /** 逐项权限（键见 src/lib/admin-auth.ts PERMISSION_KEYS；top 角色忽略此字段） */
+  permissions: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 管理员权限申请状态 */
+export type AdminApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+/** 管理员权限申请（访客 GitHub 登录后提交） */
+export interface AdminApplication {
+  id: string;
+  githubId: number;
+  login: string;
+  name: string;
+  avatarUrl: string;
+  note: string;
+  status: AdminApplicationStatus;
+  createdAt: Date;
+  processedAt: Date | null;
 }
 
 /** 评论目标类型（与点赞一致） */

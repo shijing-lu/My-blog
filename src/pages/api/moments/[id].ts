@@ -1,33 +1,39 @@
 /**
  * GET/PATCH/DELETE /api/moments/[id] —— 单条动态（管理员写；GET 供编辑回显）
  *
- * - GET：单条动态（content + tags，供编辑弹窗回显）
- * - PATCH：更新内容 / 标签（管理员）
+ * - GET：单条动态（content + tags + visibility，供编辑弹窗回显）。
+ *   私密动态仅管理员可读，普通访客一律 404（不暴露存在性）。
+ * - PATCH：更新内容 / 标签 / 可见性（管理员）
  * - DELETE：删除（管理员）
  */
 import type { APIRoute } from 'astro';
-import { MAX_CONTENT, deleteMoment, getMoment, updateMoment } from '@/lib/moments';
+import { MAX_CONTENT, deleteMoment, getMoment, normalizeVisibility, updateMoment } from '@/lib/moments';
+import { canManage } from '@/lib/admin-auth';
 import { json } from '@/lib/api';
 
 export const prerender = false;
 
-/** GET：单条动态（公开，供编辑回显） */
-export const GET: APIRoute = async ({ params }) => {
+/** GET：单条动态（私密动态仅管理员可见，其余 404） */
+export const GET: APIRoute = async ({ params, cookies }) => {
   const id = params.id;
   if (!id) return json({ error: '缺少 id' }, 400);
   const moment = await getMoment(id);
   if (!moment) return json({ error: '动态不存在' }, 404);
+  if (moment.visibility === 'private' && !(await canManage(cookies, 'moments'))) {
+    return json({ error: '动态不存在' }, 404);
+  }
   return json({
     moment: {
       id: moment.id,
       content: moment.content,
       tags: moment.tags,
+      visibility: moment.visibility,
       createdAt: moment.createdAt.toISOString(),
     },
   });
 };
 
-/** PATCH：更新内容 / 标签（管理员） */
+/** PATCH：更新内容 / 标签 / 可见性（管理员） */
 export const PATCH: APIRoute = async ({ params, request }) => {
   const id = params.id;
   if (!id) return json({ error: '缺少 id' }, 400);
@@ -41,12 +47,14 @@ export const PATCH: APIRoute = async ({ params, request }) => {
   const tags = Array.isArray(body.tags)
     ? (body.tags as unknown[]).filter((t): t is string => typeof t === 'string')
     : undefined;
-  if (content === undefined && tags === undefined) {
+  // 可见性仅显式传入时更新（未传不改；非法值回落 public，与发布一致）
+  const visibility = body.visibility === undefined ? undefined : normalizeVisibility(body.visibility);
+  if (content === undefined && tags === undefined && visibility === undefined) {
     return json({ error: '没有可更新字段' }, 400);
   }
-  const moment = await updateMoment(id, { content, tags });
+  const moment = await updateMoment(id, { content, tags, visibility });
   if (!moment) return json({ error: '动态不存在' }, 404);
-  return json({ moment: { id: moment.id, content: moment.content, tags: moment.tags } });
+  return json({ moment: { id: moment.id, content: moment.content, tags: moment.tags, visibility: moment.visibility } });
 };
 
 /** DELETE：删除（管理员） */

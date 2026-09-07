@@ -2,7 +2,7 @@
  * 动态系统纯函数单元测试
  */
 import { describe, expect, it } from 'vitest';
-import { formatRelativeTime, isValidMedia } from '../src/lib/moments';
+import { formatRelativeTime, isValidMedia, normalizeVisibility } from '../src/lib/moments';
 
 function dt(y: number, m: number, d: number, h = 12, min = 0): Date {
   return new Date(y, m - 1, d, h, min, 0);
@@ -21,6 +21,22 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(dt(2026, 8, 22, 14, 5), now)).toBe('昨天 14:05');
     expect(formatRelativeTime(dt(2026, 8, 18, 12, 0), now)).toBe('5 天前');
     expect(formatRelativeTime(dt(2026, 7, 1, 12, 0), now)).toBe('2026-07-01');
+  });
+});
+
+describe('normalizeVisibility', () => {
+  it('接受合法可见性', () => {
+    expect(normalizeVisibility('public')).toBe('public');
+    expect(normalizeVisibility('private')).toBe('private');
+  });
+
+  it('非法/缺失值回落 public（默认公开）', () => {
+    expect(normalizeVisibility(undefined)).toBe('public');
+    expect(normalizeVisibility(null)).toBe('public');
+    expect(normalizeVisibility('')).toBe('public');
+    expect(normalizeVisibility('secret')).toBe('public');
+    expect(normalizeVisibility('PRIVATE')).toBe('public');
+    expect(normalizeVisibility(123)).toBe('public');
   });
 });
 

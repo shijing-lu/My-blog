@@ -1,90 +1,115 @@
 /**
- * 全局中间件：后台路由鉴权
+ * 全局中间件：后台路由鉴权（站主 + GitHub 授权管理员权限体系）
  *
- * - 页面：`/admin*` 未登录 → 302 `/login?next=<原路径>`
- * - API：`/api/save-draft`、`/api/articles/*` 未登录 → 401 JSON
- * - 公开 API：`/api/login`、`/api/logout`、`/api/auth/*`
+ * - 站主（admin_session 口令/GitHub 白名单 或 top_admin_session 站主密码）：全部放行；
+ * - GitHub 授权管理员（user_session → admin_accounts）：按组映射的逐项权限放行；
+ * - 其余：页面 302 `/login?next=`；API 401 JSON。
+ * - `/admin/auth`（授权管理页）不做通用保护，由页面自身做顶级管理员校验。
+ *
+ * 权限键与资源组的映射见 `requiredApiPermission` / `pagePermission`，
+ * 键定义见 `src/lib/admin-auth.ts` PERMISSION_KEYS。
  */
 import { defineMiddleware } from 'astro:middleware';
-import { verifyRequest } from '@/lib/auth';
+import type { AstroCookies } from 'astro';
+import { hasAnyPermission, isOwnerSession, type PermissionKey } from '@/lib/admin-auth';
 
-/** 受保护 API 前缀（其余 /api 公开） */
-const PROTECTED_API_PREFIXES = ['/api/save-draft', '/api/articles'];
-
-/** 是否为受保护页面路径 */
-function isProtectedPage(pathname: string): boolean {
-  return (
-    pathname === '/admin' ||
-    pathname.startsWith('/admin/') ||
-    pathname === '/edit' ||
-    pathname.startsWith('/edit/') ||
-    pathname === '/gallery/upload' ||
-    pathname.startsWith('/calendar/diary')
-  );
+/**
+ * 受保护 API → 所需权限键（返回 null = 非保护 API，直接放行）。
+ * 行为与原 verifyRequest 版本完全等价（站主全通过），仅增加 GitHub 管理员分支。
+ */
+function requiredApiPermission(pathname: string, method: string): PermissionKey[] | null {
+  // 动态：读公开、写需 moments 权限
+  if (pathname === '/api/moments' || pathname.startsWith('/api/moments/')) {
+    return ['POST', 'PATCH', 'DELETE'].includes(method) ? ['moments'] : null;
+  }
+  // 文章/草稿：管理员写
+  if (pathname === '/api/save-draft' || pathname === '/api/articles' || pathname.startsWith('/api/articles/')) {
+    return ['articles'];
+  }
+  // 图片上传：编辑器/动态/影集共用，任一内容权限即可
+  if (pathname === '/api/images' && method === 'POST') return ['articles', 'moments', 'photos'];
+  // 影集：读公开、写需 photos 权限
+  if (pathname === '/api/photos' || pathname.startsWith('/api/photos/')) {
+    return ['POST', 'PATCH', 'DELETE'].includes(method) ? ['photos'] : null;
+  }
+  // 待办/日记为私密内容：全部方法需 calendar 权限
+  if (pathname === '/api/todos' || pathname.startsWith('/api/todos/') || pathname === '/api/diary' || pathname.startsWith('/api/diary/')) {
+    return ['calendar'];
+  }
+  // 重要日期：读公开、写需 calendar 权限
+  if (pathname === '/api/calendar-events' || pathname.startsWith('/api/calendar-events/')) {
+    return ['POST', 'PATCH', 'DELETE'].includes(method) ? ['calendar'] : null;
+  }
+  // 学习模式：任务/打断全方法需 study 权限；番茄记录仅 POST；统计 GET 公开
+  if (pathname.startsWith('/api/study/')) {
+    if (pathname === '/api/study/stats') return null;
+    if (pathname === '/api/study/sessions' && method === 'GET') return null;
+    return ['study'];
+  }
+  // 文档系统：分类/文档/文章/预览的写方法需 docs 权限；树/单篇/搜索 GET 公开
+  if (pathname.startsWith('/api/doc/')) {
+    if ((pathname === '/api/doc' || pathname === '/api/doc/search') && method === 'GET') return null;
+    if (pathname.startsWith('/api/doc/articles/') && method === 'GET') return null;
+    return method !== 'GET' ? ['docs'] : null;
+  }
+  // 导航：分类/子分类/网站的写方法需 nav 权限（GET 聚合数据公开）
+  if (pathname.startsWith('/api/nav/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    return ['nav'];
+  }
+  // 站点设置类（个人中心之外的站点级配置）：写需 settings 权限
+  if (
+    (pathname === '/api/quote-settings' ||
+      pathname === '/api/background' ||
+      pathname === '/api/landing' ||
+      pathname === '/api/site-name') &&
+    method === 'PUT'
+  ) {
+    return ['settings'];
+  }
+  if (
+    (pathname === '/api/sync-databases' || pathname === '/api/migrate-photos-tags') &&
+    method === 'POST'
+  ) {
+    return ['settings'];
+  }
+  // 个人中心：写需 profile 权限
+  if (pathname === '/api/profile' && method === 'PUT') return ['profile'];
+  return null;
 }
 
-/** 是否为受保护 API 路径 */
-function isProtectedApi(pathname: string): boolean {
-  return PROTECTED_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+/**
+ * 受保护页面 → 所需权限键（返回 null = 非保护页面，或页面自校验）。
+ * `/admin/auth` 返回 null：授权管理页自身做顶级管理员校验（非顶级渲染「无权」）。
+ */
+function pagePermission(pathname: string): PermissionKey[] | null {
+  if (pathname === '/admin/auth') return null;
+  if (pathname === '/admin/settings') return ['settings'];
+  if (pathname === '/admin/nav') return ['nav'];
+  if (pathname === '/admin/mindmaps' || pathname.startsWith('/admin/mindmaps/')) return ['articles'];
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return ['articles'];
+  if (pathname === '/edit' || pathname.startsWith('/edit/')) return ['articles'];
+  if (pathname === '/gallery/upload') return ['photos'];
+  if (pathname === '/calendar/diary' || pathname.startsWith('/calendar/diary/')) return ['calendar'];
+  return null;
 }
 
 /** 中间件 */
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;
-  const protectedPage = isProtectedPage(pathname);
-  // 图片上传仅 POST 受保护；GET 输出图片公开
-  // 相册照片的写方法（上传/改/删）受保护；GET 列表公开
-  const isPhotosApi =
-    pathname === '/api/photos' || pathname.startsWith('/api/photos/');
-  // 待办/日记为私密内容：全部方法需登录
-  const isPrivateCalendarApi =
-    pathname === '/api/todos' ||
-    pathname.startsWith('/api/todos/') ||
-    pathname === '/api/diary' ||
-    pathname.startsWith('/api/diary/');
-  // 重要日期：读公开、写需登录
-  const isEventsApi =
-    pathname === '/api/calendar-events' || pathname.startsWith('/api/calendar-events/');
-  // 动态：读公开、写需登录；个人中心：写需登录
-  const isMomentsApi = pathname === '/api/moments' || pathname.startsWith('/api/moments/');
-  // 学习模式：任务/打断全方法需登录；番茄记录仅 POST 需登录；统计 GET 公开
-  const isStudyApi = pathname.startsWith('/api/study/');
-  const protectedStudyApi =
-    isStudyApi &&
-    !(pathname === '/api/study/stats') &&
-    !(pathname === '/api/study/sessions' && context.request.method === 'GET');
-  // 文档系统：分类/文档/文章/预览的写方法需登录；树/单篇/搜索 GET 公开
-  const isDocApi = pathname.startsWith('/api/doc/');
-  const protectedDocApi =
-    isDocApi &&
-    !(pathname === '/api/doc' && context.request.method === 'GET') &&
-    !(pathname === '/api/doc/search' && context.request.method === 'GET') &&
-    !pathname.startsWith('/api/doc/articles/') && // 单篇 GET 公开
-    context.request.method !== 'GET';
-  const protectedApi =
-    pathname.startsWith('/api/') &&
-    (isProtectedApi(pathname) ||
-      isPrivateCalendarApi ||
-      (pathname === '/api/images' && context.request.method === 'POST') ||
-      (isPhotosApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
-      (pathname === '/api/quote-settings' && context.request.method === 'PUT') ||
-      (pathname === '/api/background' && context.request.method === 'PUT') ||
-      (pathname === '/api/landing' && context.request.method === 'PUT') ||
-      (pathname === '/api/site-name' && context.request.method === 'PUT') ||
-      (pathname === '/api/sync-databases' && context.request.method === 'POST') ||
-      (pathname === '/api/migrate-photos-tags' && context.request.method === 'POST') ||
-      (isEventsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
-      (isMomentsApi && ['POST', 'PATCH', 'DELETE'].includes(context.request.method)) ||
-      // 导航：分类/子分类/网站的写方法需登录（GET 聚合数据公开）
-      (pathname.startsWith('/api/nav/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(context.request.method)) ||
-      (pathname === '/api/profile' && context.request.method === 'PUT') ||
-      protectedStudyApi ||
-      protectedDocApi);
-  if (!protectedPage && !protectedApi) return withCachePolicy(await next(), context.request);
+  const method = context.request.method;
+  const pagePerm = pagePermission(pathname);
+  const apiPerm = requiredApiPermission(pathname, method);
+  if (!pagePerm && !apiPerm) return withCachePolicy(await next(), context.request);
 
-  if (verifyRequest(context.cookies)) return withCachePolicy(await next(), context.request);
+  const cookies = context.cookies as AstroCookies;
+  // 站主（口令 / GitHub 白名单 / 站主密码会话）全通过
+  if (isOwnerSession(cookies)) return withCachePolicy(await next(), context.request);
+  // GitHub 授权管理员：按组权限判定
+  if (await hasAnyPermission(cookies, (pagePerm ?? apiPerm)!)) {
+    return withCachePolicy(await next(), context.request);
+  }
 
-  if (protectedApi) {
+  if (apiPerm) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
       headers: { 'content-type': 'application/json' },
