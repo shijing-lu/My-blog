@@ -9,7 +9,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import {
   createSubCategory,
   deleteSubCategory,
@@ -23,7 +23,7 @@ export const prerender = false;
 const MAX_NAME = 50;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   let body: { categoryId?: unknown; name?: unknown; sort?: unknown };
   try {
     body = (await request.json()) as { categoryId?: unknown; name?: unknown; sort?: unknown };
@@ -50,7 +50,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 };
 
 export const PUT: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   let body: { id?: unknown; name?: unknown; sort?: unknown };
   try {
     body = (await request.json()) as { id?: unknown; name?: unknown; sort?: unknown };
@@ -79,7 +79,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
 };
 
 export const DELETE: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   let body: { id?: unknown };
   try {
     body = (await request.json()) as { id?: unknown };

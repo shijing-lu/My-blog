@@ -6,7 +6,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { deleteBlobObject } from '@/lib/blob';
 import { deleteFont, getFontById, isBlobFontData } from '@/lib/fonts';
 
@@ -34,7 +34,7 @@ export const GET: APIRoute = async ({ params }) => {
 
 /** DELETE：删除（管理员）；Blob 字体同时删除存储对象 */
 export const DELETE: APIRoute = async ({ params, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   const id = params.id ?? '';
   const font = await getFontById(id);
   if (!font) return json({ error: '字体不存在' }, 404);

@@ -11,7 +11,7 @@ import type { APIRoute } from 'astro';
 import { randomUUID } from 'node:crypto';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { blobStorageEnabled, blobToken } from '@/lib/blob';
 
 export const prerender = false;
@@ -42,7 +42,7 @@ const ALLOWED_CONTENT_TYPES = [
 ];
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   if (!blobStorageEnabled) {
     return json({ error: '未配置 BLOB_READ_WRITE_TOKEN，大字体直传不可用（请改用 ≤3MB 字体或先在 Vercel 配置 Blob）' }, 503);
   }

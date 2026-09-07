@@ -10,12 +10,12 @@ const { title = '后台管理' } = Astro.props;
 /* ===== Imports ===== */
 import '../styles/global.css';
 import ThemeHead from '@/components/ThemeHead.astro';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 
 /* ===== Logic ===== */
-const isAuthed = verifyRequest(Astro.cookies);
+const isAuthed = await isManagerSession(Astro.cookies);
 /** 手动字体设置（优先于主题；未设置则跟随主题）——与 BaseLayout 保持一致 */
 const hasManualFonts = await hasManualFontSettings();
 const fontSettings = await getSiteFonts();

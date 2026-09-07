@@ -4,13 +4,13 @@
 
 /* ===== Imports ===== */
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 
 /* ===== Logic ===== */
 /** 服务端读取配置（DB 优先，未配置用内置默认） */
 const settings = await getHeroQuoteSettings();
-/** 仅管理员显示「管理诗词」入口（跳转设置页） */
-const isAuthed = verifyRequest(Astro.cookies);
+/** 仅具备站点设置权限者显示「管理诗词」入口（跳转设置页） */
+const isAuthed = await canManage(Astro.cookies, 'settings');
 /** 首条随机选取（客户端按 SSR 文本回推同一条，避免首屏闪变） */
 const firstQuote =
   settings.quotes.length > 0

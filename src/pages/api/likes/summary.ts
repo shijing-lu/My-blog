@@ -9,7 +9,8 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { getCurrentUserId, verifyRequest } from '@/lib/auth';
+import { getCurrentUserId } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { countLikes, countLikesByType, hasLiked, isLikeTargetType } from '@/lib/likes';
 
 export const prerender = false;
@@ -23,7 +24,7 @@ export const GET: APIRoute = async ({ url, cookies }) => {
   const githubUserId = getCurrentUserId(cookies);
   const fingerprint = url.searchParams.get('fingerprint') ?? '';
   const hasIdentity = githubUserId !== null || Boolean(fingerprint);
-  const isAuthed = verifyRequest(cookies);
+  const isAuthed = await isManagerSession(cookies);
 
   if (isAuthed) {
     // 管理员：返回拆分计数

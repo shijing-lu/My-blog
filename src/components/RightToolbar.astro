@@ -2,14 +2,15 @@
 /*
  * RightToolbar.astro —— 右侧竖向图标工具栏（d-d 式）
  * Props: 无
- * Imports: 鉴权（新建入口仅管理员可见）
- * Logic: 首页 → 新建文章（房子图标下方，仅登录）→ 站点设置 →「编辑当前文章」
- *        （仅登录且处于文档详情页 /doc/[id] 时显示；点击进入/退出就地编辑）→ 回到顶部
+ * Imports: 鉴权（管理入口按逐项权限可见：articles/settings/docs）
+ * Logic: 首页 → 新建文章（房子图标下方，articles 权限）→ 站点设置（settings）
+ *        →「编辑当前文章」（docs 权限且处于文档详情页 /doc/[id]；点击进入/退出就地编辑）→ 回到顶部
  */
-import { verifyRequest } from '@/lib/auth';
+import { permissionChecker } from '@/lib/admin-auth';
 
 /* ===== Logic ===== */
-const isAuthed = verifyRequest(Astro.cookies);
+/* 单次身份判定（勿用旧 verifyRequest：不认 top_admin_session/user_session 新通道） */
+const can = await permissionChecker(Astro.cookies);
 /** 文档详情页（/doc/<bundleId>）才显示「编辑当前文章」；/doc 列表页等不显示 */
 const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
 ---
@@ -22,9 +23,9 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
       <path d="M5 9.5V21h14V9.5" />
     </svg>
   </a>
-  <!-- 新建文章（管理员，房子图标下方） -->
+  <!-- 新建文章（articles 权限，房子图标下方） -->
   {
-    isAuthed && (
+    can('articles') && (
       <a href="/edit/new" aria-label="新建文章" title="新建文章">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
@@ -32,9 +33,9 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
       </a>
     )
   }
-  <!-- 站点设置（管理员，新建文章下方） -->
+  <!-- 站点设置（settings 权限，新建文章下方） -->
   {
-    isAuthed && (
+    can('settings') && (
       <a href="/admin/settings" aria-label="站点设置" title="站点设置">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
           <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
@@ -43,9 +44,9 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
       </a>
     )
   }
-  <!-- 编辑当前文章（管理员 + 文档详情页：就地编辑入口，点击桥接打开/完成） -->
+  <!-- 编辑当前文章（docs 权限 + 文档详情页：就地编辑入口，点击桥接打开/完成） -->
   {
-    isAuthed && isDocDetail && (
+    can('docs') && isDocDetail && (
       <button id="rt-doc-inline-edit" type="button" aria-label="编辑当前文章" title="编辑当前文章">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />

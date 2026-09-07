@@ -7,13 +7,13 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { fetchSiteMeta } from '@/lib/nav-metadata';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   let body: { url?: unknown };
   try {
     body = (await request.json()) as { url?: unknown };

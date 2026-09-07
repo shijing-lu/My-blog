@@ -6,7 +6,7 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
 import { getPhotoTags, listPhotosAlive } from '@/lib/photos';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 
 /* ===== Logic ===== */
 /** 每页照片数（与 /api/photos 默认一致） */
@@ -17,7 +17,7 @@ const activeTag = Astro.url.searchParams.get('tag')?.trim().slice(0, 20) || unde
 const filter = activeTag ? { tag: activeTag } : {};
 // 治本：过滤"DB 行存在但 R2 文件已删"的孤儿（详见 lib/photos.ts listPhotosAlive 注释）
 const photos = await listPhotosAlive(PAGE_SIZE, 0, filter);
-const isAuthed = verifyRequest(Astro.cookies);
+const isAuthed = await canManage(Astro.cookies, 'photos');
 
 /** 日期 → 本地时区 YYYY-MM-DD（与时间线聚合一致） */
 function dateKey(date: Date): string {

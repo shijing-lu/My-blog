@@ -13,7 +13,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 import { buildMonthGrid, countdownText, dateKey, nextOccurrence } from '@/lib/calendar';
 import { getDiaryByDate, listDiaryDates, listEvents, listTodos } from '@/lib/calendar-data';
 
@@ -66,7 +66,8 @@ function serializeDay(
 }
 
 export const GET: APIRoute = async ({ url, cookies }) => {
-  const isAuthed = verifyRequest(cookies);
+  // 待办/日记为私密内容：仅具备 calendar 权限者可见（勿用旧 verifyRequest——不认新会话通道）
+  const isAuthed = await canManage(cookies, 'calendar');
   const now = new Date();
   const todayKey = dateKey(now);
 

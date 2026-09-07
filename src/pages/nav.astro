@@ -2,13 +2,13 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { autoIconUrl, googleFaviconUrl, listNav } from '@/lib/nav';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 
 /* ===== Logic ===== */
 const categories = await listNav();
 const totalSites = categories.reduce((n, c) => n + c.sites.length, 0);
-/** 管理员：显示删除叉 / 添加加号 / 支持拖拽移动 */
-const isAuthed = verifyRequest(Astro.cookies);
+/** 管理者（nav 权限）：显示删除叉 / 添加加号 / 支持拖拽移动 */
+const isAuthed = await canManage(Astro.cookies, 'nav');
 /** 全量分类数据（编辑弹窗用，经隐藏 div 注入） */
 const categoriesJson = JSON.stringify(
   categories.map((c) => ({

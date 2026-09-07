@@ -9,7 +9,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { addFontBlob } from '@/lib/fonts';
 import { MAX_BLOB_BYTES } from './upload-url';
 
@@ -20,7 +20,7 @@ const MAX_NAME = 100;
 const BLOB_URL_RE = /^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\/fonts\//i;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
 
   let body: { familyName?: unknown; mime?: unknown; url?: unknown; size?: unknown };
   try {

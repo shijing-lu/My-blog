@@ -10,7 +10,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { addMindmapRefNode, getMindmap, parseMindmapData, stringifyMindmapData, updateMindmap } from '@/lib/mindmaps';
 
 export const prerender = false;
@@ -19,7 +19,7 @@ const MAX_TEXT = 80;
 const MAX_SNIPPET = 500;
 
 export const POST: APIRoute = async ({ params, request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   const id = params.id ?? '';
   let body: { text?: unknown; anchorId?: unknown; snippet?: unknown; parentId?: unknown };
   try {

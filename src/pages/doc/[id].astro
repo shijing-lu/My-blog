@@ -1,7 +1,7 @@
 ---
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 import { buildNodeTree, getBundle, listBundleNodes, listDocTree } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
@@ -12,7 +12,7 @@ import DocInlineEditor from '@/components/doc/DocInlineEditor';
 
 /* ===== Logic ===== */
 const { id } = Astro.params;
-const isAuthed = verifyRequest(Astro.cookies);
+const isAuthed = await canManage(Astro.cookies, 'docs');
 const bundle = id ? await getBundle(id) : null;
 if (!bundle) return Astro.redirect('/doc');
 

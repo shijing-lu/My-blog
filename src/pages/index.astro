@@ -13,7 +13,7 @@ import { listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
 import { cardCoverUrl } from '@/lib/images';
 import { getLandingHero } from '@/lib/landing';
 import { pageInfo } from '@/lib/pagination';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
@@ -27,8 +27,8 @@ const rawPage = Number(Astro.url.searchParams.get('page') ?? '1');
 const info = pageInfo(rawPage, total, PAGE_SIZE);
 const articles = await listArticlePage(info.page, PAGE_SIZE);
 
-/** 是否管理员（决定卡片编辑入口等） */
-const isAuthed = verifyRequest(Astro.cookies);
+/** 是否管理者（articles 权限：站主或授权管理员，决定卡片编辑入口；勿用旧 verifyRequest——不认新会话通道） */
+const isAuthed = await canManage(Astro.cookies, 'articles');
 /** 文章 → 封面图（手动指定优先，否则取正文第一张图，无则用主题渐变占位） */
 const covers = new Map(articles.map((a) => [a.id, resolveCover(a)]));
 

@@ -1,14 +1,14 @@
 ---
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 import { listDocTree } from '@/lib/docs';
 
 /* ===== Logic ===== */
 const categories = await listDocTree();
 const totalBundles = categories.reduce((n, c) => n + c.bundles.length, 0);
 const totalArticles = categories.reduce((n, c) => n + c.bundles.reduce((m, b) => m + b.articles.length, 0), 0);
-const isAuthed = verifyRequest(Astro.cookies);
+const isAuthed = await canManage(Astro.cookies, 'docs');
 /** 全量分类+文档数据（弹窗用，经隐藏 div 注入） */
 const treeJson = JSON.stringify(categories);
 

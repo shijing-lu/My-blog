@@ -7,7 +7,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { deleteMindmap, getMindmap, parseMindmapData, updateMindmap } from '@/lib/mindmaps';
 
 export const prerender = false;
@@ -35,7 +35,7 @@ export const GET: APIRoute = async ({ params }) => {
 };
 
 export const PUT: APIRoute = async ({ params, request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   const id = params.id ?? '';
   let body: { title?: unknown; articleId?: unknown; data?: unknown };
   try {
@@ -76,7 +76,7 @@ export const PUT: APIRoute = async ({ params, request, cookies }) => {
 };
 
 export const DELETE: APIRoute = async ({ params, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   const id = params.id ?? '';
   try {
     await deleteMindmap(id);

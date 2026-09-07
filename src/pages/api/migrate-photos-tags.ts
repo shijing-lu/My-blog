@@ -11,7 +11,7 @@
 import type { APIRoute } from 'astro';
 import postgres from 'postgres';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 
 export const prerender = false;
 
@@ -36,7 +36,7 @@ async function migrateUrl(label: string, url: string): Promise<Record<string, un
 }
 
 export const POST: APIRoute = async (context) => {
-  if (!verifyRequest(context.cookies)) return json({ error: '未登录' }, 401);
+  if (!(await isManagerSession(context.cookies))) return json({ error: '未登录' }, 401);
 
   const primaryUrl = process.env.DATABASE_URL;
   const fallbackUrl = process.env.DATABASE_URL_FALLBACK;

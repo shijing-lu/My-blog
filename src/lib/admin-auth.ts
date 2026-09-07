@@ -212,6 +212,37 @@ export function isOwnerSession(cookies: AstroCookies): boolean {
   return verifyRequest(cookies) || verifyTopSessionToken(cookies.get(TOP_ADMIN_SESSION_COOKIE)?.value);
 }
 
+/**
+ * 请求级「任意管理者」判定（API 内层纵深防御 / 后台 UI 门控）：
+ * 站主两通道（同步短路）或 GitHub 授权管理员（user_session → admin_accounts，查库）。
+ *
+ * 背景（勿回退）：middleware 已按逐项权限把关受保护路由，但部分 API 的内层
+ * 与后台布局仍保留第二道校验——这些位置历史上用 auth.verifyRequest（只认旧
+ * admin_session 通道），导致新身份（站主密码 top_admin_session / GitHub
+ * user_session）被误判为未登录。统一改用本函数。
+ */
+export async function isManagerSession(cookies: AstroCookies): Promise<boolean> {
+  if (isOwnerSession(cookies)) return true;
+  const identity = await getAdminIdentity(cookies);
+  return identity.kind === 'github';
+}
+
+/**
+ * 一次身份判定，返回逐项权限判定函数（页面/组件需按多个权限键分支 UI 时用，
+ * 避免每键重复查库）。顶级管理员恒真；匿名/访客恒假。
+ */
+export async function permissionChecker(
+  cookies: AstroCookies,
+): Promise<(perm: PermissionKey) => boolean> {
+  const identity = await getAdminIdentity(cookies);
+  if (identity.kind === 'top') return () => true;
+  if (identity.kind === 'github') {
+    const { role, permissions } = identity.account;
+    return (perm) => role === 'top' || permissions.includes(perm);
+  }
+  return () => false;
+}
+
 /* ---------------- 账号 CRUD ---------------- */
 
 /** 行 → 实体（permissions/role 规整） */

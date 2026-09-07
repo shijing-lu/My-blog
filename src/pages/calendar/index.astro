@@ -6,10 +6,10 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { buildMonthGrid, countdownText, dateKey, nextOccurrence } from '@/lib/calendar';
 import { getDiaryByDate, listDiaryDates, listEvents, listTodos } from '@/lib/calendar-data';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 
 /* ===== Logic ===== */
-const isAuthed = verifyRequest(Astro.cookies);
+const isAuthed = await canManage(Astro.cookies, 'calendar');
 const now = new Date();
 const todayKey = dateKey(now);
 

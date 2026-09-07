@@ -6,14 +6,14 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { clearSiteFonts, saveSiteFonts } from '@/lib/fonts';
 import type { SiteFonts } from '../../../db/types';
 
 export const prerender = false;
 
 export const PUT: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   let body: Partial<SiteFonts>;
   try {
     body = (await request.json()) as Partial<SiteFonts>;
@@ -31,7 +31,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
 
 /** DELETE：清除手动字体设置（恢复跟随主题字体） */
 export const DELETE: APIRoute = async ({ cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   try {
     await clearSiteFonts();
     return json({ ok: true });

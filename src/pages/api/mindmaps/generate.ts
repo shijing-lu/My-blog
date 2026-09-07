@@ -6,14 +6,14 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { getArticleById } from '@/lib/articles';
 import { createMindmap, generateFromArticleMarkdown } from '@/lib/mindmaps';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
   let body: { articleId?: unknown; title?: unknown };
   try {
     body = (await request.json()) as { articleId?: unknown; title?: unknown };

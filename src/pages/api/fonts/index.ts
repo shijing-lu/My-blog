@@ -6,7 +6,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { verifyRequest } from '@/lib/auth';
+import { isManagerSession } from '@/lib/admin-auth';
 import { addFont, listFontsMeta } from '@/lib/fonts';
 
 export const prerender = false;
@@ -28,7 +28,7 @@ export const GET: APIRoute = async () => {
 
 /** POST：上传（管理员） */
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!verifyRequest(cookies)) return json({ error: 'unauthorized' }, 401);
+  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
 
   let body: { familyName?: unknown; mime?: unknown; data?: unknown };
   try {

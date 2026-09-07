@@ -1,7 +1,7 @@
 ---
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { verifyRequest } from '@/lib/auth';
+import { canManage } from '@/lib/admin-auth';
 import {
   getDailyGoal,
   getStudyStats,
@@ -11,7 +11,7 @@ import {
 import { listCheckinTasks } from '@/lib/checkin-data';
 
 /* ===== Logic ===== */
-const isAuthed = verifyRequest(Astro.cookies);
+const isAuthed = await canManage(Astro.cookies, 'study');
 const stats = await getStudyStats();
 const dailyGoal = await getDailyGoal();
 /** 私密数据（登录后注入，经隐藏 div 传前端） */
