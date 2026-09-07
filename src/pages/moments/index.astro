@@ -5,11 +5,11 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
-import { formatRelativeTime, getMomentTimeline, listMoments, toMomentView, type MomentView } from '@/lib/moments';
+import MomentCard from '@/components/moments/MomentCard.astro';
+import { listMoments, getMomentTimeline, toMomentView, type MomentView } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
 import { canManage } from '@/lib/admin-auth';
 import { countLikesByTargets } from '@/lib/likes';
-import Comments from '@/components/interact/Comments';
 
 /* ===== Logic ===== */
 const PAGE_SIZE = 20;
@@ -25,41 +25,6 @@ const avatarSrc = profile.avatar || '';
 const nickname = profile.nickname || '博主';
 /** 各动态点赞数（批量查询一次，防按钮初始闪烁） */
 const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
-
-/** 媒体渲染：图片/GIF 进网格灯箱；视频 B站/YouTube 嵌 iframe，直链 video */
-function renderMedia(media: Array<{ type: 'image' | 'gif' | 'video'; url: string; poster?: string | null }>): string {
-  const images = media.filter((m) => m.type === 'image' || m.type === 'gif');
-  const videos = media.filter((m) => m.type === 'video');
-  let html = '';
-  if (images.length > 0) {
-    const gridClass = images.length === 1 ? 'moment-grid-single' : images.length === 2 ? 'moment-grid-two' : 'moment-grid';
-    html += `<div class="${gridClass}">${images
-      .map(
-        (m) =>
-          `<figure class="moment-media overflow-hidden rounded-lg" data-lightbox data-caption="">
-            <img src="${m.url}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" />
-          </figure>`,
-      )
-      .join('')}</div>`;
-  }
-  if (videos.length > 0) {
-    html += `<div class="mt-2 space-y-2">${videos.map((v) => renderVideo(v.url)).join('')}</div>`;
-  }
-  return html;
-}
-
-/** 视频渲染：识别 B站/YouTube → iframe；直链 → video */
-function renderVideo(url: string): string {
-  const bili = url.match(/bilibili\.com\/video\/(BV[\w]+)/);
-  if (bili) {
-    return `<div class="moment-video-wrap"><iframe src="https://player.bilibili.com/player.html?bvid=${bili[1]}&autoplay=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
-  }
-  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
-  if (yt) {
-    return `<div class="moment-video-wrap"><iframe src="https://www.youtube.com/embed/${yt[1]}" frameborder="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
-  }
-  return `<div class="moment-video-wrap"><video src="${url}" controls preload="metadata" playsinline class="w-full"></video></div>`;
-}
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="动态" description="随手记录，分享生活 —— My Blog Moments">
@@ -178,74 +143,7 @@ function renderVideo(url: string): string {
             </div>
           ) : (
             moments.map((m) => (
-              <article class="moment-card group hairline p-4">
-                <div class="flex items-start gap-3">
-                  {/* 性能优化：动态列表里每张卡片的头像都是同一个 URL，原先不带
-                      loading=lazy，N 张卡片会在首屏并发发起 N 次相同请求。
-                      加上 lazy + async 解码后，视口外的卡片不再触发请求。 */}
-                  {avatarSrc ? (
-                    <img src={avatarSrc} alt={nickname} loading="lazy" decoding="async" class="size-10 shrink-0 rounded-full border border-border object-cover" />
-                  ) : (
-                    <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
-                      {nickname.slice(0, 1)}
-                    </span>
-                  )}
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium">{nickname}</span>
-                      <time class="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt, now)}</time>
-                      {
-                        isAuthed && m.visibility === 'private' && (
-                          <span class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] text-amber-600 dark:text-amber-400" title="仅自己可见">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-2.5" aria-hidden="true">
-                              <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                            </svg>
-                            私密
-                          </span>
-                        )
-                      }
-                      {
-                        isAuthed && (
-                          <span class="ml-auto flex items-center gap-2">
-                            <button type="button" data-moment-edit={m.id} class="text-xs text-muted-foreground hover:underline">
-                              编辑
-                            </button>
-                            <button type="button" data-moment-del={m.id} class="text-xs text-destructive hover:underline" aria-label="删除动态">
-                              删除
-                            </button>
-                          </span>
-                        )
-                      }
-                    </div>
-                    {m.content ? (
-                      <div class="moment-content prose prose-sm mt-1.5 max-w-none text-sm leading-relaxed" set:html={m.contentHtml} />
-                    ) : null}
-                    {
-                      m.tags.length > 0 && (
-                        <div class="mt-2 flex flex-wrap gap-1.5">
-                          {m.tags.map((t) => (
-                            <button
-                              type="button"
-                              data-moment-tag={t}
-                              class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
-                            >
-                              {t}
-                            </button>
-                          ))}
-                        </div>
-                      )
-                    }
-                    <div class="mt-2" set:html={renderMedia(m.media)} />
-                  </div>
-                </div>
-                <!-- 点赞（内容）+ 评论（自建评论区，点赞在评论按钮旁）
-                     性能优化：动态列表会渲染大量评论岛，若用 client:load 会在首屏
-                     一次性水合全部岛屿并各发 /api/comments + /api/likes/summary，
-                     请求数随动态条数线性增长。改为 client:visible 后仅当岛屿滚动进
-                     视口才水合，首屏请求数从「条数 × N」降到「可见条数 × N」。 -->
-                <Comments client:visible targetType="moment" targetId={m.id} initialCount={likeMap[m.id] ?? 0} />
-              </article>
+              <MomentCard m={m} avatarSrc={avatarSrc} nickname={nickname} isAuthed={isAuthed} now={now} likeCount={likeMap[m.id] ?? 0} />
             ))
           )
         }
@@ -318,8 +216,28 @@ function renderVideo(url: string): string {
   let offset = 0;
   let loading = false;
   let done = false;
-  /** 当前筛选：关键词 / 标签 / 日期 */
+  /** 当前筛选：关键词 / 标签 / 日期（以 URL 查询参数为唯一事实源，可分享、可还原） */
   const filter = { q: '', tag: '', date: '' };
+
+  /** 从 URL 同步筛选状态（首次进入 / SPA 重入时以 URL 为准） */
+  function syncFilterFromUrl(): void {
+    const sp = new URLSearchParams(window.location.search);
+    filter.q = (sp.get('q') ?? '').trim();
+    filter.tag = (sp.get('tag') ?? '').trim();
+    filter.date = (sp.get('date') ?? '').trim();
+    const si = el<HTMLInputElement>('moment-search');
+    if (si) si.value = filter.q;
+  }
+
+  /** 把当前筛选写回 URL（replaceState 不触发导航；保证筛选状态可分享、刷新后可还原） */
+  function syncUrl(): void {
+    const sp = new URLSearchParams();
+    if (filter.tag) sp.set('tag', filter.tag);
+    if (filter.date) sp.set('date', filter.date);
+    if (filter.q) sp.set('q', filter.q);
+    const qs = sp.toString();
+    window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }
 
   function el<T extends HTMLElement>(id: string): T | null {
     return document.getElementById(id) as T | null;
@@ -506,76 +424,29 @@ function renderVideo(url: string): string {
     if (publishPreviewOn) void renderPreview(el<HTMLTextAreaElement>('moment-content')?.value ?? '', pubBox);
   });
 
-  // 初始 offset（服务端注入）；SPA 切换后 DOM 换新，需在 page-load 重新同步
+  // 初始 offset（服务端注入）；筛选状态以 URL 为准；SPA 切换后 DOM 换新，需在 page-load 重新同步
   function syncPagination(): void {
     offset = Number(el('moment-stream')?.dataset.offset ?? 0);
     done = offset < PAGE_SIZE;
   }
   document.addEventListener('astro:page-load', () => {
-    // SPA 重入：重置筛选/搜索状态，并按新 DOM 重新渲染标签 chips 与分页
-    filter.q = '';
-    filter.tag = '';
-    filter.date = '';
-    const si = el<HTMLInputElement>('moment-search');
-    if (si) si.value = '';
+    // SPA 重入：以新页面 URL 为准恢复筛选/搜索状态，并按新 DOM 重渲染 chips 与分页
+    syncFilterFromUrl();
     syncPagination();
     renderTagChips();
     renderFilterState();
   });
+  syncFilterFromUrl();
   syncPagination();
 
   // ---------- 加载更多 / 删除 ----------
-  function videoHtml(url: string): string {
-    const bili = url.match(/bilibili\.com\/video\/(BV[\w]+)/);
-    if (bili) return `<div class="moment-video-wrap"><iframe src="https://player.bilibili.com/player.html?bvid=${bili[1]}&autoplay=0" scrolling="no" border="0" frameborder="no" allowfullscreen="true" loading="lazy"></iframe></div>`;
-    const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
-    if (yt) return `<div class="moment-video-wrap"><iframe src="https://www.youtube.com/embed/${yt[1]}" frameborder="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
-    return `<div class="moment-video-wrap"><video src="${esc(url)}" controls preload="metadata" playsinline class="w-full"></video></div>`;
-  }
-
-  function cardHtml(m: {
-    id: string;
-    contentHtml: string;
-    media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>;
-    tags: string[];
-    visibility?: 'public' | 'private';
-    createdAt: string;
-  }): string {
-    const images = m.media.filter((x) => x.type === 'image' || x.type === 'gif');
-    const videos = m.media.filter((x) => x.type === 'video');
-    let mediaHtml = '';
-    if (images.length > 0) {
-      const cls = images.length === 1 ? 'moment-grid-single' : images.length === 2 ? 'moment-grid-two' : 'moment-grid';
-      mediaHtml += `<div class="${cls}">${images
-        .map((x) => `<figure class="moment-media overflow-hidden rounded-lg" data-lightbox data-caption=""><img src="${esc(x.url)}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" /></figure>`)
-        .join('')}</div>`;
-    }
-    if (videos.length > 0) mediaHtml += `<div class="mt-2 space-y-2">${videos.map((v) => videoHtml(v.url)).join('')}</div>`;
-    const tagHtml = (m.tags ?? [])
-      .map((t) => `<button type="button" data-moment-tag="${esc(t)}" class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary">${esc(t)}</button>`)
-      .join('');
-    // 私密徽标：load-more 返回的私密动态只可能到达管理员会话（API 已过滤）
-    const privateBadge =
-      m.visibility === 'private'
-        ? `<span class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] text-amber-600 dark:text-amber-400" title="仅自己可见"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-2.5" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>私密</span>`
-        : '';
-    return `<article class="moment-card group hairline p-4">
-      <div class="flex items-start gap-3">
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-medium"></span>
-            <time class="text-xs text-muted-foreground"></time>
-            ${privateBadge}
-            <span class="ml-auto flex items-center gap-2"><button type="button" data-moment-edit="${esc(m.id)}" class="text-xs text-muted-foreground hover:underline">编辑</button><button type="button" data-moment-del="${esc(m.id)}" class="text-xs text-destructive hover:underline" aria-label="删除动态">删除</button></span>
-          </div>
-          ${m.contentHtml ? `<div class="moment-content prose prose-sm mt-1.5 max-w-none text-sm leading-relaxed">${m.contentHtml}</div>` : ''}
-          ${tagHtml ? `<div class="mt-2 flex flex-wrap gap-1.5">${tagHtml}</div>` : ''}
-          <div class="mt-2">${mediaHtml}</div>
-        </div>
-      </div>
-    </article>`;
-  }
-
+  /**
+   * 拉取下一页完整卡片 HTML（/moments/cards partial）。
+   *
+   * 卡片一律由服务端 MomentCard.astro 渲染（与首屏同一模板），客户端不再手拼
+   * cardHtml——旧实现缺头像/姓名/时间/编辑删除按钮/评论岛，且 Astro 岛无法通过
+   * innerHTML 手工构造。partial 片段里的 <astro-island> 插入 DOM 后会正常水合。
+   */
   async function loadMore(): Promise<void> {
     if (loading || done) return;
     loading = true;
@@ -586,21 +457,21 @@ function renderVideo(url: string): string {
       if (filter.q) params.set('q', filter.q);
       if (filter.tag) params.set('tag', filter.tag);
       if (filter.date) params.set('date', filter.date);
-      const res = await fetch(`/api/moments?${params}`);
+      const res = await fetch(`/moments/cards?${params}`);
       if (!res.ok) throw new Error('bad status');
-      const data = (await res.json()) as {
-        moments: Array<{ id: string; contentHtml: string; media: Array<{ type: 'image' | 'gif' | 'video'; url: string }>; tags: string[]; visibility?: 'public' | 'private'; createdAt: string }>;
-      };
+      const html = await res.text();
+      const tpl = document.createElement('template');
+      tpl.innerHTML = html;
+      const cards = tpl.content.querySelectorAll('.moment-card').length;
       const stream = el('moment-stream');
-      data.moments.forEach((m) => {
-        if (stream) stream.insertAdjacentHTML('beforeend', cardHtml(m));
-      });
-      offset += data.moments.length;
-      done = data.moments.length < PAGE_SIZE;
+      if (stream) stream.appendChild(tpl.content);
+      offset += cards;
+      done = cards < PAGE_SIZE;
       if (done) el('moment-more-wrap')?.classList.add('hidden');
-      if (stream && data.moments.length === 0) {
-        // 空 → 隐藏按钮
-        el('moment-more-wrap')?.classList.add('hidden');
+      if (cards === 0 && stream && stream.children.length === 0) {
+        // 筛选后无结果 → 客户端空态
+        stream.innerHTML =
+          '<div class="py-10 text-center"><p class="font-display text-lg font-semibold">没有符合条件的动态</p><p class="mt-2 text-sm text-muted-foreground">换个关键词或清除筛选试试。</p></div>';
       }
       renderTagChips();
     } catch {
@@ -636,7 +507,7 @@ function renderVideo(url: string): string {
     });
   }
 
-  /** 重置列表并按当前筛选重新加载第一页 */
+  /** 重置列表并按当前筛选重新加载第一页（筛选状态已由调用方写入 URL） */
   async function reload(): Promise<void> {
     const stream = el('moment-stream');
     if (stream) stream.innerHTML = '';
@@ -644,6 +515,7 @@ function renderVideo(url: string): string {
     done = false;
     el('moment-more-wrap')?.classList.remove('hidden');
     renderFilterState();
+    renderTagChips();
     await loadMore();
   }
 
@@ -670,21 +542,24 @@ function renderVideo(url: string): string {
     window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => {
       filter.q = input.value.trim();
+      syncUrl();
       void reload();
     }, 250);
   });
 
-  // 标签 / 时间线 / 清除筛选（document 委托）
+  // 标签 / 时间线 / 清除筛选（document 委托）——每次变更同步 URL，清除即还原初始状态
   document.addEventListener('click', (e) => {
     const tagBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-filter-tag]');
     if (tagBtn) {
       filter.tag = filter.tag === tagBtn.dataset.filterTag ? '' : (tagBtn.dataset.filterTag ?? '');
+      syncUrl();
       void reload();
       return;
     }
     const momentTag = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-tag]');
     if (momentTag) {
       filter.tag = filter.tag === momentTag.dataset.momentTag ? '' : (momentTag.dataset.momentTag ?? '');
+      syncUrl();
       void reload();
       return;
     }
@@ -692,6 +567,7 @@ function renderVideo(url: string): string {
     if (tl) {
       const date = tl.dataset.timelineDate ?? '';
       filter.date = filter.date === date ? '' : date;
+      syncUrl();
       void reload();
       return;
     }
@@ -702,6 +578,7 @@ function renderVideo(url: string): string {
       filter.date = '';
       const input = el<HTMLInputElement>('moment-search');
       if (input) input.value = '';
+      syncUrl();
       void reload();
     }
   });

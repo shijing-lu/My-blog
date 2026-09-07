@@ -47,7 +47,7 @@ const footerQuote =
   heroQuotes[Math.floor(Math.random() * heroQuotes.length)]?.text ?? '技术教程 · 学习笔记 · 随笔与摄影';
 
 /* ===== Logic ===== */
-/** 是否具备文章管理权限（站主或 GitHub 授权管理员，决定「写作」入口与「管理」按钮形态） */
+/** 是否具备文章管理权限（站主或 GitHub 授权管理员，ProfileDialog 按此切换管理视角） */
 const isAuthed = await canManage(Astro.cookies, 'articles');
 /** 全站背景配置（统一背景 / 按页面独立，设置页可配） */
 const bg = await getSiteBackground();
@@ -191,17 +191,6 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           <ProfileDialog isAuthed={isAuthed} />
           <!-- 管理入口：模态弹窗（打开时按身份分支渲染，不再跳转独立页） -->
           <ManageDialog githubEnabled={isUserGitHubConfigured()} />
-          {
-            isAuthed && (
-              <a
-                href="/edit/new"
-                data-astro-reload
-                class="ml-1 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
-              >
-                写作
-              </a>
-            )
-          }
         </nav>
       </div>
     </header>

@@ -1,0 +1,125 @@
+---
+/* ===== Imports ===== */
+import Comments from '@/components/interact/Comments';
+import { formatRelativeTime, type MomentView } from '@/lib/moments';
+
+/* ===== Props ===== */
+interface Props {
+  m: MomentView;
+  avatarSrc: string;
+  nickname: string;
+  isAuthed: boolean;
+  /** 相对时间基准（首屏与分页片段共用同一 now，避免同屏时间抖动） */
+  now: Date;
+  likeCount: number;
+}
+
+const { m, avatarSrc, nickname, isAuthed, now, likeCount } = Astro.props;
+
+/* ===== Logic ===== */
+/** 媒体渲染：图片/GIF 进网格灯箱；视频 B站/YouTube 嵌 iframe，直链 video */
+function renderMedia(media: Array<{ type: 'image' | 'gif' | 'video'; url: string; poster?: string | null }>): string {
+  const images = media.filter((m) => m.type === 'image' || m.type === 'gif');
+  const videos = media.filter((m) => m.type === 'video');
+  let html = '';
+  if (images.length > 0) {
+    const gridClass = images.length === 1 ? 'moment-grid-single' : images.length === 2 ? 'moment-grid-two' : 'moment-grid';
+    html += `<div class="${gridClass}">${images
+      .map(
+        (m) =>
+          `<figure class="moment-media overflow-hidden rounded-lg" data-lightbox data-caption="">
+            <img src="${m.url}" alt="" loading="lazy" class="h-full w-full cursor-zoom-in object-cover" />
+          </figure>`,
+      )
+      .join('')}</div>`;
+  }
+  if (videos.length > 0) {
+    html += `<div class="mt-2 space-y-2">${videos.map((v) => renderVideo(v.url)).join('')}</div>`;
+  }
+  return html;
+}
+
+/** 视频渲染：识别 B站/YouTube → iframe；直链 → video */
+function renderVideo(url: string): string {
+  const bili = url.match(/bilibili\.com\/video\/(BV[\w]+)/);
+  if (bili) {
+    return `<div class="moment-video-wrap"><iframe src="https://player.bilibili.com/player.html?bvid=${bili[1]}&autoplay=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
+  }
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+  if (yt) {
+    return `<div class="moment-video-wrap"><iframe src="https://www.youtube.com/embed/${yt[1]}" frameborder="0" allowfullscreen="true" loading="lazy"></iframe></div>`;
+  }
+  return `<div class="moment-video-wrap"><video src="${url}" controls preload="metadata" playsinline class="w-full"></video></div>`;
+}
+---
+<!-- ===== Template ===== -->
+<!-- 动态卡片唯一模板：首屏 SSR、/moments/cards partial（筛选 / 加载更多 / 清除筛选）
+     一律经此组件渲染，保证任何路径出现的卡片样式完全一致。 -->
+<article class="moment-card group hairline p-4">
+  <div class="flex items-start gap-3">
+    {/* 性能优化：动态列表里每张卡片的头像都是同一个 URL，原先不带
+        loading=lazy，N 张卡片会在首屏并发发起 N 次相同请求。
+        加上 lazy + async 解码后，视口外的卡片不再触发请求。 */}
+    {avatarSrc ? (
+      <img src={avatarSrc} alt={nickname} loading="lazy" decoding="async" class="size-10 shrink-0 rounded-full border border-border object-cover" />
+    ) : (
+      <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
+        {nickname.slice(0, 1)}
+      </span>
+    )}
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center gap-2">
+        <span class="text-sm font-medium">{nickname}</span>
+        <time class="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt, now)}</time>
+        {
+          isAuthed && m.visibility === 'private' && (
+            <span class="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] text-amber-600 dark:text-amber-400" title="仅自己可见">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-2.5" aria-hidden="true">
+                <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              私密
+            </span>
+          )
+        }
+        {
+          isAuthed && (
+            <span class="ml-auto flex items-center gap-2">
+              <button type="button" data-moment-edit={m.id} class="text-xs text-muted-foreground hover:underline">
+                编辑
+              </button>
+              <button type="button" data-moment-del={m.id} class="text-xs text-destructive hover:underline" aria-label="删除动态">
+                删除
+              </button>
+            </span>
+          )
+        }
+      </div>
+      {m.content ? (
+        <div class="moment-content prose prose-sm mt-1.5 max-w-none text-sm leading-relaxed" set:html={m.contentHtml} />
+      ) : null}
+      {
+        m.tags.length > 0 && (
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            {m.tags.map((t) => (
+              <button
+                type="button"
+                data-moment-tag={t}
+                class="rounded bg-muted px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        )
+      }
+      <div class="mt-2" set:html={renderMedia(m.media)} />
+    </div>
+  </div>
+  <!-- 点赞（内容）+ 评论（自建评论区，点赞在评论按钮旁）
+       性能优化：动态列表会渲染大量评论岛，若用 client:load 会在首屏
+       一次性水合全部岛屿并各发 /api/comments + /api/likes/summary，
+       请求数随动态条数线性增长。改为 client:visible 后仅当岛屿滚动进
+       视口才水合，首屏请求数从「条数 × N」降到「可见条数 × N」。 -->
+  <Comments client:visible targetType="moment" targetId={m.id} initialCount={likeCount} />
+</article>

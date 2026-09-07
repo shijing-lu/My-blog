@@ -1,0 +1,51 @@
+---
+/**
+ * 动态卡片片段页（partial）：供 /moments 客户端按需拉取完整卡片 HTML。
+ *
+ * `export const partial = true` → 输出纯 HTML 片段（无 <html> 布局壳）。
+ * 与首屏共用 MomentCard.astro 模板，保证「标签筛选 / 搜索 / 时间线定位 /
+ * 清除筛选 / 加载更多」渲染出的卡片与首次进入动态页完全一致
+ * （含头像、姓名、相对时间、编辑/删除按钮、私密徽标、评论区岛）。
+ */
+export const partial = true;
+
+/* ===== Imports ===== */
+import MomentCard from '@/components/moments/MomentCard.astro';
+import { listMoments, toMomentView } from '@/lib/moments';
+import { getProfile } from '@/lib/profile';
+import { canManage } from '@/lib/admin-auth';
+import { countLikesByTargets } from '@/lib/likes';
+
+/* ===== Logic ===== */
+const PAGE_SIZE = 20;
+/** 管理员视角（站主或持有 moments 权限）：片段包含私密动态（普通访客仅见公开） */
+const isAuthed = await canManage(Astro.cookies, 'moments');
+
+const sp = Astro.url.searchParams;
+/** 缺省/非法参数回退默认值（注意 Number(null)===0，必须先判空再转数字） */
+const clampInt = (raw: string | null, min: number, max: number, dflt: number): number => {
+  if (raw == null || raw.trim() === '') return dflt;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : dflt;
+};
+const limit = clampInt(sp.get('limit'), 1, 20, PAGE_SIZE);
+const offset = clampInt(sp.get('offset'), 0, 1_000_000, 0);
+const q = (sp.get('q') ?? '').trim().slice(0, 100);
+const tag = (sp.get('tag') ?? '').trim().slice(0, 50);
+const date = (sp.get('date') ?? '').trim();
+
+const raw = await listMoments(limit, offset, {
+  includePrivate: isAuthed,
+  q: q || undefined,
+  tag: tag || undefined,
+  date: date || undefined,
+});
+const moments = await Promise.all(raw.map((m) => toMomentView(m)));
+const profile = await getProfile();
+const avatarSrc = profile.avatar || '';
+const nickname = profile.nickname || '博主';
+/** 各动态点赞数（批量查询一次，防按钮初始闪烁） */
+const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
+const now = new Date();
+---
+{moments.map((m) => <MomentCard m={m} avatarSrc={avatarSrc} nickname={nickname} isAuthed={isAuthed} now={now} likeCount={likeMap[m.id] ?? 0} />)}
