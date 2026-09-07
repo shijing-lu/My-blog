@@ -28,7 +28,7 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     <input
       id="search-input"
       type="search"
-      placeholder="搜索标题 / 摘要 / 标签（全站）…"
+      placeholder="搜索标题 / 正文 / 标签（全站）…"
       autocomplete="off"
       data-total={total}
       class="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -89,13 +89,15 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
   }
 
-  /** 由搜索数据构建文章行（与首页 .post-row 同构：无盒、细线、大留白） */
+  /** 由搜索数据构建文章行（与首页 .post-row 同构：无盒、细线、大留白）
+   *  - snippet：正文命中时为命中处片段（服务端生成），否则等于 summary */
   function rowHtml(a: {
     id: string;
     title: string;
     slug: string;
     type: string;
     summary: string;
+    snippet: string;
     cover: string | null;
     tags: string[];
     updatedAt: string;
@@ -115,7 +117,7 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
           <span class="pixel-chip rounded px-1.5 py-0.5 ${TYPE_CHIP[a.type] ?? 'chip-tech'}">${TYPE_LABELS[a.type] ?? a.type}</span>
           <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">${esc(a.title)}</h3>
         </div>
-        <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">${esc(a.summary)}</p>
+        <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">${esc(a.snippet || a.summary)}</p>
         ${tagLinks ? `<div class="mt-2 flex flex-wrap gap-1.5">${tagLinks}</div>` : ''}
       </div>
       <div class="post-row-meta">
