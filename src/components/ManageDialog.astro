@@ -42,8 +42,9 @@ const { githubEnabled } = Astro.props;
   <!-- 加载中 -->
   <div id="manage-loading" class="py-8 text-center text-sm text-muted-foreground">正在获取身份…</div>
 
-  <!-- top：站主 / 顶级管理员 -->
+  <!-- top：站主 / 顶级管理员（站主密码会话或 GitHub role=top 均走此分支） -->
   <div id="manage-top" class="hidden py-4">
+    <p id="manage-top-identity" class="hidden text-xs text-primary"></p>
     <p class="text-sm leading-relaxed text-muted-foreground">
       您当前是顶级管理员，可管理授权管理员、审批权限申请与同步个人资料。
     </p>
@@ -212,32 +213,35 @@ const { githubEnabled } = Astro.props;
       }
       case 'github': {
         const acc = data.account;
+        // GitHub role=top 与站主同级：同样直接给「进入授权管理页」入口（勿按普通管理员渲染）
+        if (acc?.role === 'top') {
+          const identity = document.getElementById('manage-top-identity');
+          if (identity) {
+            identity.textContent = `当前身份：${acc.name || acc.login || 'GitHub 用户'}（@${acc.login ?? ''}）· 顶级管理员`;
+            identity.classList.remove('hidden');
+          }
+          showBranch('manage-top');
+          setLogoutVisible(true);
+          break;
+        }
         fillUser('gh', acc ? { login: acc.login ?? '', name: acc.name ?? '', avatarUrl: acc.avatarUrl ?? '' } : null);
         const role = document.getElementById('manage-gh-role');
-        if (role) role.textContent = acc?.role === 'top' ? '顶级管理员' : '普通管理员';
+        if (role) role.textContent = '普通管理员';
         const perms = document.getElementById('manage-gh-perms');
         if (perms) {
           perms.replaceChildren();
-          if (acc?.role === 'top') {
-            // 顶级管理员：自动拥有全部权限（勿显示「暂无」误导为没权限）
-            const note = document.createElement('span');
-            note.className = 'text-xs text-primary';
-            note.textContent = '顶级管理员自动拥有全部权限，无需逐项授权';
-            perms.appendChild(note);
+          const list = acc?.permissions ?? [];
+          if (list.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'text-xs text-muted-foreground';
+            empty.textContent = '暂无（等待顶级管理员授权）';
+            perms.appendChild(empty);
           } else {
-            const list = acc?.permissions ?? [];
-            if (list.length === 0) {
-              const empty = document.createElement('span');
-              empty.className = 'text-xs text-muted-foreground';
-              empty.textContent = '暂无（等待顶级管理员授权）';
-              perms.appendChild(empty);
-            } else {
-              for (const p of list) {
-                const chip = document.createElement('span');
-                chip.className = 'rounded bg-muted px-2 py-0.5 text-xs';
-                chip.textContent = p;
-                perms.appendChild(chip);
-              }
+            for (const p of list) {
+              const chip = document.createElement('span');
+              chip.className = 'rounded bg-muted px-2 py-0.5 text-xs';
+              chip.textContent = p;
+              perms.appendChild(chip);
             }
           }
         }
