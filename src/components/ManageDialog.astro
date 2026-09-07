@@ -137,6 +137,17 @@ const { githubEnabled } = Astro.props;
       </form>
     </div>
   </div>
+
+  <!-- 退出登录：仅已登录身份（top/github/visitor）显示，匿名与加载态隐藏 -->
+  <div id="manage-logout-area" class="hidden mt-4 border-t border-border pt-4">
+    <button
+      id="manage-logout-btn"
+      type="button"
+      class="w-full rounded-md border border-border px-4 py-2 text-sm transition-colors duration-200 hover:bg-accent"
+    >
+      退出登录
+    </button>
+  </div>
 </dialog>
 
 <script>
@@ -170,11 +181,17 @@ const { githubEnabled } = Astro.props;
     if (login) login.textContent = user?.login ? `@${user.login}` : '';
   }
 
+  /** 退出登录按钮显隐：仅已登录身份显示（每次打开时按最新 /me 结果切换） */
+  function setLogoutVisible(visible: boolean): void {
+    document.getElementById('manage-logout-area')?.classList.toggle('hidden', !visible);
+  }
+
   async function openManage(): Promise<void> {
     const dlg = dialogEl();
     if (!dlg) return;
     dlg.showModal();
     showBranch('manage-loading');
+    setLogoutVisible(false);
     let data: {
       identity?: string;
       account?: { role?: string; permissions?: string[]; login?: string; name?: string; avatarUrl?: string };
@@ -190,6 +207,7 @@ const { githubEnabled } = Astro.props;
     switch (data.identity) {
       case 'top': {
         showBranch('manage-top');
+        setLogoutVisible(true);
         break;
       }
       case 'github': {
@@ -216,12 +234,14 @@ const { githubEnabled } = Astro.props;
           }
         }
         showBranch('manage-github');
+        setLogoutVisible(true);
         break;
       }
       case 'visitor': {
         const u = data.user;
         fillUser('visitor', u ? { login: u.login ?? '', name: u.name ?? '', avatarUrl: u.avatarUrl ?? '' } : null);
         showBranch('manage-visitor');
+        setLogoutVisible(true);
         break;
       }
       default: {
@@ -229,6 +249,7 @@ const { githubEnabled } = Astro.props;
         const link = document.getElementById('manage-gh-login-link') as HTMLAnchorElement | null;
         if (link) link.href = `/api/auth/user/github?next=${encodeURIComponent(location.pathname + location.search)}`;
         showBranch('manage-anonymous');
+        setLogoutVisible(false);
         break;
       }
     }
@@ -281,6 +302,21 @@ const { githubEnabled } = Astro.props;
           }
           btn.disabled = false;
           btn.textContent = '申请管理员权限';
+        });
+      return;
+    }
+    if (target.closest('#manage-logout-btn')) {
+      // 统一登出（清除站主/管理员/用户三类会话）后刷新，让导航「写作」等登录态入口同步
+      const btn = target.closest<HTMLButtonElement>('#manage-logout-btn')!;
+      btn.disabled = true;
+      btn.textContent = '退出中…';
+      fetch('/api/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+        .then(() => {
+          window.location.reload();
+        })
+        .catch(() => {
+          btn.disabled = false;
+          btn.textContent = '退出登录';
         });
       return;
     }
