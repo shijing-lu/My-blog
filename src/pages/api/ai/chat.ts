@@ -4,8 +4,9 @@
  * - 管理员（站主/GitHub 管理员）直通；游客需 allowGuests 开关 + 双层限流：
  *   内存 IP 每日计数（serverless 冷启动重置，尽力而为）+ DB 全局每日计数。
  * - 请求体 { messages: [{role:'user'|'assistant', content}] }；选中文字由前端模板化进首条 user 消息。
- * - 服务端注入 systemPrompt（小卿人设）后转发上游 OpenAI 兼容 /v1/chat/completions stream:true，
- *   解析上游 delta 后**重帧**为自定义轻量 SSE 下发：
+ * - 服务端注入 systemPrompt（小卿人设）+ 身份差异化段（主人=顶级管理员：亲昵高配合；
+ *   访客：礼貌克制。isTopAdmin 服务端判定，不受前端传参影响）后转发上游 OpenAI 兼容
+ *   /v1/chat/completions stream:true，解析上游 delta 后**重帧**为自定义轻量 SSE 下发：
  *     data: {"delta":"文本片段"}   （逐段）
  *     data: {"error":"错误信息"}   （流中任意时刻出错）
  *     data: {"done":true}          （正常收尾）
@@ -13,7 +14,7 @@
  */
 import type { APIRoute } from 'astro';
 import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { isManagerSession, isTopAdmin } from '@/lib/admin-auth';
 import {
   getAiConfig,
   isAiReady,
@@ -71,8 +72,8 @@ function sanitizeMessages(raw: unknown): IncomingMessage[] | null {
 }
 
 export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
-  // 1. 身份与开关
-  const isManager = await isManagerSession(cookies);
+  // 1. 身份与开关（主人=顶级管理员：站主会话或 role=top 的 GitHub 管理员；判定在服务端，不受前端传参影响）
+  const [isManager, isOwner] = await Promise.all([isManagerSession(cookies), isTopAdmin(cookies)]);
   const cfg = await getAiConfig();
   if (!isAiReady(cfg)) return json({ error: 'AI 功能未启用或配置不完整' }, 403);
   if (!isManager && !cfg.allowGuests) return json({ error: 'AI 功能仅对管理员开放' }, 403);
@@ -101,7 +102,12 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   // ⚠️ 不能把 request.signal 直接传给上游 fetch：Astro 环境里该 signal 传入 undici
   // fetch 会立即 AbortError（dev 实证，signal.aborted 仍为 false 也抛）。客户端断开的
   // 联动取消改由下方 ReadableStream.cancel() → upstreamController.abort() 完成。
-  const systemPrompt = cfg.systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
+  const basePrompt = cfg.systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
+  // 差异化态度（身份由服务端判定，无法伪造）：主人亲昵高配合 / 访客礼貌克制
+  const identityPrompt = isOwner
+    ? '\n\n【当前提问者身份】本次对话的提问者是博客的顶级管理员，是小卿的主人。对主人的态度：用「主人」称呼对方；语气亲昵、忠诚、配合度高，卖萌撒娇可以放开一些；主人提出的要求尽力满足（违法有害内容除外）；被主人纠正时立即采纳不再坚持；可以主动为主人补充相关信息。'
+    : '\n\n【当前提问者身份】本次对话的提问者是博客的普通访客。对访客的态度：礼貌、友好但适度克制，以专业、准确地解决问题为第一要务；不使用「主人」等亲昵称呼；卖萌克制（最多偶尔一次）；不主动索要个人信息、不引导站外操作；态度不卑不亢。';
+  const systemPrompt = basePrompt + identityPrompt;
   const upstreamController = new AbortController();
   let upstream: Response;
   try {

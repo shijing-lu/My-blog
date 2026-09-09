@@ -13,6 +13,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, Square, Trash2, X } from 'lucide-react';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 interface Props {
   /** SSR 判定 AI 是否就绪（enabled + baseUrl/apiKey/model 齐全）；false 时组件不渲染任何 UI */
@@ -89,6 +91,17 @@ function buildFirstMessage(text: string, title: string): string {
   return `请解释/分析以下我选中的内容（来自「${title}」）：\n"""\n${text}\n"""`;
 }
 
+marked.setOptions({ gfm: true, breaks: true });
+
+/** Markdown → 消毒后 HTML（仅用于 assistant 回答；user 消息永远纯文本渲染） */
+function renderMarkdown(md: string): string {
+  const html = marked.parse(md, { async: false });
+  return DOMPurify.sanitize(typeof html === 'string' ? html : '');
+}
+
+/** 主人身份（顶级管理员）模块级缓存：页面生命周期内只请求一次 /api/admin-auth/me */
+let ownerBadgeCache: boolean | null = null;
+
 export default function AiChatFloat({ enabled }: Props) {
   /* ---------- 状态 ---------- */
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -109,6 +122,29 @@ export default function AiChatFloat({ enabled }: Props) {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  /** 当前浏览者是主人（顶级管理员）→ 浮窗显示徽标；仅 UI 展示，服务端独立判定不受此处影响 */
+  const [isOwner, setIsOwner] = useState(false);
+  useEffect(() => {
+    if (!enabled) return;
+    if (ownerBadgeCache !== null) {
+      if (ownerBadgeCache) setIsOwner(true);
+      return;
+    }
+    let alive = true;
+    fetch('/api/admin-auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { identity?: string; account?: { role?: string } } | null) => {
+        if (!d) return;
+        const owner = d.identity === 'top' || (d.identity === 'github' && d.account?.role === 'top');
+        ownerBadgeCache = owner;
+        if (alive && owner) setIsOwner(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [enabled]);
 
   /* ---------- 会话恢复 + 尺寸恢复（ClientRouter 转场岛重建后执行） ---------- */
   useEffect(() => {
@@ -385,6 +421,33 @@ export default function AiChatFloat({ enabled }: Props) {
 
   return (
     <>
+      {/* 小卿气泡 Markdown 样式（unlayered 裸样式：岛内独立于全局 layer 体系，勿移入 @layer） */}
+      <style>{`
+.ai-md-body > :first-child { margin-top: 0; }
+.ai-md-body > :last-child { margin-bottom: 0; }
+.ai-md-body p { margin: 0.5em 0; }
+.ai-md-body h1, .ai-md-body h2, .ai-md-body h3, .ai-md-body h4, .ai-md-body h5 { margin: 0.8em 0 0.4em; font-weight: 600; line-height: 1.35; }
+.ai-md-body h1 { font-size: 1.25em; }
+.ai-md-body h2 { font-size: 1.15em; }
+.ai-md-body h3 { font-size: 1.05em; }
+.ai-md-body h4, .ai-md-body h5 { font-size: 1em; }
+.ai-md-body ul, .ai-md-body ol { margin: 0.5em 0; padding-left: 1.4em; }
+.ai-md-body ul { list-style: disc; }
+.ai-md-body ol { list-style: decimal; }
+.ai-md-body li { margin: 0.2em 0; }
+.ai-md-body pre { margin: 0.6em 0; padding: 0.7em 0.9em; border-radius: 0.5em; background: #0d1117; color: #e6edf3; overflow-x: auto; font-size: 0.85em; line-height: 1.55; }
+.ai-md-body pre code { background: transparent; color: inherit; padding: 0; font-size: inherit; border-radius: 0; }
+.ai-md-body code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.875em; background: rgba(128,128,128,0.18); padding: 0.12em 0.35em; border-radius: 0.3em; }
+.ai-md-body blockquote { margin: 0.5em 0; padding: 0.05em 0.9em; border-left: 3px solid rgba(128,128,128,0.45); opacity: 0.85; }
+.ai-md-body a { color: var(--primary, #3b82f6); text-decoration: underline; text-underline-offset: 2px; }
+.ai-md-body hr { border: 0; border-top: 1px solid rgba(128,128,128,0.3); margin: 0.8em 0; }
+.ai-md-body table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; display: block; overflow-x: auto; }
+.ai-md-body th, .ai-md-body td { border: 1px solid rgba(128,128,128,0.35); padding: 0.3em 0.6em; }
+.ai-md-body img { max-width: 100%; border-radius: 0.4em; }
+.ai-md.ai-streaming .ai-md-body > :last-child::after { content: '▌'; margin-left: 1px; animation: ai-caret 1s step-end infinite; }
+@keyframes ai-caret { 50% { opacity: 0; } }
+      `}</style>
+
       {/* F2 右键菜单 */}
       {menu && (
         <div
@@ -420,6 +483,7 @@ export default function AiChatFloat({ enabled }: Props) {
               <p className="flex items-center gap-1.5 text-sm font-medium">
                 <MessageCircle className="size-4 text-primary" />
                 小卿
+                {isOwner && <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">主人</span>}
                 {selectionCtx && <span className="truncate text-xs font-normal text-muted-foreground">· {selectionCtx.title}</span>}
               </p>
             </div>
@@ -443,20 +507,30 @@ export default function AiChatFloat({ enabled }: Props) {
             {selectionCtx && messages.length === 0 && (
               <p className="rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">选中内容：{selectionCtx.text.slice(0, 120)}…</p>
             )}
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={
-                    m.role === 'user'
-                      ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground'
-                      : 'max-w-[90%] rounded-2xl rounded-bl-sm bg-muted/60 px-3 py-2 text-sm whitespace-pre-wrap break-words'
-                  }
-                >
-                  {m.content}
-                  {m.role === 'assistant' && m.content === '' && streaming && <span className="inline-block w-0.5 animate-pulse bg-foreground align-middle" style={{ height: '1em' }} />}
+            {messages.map((m, i) => {
+              const isAssistant = m.role === 'assistant';
+              const isEmptyPlaceholder = isAssistant && m.content === '';
+              return (
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={
+                      m.role === 'user'
+                        ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground'
+                        : `max-w-[90%] rounded-2xl rounded-bl-sm bg-muted/60 px-3 py-2 text-sm break-words ${isEmptyPlaceholder ? '' : 'ai-md'}${streaming && isAssistant && i === messages.length - 1 ? ' ai-streaming' : ''}`
+                    }
+                  >
+                    {isAssistant && m.content !== '' ? (
+                      <div className="ai-md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                    ) : (
+                      m.content
+                    )}
+                    {isEmptyPlaceholder && streaming && (
+                      <span className="inline-block w-0.5 animate-pulse bg-foreground align-middle" style={{ height: '1em' }} />
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* 输入区（F4：回答中可继续输入） */}
