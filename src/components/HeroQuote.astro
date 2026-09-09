@@ -29,17 +29,18 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
   </h1>
   {
     isAuthed && (
-      <a
-        href="/admin/settings"
+      <button
+        type="button"
+        data-open-settings="hero-quotes"
         aria-label="管理诗词"
         title="管理诗词"
-        class="absolute right-0 top-1 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground opacity-60 transition-colors duration-200 hover:bg-accent hover:text-primary hover:opacity-100"
+        class="absolute right-0 top-1 inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-60 transition-colors duration-200 hover:bg-accent hover:text-primary hover:opacity-100"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4" aria-hidden="true">
           <path d="M12 20h9" />
           <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
         </svg>
-      </a>
+      </button>
     )
   }
 </div>

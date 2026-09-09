@@ -30,6 +30,7 @@ import ThemeSettings from '@/components/ThemeSettings.astro';
 import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
 import ManageDialog from '@/components/ManageDialog.astro';
+import SettingsModal from '@/components/admin/SettingsModal.astro';
 import { canManage } from '@/lib/admin-auth';
 import { isUserGitHubConfigured } from '@/lib/auth';
 import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
@@ -49,6 +50,8 @@ const footerQuote =
 /* ===== Logic ===== */
 /** 是否具备文章管理权限（站主或 GitHub 授权管理员，ProfileDialog 按此切换管理视角） */
 const isAuthed = await canManage(Astro.cookies, 'articles');
+/** 是否具备站点设置权限（设置弹窗仅对管理端渲染，游客零输出） */
+const canSettings = await canManage(Astro.cookies, 'settings');
 /** 全站背景配置（统一背景 / 按页面独立，设置页可配） */
 const bg = await getSiteBackground();
 /** 当前页面应渲染的背景（null = 不渲染） */
@@ -188,6 +191,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
           <ProfileDialog isAuthed={isAuthed} />
           <!-- 管理入口：模态弹窗（打开时按身份分支渲染，不再跳转独立页） -->
           <ManageDialog githubEnabled={isUserGitHubConfigured()} />
+          <!-- 站点设置弹窗（Obsidian 式左右分栏；仅 settings 权限渲染） -->
+          {canSettings && <SettingsModal />}
         </nav>
       </div>
     </header>
