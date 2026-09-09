@@ -61,7 +61,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
               rows="3"
               maxlength="2000"
               placeholder="记录点什么…（支持 Markdown / 文字 + 图片/GIF + 视频链接）"
-              class="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring"
+              class="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring"
             />
             <div id="moment-content-preview" class="prose mt-2 hidden max-h-64 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm"></div>
             <input
@@ -69,7 +69,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
               type="text"
               maxlength="200"
               placeholder="标签（逗号分隔，最多 10 个，如：日常,学习,旅行）"
-              class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+              class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring"
             />
             <div id="moment-media-preview" class="mt-2 grid grid-cols-4 gap-2"></div>
             <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -84,7 +84,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
                 id="moment-video-url"
                 type="url"
                 placeholder="视频链接（B站/YouTube/直链 mp4）"
-                class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs outline-none focus-visible:border-ring"
+                class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring"
               />
               <button id="moment-video-add" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary">
                 添加视频
@@ -93,7 +93,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
                 <span class="sr-only">可见性</span>
                 <select
                   id="moment-visibility"
-                  class="rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none transition-colors focus-visible:border-ring"
+                  class="rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground outline-none transition-colors focus-visible:border-ring"
                   aria-label="动态可见性"
                 >
                   <option value="public">公开发布</option>
@@ -168,7 +168,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   </section>
 
   <!-- 编辑动态弹窗 -->
-  <dialog id="moment-edit-dialog" class="m-auto w-[min(92vw,40rem)] rounded-lg border border-border bg-card p-5 shadow-xl backdrop:bg-black/40">
+  <dialog id="moment-edit-dialog" class="m-auto w-[min(92vw,40rem)] rounded-lg border border-border bg-card p-5 text-foreground shadow-xl backdrop:bg-black/40">
     <div class="flex items-center justify-between gap-2">
       <h3 class="font-medium">编辑动态</h3>
       <span class="text-xs text-muted-foreground">支持 Markdown（粗体、列表、链接、引用、代码…）</span>
@@ -183,16 +183,21 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
         rows="3"
         maxlength="2000"
         placeholder="Markdown 正文…"
-        class="h-48 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring"
+        class="h-48 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring"
       ></textarea>
       <div id="moment-edit-preview" class="prose h-48 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm empty:border-dashed"></div>
     </div>
-    <input id="moment-edit-tags" type="text" maxlength="200" placeholder="标签（逗号分隔）" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
+    <div class="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span>在正文输入框内 Ctrl+V 粘贴图片即可上传</span>
+      <span id="moment-edit-upload-status" class="text-primary" role="status"></span>
+    </div>
+    <div id="moment-edit-media-preview" class="mt-2 grid grid-cols-4 gap-2"></div>
+    <input id="moment-edit-tags" type="text" maxlength="200" placeholder="标签（逗号分隔）" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring" />
     <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
       <label for="moment-edit-visibility">可见性</label>
       <select
         id="moment-edit-visibility"
-        class="rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
+        class="rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:border-ring"
       >
         <option value="public">公开发布</option>
         <option value="private">私密发布（仅自己可见）</option>
@@ -285,11 +290,11 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   }
   const pendingMedia: PendingMedia[] = [];
 
-  function renderPending(): void {
-    const box = el('moment-media-preview');
+  /** 媒体缩略图网格渲染（发布框 / 编辑弹窗共用；× 删除 operate 操作 list） */
+  function renderMediaInto(box: HTMLElement | null, list: PendingMedia[]): void {
     if (!box) return;
     box.innerHTML = '';
-    pendingMedia.forEach((m) => {
+    list.forEach((m) => {
       const d = document.createElement('div');
       d.className = 'relative aspect-square overflow-hidden rounded-md border border-border';
       if (m.type === 'video') {
@@ -302,13 +307,17 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       btn.className = 'absolute right-0.5 top-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-xs text-white';
       btn.textContent = '×';
       btn.addEventListener('click', () => {
-        const i = pendingMedia.indexOf(m);
-        if (i >= 0) pendingMedia.splice(i, 1);
-        renderPending();
+        const i = list.indexOf(m);
+        if (i >= 0) list.splice(i, 1);
+        renderMediaInto(box, list);
       });
       d.appendChild(btn);
       box.appendChild(d);
     });
+  }
+
+  function renderPending(): void {
+    renderMediaInto(el('moment-media-preview'), pendingMedia);
   }
 
   /** 压缩图片（宽 ≤1600，JPEG）；GIF 保持原样 */
@@ -613,13 +622,18 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
 
   // ---------- 编辑动态（管理员）----------
   let editingMomentId = '';
+  /** 编辑弹窗中的媒体（打开时从动态回显；粘贴上传/×删除维护；保存随 PATCH 提交） */
+  const editMedia: PendingMedia[] = [];
+  function renderEditMedia(): void {
+    renderMediaInto(el('moment-edit-media-preview'), editMedia);
+  }
   document.addEventListener('click', (e) => {
     const editBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-edit]');
     if (editBtn) {
       editingMomentId = editBtn.dataset.momentEdit ?? '';
       fetch(`/api/moments/${editingMomentId}`)
         .then((r) => r.json())
-        .then((d: { moment?: { content: string; tags: string[]; visibility?: 'public' | 'private' } }) => {
+        .then((d: { moment?: { content: string; media?: PendingMedia[]; tags: string[]; visibility?: 'public' | 'private' } }) => {
           if (!d.moment) return;
           const c = el<HTMLTextAreaElement>('moment-edit-content');
           const tg = el<HTMLInputElement>('moment-edit-tags');
@@ -627,6 +641,12 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
           if (c) c.value = d.moment.content;
           if (tg) tg.value = (d.moment.tags ?? []).join(', ');
           if (vis) vis.value = d.moment.visibility === 'private' ? 'private' : 'public';
+          // 媒体回显（已有图片/视频可在编辑中删除，或继续粘贴新增）
+          editMedia.length = 0;
+          (d.moment.media ?? []).forEach((m) => editMedia.push(m));
+          renderEditMedia();
+          const up = el('moment-edit-upload-status');
+          if (up) up.textContent = '';
           // 重置预览状态
           editPreviewOn = false;
           const pv = el('moment-edit-preview');
@@ -643,17 +663,47 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     }
   });
 
+  /** 编辑正文框：Ctrl+V 粘贴图片 → 自动上传 → 缩略图展示 */
+  document.addEventListener('paste', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.id !== 'moment-edit-content') return;
+    const imgs = Array.from(e.clipboardData?.items ?? []).filter((it) => it.type.startsWith('image/'));
+    if (imgs.length === 0) return; // 非图片内容：走默认文本粘贴
+    e.preventDefault();
+    void (async () => {
+      const up = el('moment-edit-upload-status');
+      for (const it of imgs) {
+        const file = it.getAsFile();
+        if (!file) continue;
+        if (up) up.textContent = '图片上传中…';
+        try {
+          const url = await uploadFile(file);
+          editMedia.push({ type: file.type === 'image/gif' ? 'gif' : 'image', url });
+          if (up) up.textContent = '';
+        } catch (err) {
+          if (up) up.textContent = err instanceof Error ? err.message : '图片上传失败，请重试';
+        }
+        renderEditMedia();
+      }
+    })();
+  });
+
   on('moment-edit-save', 'click', async () => {
     const content = (el<HTMLTextAreaElement>('moment-edit-content')?.value ?? '').trim();
     const tagsRaw = (el<HTMLInputElement>('moment-edit-tags')?.value ?? '').trim();
     const tags = tagsRaw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
     const visibility = el<HTMLSelectElement>('moment-edit-visibility')?.value === 'private' ? 'private' : 'public';
     const status = el('moment-edit-status');
+    const up = el('moment-edit-upload-status');
+    if (up && up.textContent) {
+      if (status) { status.textContent = '图片还在上传中，请稍候再保存'; status.classList.remove('hidden'); }
+      return;
+    }
     try {
       const res = await fetch(`/api/moments/${editingMomentId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content, tags, visibility }),
+        body: JSON.stringify({ content, media: editMedia, tags, visibility }),
       });
       if (!res.ok) throw new Error('保存失败');
       window.location.reload();

@@ -7,11 +7,15 @@
  * - DELETE：删除（管理员）
  */
 import type { APIRoute } from 'astro';
-import { MAX_CONTENT, deleteMoment, getMoment, normalizeVisibility, updateMoment } from '@/lib/moments';
+import { MAX_CONTENT, deleteMoment, getMoment, isValidMedia, normalizeVisibility, updateMoment } from '@/lib/moments';
 import { canManage } from '@/lib/admin-auth';
 import { json } from '@/lib/api';
+import type { MomentMedia } from '../../../../db/types';
 
 export const prerender = false;
+
+/** 单条动态媒体数量上限（与 POST /api/moments 一致） */
+const MAX_MEDIA = 9;
 
 /** GET：单条动态（私密动态仅管理员可见，其余 404） */
 export const GET: APIRoute = async ({ params, cookies }) => {
@@ -26,6 +30,7 @@ export const GET: APIRoute = async ({ params, cookies }) => {
     moment: {
       id: moment.id,
       content: moment.content,
+      media: moment.media,
       tags: moment.tags,
       visibility: moment.visibility,
       createdAt: moment.createdAt.toISOString(),
@@ -33,7 +38,7 @@ export const GET: APIRoute = async ({ params, cookies }) => {
   });
 };
 
-/** PATCH：更新内容 / 标签 / 可见性（管理员） */
+/** PATCH：更新内容 / 媒体 / 标签 / 可见性（管理员） */
 export const PATCH: APIRoute = async ({ params, request }) => {
   const id = params.id;
   if (!id) return json({ error: '缺少 id' }, 400);
@@ -49,12 +54,23 @@ export const PATCH: APIRoute = async ({ params, request }) => {
     : undefined;
   // 可见性仅显式传入时更新（未传不改；非法值回落 public，与发布一致）
   const visibility = body.visibility === undefined ? undefined : normalizeVisibility(body.visibility);
-  if (content === undefined && tags === undefined && visibility === undefined) {
+  // 媒体仅显式传入时更新（未传不改）；校验规则与 POST /api/moments 一致
+  let media: MomentMedia[] | undefined;
+  if (body.media !== undefined) {
+    if (!Array.isArray(body.media)) return json({ error: 'media 格式错误' }, 400);
+    if (body.media.length > MAX_MEDIA) return json({ error: `最多 ${MAX_MEDIA} 个媒体` }, 400);
+    const validMedia = (body.media as unknown[]).filter(isValidMedia);
+    if (validMedia.length !== body.media.length) return json({ error: '媒体格式错误' }, 400);
+    media = validMedia;
+  }
+  if (content === undefined && media === undefined && tags === undefined && visibility === undefined) {
     return json({ error: '没有可更新字段' }, 400);
   }
-  const moment = await updateMoment(id, { content, tags, visibility });
+  const moment = await updateMoment(id, { content, media, tags, visibility });
   if (!moment) return json({ error: '动态不存在' }, 404);
-  return json({ moment: { id: moment.id, content: moment.content, tags: moment.tags, visibility: moment.visibility } });
+  return json({
+    moment: { id: moment.id, content: moment.content, media: moment.media, tags: moment.tags, visibility: moment.visibility },
+  });
 };
 
 /** DELETE：删除（管理员） */

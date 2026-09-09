@@ -186,13 +186,14 @@ export async function getMoment(id: string): Promise<Moment | null> {
   return rows[0] ? mapRow(rows[0] as typeof moments.$inferSelect) : null;
 }
 
-/** 更新动态（内容 + 标签 + 可见性） */
+/** 更新动态（内容 + 媒体 + 标签 + 可见性） */
 export async function updateMoment(
   id: string,
-  patch: { content?: string; tags?: string[]; visibility?: MomentVisibility },
+  patch: { content?: string; media?: MomentMedia[]; tags?: string[]; visibility?: MomentVisibility },
 ): Promise<Moment | null> {
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.content !== undefined) set.content = patch.content.trim().slice(0, MAX_CONTENT);
+  if (patch.media !== undefined) set.media = serializeMedia(patch.media);
   if (patch.tags !== undefined) set.tags = serializeTags(patch.tags);
   if (patch.visibility !== undefined) set.visibility = patch.visibility;
   const rows = await db.update(moments).set(set).where(eq(moments.id, id)).returning();

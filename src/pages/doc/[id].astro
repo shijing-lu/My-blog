@@ -268,7 +268,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-nodes={nodesJson} data-bundle={bundleJson} data-active-node={activeNodeId} data-folders={folderOptionsJson} class="hidden" aria-hidden="true" />
 
   <!-- 节点编辑弹窗（目录 / 文章通用） -->
-  <dialog id="doc-node-dialog" class="m-auto w-[min(92vw,52rem)] rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+  <dialog id="doc-node-dialog" class="m-auto w-[min(92vw,52rem)] rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
     <h3 id="doc-node-dialog-title" class="font-medium">编辑节点</h3>
     <div class="mt-3 grid gap-2 sm:grid-cols-2">
       <label class="text-xs font-medium text-muted-foreground">
@@ -305,7 +305,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   </dialog>
 
   <!-- 文档编辑弹窗 -->
-  <dialog id="doc-edit-bundle-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40">
+  <dialog id="doc-edit-bundle-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
     <h3 class="font-medium">编辑文档</h3>
     <label class="mt-3 block text-xs font-medium text-muted-foreground">
       文档名
