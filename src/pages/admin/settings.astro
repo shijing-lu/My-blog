@@ -1,12 +1,8 @@
 ---
-/* ===== Props ===== */
-/* （设置页无 Props，中间件保护 /admin/*） */
-
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import SettingsForm from '@/components/admin/SettingsForm.astro';
 ---
-
 <!-- ===== Template ===== -->
 <AdminLayout title="设置">
   <section class="mx-auto h-full w-full max-w-3xl overflow-y-auto px-4 py-8">
@@ -16,15 +12,15 @@ import SettingsForm from '@/components/admin/SettingsForm.astro';
       <p class="mt-1 text-sm text-muted-foreground">集中管理站点可自定义项，保存后全站生效。</p>
     </div>
 
-    <!-- 分区导航（可扩展：新增设置项时在此加 tab） -->
+    <!-- 分区导航：每个设置项独立成页（点击切换到对应设置子页面） -->
     <nav class="mt-5 flex flex-wrap gap-2" aria-label="设置分区">
-      <a href="#site-name" class="settings-tab">站点名称</a>
-      <a href="#hero-quotes" class="settings-tab active">诗词轮播</a>
-      <a href="#landing" class="settings-tab">落地页</a>
-      <a href="#appearance" class="settings-tab">外观</a>
+      <a href="/admin/settings/site-name" class="settings-tab active">站点名称</a>
+      <a href="/admin/settings/hero-quotes" class="settings-tab">诗词轮播</a>
+      <a href="/admin/settings/landing" class="settings-tab">落地页</a>
+      <a href="/admin/settings/appearance" class="settings-tab">外观</a>
     </nav>
 
-    <!-- 表单分区 + 交互脚本（组件化，供 /admin/settings 页面与前台设置弹窗复用） -->
-    <SettingsForm />
+    <!-- 站点名称分区 -->
+    <SettingsForm section="site-name" />
   </section>
 </AdminLayout>

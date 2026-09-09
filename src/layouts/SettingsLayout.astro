@@ -1,0 +1,40 @@
+---
+/*
+ * SettingsLayout.astro —— 设置子页公共布局
+ * Props.section: 当前激活分区；传递相同 form
+ */
+interface Props {
+  section: 'site-name' | 'hero-quotes' | 'landing' | 'appearance';
+}
+const { section } = Astro.props;
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import SettingsForm from '@/components/admin/SettingsForm.astro';
+const SECTION_LABELS: Record<Props['section'], string> = {
+  'site-name': '站点名称',
+  'hero-quotes': '诗词轮播',
+  'landing': '落地页',
+  'appearance': '外观',
+};
+const titleSuffix = SECTION_LABELS[section] ?? '设置';
+const tabs: { id: Props['section']; label: string; href: string }[] = [
+  { id: 'site-name', label: '站点名称', href: '/admin/settings/site-name' },
+  { id: 'hero-quotes', label: '诗词轮播', href: '/admin/settings/hero-quotes' },
+  { id: 'landing', label: '落地页', href: '/admin/settings/landing' },
+  { id: 'appearance', label: '外观', href: '/admin/settings/appearance' },
+];
+---
+<AdminLayout title={`设置 · ${titleSuffix}`}>
+  <section class="mx-auto h-full w-full max-w-3xl overflow-y-auto px-4 py-8">
+    <div>
+      <p class="pixel-chip text-primary">SETTINGS</p>
+      <h1 class="mt-1 font-display text-2xl font-semibold">站点设置</h1>
+      <p class="mt-1 text-sm text-muted-foreground">集中管理站点可自定义项，保存后全站生效。</p>
+    </div>
+    <nav class="mt-5 flex flex-wrap gap-2" aria-label="设置分区">
+      {tabs.map((t) => (
+        <a href={t.href} class={`settings-tab${t.id === section ? ' active' : ''}`}>{t.label}</a>
+      ))}
+    </nav>
+    <SettingsForm section={section} />
+  </section>
+</AdminLayout>

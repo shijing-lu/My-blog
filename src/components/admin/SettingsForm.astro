@@ -1,11 +1,16 @@
 ---
 /*
- * SettingsForm.astro —— 站点设置表单（页面 + 弹窗复用）
+ * SettingsForm.astro —— 站点设置表单（分区分页：4 个独立页面 + 弹窗复用）
  * 由 admin/settings.astro 抽离：四个分区（站点名称/诗词轮播/落地页/外观）+ 全部交互脚本。
- * - /admin/settings 页面直接嵌入（横向 tab 导航在页面侧）；
- * - SettingsModal 弹窗右侧内容区嵌入（Obsidian 式左侧导航在弹窗侧）。
- * 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
+ * - Props.section 为 'site-name' | 'hero-quotes' | 'landing' | 'appearance'：
+ *   - 省略 → 渲染全部（用于弹窗和兼容旧 /admin/settings）
+ *   - 指定 → 仅渲染该分区（用于独立子页面 /admin/settings/<section>）
+ * - 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
  */
+interface Props {
+  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance';
+}
+const { section } = Astro.props;
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
 import { getSiteBackground } from '@/lib/background';
 import { getLandingHero } from '@/lib/landing';
@@ -24,11 +29,17 @@ const customFonts = await listFontsMeta();
 const hasManualFonts = await hasManualFontSettings();
 /** 当前站点名称（导航栏品牌文字，默认「白衣卿相」） */
 const siteName = await getSiteName();
+/** 各分区是否渲染（未指定 section → 全部；指定 → 仅该分区） */
+const showSiteName = !section || section === 'site-name';
+const showHeroQuotes = !section || section === 'hero-quotes';
+const showLanding = !section || section === 'landing';
+const showAppearance = !section || section === 'appearance';
 ---
 
 <!-- ===== Template ===== -->
 <div id="settings-form-root">
     <!-- 站点名称分区 -->
+    {showSiteName && (<>
     <section id="site-name" class="border-t border-border pt-6" data-name={siteName}>
       <div class="flex items-center justify-between">
         <div>
@@ -64,8 +75,10 @@ const siteName = await getSiteName();
         </button>
       </div>
     </section>
+    </>)}
 
     <!-- 诗词轮播分区 -->
+    {showHeroQuotes && (<>
     <section id="hero-quotes" class="border-t border-border pt-6" data-settings={heroJson}>
       <div class="flex items-center justify-between">
         <div>
@@ -121,8 +134,10 @@ const siteName = await getSiteName();
         </button>
       </div>
     </section>
+    </>)}
 
     <!-- 落地页分区（Hero 头图） -->
+    {showLanding && (<>
     <section id="landing" class="border-t border-border pt-6" data-landing={JSON.stringify(landing)}>
       <div class="flex items-center justify-between">
         <div>
@@ -207,8 +222,10 @@ const siteName = await getSiteName();
         </button>
       </div>
     </section>
+    </>)}
 
     <!-- 外观分区（字体 + 背景） -->
+    {showAppearance && (<>
     <section
       id="appearance"
       class="border-t border-border pt-6"
@@ -422,6 +439,7 @@ const siteName = await getSiteName();
         </div>
       </div>
     </section>
+    </>)}
 </div>
 
 <script>

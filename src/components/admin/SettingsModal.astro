@@ -1,20 +1,27 @@
 ---
 /*
  * SettingsModal.astro —— 站点设置悬浮弹窗（Obsidian 设置风格）
- * 左右分栏居中 <dialog>：左侧搜索框 + 分组导航，右侧滚动内容区（SettingsForm 复用）。
- * - 打开方式：任意 [data-open-settings] 元素（document 委托，ClientRouter 转场后依然有效）；
- *   RightToolbar 齿轮与 HeroQuote 管理笔已由 <a href="/admin/settings"> 改为该触发方式；
- *   /admin/settings 独立页面保留，直接 URL 访问仍可用。
+ * 左右分栏居中 <dialog>：左侧搜索框 + 分组导航（点击跳转到对应设置子页面，URL: /admin/settings/<section>），右侧滚动内容区。
+ * - 打开方式：任意 [data-open-settings] 元素（document 委托）；前置页面不跳页，弹窗内导航走 URL 跳转。
  * - 关闭：ESC（原生）/ 点击遮罩 / 右上角 ×。
  * - 仅在管理端渲染（BaseLayout 按 settings 权限条件渲染），游客不输出任何标记。
  */
 import SettingsForm from '@/components/admin/SettingsForm.astro';
+
+/* 左侧导航：分区名 + 搜索关键词 + 跳转 URL */
+const navItems = [
+  { id: 'site-name', label: '站点名称', kw: '站点名称 site name 标题 品牌', href: '/admin/settings/site-name' },
+  { id: 'hero-quotes', label: '诗词轮播', kw: '诗词轮播 hero quotes 首页 古诗 名言 逐字', href: '/admin/settings/hero-quotes' },
+  { id: 'landing', label: '落地页', kw: '落地页 landing 头图 轮播 副标题 hero 图', href: '/admin/settings/landing' },
+  { id: 'appearance', label: '全局字体', kw: '全局字体 font 文章字体 其他字体 字号缩放 导入字体', href: '/admin/settings/appearance' },
+  { id: 'settings-background', label: '站点背景', kw: '站点背景 background 背景图 透明度 模糊 星光 页面背景', href: '/admin/settings/appearance#settings-background' },
+];
 ---
 
 <!-- ===== Template ===== -->
 <dialog
   id="settings-modal"
-  class="m-auto grid h-[min(700px,88vh)] w-[min(1000px,94vw)] grid-cols-[220px_1fr] overflow-hidden rounded-lg border border-border bg-card p-0 text-card-foreground shadow-xl"
+  class="m-auto hidden h-[min(700px,88vh)] w-[min(1000px,94vw)] grid-cols-[220px_1fr] overflow-hidden rounded-lg border border-border bg-card p-0 text-card-foreground shadow-xl open:grid"
   aria-label="站点设置"
 >
   <!-- 左侧：搜索 + 分组导航（Obsidian 风格） -->
@@ -29,46 +36,15 @@ import SettingsForm from '@/components/admin/SettingsForm.astro';
     </div>
     <nav id="settings-modal-nav" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="设置导航">
       <p class="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground">选项</p>
-      <button
-        type="button"
-        data-target="site-name"
-        data-keywords="站点名称 site name 标题 品牌"
-        class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-      >
-        站点名称
-      </button>
-      <button
-        type="button"
-        data-target="hero-quotes"
-        data-keywords="诗词轮播 hero quotes 首页 古诗 名言 逐字"
-        class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-      >
-        诗词轮播
-      </button>
-      <button
-        type="button"
-        data-target="landing"
-        data-keywords="落地页 landing 头图 轮播 副标题 hero 图"
-        class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-      >
-        落地页
-      </button>
-      <button
-        type="button"
-        data-target="appearance"
-        data-keywords="全局字体 font 文章字体 其他字体 字号缩放 导入字体"
-        class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-      >
-        全局字体
-      </button>
-      <button
-        type="button"
-        data-target="settings-background"
-        data-keywords="站点背景 background 背景图 透明度 模糊 星光 页面背景"
-        class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-      >
-        站点背景
-      </button>
+      {navItems.map((it) => (
+        <a
+          href={it.href}
+          data-keywords={it.kw}
+          class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+        >
+          {it.label}
+        </a>
+      ))}
     </nav>
   </div>
 
@@ -85,19 +61,13 @@ import SettingsForm from '@/components/admin/SettingsForm.astro';
         <path d="M18 6 6 18M6 6l12 12" />
       </svg>
     </button>
-    <div id="settings-modal-content" class="h-full overflow-y-auto px-6 py-6">
+    <div class="h-full overflow-y-auto px-6 py-6">
       <SettingsForm />
     </div>
   </div>
 </dialog>
 
 <style>
-  /* 导航项选中态（Obsidian 左侧高亮） */
-  .settings-nav-item.active {
-    background-color: var(--color-accent);
-    color: var(--color-primary);
-    font-weight: 500;
-  }
   /* 遮罩（原生 dialog::backdrop 不受主题变量影响，这里显式给色） */
   #settings-modal::backdrop {
     background: rgb(0 0 0 / 50%);
@@ -106,86 +76,60 @@ import SettingsForm from '@/components/admin/SettingsForm.astro';
 
 <script>
   /**
-   * 弹窗交互：打开（委托）+ 左侧导航（滚动定位/搜索过滤/选中态）+ 关闭。
-   * 打开监听挂 document（委托）：ClientRouter 转场只换 body 内 DOM，监听不重绑；
-   * dialog 元素每次点击时实时查询（转场后为新节点）。
-   * 表单自身交互由 SettingsForm 的 initSettingsForm 负责（astro:page-load 重初始化）。
+   * 弹窗交互：
+   * - 打开：document 委托监听 [data-open-settings] → showModal；
+   * - 关闭：× 按钮 / 点击遮罩 / ESC（原生 dialog）；
+   * - 导航：左侧 <a href> 直接跳转 /admin/settings/<section>，跳转前先 close() 让浏览器导航接管。
+   * - 搜索：左侧 nav 关键字过滤。
+   * 表单自身交互由 SettingsForm 的 initSettingsForm 负责。
    */
 
   function getDialog(): HTMLDialogElement | null {
     return document.getElementById('settings-modal') as HTMLDialogElement | null;
   }
 
-  function getScrollBox(): HTMLElement | null {
-    return document.getElementById('settings-modal-content');
-  }
-
-  /** 左侧导航选中态 */
-  function setActiveNav(target: string): void {
-    document.querySelectorAll<HTMLElement>('#settings-modal-nav .settings-nav-item').forEach((btn) => {
-      btn.classList.toggle('active', btn.dataset.target === target);
-    });
-  }
-
-  /** 滚动到目标分区（右侧滚动容器内） */
-  function scrollToSection(target: string, smooth = true): void {
-    const box = getScrollBox();
-    const el = box?.querySelector<HTMLElement>(`#${CSS.escape(target)}`);
-    if (!box || !el) return;
-    box.scrollTo({ top: el.offsetTop - box.offsetTop - 8, behavior: smooth ? 'smooth' : 'auto' });
-    setActiveNav(target);
-  }
-
-  function openSettingsModal(target?: string): void {
+  function openSettingsModal(): void {
     const dialog = getDialog();
-    if (!dialog || dialog.open) {
-      if (dialog?.open && target) scrollToSection(target);
-      return;
-    }
+    if (!dialog || dialog.open) return;
     dialog.showModal();
-    const first = target ?? 'site-name';
-    // 打开后定位：无动画（避免打开瞬间滚动跳动）
-    requestAnimationFrame(() => scrollToSection(first, false));
   }
 
-  function closeSettingsModal(): void {
-    getDialog()?.close();
-  }
-
-  /* ---------- 打开（document 委托，转场后依然有效） ---------- */
+  /* ---------- 打开（document 委托） ---------- */
   document.addEventListener('click', (e) => {
     const trigger = (e.target as HTMLElement).closest<HTMLElement>('[data-open-settings]');
     if (!trigger) return;
     e.preventDefault();
-    openSettingsModal(trigger.dataset.openSettings || undefined);
+    openSettingsModal();
   });
 
   /* ---------- 关闭：× 按钮 + 点击遮罩 ---------- */
   document.addEventListener('click', (e) => {
-    if ((e.target as HTMLElement).closest('#settings-modal-close')) closeSettingsModal();
+    if ((e.target as HTMLElement).closest('#settings-modal-close')) getDialog()?.close();
   });
   document.addEventListener('click', (e) => {
-    const dialog = e.target as HTMLElement;
-    if (dialog.id === 'settings-modal') closeSettingsModal(); // 点在 dialog 本体（遮罩区）
+    if ((e.target as HTMLElement).id === 'settings-modal') getDialog()?.close();
   });
 
-  /* ---------- 左侧导航：点击滚动 + 搜索过滤（dialog 内委托） ---------- */
+  /* ---------- 左侧导航：先 close 再让 <a> 跳转 ---------- */
   document.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('#settings-modal-nav .settings-nav-item');
-    if (!btn) return;
-    scrollToSection(btn.dataset.target ?? '');
+    const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('#settings-modal-nav .settings-nav-item');
+    if (!link) return;
+    // 阻止浏览器在 dialog 打开态把导航转成 form submit 等异常，先关 dialog 让浏览器完成 URL 跳转
+    getDialog()?.close();
+    // 不 preventDefault，让链接自然跳转
   });
 
+  /* ---------- 搜索过滤（关键字匹配 label 与 data-keywords） ---------- */
   document.addEventListener('input', (e) => {
     const input = e.target as HTMLInputElement;
     if (input.id !== 'settings-modal-search') return;
     const q = input.value.trim().toLowerCase();
-    document.querySelectorAll<HTMLElement>('#settings-modal-nav .settings-nav-item').forEach((btn) => {
+    document.querySelectorAll<HTMLElement>('#settings-modal-nav .settings-nav-item').forEach((a) => {
       const hit =
         !q ||
-        (btn.textContent ?? '').toLowerCase().includes(q) ||
-        (btn.dataset.keywords ?? '').toLowerCase().includes(q);
-      btn.classList.toggle('hidden', !hit);
+        (a.textContent ?? '').toLowerCase().includes(q) ||
+        (a.dataset.keywords ?? '').toLowerCase().includes(q);
+      a.classList.toggle('hidden', !hit);
     });
   });
 </script>
