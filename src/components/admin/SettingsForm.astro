@@ -18,6 +18,7 @@ import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts'
 import { getSiteName } from '@/lib/site-name';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
+import { getMdCssLibrary } from '@/lib/md-css-library';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -48,6 +49,8 @@ const mdCssHasCustom = mdCss.css.trim() !== '';
 const mdCssScopedPreview = mdCssHasCustom ? scopeMdCss(mdCss.css) : '';
 const mdCssUpdatedAtText =
   mdCss.updatedAt != null ? new Date(mdCss.updatedAt).toLocaleString('zh-CN') : '';
+/** 样式库（命名样式列表，下拉快速选择） */
+const mdCssLib = await getMdCssLibrary();
 ---
 
 <!-- ===== Template ===== -->
@@ -572,6 +575,60 @@ const mdCssUpdatedAtText =
         </span>
       </div>
 
+      <!-- 样式库：命名保存 + 下拉快速选择（一键应用到预览） -->
+      <div class="mt-3 rounded-md border border-border bg-muted/30 px-3 py-3">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-medium text-muted-foreground">样式库（命名保存，下拉快速选择并应用到预览）</p>
+          <span id="mdcss-lib-count" class="text-xs text-muted-foreground">共 {mdCssLib.length} 个</span>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <select
+            id="mdcss-lib-select"
+            class="min-w-48 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          >
+            <option value="">选择已保存样式…</option>
+            {mdCssLib.map((it) => (
+              <option value={it.id}>{`${it.name}（${Math.max(1, Math.ceil(it.css.length / 1024))}KB）`}</option>
+            ))}
+          </select>
+          <button
+            id="mdcss-lib-update"
+            type="button"
+            disabled
+            class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            更新到选中样式
+          </button>
+          <button
+            id="mdcss-lib-delete"
+            type="button"
+            disabled
+            class="rounded-md border border-destructive/40 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            删除选中样式
+          </button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            id="mdcss-lib-name"
+            type="text"
+            maxlength="50"
+            placeholder="样式名称（保存/改名当前编辑框内容，50 字以内）"
+            class="min-w-48 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+          <button
+            id="mdcss-lib-save"
+            type="button"
+            class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
+          >
+            将当前内容存为样式
+          </button>
+        </div>
+        <p class="mt-1.5 text-xs text-muted-foreground">
+          选中样式后内容自动填入下方编辑框并实时预览（一键应用）；点「保存并应用」全站生效。填名称后点「将当前内容存为样式」即可保存；「更新到选中样式」会把编辑框当前内容（及上方名称）写回选中项。
+        </p>
+      </div>
+
       <!-- 上传 / 编辑 -->
       <div class="mt-4 flex flex-wrap items-center gap-2">
         <input id="mdcss-file" type="file" accept=".css,text/css" class="hidden" />
@@ -780,6 +837,169 @@ const mdCssUpdatedAtText =
           mdResetBtn.removeAttribute('disabled');
         }
       });
+
+      /* ---------- 样式库（命名保存 / 下拉选择一键应用 / 更新 / 删除） ---------- */
+      const libSelect = document.getElementById('mdcss-lib-select') as HTMLSelectElement | null;
+      const libName = document.getElementById('mdcss-lib-name') as HTMLInputElement | null;
+      const libSaveBtn = document.getElementById('mdcss-lib-save');
+      const libUpdateBtn = document.getElementById('mdcss-lib-update');
+      const libDeleteBtn = document.getElementById('mdcss-lib-delete');
+      const libCount = document.getElementById('mdcss-lib-count');
+
+      /** 有无选中项 → 更新/删除按钮可用性 */
+      const syncLibButtons = (): void => {
+        const hasSel = !!libSelect?.value;
+        libUpdateBtn?.toggleAttribute('disabled', !hasSel);
+        libDeleteBtn?.toggleAttribute('disabled', !hasSel);
+      };
+
+      /** 操作后重拉列表重建 options（selectId 传入时恢复选中到该条） */
+      const refreshLib = async (selectId?: string): Promise<void> => {
+        if (!libSelect) return;
+        try {
+          const res = await fetch('/api/md-css/library');
+          if (!res.ok) return;
+          const d = (await res.json()) as { items?: { id: string; name: string; cssLength: number }[] };
+          const items = d.items ?? [];
+          libSelect.innerHTML = '';
+          const ph = document.createElement('option');
+          ph.value = '';
+          ph.textContent = items.length ? `选择已保存样式…（共 ${items.length} 个）` : '样式库为空';
+          libSelect.appendChild(ph);
+          for (const it of items) {
+            const o = document.createElement('option');
+            o.value = it.id;
+            o.textContent = `${it.name}（${Math.max(1, Math.ceil(it.cssLength / 1024))}KB）`;
+            libSelect.appendChild(o);
+          }
+          if (selectId && items.some((it) => it.id === selectId)) libSelect.value = selectId;
+          if (libCount) libCount.textContent = `共 ${items.length} 个`;
+        } catch {
+          /* 静默：下次操作再刷新 */
+        }
+        syncLibButtons();
+      };
+
+      /* 下拉选中 → 取单条填入编辑框 + 实时预览（一键应用） */
+      libSelect?.addEventListener('change', async () => {
+        const sel = libSelect;
+        if (!sel) return;
+        syncLibButtons();
+        const id = sel.value;
+        if (!id) return;
+        try {
+          const res = await fetch(`/api/md-css/library?id=${encodeURIComponent(id)}`);
+          const d = (await res.json().catch(() => ({}))) as { item?: { name: string; css: string }; error?: string };
+          if (!res.ok || !d.item) throw new Error(d.error ?? '样式读取失败');
+          if (mdText) mdText.value = d.item.css;
+          if (mdFileName) mdFileName.textContent = `来自样式库：${d.item.name}`;
+          applyPreview(d.item.css);
+          if (libName) libName.value = d.item.name;
+          setMdErr('');
+        } catch (err) {
+          setMdErr(err instanceof Error ? err.message : '样式读取失败，请重试');
+        }
+      });
+
+      /* 将当前编辑框内容存为命名样式 */
+      libSaveBtn?.addEventListener('click', async () => {
+        const btn = libSaveBtn;
+        if (!btn) return;
+        const name = (libName?.value ?? '').trim();
+        const css = mdText?.value ?? '';
+        if (name === '') {
+          setMdErr('请先填写样式名称');
+          return;
+        }
+        if (css.trim() === '') {
+          setMdErr('编辑框内容为空，无可保存');
+          return;
+        }
+        if (css.length > 64 * 1024) {
+          setMdErr('CSS 过长（上限 64KB）');
+          return;
+        }
+        btn.setAttribute('disabled', '');
+        try {
+          const res = await fetch('/api/md-css/library', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name, css }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { item?: { id: string; name: string }; error?: string };
+          if (!res.ok || !d.item) throw new Error(d.error ?? '保存失败');
+          await refreshLib(d.item.id);
+          setMdErr('');
+          flashMdHint(`已保存样式「${d.item.name}」`);
+        } catch (err) {
+          setMdErr(err instanceof Error ? err.message : '保存失败，请重试');
+        } finally {
+          btn.removeAttribute('disabled');
+        }
+      });
+
+      /* 编辑框当前内容（及名称）写回选中样式 */
+      libUpdateBtn?.addEventListener('click', async () => {
+        const btn = libUpdateBtn;
+        const sel = libSelect;
+        if (!btn || !sel) return;
+        const id = sel.value;
+        if (!id) return;
+        const name = (libName?.value ?? '').trim();
+        const css = mdText?.value ?? '';
+        if (name === '') {
+          setMdErr('请先填写样式名称');
+          return;
+        }
+        if (css.length > 64 * 1024) {
+          setMdErr('CSS 过长（上限 64KB）');
+          return;
+        }
+        btn.setAttribute('disabled', '');
+        try {
+          const res = await fetch(`/api/md-css/library?id=${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name, css }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(d.error ?? '更新失败');
+          await refreshLib(id);
+          setMdErr('');
+          flashMdHint('已更新选中样式');
+        } catch (err) {
+          setMdErr(err instanceof Error ? err.message : '更新失败，请重试');
+        } finally {
+          btn.removeAttribute('disabled');
+        }
+      });
+
+      /* 删除选中样式（确认后） */
+      libDeleteBtn?.addEventListener('click', async () => {
+        const btn = libDeleteBtn;
+        const sel = libSelect;
+        if (!btn || !sel) return;
+        const id = sel.value;
+        if (!id) return;
+        const label = sel.options[sel.selectedIndex]?.textContent?.trim() ?? '';
+        if (!(await confirmDanger(`删除样式${label ? `「${label}」` : ''}？该操作不可撤销。`))) return;
+        btn.setAttribute('disabled', '');
+        try {
+          const res = await fetch(`/api/md-css/library?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(d.error ?? '删除失败');
+          sel.value = '';
+          await refreshLib();
+          if (libName) libName.value = '';
+          setMdErr('');
+          flashMdHint('已删除样式');
+        } catch (err) {
+          setMdErr(err instanceof Error ? err.message : '删除失败，请重试');
+        } finally {
+          btn.removeAttribute('disabled');
+        }
+      });
+      syncLibButtons();
     }
 
       /** 站点设置页：诗词轮播配置（增删/调速/保存）。配置来自服务端注入 data-settings。 */

@@ -52,7 +52,7 @@ const catName = allCategories.find((c) => c.bundles.some((b) => b.id === bundle.
 // 节点编辑/移动时按需走 /api/doc/nodes/${id} 取单节点详情（已有 PATCH/GET 接口）。
 // updatedAt 作为 /render 的版本号 v：编辑后它变化 → URL 变化 → CDN 旧缓存自动失效
 const nodesJson = JSON.stringify(
-  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title, updatedAt: n.updatedAt })),
+  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title, sort: n.sort, updatedAt: n.updatedAt })),
 );
 const bundleJson = JSON.stringify({ id: bundle.id, name: bundle.name, icon: bundle.icon, summary: bundle.summary });
 const activeNodeId = activeNode?.id ?? '';
@@ -84,33 +84,35 @@ function adminActions(n: DocNodeView, isAuthed: boolean): string {
   );
 }
 
-/** 递归渲染目录树（folder → details；article → 可切换链接） */
-function renderTreeHtml(items: DocNodeView[], isAuthed: boolean): string {
-  let out = '';
-  for (const n of items) {
-    if (n.kind === 'folder') {
-      const children = renderTreeHtml(n.children, isAuthed);
-      out +=
-        `<details class="group doc-folder" open data-folder="${n.id}">` +
-        `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">` +
-        `<span class="text-[0.7rem]">▸</span>` +
-        `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
-        adminActions(n, isAuthed) +
-        `</summary>` +
-        (children ? `<div class="ml-3 border-l border-border pl-2">${children}</div>` : '') +
-        `</details>`;
-    } else {
-      out +=
-        `<a href="#${n.id}" data-article-switch="${n.id}" class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
-        (n.id === activeNode?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
-        `">` +
-        `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
-        adminActions(n, isAuthed) +
-        `</a>`;
+  /** 递归渲染目录树（folder → details；article → 可切换链接）。
+   *  登录态下文章行 draggable（拖拽排序/跨目录移动，见 script 拖拽段）；
+   *  目录 summary 为「移入该目录末尾」落点；根级容器 data-doc-tree-root 兜底落点。 */
+  function renderTreeHtml(items: DocNodeView[], isAuthed: boolean): string {
+    let out = '';
+    for (const n of items) {
+      if (n.kind === 'folder') {
+        const children = renderTreeHtml(n.children, isAuthed);
+        out +=
+          `<details class="group doc-folder" open data-folder="${n.id}">` +
+          `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${isAuthed ? ` data-doc-folder-target="${n.id}"` : ''}>` +
+          `<span class="text-[0.7rem]">▸</span>` +
+          `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
+          adminActions(n, isAuthed) +
+          `</summary>` +
+          (children ? `<div class="ml-3 border-l border-border pl-2">${children}</div>` : '') +
+          `</details>`;
+      } else {
+        out +=
+          `<a href="#${n.id}" data-article-switch="${n.id}"${isAuthed ? ` draggable="true" data-doc-node-id="${n.id}"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
+          (n.id === activeNode?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
+          `">` +
+          `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
+          adminActions(n, isAuthed) +
+          `</a>`;
+      }
     }
+    return out;
   }
-  return out;
-}
 
 const treeHtml = renderTreeHtml(tree, isAuthed);
 const folderOptionsJson = JSON.stringify(folderOptions);
@@ -153,7 +155,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
             <div id="doc-ltoc-body" class="mt-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
               <nav class="space-y-0.5 text-base" aria-label="本册目录">
                 {treeHtml !== '' ? (
-                  <div class="space-y-0.5" set:html={treeHtml} />
+                  <div class="space-y-0.5" data-doc-tree-root set:html={treeHtml} />
                 ) : (
                   <p class="px-1 py-2 text-xs text-muted-foreground">暂无内容 —— 管理员可新建目录或文章。</p>
                 )}
@@ -472,6 +474,26 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
 
+  /* ===== 目录树拖拽反馈（对齐导航模块交互） ===== */
+  /* 目录行落点：主色浅底 + 虚线描边（移入该目录末尾） */
+  #doc-ltoc-body [data-doc-folder-target].doc-drag-over-folder {
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
+    outline: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
+    outline-offset: -1px;
+  }
+  /* 文章行落点：上/下插入线（2px 主色，inset 不占布局） */
+  #doc-ltoc-body [data-doc-node-id].doc-drag-line-top {
+    box-shadow: inset 0 2px 0 var(--color-primary);
+  }
+  #doc-ltoc-body [data-doc-node-id].doc-drag-line-bottom {
+    box-shadow: inset 0 -2px 0 var(--color-primary);
+  }
+  /* 被拖源行半透明 */
+  #doc-ltoc-body .doc-dragging {
+    opacity: 0.45;
+  }
+
   /* ====== 块级公式行：源 line 文本透明 / 不占布局，仅保留 KaTeX widget ======
      根因：cm-wysiwyg 的 `Decoration.replace({ widget })` 在 CodeMirror 6 中不会
      删除源 line 节点（widget 仅替代渲染位置），导致 $$..$$ 行内 KaTeX 字符与
@@ -511,6 +533,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     parentId: string | null;
     kind: 'folder' | 'article';
     title: string;
+    sort: number;
     updatedAt?: string;
   }
   function readNodes(): NodeMeta[] {
@@ -618,6 +641,189 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     const folded = node.classList.toggle('folded');
     fold.setAttribute('aria-expanded', String(!folded));
     fold.setAttribute('aria-label', folded ? '展开子目录' : '折叠子目录');
+  });
+
+  /* ================= 本册目录树：文章拖拽排序 / 跨目录移动（登录） =================
+     交互对齐导航模块（nav.astro）：HTML5 原生 DnD + document 级委托（ClientRouter
+     转场后无需重绑）+ 落点高亮 + drop 后 reload。
+     落点模型（仅登录渲染 draggable/data-*）：
+     - 文章行 [data-doc-node-id]：上半=插到它前面 / 下半=插到它后面（同目录排序、
+       跨目录移动皆由此统一表达：目标父目录 = 命中行的 parentId）
+     - 目录行 [data-doc-folder-target]：移入该目录末尾
+     - 树容器空白 [data-doc-tree-root]：移到册根级末尾
+     数据更新：PATCH /api/doc/nodes/[id] { parentId, sort }；sort 取目标位置前后
+     兄弟中点，区间不可分（相等/撞车）时对目标父目录孩子全量重编 0..n-1。
+     编辑态（data-editing='true'）禁止拖拽：drop 后 reload 会丢编辑内容。 */
+  const DOC_DRAG_INACTIVE = '[data-doc-node-id]'; // 可拖源选择器（文章行）
+  let draggingDocNodeId: string | null = null;
+  let docDropMark: HTMLElement | null = null; // 当前带插入线/高亮的落点元素
+
+  function clearDocDropMark(): void {
+    docDropMark?.classList.remove('doc-drag-over-folder', 'doc-drag-line-top', 'doc-drag-line-bottom');
+    docDropMark = null;
+  }
+
+  /** 解析 dragover 命中的落点：返回 {el, kind, folderId?} 或 null */
+  function resolveDocDropTarget(target: EventTarget | null): { el: HTMLElement; kind: 'article' | 'folder' | 'root' } | null {
+    const el = target as HTMLElement | null;
+    if (!el || !el.closest) return null;
+    const art = el.closest<HTMLElement>('[data-doc-node-id]');
+    if (art) return { el: art, kind: 'article' };
+    const folder = el.closest<HTMLElement>('[data-doc-folder-target]');
+    if (folder) return { el: folder, kind: 'folder' };
+    const root = el.closest<HTMLElement>('[data-doc-tree-root]');
+    if (root) return { el: root, kind: 'root' };
+    return null;
+  }
+
+  /** 应用落点视觉：目录=高亮；文章=上半/下半插入线；root=无装饰 */
+  function applyDocDropMark(t: { el: HTMLElement; kind: 'article' | 'folder' | 'root' }, above: boolean): void {
+    if (docDropMark === t.el) {
+      // 同一元素内上下半切换
+      if (t.kind === 'article') {
+        t.el.classList.toggle('doc-drag-line-top', above);
+        t.el.classList.toggle('doc-drag-line-bottom', !above);
+      }
+      return;
+    }
+    clearDocDropMark();
+    docDropMark = t.el;
+    if (t.kind === 'folder') t.el.classList.add('doc-drag-over-folder');
+    else if (t.kind === 'article') t.el.classList.add(above ? 'doc-drag-line-top' : 'doc-drag-line-bottom');
+  }
+
+  /**
+   * 计算 drop 后的 parentId + sort 并发 PATCH。
+   * 目标序 = 目标父目录孩子（含 folder）按当前 sort；同目录先移除被拖节点再插入。
+   */
+  async function commitDocNodeMove(nodeId: string, targetParentId: string | null, insertIdx: number): Promise<void> {
+    const siblings = readNodes()
+      .filter((n) => (n.parentId ?? null) === targetParentId && n.id !== nodeId)
+      .sort((a, b) => a.sort - b.sort);
+    const idx = Math.max(0, Math.min(insertIdx, siblings.length));
+    // sort 取前后兄弟中点；不可分（差 <2 或相等）时全量重编 0..n-1
+    const prev = siblings[idx - 1];
+    const next = siblings[idx];
+    let sort: number;
+    let renumber: NodeMeta[] | null = null;
+    if (!prev && !next) sort = 0;
+    else if (!prev) sort = (next?.sort ?? 0) - 1;
+    else if (!next) sort = prev.sort + 1;
+    else if (next.sort - prev.sort >= 2) sort = Math.floor((prev.sort + next.sort) / 2);
+    else {
+      renumber = [...siblings];
+      renumber.splice(idx, 0, { id: nodeId, parentId: targetParentId, kind: 'article', title: '', sort: 0 });
+      renumber = renumber.map((n, i) => ({ ...n, sort: i }));
+      sort = -1; // 由 renumber 分支赋值
+    }
+
+    const patch = async (id: string, body: Record<string, unknown>): Promise<boolean> => {
+      const res = await fetch(`/api/doc/nodes/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return res.ok;
+    };
+
+    if (renumber) {
+      // 全量重编：只发变化项；被拖节点带 parentId（跨目录场景）
+      const changed = renumber.filter((n, i) => n.sort !== siblings[i]?.sort || n.id === nodeId);
+      const results = await Promise.all(
+        changed.map((n) =>
+          patch(n.id, n.id === nodeId ? { parentId: targetParentId, sort: n.sort } : { sort: n.sort }),
+        ),
+      );
+      if (results.some((ok) => !ok)) throw new Error('排序保存失败');
+    } else {
+      const node = readNodes().find((n) => n.id === nodeId);
+      const sameParent = (node?.parentId ?? null) === targetParentId;
+      const ok = await patch(nodeId, sameParent ? { sort } : { parentId: targetParentId, sort });
+      if (!ok) throw new Error('移动失败');
+    }
+  }
+
+  document.addEventListener('dragstart', (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>(DOC_DRAG_INACTIVE);
+    if (!row || IS_AUTHED !== true) return;
+    // 编辑态禁止拖拽：drop 后 reload 会丢失编辑器内容
+    if (document.getElementById('doc-3col')?.getAttribute('data-editing') === 'true') {
+      e.preventDefault();
+      return;
+    }
+    draggingDocNodeId = row.dataset.docNodeId ?? null;
+    e.dataTransfer?.setData('text/plain', draggingDocNodeId ?? '');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    row.classList.add('doc-dragging'); // 源行半透明
+  });
+  document.addEventListener('dragover', (e) => {
+    if (!draggingDocNodeId) return;
+    const t = resolveDocDropTarget(e.target);
+    if (!t) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    if (t.kind === 'article') {
+      const r = t.el.getBoundingClientRect();
+      applyDocDropMark(t, e.clientY < r.top + r.height / 2);
+    } else {
+      applyDocDropMark(t, true);
+    }
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (!draggingDocNodeId) return;
+    const rt = e.relatedTarget as HTMLElement | null;
+    if (docDropMark && rt && docDropMark.contains(rt)) return;
+    clearDocDropMark();
+  });
+  document.addEventListener('drop', async (e) => {
+    if (!draggingDocNodeId) return;
+    e.preventDefault();
+    const nodeId = draggingDocNodeId;
+    draggingDocNodeId = null;
+    const t = resolveDocDropTarget(e.target);
+    clearDocDropMark();
+    document.querySelector('.doc-dragging')?.classList.remove('doc-dragging');
+    if (!t) return;
+    try {
+      if (t.kind === 'article') {
+        // 目标父目录 = 命中行的 parentId；插入位置 = 该行在目标序中的 index（±after）
+        const hitId = t.el.dataset.docNodeId ?? '';
+        const hit = readNodes().find((n) => n.id === hitId);
+        if (!hit || hit.id === nodeId) return;
+        const targetParentId = hit.parentId ?? null;
+        const siblings = readNodes().filter((n) => (n.parentId ?? null) === targetParentId).sort((a, b) => a.sort - b.sort);
+        const idxInSib = siblings.findIndex((n) => n.id === hitId);
+        const r = t.el.getBoundingClientRect();
+        const after = e.clientY >= r.top + r.height / 2;
+        const dragged = readNodes().find((n) => n.id === nodeId);
+        const sameParent = (dragged?.parentId ?? null) === targetParentId;
+        const draggedIdx = siblings.findIndex((n) => n.id === nodeId);
+        let insertIdx = idxInSib + (after ? 1 : 0);
+        if (sameParent && draggedIdx >= 0 && draggedIdx < insertIdx) insertIdx -= 1; // 移除自身后左移
+        // 原位判定：移除自身后插回原索引（前后邻居均不变）。注意 p===d+1 不是原位
+        // ——那会让 A 与后邻居交换（[A,B] 中 A→B下半 应得 [B,A]）
+        if (sameParent && insertIdx === draggedIdx) return;
+        await commitDocNodeMove(nodeId, targetParentId, insertIdx);
+      } else if (t.kind === 'folder') {
+        const folderId = t.el.dataset.docFolderTarget ?? '';
+        if (!folderId) return;
+        const dragged = readNodes().find((n) => n.id === nodeId);
+        if ((dragged?.parentId ?? null) === folderId) return; // 已在该目录：末尾=原目录尾，视为无操作
+        await commitDocNodeMove(nodeId, folderId, Number.MAX_SAFE_INTEGER);
+      } else {
+        const dragged = readNodes().find((n) => n.id === nodeId);
+        if ((dragged?.parentId ?? null) === null) return; // 已是根级
+        await commitDocNodeMove(nodeId, null, Number.MAX_SAFE_INTEGER);
+      }
+      window.location.reload();
+    } catch {
+      /* 失败保持原状（与导航一致：不做 toast，用户重试） */
+    }
+  });
+  document.addEventListener('dragend', () => {
+    draggingDocNodeId = null;
+    clearDocDropMark();
+    document.querySelector('.doc-dragging')?.classList.remove('doc-dragging');
   });
 
   /* ================= 左栏目录树：整栏可折叠/展开（transform 滑入滑出，纯合成器动画） =================
