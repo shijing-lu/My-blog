@@ -2,7 +2,7 @@
 
 # My Blog · 白衣卿相
 
-_一个功能完整的综合型个人博客 —— 技术教程 · 学习笔记 · 影集 · 数学讲义 · 学习管理_
+_一个功能完整的综合型个人博客 —— 技术教程 · 学习笔记 · 影集 · 数学讲义_
 
 ![Astro](https://img.shields.io/badge/Astro-7-BC52EE?logo=astro&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
@@ -53,9 +53,6 @@ _一个功能完整的综合型个人博客 —— 技术教程 · 学习笔记 
 - 上传页一次多张、每批统一日期、可选标题；URL 导入兼容 PicGo / GitHub 图床直链
 - 照片字节存 Cloudflare R2，数据库只存元数据（未配置 R2 时自动降级为仅 URL 导入）
 
-### 📚 学习系统（`/study`）
-- 专注计时、任务管理、分心记录、每日打卡、热力图统计
-
 ### 🧩 更多模块
 - 导航站 `/nav`（分类/子分类/网址收录与扫描）· 说说 `/moments` · 日历 `/calendar` · 思维导图 · 练字字帖 · 点赞（指纹去重）
 
@@ -79,7 +76,6 @@ _一个功能完整的综合型个人博客 —— 技术教程 · 学习笔记 
 | `/moments` | 说说 | 公开 |
 | `/nav` | 导航站 | 公开 |
 | `/calendar` | 日历 | 公开 |
-| `/study` | 学习系统 | 公开 |
 | `/rss.xml` | RSS 订阅 | 公开 |
 | `/login` | 登录 | 公开 |
 | `/edit/*` | 写作台 | 仅管理员 |
@@ -163,7 +159,7 @@ pnpm dev
 │   ├── themes/            # 主题注册表 + 4 套内置主题 + _template
 │   ├── layouts/           # BaseLayout / AdminLayout / Tech·Note·PhotoLayout
 │   ├── components/        # mdx 注册表 · article/* · ui/*(shadcn) · admin/*(编辑器)
-│   ├── pages/             # 路由：首页 / blog / doc / gallery / study / api/* ...
+│   ├── pages/             # 路由：首页 / blog / doc / gallery / nav / calendar / api/* ...
 │   ├── scripts/           # 客户端脚本
 │   └── middleware.ts      # 鉴权守卫（/admin · /edit · /gallery/upload · 受保护 API）
 ├── docs/                  # 设计与部署文档

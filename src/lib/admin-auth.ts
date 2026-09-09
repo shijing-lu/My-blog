@@ -45,7 +45,6 @@ export const PERMISSION_KEYS = {
   moments: '动态',
   photos: '影集',
   calendar: '日历（待办/日记/日期）',
-  study: '学习模式',
   docs: '文档系统',
   nav: '网址导航',
   comments: '评论管理',

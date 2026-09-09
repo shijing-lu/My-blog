@@ -15,7 +15,6 @@ import { db, dbWrite } from '../../db';
 /** 页面键（白名单） */
 export type PageKey =
   | 'home'
-  | 'study'
   | 'doc'
   | 'nav'
   | 'gallery'
@@ -28,7 +27,6 @@ export type PageKey =
 /** 页面键 → 中文名（设置页展示用） */
 export const PAGE_KEY_LABELS: Record<PageKey, string> = {
   home: '首页',
-  study: '学习',
   doc: '文档',
   nav: '导航',
   gallery: '影集',
@@ -84,7 +82,6 @@ export const DEFAULT_BACKGROUND: SiteBackground = {
 export function pageKeyFromPathname(pathname: string): PageKey {
   const p = pathname.split('?')[0] ?? '';
   if (p === '/') return 'home';
-  if (p === '/study' || p.startsWith('/study/')) return 'study';
   if (p === '/doc' || p.startsWith('/doc/')) return 'doc';
   if (p === '/nav') return 'nav';
   if (p === '/gallery' || p.startsWith('/gallery/')) return 'gallery';

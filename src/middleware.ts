@@ -40,12 +40,6 @@ function requiredApiPermission(pathname: string, method: string): PermissionKey[
   if (pathname === '/api/calendar-events' || pathname.startsWith('/api/calendar-events/')) {
     return ['POST', 'PATCH', 'DELETE'].includes(method) ? ['calendar'] : null;
   }
-  // 学习模式：任务/打断全方法需 study 权限；番茄记录仅 POST；统计 GET 公开
-  if (pathname.startsWith('/api/study/')) {
-    if (pathname === '/api/study/stats') return null;
-    if (pathname === '/api/study/sessions' && method === 'GET') return null;
-    return ['study'];
-  }
   // 文档系统：分类/文档/文章/预览的写方法需 docs 权限；树/单篇/搜索 GET 公开
   if (pathname.startsWith('/api/doc/')) {
     if ((pathname === '/api/doc' || pathname === '/api/doc/search') && method === 'GET') return null;
