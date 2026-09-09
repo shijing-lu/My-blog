@@ -69,6 +69,25 @@ describe('scopeMdCss 根元素映射', () => {
   });
 });
 
+describe('scopeMdCss 暗色主题分支', () => {
+  it('.dark strong → .dark :is(.prose) strong（dark 类挂 html，不能默认前缀）', () => {
+    expect(scopeMdCss('.dark strong{color:#9cf}')).toBe('.dark :is(.prose) strong{color:#9cf}');
+  });
+
+  it('html.dark / :is(.dark) 形态同样映射', () => {
+    expect(scopeMdCss('html.dark em{color:#a970ff}')).toBe('.dark :is(.prose) em{color:#a970ff}');
+    expect(scopeMdCss(':is(.dark) code{color:#7dd3fc}')).toBe('.dark :is(.prose) code{color:#7dd3fc}');
+  });
+
+  it('单独 .dark 映射为 .dark :is(.prose)', () => {
+    expect(scopeMdCss('.dark{--x:1}')).toBe('.dark :is(.prose){--x:1}');
+  });
+
+  it('.dark .prose strong 含 host → 原样保留（语义本就正确）', () => {
+    expect(scopeMdCss('.dark .prose strong{color:#fff}')).toBe('.dark .prose strong{color:#fff}');
+  });
+});
+
 describe('scopeMdCss at-rule 处理', () => {
   it('@media 内规则递归加前缀', () => {
     const out = scopeMdCss('@media (max-width:640px){strong{color:red}}');

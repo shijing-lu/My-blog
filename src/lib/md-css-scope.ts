@@ -139,8 +139,15 @@ export function scopeMdCss(css: string, host = '.prose'): string {
 
   /** 单个选择器作用域化 */
   const scopeSelector = (sel: string): string => {
-    // 已含 host 类 → 用户自己写了作用域，原样保留
+    // 已含 host 类 → 用户自己写了作用域，原样保留（含 `.dark .prose …` 形态，语义本就正确）
     if (containsHostOutsideString(sel)) return sel;
+    // .dark / html.dark / :is(.dark) 开头（站点暗色主题分支，dark 类挂 html 上）→
+    // 映射为 `.dark :is(.prose) …`（默认前缀会破坏 .dark 与 html 同元素关系）
+    const dm = sel.match(/^(\.dark\b|html\.dark\b|:is\(\.dark\))/i);
+    if (dm && dm[1]) {
+      const rest = sel.slice(dm[1].length).trim();
+      return rest === '' ? `.dark :is(${host})` : `.dark :is(${host}) ${rest}`;
+    }
     // :root / html / body 开头（含 html:root、body.dark 等复合形态）→ 映射为 host 容器；
     // 余下复合片段（./#/:/[ 开头）紧贴拼接保持复合语义，其余（后代）空格拼接
     const m = sel.match(/^(:(root)\b|html\b(?::root\b)?|body\b)/i);
