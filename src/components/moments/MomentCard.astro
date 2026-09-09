@@ -17,7 +17,7 @@ interface Props {
 const { m, avatarSrc, nickname, isAuthed, now, likeCount } = Astro.props;
 
 /** 显示时间永远取创建时间（编辑不改变时间点）；被编辑过则附加「已编辑」标记 */
-const edited = m.updatedAt.getTime() - m.createdAt.getTime() > 60_000;
+const edited = m.updatedAt.getTime() - m.createdAt.getTime() > 1_000;
 const fullTime = `创建于 ${formatMomentFullTime(m.createdAt)}${edited ? `（最后编辑 ${formatMomentFullTime(m.updatedAt)}）` : ''}`;
 
 /* ===== Logic ===== */
