@@ -209,8 +209,9 @@ export async function getMomentTimeline(includePrivate = false): Promise<Array<{
   const map = new Map<string, number>();
   for (const r of rows) {
     if (!includePrivate && r.visibility !== 'public') continue;
-    const d = r.createdAt;
-    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    // 按北京时间聚合（服务器可能为 UTC，直接 getFullYear/getDate 会把凌晨动态归到前一天）
+    const p = bjParts(r.createdAt);
+    const key = `${p.y}-${pad(p.mo)}-${pad(p.d)}`;
     map.set(key, (map.get(key) ?? 0) + 1);
   }
   return Array.from(map, ([date, count]) => ({ date, count }));
@@ -233,34 +234,63 @@ export async function toMomentView(m: Moment): Promise<MomentView> {
   return { ...m, contentHtml: await renderMarkdownHtml(m.content) };
 }
 
-/** 是否为同一天 */
-function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+/** 北京时间部件（服务器时区无关：Vercel 实例为 UTC，直接用 getHours/getDate 会差 8 小时） */
+const BJ_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+interface BjParts {
+  y: number;
+  mo: number;
+  d: number;
+  h: number;
+  mi: number;
+}
+
+function bjParts(d: Date): BjParts {
+  const parts = Object.fromEntries(BJ_FMT.formatToParts(d).map((p) => [p.type, p.value])) as Record<string, string>;
+  const h = parts.hour === '24' ? 0 : Number(parts.hour); // en-US hour12:false 可能输出 24:xx
+  return { y: Number(parts.year), mo: Number(parts.month), d: Number(parts.day), h, mi: Number(parts.minute) };
+}
+
+/** 北京时间天数序号（跨月/跨年安全） */
+function bjDayNo(p: BjParts): number {
+  return Date.UTC(p.y, p.mo - 1, p.d) / 86400000;
 }
 
 /**
- * 相对时间文案（纯函数，可单测）
+ * 北京时间完整格式 YYYY-MM-DD HH:mm（卡片时间悬停提示用）
+ */
+export function formatMomentFullTime(d: Date): string {
+  const p = bjParts(d);
+  return `${p.y}-${pad(p.mo)}-${pad(p.d)} ${pad(p.h)}:${pad(p.mi)}`;
+}
+
+/**
+ * 相对时间文案（纯函数，可单测；「当天/昨天/HH:mm/日期」一律按北京时间判断与格式化）
  * 刚刚 / N 分钟前 / N 小时前（当天）/ 昨天 HH:mm / N 天前 / YYYY-MM-DD
  */
 export function formatRelativeTime(date: Date, now = new Date()): string {
   const diffMs = now.getTime() - date.getTime();
+  const b = bjParts(date);
   if (diffMs < 0) {
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    return `${b.y}-${pad(b.mo)}-${pad(b.d)}`;
   }
   const min = Math.floor(diffMs / 60000);
   if (min < 1) return '刚刚';
   if (min < 60) return `${min} 分钟前`;
   const hours = Math.floor(min / 60);
-  if (sameDay(date, now)) return `${hours} 小时前`;
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (sameDay(date, yesterday)) {
-    return `昨天 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const n = bjParts(now);
+  if (bjDayNo(b) === bjDayNo(n)) return `${hours} 小时前`;
+  if (bjDayNo(n) - bjDayNo(b) === 1) {
+    return `昨天 ${pad(b.h)}:${pad(b.mi)}`;
   }
   if (hours < 24 * 7) return `${Math.floor(hours / 24)} 天前`;
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return `${b.y}-${pad(b.mo)}-${pad(b.d)}`;
 }
