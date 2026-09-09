@@ -20,7 +20,7 @@ import rehypeSlug from 'rehype-slug';
 import rehypeKatex from 'rehype-katex';
 import rehypeStringify from 'rehype-stringify';
 import rehypeParse from 'rehype-parse';
-import { remarkPlugins, rehypePlugins, rehypeTocCollector, type TocItem, type BlockAnchorMap, type BlockAnchorItem } from './mdx-plugins';
+import { remarkFixGfmAutolink, remarkPlugins, rehypePlugins, rehypeTocCollector, type TocItem, type BlockAnchorMap, type BlockAnchorItem } from './mdx-plugins';
 import { mdxComponents, type MDXComponentMap } from '@/components/mdx/registry';
 
 /** 渲染选项 */
@@ -267,6 +267,7 @@ export async function renderMarkdownHtml(source: string): Promise<string> {
   const file = await unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkFixGfmAutolink)
     .use(remarkRehype)
     .use(rehypeStringify)
     .process(source);
@@ -298,6 +299,7 @@ export async function extractToc(source: string): Promise<TocItem[]> {
   const file = (await unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkFixGfmAutolink)
     .use(remarkMath)
     .use(remarkRehype)
     .use(rehypeSlug)

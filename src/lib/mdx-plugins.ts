@@ -16,7 +16,8 @@ import rehypePrismPlus from 'rehype-prism-plus';
 import rehypeKatex from 'rehype-katex';
 import rehypeTableMath from './rehype-table-math';
 import { toHtml } from 'hast-util-to-html';
-import type { Root, RootContent, Node } from 'mdast';
+import type { Processor } from 'unified';
+import type { Root, RootContent, Node, Paragraph } from 'mdast';
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
 
 /** 支持的 admonition 类型 */
@@ -308,8 +309,71 @@ export function rehypeTocCollector() {
   };
 }
 
+/**
+ * remark 插件：修正 GFM autolinkLiteral 的中文边界 bug
+ *
+ * 背景（复现+生产确认）：GFM 的裸 URL 自动链接只认「空白 / 部分 ASCII 标点」边界，
+ * URL 后紧跟全角标点（。？！：；、）或反引号时会把这些字符连同后续文本一直吞进链接
+ * ——例如「https://example.com。提交链：`abc`」整段变成一个 <a>，code span 失效、
+ * 反引号字面残留（编辑器实时渲染用另一套解析所以正常，阅读页异常）。
+ *
+ * 修复：遍历 mdast，命中「GFM autolink 特征」的 link 节点（纯文本子节点且文本与 url
+ * 完全一致，手动 `[text](url)` 一般不满足）且 url 含全角标点/反引号时：
+ * - url 截断到第一个非法字符前，重写为干净链接；
+ * - 截下的剩余文本重新过 remark-parse（行内结构如 code span 得以恢复）后插回链接之后。
+ * 手动链接（文本≠url）与代码块内的 URL 不受影响（后者根本不生成 autolink）。
+ */
+const AUTOLINK_BREAK_RE = /[\u3000-\u303F\uFF00-\uFFEF\u2018-\u201D\u2010-\u2015\u2026`]/;
+
+export function remarkFixGfmAutolink(this: Processor) {
+  const proc = this;
+  return (tree: Root) => {
+    const walk = (node: Node): void => {
+      const children = (node as { children?: Node[] }).children;
+      if (!Array.isArray(children)) return;
+      const out: Node[] = [];
+      for (const child of children) {
+        if (child.type === 'link') {
+          const link = child as { url?: unknown; title?: unknown; children?: Node[] };
+          const url = typeof link.url === 'string' ? link.url : '';
+          const kids = Array.isArray(link.children) ? link.children : [];
+          const isPureText = kids.length > 0 && kids.every((k) => k.type === 'text');
+          const text = kids.map((k) => (k.type === 'text' ? String((k as { value?: unknown }).value ?? '') : '')).join('');
+          if (url && isPureText && text === url && /^https?:\/\//i.test(url) && AUTOLINK_BREAK_RE.test(url)) {
+            const cut = url.search(AUTOLINK_BREAK_RE);
+            const good = url.slice(0, cut);
+            const rest = url.slice(cut);
+            out.push({
+              type: 'link',
+              url: good,
+              title: (link.title as string | null) ?? null,
+              children: [{ type: 'text', value: good } as Node],
+            } as Node);
+            if (rest) {
+              // 剩余文本重新按行内 Markdown 解析（恢复 `code`、强调等结构）
+              try {
+                const reparsed = proc.parse(rest) as Root;
+                const para = reparsed.children.find((c) => c.type === 'paragraph') as Paragraph | undefined;
+                out.push(...((para?.children ?? [{ type: 'text', value: rest } as Node]) as Node[]));
+              } catch {
+                out.push({ type: 'text', value: rest } as Node);
+              }
+            }
+            continue;
+          }
+        }
+        walk(child);
+        out.push(child);
+      }
+      children.length = 0;
+      children.push(...out);
+    };
+    walk(tree);
+  };
+}
+
 /** remark 插件数组（evaluate 与预览共用） */
-export const remarkPlugins = [remarkGfm, remarkMath, remarkDirective, remarkDirectiveToJsx, remarkLegacyFootnotes];
+export const remarkPlugins = [remarkGfm, remarkFixGfmAutolink, remarkMath, remarkDirective, remarkDirectiveToJsx, remarkLegacyFootnotes];
 
 /** rehype 插件数组：slug → autolink → katex（LaTeX 公式，纯 CSS 渲染无需客户端 JS）→ prism（行号）→ 块锚点（思维导图引用） */
 export const rehypePlugins = [
