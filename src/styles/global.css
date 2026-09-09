@@ -2081,3 +2081,14 @@ g.smm-node-highlight rect {
   stroke: var(--color-primary) !important;
   stroke-width: 2.5 !important;
 }
+
+/* ==================== 行内 code 去除 typography 默认反引号 ==================== */
+/* Tailwind Typography 在 @layer utilities 里给 .prose 的行内 code::before/::after
+ * 画了一对反引号（content: '`'）。layer 优先级高于选择器权重，且 utilities 声明在
+ * components 之后——写在 @layer components 内的覆盖必输。故此规则必须 unlayered
+ * （文件末尾，不在任何 @layer 内），unlayered 规则优先于全部 layer。
+ * pre code（块级）本就是 content:none，不受影响。 */
+.prose code:not(:where([class~='not-prose'] *))::before,
+.prose code:not(:where([class~='not-prose'] *))::after {
+  content: none;
+}
