@@ -1,14 +1,14 @@
 ---
 /*
- * SettingsForm.astro —— 站点设置表单（分区分页：5 个独立页面 + 弹窗复用）
- * 由 admin/settings.astro 抽离：五个分区（站点名称/诗词轮播/落地页/外观/GitHub 图床）+ 全部交互脚本。
- * - Props.section 为 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed'：
+ * SettingsForm.astro —— 站点设置表单（分区分页：6 个独立页面 + 弹窗复用）
+ * 由 admin/settings.astro 抽离：六个分区（站点名称/诗词轮播/落地页/外观/GitHub 图床/Markdown 样式）+ 全部交互脚本。
+ * - Props.section 为 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css'：
  *   - 省略 → 渲染全部（用于弹窗和兼容旧 /admin/settings）
  *   - 指定 → 仅渲染该分区（用于独立子页面 /admin/settings/<section>）
  * - 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
  */
 interface Props {
-  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed';
+  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css';
 }
 const { section } = Astro.props;
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
@@ -17,6 +17,7 @@ import { getLandingHero } from '@/lib/landing';
 import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
+import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -36,9 +37,17 @@ const showHeroQuotes = !section || section === 'hero-quotes';
 const showLanding = !section || section === 'landing';
 const showAppearance = !section || section === 'appearance';
 const showImageBed = !section || section === 'image-bed';
+const showMdCss = !section || section === 'md-css';
 
 /** GitHub 图床配置（token 掩码：SSR 注入 hasToken，明文永不出库） */
 const imageBed = serializeImageBedConfig(await getImageBedConfig());
+
+/** 自定义 Markdown 样式（CSS 原文进 textarea；作用域化后注入预览实时生效） */
+const mdCss = await getCustomMdCss();
+const mdCssHasCustom = mdCss.css.trim() !== '';
+const mdCssScopedPreview = mdCssHasCustom ? scopeMdCss(mdCss.css) : '';
+const mdCssUpdatedAtText =
+  mdCss.updatedAt != null ? new Date(mdCss.updatedAt).toLocaleString('zh-CN') : '';
 ---
 
 <!-- ===== Template ===== -->
@@ -535,10 +544,113 @@ const imageBed = serializeImageBedConfig(await getImageBedConfig());
       </div>
     </section>
     </>)}
+
+    <!-- Markdown 自定义样式分区 -->
+    {showMdCss && (<>
+    <section
+      id="md-css"
+      data-settings-section="md-css"
+      class="border-t border-border pt-6"
+      data-updated-at={mdCss.updatedAt != null ? String(mdCss.updatedAt) : ''}
+    >
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">MARKDOWN CSS</p>
+          <h2 class="mt-1 font-medium">Markdown 样式自定义</h2>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        上传 CSS 文件覆盖全站 Markdown 渲染样式。覆盖范围：<strong>文章、文档、动态、动态卡片、评论</strong>等所有
+        Markdown 渲染区域——加粗、斜体、各级标题、列表、引用、行内代码、代码块、表格、链接、分割线、图片等。
+        选择器无需加前缀，自动限定在 Markdown 区域内，不影响站点其他部分。
+      </p>
+
+      <!-- 当前状态 -->
+      <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+        <span id="mdcss-state" class="text-xs text-muted-foreground">
+          {mdCssHasCustom ? `已自定义（${Math.ceil(mdCss.css.length / 1024)}KB${mdCssUpdatedAtText ? `，更新于 ${mdCssUpdatedAtText}` : ''}）` : '当前使用站点默认样式'}
+        </span>
+      </div>
+
+      <!-- 上传 / 编辑 -->
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <input id="mdcss-file" type="file" accept=".css,text/css" class="hidden" />
+        <button
+          id="mdcss-choose"
+          type="button"
+          class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
+        >
+          选择 CSS 文件
+        </button>
+        <span id="mdcss-file-name" class="text-xs text-muted-foreground">未选择（可直接在下方编辑）</span>
+      </div>
+
+      <label class="mt-3 block text-xs font-medium text-muted-foreground">
+        样式内容（可编辑，下方预览实时生效）
+        <textarea
+          id="mdcss-text"
+          rows="10"
+          spellcheck="false"
+          placeholder={'strong { color: orange; }\nem { color: #7dd3fc; }\nh1, h2 { border-bottom: 1px solid #f97316; }'}
+          class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none transition-colors focus-visible:border-ring"
+        >{mdCss.css}</textarea>
+      </label>
+
+      <!-- 实时预览（已保存样式 SSR 注入 + 编辑即时更新） -->
+      <p class="settings-label mt-4">实时预览 / PREVIEW</p>
+      {mdCssScopedPreview !== '' && <style id="mdcss-preview-style" set:html={mdCssScopedPreview} />}
+      <div class="mt-2 rounded-md border border-border p-4">
+        <div
+          id="mdcss-preview"
+          class="prose prose-sm max-w-none"
+        >
+          <h3>三级标题 H3</h3>
+          <h4>四级标题 H4</h4>
+          <p>
+            正文段落：<strong>加粗文本</strong>、<em>斜体文本</em>、<code>行内代码</code>、
+            <a href="javascript:void(0)">链接文字</a>、<del>删除线</del>，以及 mixed <strong>粗 <em>斜</em></strong> 组合。
+          </p>
+          <ul>
+            <li>无序列表项一</li>
+            <li>无序列表项二</li>
+          </ul>
+          <ol>
+            <li>有序列表项一</li>
+            <li>有序列表项二</li>
+          </ol>
+          <blockquote><p>引用块：路漫漫其修远兮，吾将上下而求索。</p></blockquote>
+          <pre><code set:html={"function hello() {\n  console.log('code block');\n}"} /></pre>
+          <table><thead><tr><th>表头一</th><th>表头二</th></tr></thead><tbody><tr><td>单元格</td><td>单元格</td></tr></tbody></table>
+          <hr />
+        </div>
+      </div>
+
+      <p id="mdcss-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
+
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <span id="mdcss-saved-hint" class="text-xs text-emerald-600"></span>
+        <button
+          id="mdcss-reset"
+          type="button"
+          class="rounded-md border border-destructive/40 px-4 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+        >
+          恢复默认样式
+        </button>
+        <button
+          id="mdcss-save"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          保存并应用
+        </button>
+      </div>
+    </section>
+    </>)}
 </div>
 
 <script>
   import { confirmDialog, confirmDanger } from '@/lib/confirm';
+  import { scopeMdCss } from '@/lib/md-css-scope';
 
   /** 幂等初始化：以 #settings-form-root[data-inited] 防重复绑定；
    * - /admin/settings（无 ClientRouter）模块加载即执行；
@@ -547,6 +659,128 @@ const imageBed = serializeImageBedConfig(await getImageBedConfig());
     const formRoot = document.getElementById('settings-form-root');
     if (!formRoot || formRoot.dataset.inited === '1') return;
     formRoot.dataset.inited = '1';
+
+    /* ---------- Markdown 样式自定义（上传/编辑/恢复默认，预览实时生效） ---------- */
+    const mdSection = document.getElementById('md-css');
+    if (mdSection) {
+      const mdText = document.getElementById('mdcss-text') as HTMLTextAreaElement | null;
+      const mdFile = document.getElementById('mdcss-file') as HTMLInputElement | null;
+      const mdFileName = document.getElementById('mdcss-file-name');
+      const mdState = document.getElementById('mdcss-state');
+      const mdErr = document.getElementById('mdcss-err');
+      const mdHint = document.getElementById('mdcss-saved-hint');
+      const mdSaveBtn = document.getElementById('mdcss-save');
+      const mdResetBtn = document.getElementById('mdcss-reset');
+      /** 预览样式标签：SSR 已注入则复用，否则动态创建 */
+      let previewStyle = document.getElementById('mdcss-preview-style') as HTMLStyleElement | null;
+
+      const setMdErr = (msg: string): void => {
+        if (!mdErr) return;
+        mdErr.textContent = msg;
+        mdErr.classList.toggle('hidden', !msg);
+      };
+      const flashMdHint = (msg: string): void => {
+        if (!mdHint) return;
+        mdHint.textContent = msg;
+        window.setTimeout(() => {
+          mdHint.textContent = '';
+        }, 2000);
+      };
+      const renderMdState = (css: string, updatedAtMs: number | null): void => {
+        if (!mdState) return;
+        mdState.textContent =
+          css.trim() !== ''
+            ? `已自定义（${Math.max(1, Math.ceil(css.length / 1024))}KB${updatedAtMs != null ? `，更新于 ${new Date(updatedAtMs).toLocaleString('zh-CN')}` : ''}）`
+            : '当前使用站点默认样式';
+      };
+      /** 编辑实时预览：作用域化后写入（或创建）预览 <style> */
+      const applyPreview = (css: string): void => {
+        if (!previewStyle) {
+          previewStyle = document.createElement('style');
+          previewStyle.id = 'mdcss-preview-style';
+          document.head.appendChild(previewStyle);
+        }
+        previewStyle.textContent = scopeMdCss(css);
+      };
+
+      applyPreview(mdText?.value ?? '');
+
+      /* 选择 CSS 文件（重新上传 = 再次选择覆盖文本框） */
+      document.getElementById('mdcss-choose')?.addEventListener('click', () => mdFile?.click());
+      mdFile?.addEventListener('change', () => {
+        const file = mdFile.files?.[0];
+        if (!file) return;
+        if (file.size > 256 * 1024) {
+          setMdErr('CSS 文件过大（上限 256KB）');
+          mdFile.value = '';
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result);
+          if (mdText) mdText.value = text;
+          if (mdFileName) mdFileName.textContent = file.name;
+          applyPreview(text);
+          setMdErr('');
+        };
+        reader.onerror = () => setMdErr('文件读取失败');
+        reader.readAsText(file);
+      });
+
+      /* 文本编辑 → 预览实时生效 */
+      mdText?.addEventListener('input', () => {
+        applyPreview(mdText.value);
+        if (mdFileName) mdFileName.textContent = '已手动编辑（保存后生效）';
+      });
+
+      /* 保存并应用（全站生效：SSR 注入，游客侧缓存最多延迟 ~60s） */
+      mdSaveBtn?.addEventListener('click', async () => {
+        const css = mdText?.value ?? '';
+        if (css.length > 64 * 1024) {
+          setMdErr('CSS 过长（上限 64KB）');
+          return;
+        }
+        mdSaveBtn.setAttribute('disabled', '');
+        try {
+          const res = await fetch('/api/md-css', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ css }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { error?: string; updatedAt?: number | null };
+          if (!res.ok) throw new Error(d.error ?? '保存失败');
+          setMdErr('');
+          renderMdState(css, d.updatedAt ?? Date.now());
+          if (css.trim() === '') flashMdHint('已清空自定义样式');
+          else flashMdHint('已保存并应用');
+        } catch (err) {
+          setMdErr(err instanceof Error ? err.message : '保存失败，请重试');
+        } finally {
+          mdSaveBtn.removeAttribute('disabled');
+        }
+      });
+
+      /* 恢复默认样式（清除 DB 记录） */
+      mdResetBtn?.addEventListener('click', async () => {
+        if (!(await confirmDanger('恢复默认 Markdown 样式？将删除当前自定义 CSS。'))) return;
+        mdResetBtn.setAttribute('disabled', '');
+        try {
+          const res = await fetch('/api/md-css', { method: 'DELETE' });
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(d.error ?? '恢复失败');
+          if (mdText) mdText.value = '';
+          if (mdFileName) mdFileName.textContent = '未选择（可直接在下方编辑）';
+          applyPreview('');
+          renderMdState('', null);
+          setMdErr('');
+          flashMdHint('已恢复默认样式');
+        } catch (err) {
+          setMdErr(err instanceof Error ? err.message : '恢复失败，请重试');
+        } finally {
+          mdResetBtn.removeAttribute('disabled');
+        }
+      });
+    }
 
       /** 站点设置页：诗词轮播配置（增删/调速/保存）。配置来自服务端注入 data-settings。 */
 

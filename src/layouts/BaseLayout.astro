@@ -37,6 +37,7 @@ import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 import { getHeroQuoteSettings } from '@/lib/quote-settings';
+import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 
 /** 站点名称（管理员可在 /admin/settings 自定义，默认「白衣卿相」） */
 const siteTitle = await getSiteName();
@@ -64,6 +65,9 @@ const customFontIds = [fontSettings.article, fontSettings.ui]
   .map((f) => f.value);
 const customFonts = await getFontsByIds(customFontIds);
 const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
+/** 自定义 Markdown 样式（设置页上传）：作用域化后全站注入，覆盖所有 .prose 渲染处 */
+const mdCustomCss = await getCustomMdCss();
+const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) : '';
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -135,6 +139,8 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
     </script>
     {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题字体） */}
     {fontCss !== '' && <style set:html={fontCss} />}
+    {/* 自定义 Markdown 样式（管理员上传，作用域限定 .prose；SSR 每页注入，ClientRouter 转场随新 head 存活） */}
+    {mdCssScoped !== '' && <style id="md-custom-css" set:html={mdCssScoped} />}
   </head>
   <body class="flex min-h-dvh flex-col">
     {
