@@ -1,20 +1,24 @@
 ---
 /*
  * SettingsModal.astro —— 站点设置悬浮弹窗（Obsidian 设置风格）
- * 左右分栏居中 <dialog>：左侧搜索框 + 分组导航（点击跳转到对应设置子页面，URL: /admin/settings/<section>），右侧滚动内容区。
- * - 打开方式：任意 [data-open-settings] 元素（document 委托）；前置页面不跳页，弹窗内导航走 URL 跳转。
+ * 左右分栏居中 <dialog>：左侧搜索框 + 垂直标签导航，右侧设置内容区。
+ * - 切换完全在弹窗内：点击导航仅显隐对应分区面板（SettingsForm 全渲染 + data-settings-section），
+ *   不跳转页面、不关闭/缩小弹窗。
+ * - 打开方式：任意 [data-open-settings] 元素（document 委托）；值可为分区 key（如 hero-quotes 笔按钮），
+ *   打开后直接激活该分区。
  * - 关闭：ESC（原生）/ 点击遮罩 / 右上角 ×。
  * - 仅在管理端渲染（BaseLayout 按 settings 权限条件渲染），游客不输出任何标记。
+ * - 独立子页面 /admin/settings/<section> 仍保留为直链入口（SettingsLayout）。
  */
 import SettingsForm from '@/components/admin/SettingsForm.astro';
 
-/* 左侧导航：分区名 + 搜索关键词 + 跳转 URL */
+/* 左侧导航：分区 key + 标签 + 搜索关键词；anchor 用于分区内的子定位（如站点背景） */
 const navItems = [
-  { id: 'site-name', label: '站点名称', kw: '站点名称 site name 标题 品牌', href: '/admin/settings/site-name' },
-  { id: 'hero-quotes', label: '诗词轮播', kw: '诗词轮播 hero quotes 首页 古诗 名言 逐字', href: '/admin/settings/hero-quotes' },
-  { id: 'landing', label: '落地页', kw: '落地页 landing 头图 轮播 副标题 hero 图', href: '/admin/settings/landing' },
-  { id: 'appearance', label: '全局字体', kw: '全局字体 font 文章字体 其他字体 字号缩放 导入字体', href: '/admin/settings/appearance' },
-  { id: 'settings-background', label: '站点背景', kw: '站点背景 background 背景图 透明度 模糊 星光 页面背景', href: '/admin/settings/appearance#settings-background' },
+  { id: 'site-name', label: '站点名称', kw: '站点名称 site name 标题 品牌' },
+  { id: 'hero-quotes', label: '诗词轮播', kw: '诗词轮播 hero quotes 首页 古诗 名言 逐字' },
+  { id: 'landing', label: '落地页', kw: '落地页 landing 头图 轮播 副标题 hero 图' },
+  { id: 'appearance', label: '全局字体', kw: '全局字体 font 文章字体 其他字体 字号缩放 导入字体' },
+  { id: 'appearance', label: '站点背景', kw: '站点背景 background 背景图 透明度 模糊 星光 页面背景', anchor: 'settings-background' },
 ];
 ---
 
@@ -24,7 +28,7 @@ const navItems = [
   class="m-auto hidden h-[min(700px,88vh)] w-[min(1000px,94vw)] grid-cols-[220px_1fr] overflow-hidden rounded-lg border border-border bg-card p-0 text-card-foreground shadow-xl open:grid"
   aria-label="站点设置"
 >
-  <!-- 左侧：搜索 + 分组导航（Obsidian 风格） -->
+  <!-- 左侧：搜索 + 垂直标签导航（Obsidian 风格） -->
   <div class="flex min-h-0 flex-col border-r border-border bg-muted/30">
     <div class="p-3 pb-2">
       <input
@@ -37,18 +41,20 @@ const navItems = [
     <nav id="settings-modal-nav" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="设置导航">
       <p class="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground">选项</p>
       {navItems.map((it) => (
-        <a
-          href={it.href}
+        <button
+          type="button"
+          data-section={it.id}
+          data-anchor={it.anchor ?? ''}
           data-keywords={it.kw}
           class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
         >
           {it.label}
-        </a>
+        </button>
       ))}
     </nav>
   </div>
 
-  <!-- 右侧：设置内容（复用表单组件） -->
+  <!-- 右侧：设置内容（全部分区渲染，导航切换显隐） -->
   <div class="relative min-h-0">
     <button
       id="settings-modal-close"
@@ -61,7 +67,7 @@ const navItems = [
         <path d="M18 6 6 18M6 6l12 12" />
       </svg>
     </button>
-    <div class="h-full overflow-y-auto px-6 py-6">
+    <div id="settings-modal-content" class="h-full overflow-y-auto px-6 py-6">
       <SettingsForm />
     </div>
   </div>
@@ -72,15 +78,22 @@ const navItems = [
   #settings-modal::backdrop {
     background: rgb(0 0 0 / 50%);
   }
+  /* 垂直标签页激活态（Obsidian 风格：accent 底 + 主色文字） */
+  #settings-modal-nav .settings-nav-item.active {
+    background: var(--color-accent);
+    color: var(--color-primary);
+    font-weight: 500;
+  }
 </style>
 
 <script>
   /**
    * 弹窗交互：
-   * - 打开：document 委托监听 [data-open-settings] → showModal；
+   * - 打开：document 委托监听 [data-open-settings] → showModal → 激活指定分区（默认 site-name）；
    * - 关闭：× 按钮 / 点击遮罩 / ESC（原生 dialog）；
-   * - 导航：左侧 <a href> 直接跳转 /admin/settings/<section>，跳转前先 close() 让浏览器导航接管。
-   * - 搜索：左侧 nav 关键字过滤。
+   * - 导航：左侧 <button data-section> → 纯弹窗内切换（显隐右侧面板 + 高亮），不跳页、不关弹窗；
+   * - 分区内锚点（站点背景）：激活 appearance 后滚动到 #settings-background；
+   * - 搜索：左侧 nav 关键字过滤（只过滤导航项，不影响右侧内容）。
    * 表单自身交互由 SettingsForm 的 initSettingsForm 负责。
    */
 
@@ -88,18 +101,48 @@ const navItems = [
     return document.getElementById('settings-modal') as HTMLDialogElement | null;
   }
 
-  function openSettingsModal(): void {
+  /* ---------- 垂直标签页切换（弹窗内） ---------- */
+  function activateSection(key: string, anchor?: string): void {
     const dialog = getDialog();
-    if (!dialog || dialog.open) return;
-    dialog.showModal();
+    if (!dialog) return;
+    // 1) 导航高亮
+    dialog.querySelectorAll<HTMLElement>('#settings-modal-nav .settings-nav-item').forEach((btn) => {
+      const active = btn.dataset.section === key && (anchor ?? '') === (btn.dataset.anchor ?? '');
+      btn.classList.toggle('active', active);
+    });
+    // 2) 面板显隐（仅弹窗内容器内，独立子页面的同 id 分区不受影响）
+    const content = dialog.querySelector<HTMLElement>('#settings-modal-content');
+    if (content) {
+      content.querySelectorAll<HTMLElement>('[data-settings-section]').forEach((sec) => {
+        sec.classList.toggle('hidden', sec.dataset.settingsSection !== key);
+      });
+      // 3) 分区内锚点定位（如「站点背景」→ appearance 内 #settings-background）
+      const scrollBox = content;
+      scrollBox.scrollTop = 0;
+      if (anchor) {
+        // 双 rAF 等布局稳定后，手动按容器坐标滚动（scrollIntoView 在 dialog 内会滚错容器）
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const el = content.querySelector<HTMLElement>(`#${CSS.escape(anchor)}`);
+            if (!el) return;
+            scrollBox.scrollTop += el.getBoundingClientRect().top - scrollBox.getBoundingClientRect().top - 8;
+          });
+        });
+      }
+    }
   }
 
-  /* ---------- 打开（document 委托） ---------- */
+  /* ---------- 打开（document 委托；按 trigger 指定分区激活） ---------- */
   document.addEventListener('click', (e) => {
     const trigger = (e.target as HTMLElement).closest<HTMLElement>('[data-open-settings]');
     if (!trigger) return;
     e.preventDefault();
-    openSettingsModal();
+    const dialog = getDialog();
+    if (!dialog || dialog.open) return;
+    dialog.showModal();
+    const target = trigger.dataset.openSettings?.trim();
+    if (target === 'settings-background') activateSection('appearance', 'settings-background');
+    else activateSection(target && target !== '' ? target : 'site-name');
   });
 
   /* ---------- 关闭：× 按钮 + 点击遮罩 ---------- */
@@ -110,16 +153,16 @@ const navItems = [
     if ((e.target as HTMLElement).id === 'settings-modal') getDialog()?.close();
   });
 
-  /* ---------- 左侧导航：先 close 再让 <a> 跳转 ---------- */
+  /* ---------- 左侧导航：弹窗内切换分区（不跳页、不关弹窗） ---------- */
   document.addEventListener('click', (e) => {
-    const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('#settings-modal-nav .settings-nav-item');
-    if (!link) return;
-    // 阻止浏览器在 dialog 打开态把导航转成 form submit 等异常，先关 dialog 让浏览器完成 URL 跳转
-    getDialog()?.close();
-    // 不 preventDefault，让链接自然跳转
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('#settings-modal-nav .settings-nav-item');
+    if (!btn) return;
+    const key = btn.dataset.section ?? 'site-name';
+    const anchor = btn.dataset.anchor || undefined;
+    activateSection(key, anchor);
   });
 
-  /* ---------- 搜索过滤（关键字匹配 label 与 data-keywords） ---------- */
+  /* ---------- 搜索过滤（关键字匹配 label 与 data-keywords；仅过滤导航项） ---------- */
   document.addEventListener('input', (e) => {
     const input = e.target as HTMLInputElement;
     if (input.id !== 'settings-modal-search') return;

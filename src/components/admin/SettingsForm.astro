@@ -40,7 +40,7 @@ const showAppearance = !section || section === 'appearance';
 <div id="settings-form-root">
     <!-- 站点名称分区 -->
     {showSiteName && (<>
-    <section id="site-name" class="border-t border-border pt-6" data-name={siteName}>
+    <section id="site-name" data-settings-section="site-name" class="border-t border-border pt-6" data-name={siteName}>
       <div class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">SITE NAME</p>
@@ -79,7 +79,7 @@ const showAppearance = !section || section === 'appearance';
 
     <!-- 诗词轮播分区 -->
     {showHeroQuotes && (<>
-    <section id="hero-quotes" class="border-t border-border pt-6" data-settings={heroJson}>
+    <section id="hero-quotes" data-settings-section="hero-quotes" class="border-t border-border pt-6" data-settings={heroJson}>
       <div class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">HERO QUOTES</p>
@@ -138,7 +138,7 @@ const showAppearance = !section || section === 'appearance';
 
     <!-- 落地页分区（Hero 头图） -->
     {showLanding && (<>
-    <section id="landing" class="border-t border-border pt-6" data-landing={JSON.stringify(landing)}>
+    <section id="landing" data-settings-section="landing" class="border-t border-border pt-6" data-landing={JSON.stringify(landing)}>
       <div class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">LANDING HERO</p>
@@ -228,6 +228,7 @@ const showAppearance = !section || section === 'appearance';
     {showAppearance && (<>
     <section
       id="appearance"
+      data-settings-section="appearance"
       class="border-t border-border pt-6"
       data-bg={JSON.stringify(bg)}
       data-fonts={JSON.stringify(fontSettings)}
