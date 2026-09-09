@@ -34,7 +34,8 @@ interface MenuState {
   title: string;
 }
 
-const WHITELIST_SELECTOR = '.prose, #post-grid';
+/** 选区落在可编辑控件内时放行原生右键菜单（保留粘贴/拼写纠错能力） */
+const EDITABLE_SELECTOR = 'input, textarea, [contenteditable="true"]';
 const MAX_SELECTION_CHARS = 2000;
 const MIN_W = 320;
 const MIN_H = 360;
@@ -238,7 +239,7 @@ export default function AiChatFloat({ enabled }: Props) {
     [streaming, consumeStream],
   );
 
-  /* ---------- F2：捕获阶段 contextmenu，白名单容器内选区 → 自绘菜单 ---------- */
+  /* ---------- F2：捕获阶段 contextmenu，全站任意位置选区 → 自绘菜单（屏蔽原生菜单） ---------- */
   useEffect(() => {
     if (!enabled) return;
     // 水合完成标记（E2E 依赖：client:idle 水合晚于页面 load）
@@ -249,7 +250,7 @@ export default function AiChatFloat({ enabled }: Props) {
       if (text === '') return;
       const anchor = sel?.anchorNode;
       const el = anchor?.nodeType === Node.TEXT_NODE ? anchor.parentElement : (anchor as Element | null);
-      if (!el?.closest(WHITELIST_SELECTOR)) return; // 白名单外放行原生菜单
+      if (el?.closest(EDITABLE_SELECTOR)) return; // 可编辑控件内放行原生菜单（粘贴/纠错）
       e.preventDefault();
       setMenu({ x: e.clientX, y: e.clientY, text: text.slice(0, MAX_SELECTION_CHARS), title: pageTitle() });
     };
