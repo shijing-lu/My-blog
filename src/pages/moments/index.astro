@@ -108,6 +108,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
                 发布
               </button>
             </div>
+            <p id="moment-upload-status" class="mt-1 hidden text-xs text-primary" role="status"></p>
             <p id="moment-status" class="mt-2 text-xs text-destructive"></p>
           </div>
         )
@@ -346,6 +347,12 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       return;
     }
     const btn = el<HTMLButtonElement>('moment-publish');
+    // 粘贴图片上传中拦截发布
+    const upStatus = el('moment-upload-status');
+    if (upStatus && !upStatus.classList.contains('hidden')) {
+      if (status) status.textContent = '图片还在上传中，请稍候再发布';
+      return;
+    }
     if (btn) {
       btn.disabled = true;
       btn.textContent = '发布中…';
@@ -661,6 +668,47 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     if ((e.target as HTMLElement).closest('#moment-edit-cancel')) {
       el<HTMLDialogElement>('moment-edit-dialog')?.close();
     }
+  });
+
+  /** 发布正文框：Ctrl+V 粘贴图片 → 自动上传 → 缩略图展示 */
+  document.addEventListener('paste', (e) => {
+    const t = e.target as HTMLElement;
+    // 发布框与编辑框分别响应；非图片内容走默认文本粘贴（仅在图片命中时拦截）
+    const isPublish = t.id === 'moment-content' || !!t.closest('#moment-content');
+    if (!isPublish) return;
+    const imgs = Array.from(e.clipboardData?.items ?? []).filter((it) => it.type.startsWith('image/'));
+    if (imgs.length === 0) return;
+    e.preventDefault();
+    void (async () => {
+      const up = el('moment-upload-status');
+      const publishBtn = el<HTMLButtonElement>('moment-publish');
+      if (publishBtn) publishBtn.disabled = true;
+      let count = 0;
+      try {
+        for (const it of imgs) {
+          const file = it.getAsFile();
+          if (!file) continue;
+          if (up) {
+            up.classList.remove('hidden');
+            up.textContent = `图片上传中… (${count + 1}/${imgs.length})`;
+          }
+          try {
+            const url = await uploadFile(file);
+            pendingMedia.push({ type: file.type === 'image/gif' ? 'gif' : 'image', url });
+            count++;
+          } catch (err) {
+            if (up) up.textContent = err instanceof Error ? err.message : '图片上传失败，请重试';
+          }
+        }
+        renderPending();
+        if (up) {
+          up.textContent = count > 0 ? `✓ 已添加 ${count} 张` : '上传失败';
+          window.setTimeout(() => { up.classList.add('hidden'); up.textContent = ''; }, 2000);
+        }
+      } finally {
+        if (publishBtn) publishBtn.disabled = false;
+      }
+    })();
   });
 
   /** 编辑正文框：Ctrl+V 粘贴图片 → 自动上传 → 缩略图展示 */
