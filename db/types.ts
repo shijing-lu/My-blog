@@ -316,6 +316,8 @@ export interface FontChoice {
 export interface SiteFonts {
   article: FontChoice;
   ui: FontChoice;
+  /** 全局字号缩放百分比（80–150，缺省 100；html font-size 缩放，rem 全站等比生效） */
+  scale?: number;
 }
 
 /** 思维导图（绑定文章或独立；data 为 simple-mind-map 全量 JSON 字符串） */

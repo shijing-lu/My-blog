@@ -43,11 +43,23 @@ function normalizeChoice(input: unknown): FontChoice {
   return { type, value };
 }
 
+/** 字号缩放合法区间 */
+export const FONT_SCALE_MIN = 80;
+export const FONT_SCALE_MAX = 150;
+
+/** 规范化字号缩放（缺省/非法回落 100） */
+function normalizeScale(input: unknown): number {
+  const n = typeof input === 'number' ? input : Number(input);
+  if (!Number.isFinite(n)) return 100;
+  return Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, Math.round(n)));
+}
+
 /** 规范化设置 */
 function normalize(input: Partial<SiteFonts> | null): SiteFonts {
   return {
     article: normalizeChoice(input?.article),
     ui: normalizeChoice(input?.ui),
+    scale: normalizeScale(input?.scale ?? 100),
   };
 }
 
@@ -212,5 +224,8 @@ export function buildFontCss(fonts: SiteFonts, customFonts: BlogFont[]): string 
   const faces = customFonts.map((f) => fontFaceCss(f)).join('');
   const article = choiceStack(fonts.article, customFonts);
   const ui = choiceStack(fonts.ui, customFonts);
-  return `${faces}html{--font-sans-family:${article} !important;--font-display-family:${ui} !important;--font-pixel-family:${ui} !important;}`;
+  // 字号缩放：html font-size = scale%，Tailwind 的 rem 全站等比缩放（解决部分字体字面偏小的问题）
+  const size =
+    fonts.scale && fonts.scale !== 100 ? `html{font-size:${fonts.scale}% !important;}` : '';
+  return `${faces}${size}html{--font-sans-family:${article} !important;--font-display-family:${ui} !important;--font-pixel-family:${ui} !important;}`;
 }
