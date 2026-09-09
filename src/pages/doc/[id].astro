@@ -22,10 +22,13 @@ const tree = buildNodeTree(nodes);
 /** 文章节点（扁平，用于默认选中与前端切换） */
 const articleNodes = nodes.filter((n) => n.kind === 'article');
 
-/** 当前选中的文章（默认第一篇；URL hash 定位） */
-const hashId = Astro.url.hash ? Astro.url.hash.slice(1) : '';
+/** 当前选中的文章：?article=<nodeId>（URL 直达/刷新/前进后退均可保持）；缺省第一篇。
+ *  ⚠️ 不能用 URL hash 定位当前文章——fragment 不会随 HTTP 请求发送，服务端
+ *  Astro.url.hash 恒为空串，刷新会被 SSR 重置为第一篇。旧 hash 链接由前端
+ *  migrateLegacyHash 一次性迁移为 ?article= 形态。 */
+const requestedArticle = Astro.url.searchParams.get('article')?.trim() ?? '';
 const activeNode =
-  articleNodes.find((n) => n.id === hashId) ?? articleNodes[0] ?? null;
+  articleNodes.find((n) => n.id === requestedArticle) ?? articleNodes[0] ?? null;
 
 let html = '';
 let toc: TocItem[] = [];
@@ -87,11 +90,11 @@ function adminActions(n: DocNodeView, isAuthed: boolean): string {
   /** 递归渲染目录树（folder → details；article → 可切换链接）。
    *  登录态下文章行 draggable（拖拽排序/跨目录移动，见 script 拖拽段）；
    *  目录 summary 为「移入该目录末尾」落点；根级容器 data-doc-tree-root 兜底落点。 */
-  function renderTreeHtml(items: DocNodeView[], isAuthed: boolean): string {
+  function renderTreeHtml(items: DocNodeView[], isAuthed: boolean, bundleId: string): string {
     let out = '';
     for (const n of items) {
       if (n.kind === 'folder') {
-        const children = renderTreeHtml(n.children, isAuthed);
+        const children = renderTreeHtml(n.children, isAuthed, bundleId);
         out +=
           `<details class="group doc-folder" open data-folder="${n.id}">` +
           `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${isAuthed ? ` data-doc-folder-target="${n.id}"` : ''}>` +
@@ -102,8 +105,9 @@ function adminActions(n: DocNodeView, isAuthed: boolean): string {
           (children ? `<div class="ml-3 border-l border-border pl-2">${children}</div>` : '') +
           `</details>`;
       } else {
+        // href 为完整 URL：JS 正常时 preventDefault 走前端即时切换；新标签打开 / 无 JS 时直达正确文章
         out +=
-          `<a href="#${n.id}" data-article-switch="${n.id}"${isAuthed ? ` draggable="true" data-doc-node-id="${n.id}"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
+          `<a href="/doc/${bundleId}?article=${encodeURIComponent(n.id)}" data-article-switch="${n.id}"${isAuthed ? ` draggable="true" data-doc-node-id="${n.id}"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
           (n.id === activeNode?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
           `">` +
           `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
@@ -114,7 +118,7 @@ function adminActions(n: DocNodeView, isAuthed: boolean): string {
     return out;
   }
 
-const treeHtml = renderTreeHtml(tree, isAuthed);
+const treeHtml = renderTreeHtml(tree, isAuthed, bundle.id);
 const folderOptionsJson = JSON.stringify(folderOptions);
 ---
 
@@ -590,10 +594,18 @@ const folderOptionsJson = JSON.stringify(folderOptions);
         tocWrap.innerHTML = d.toc.length ? renderTocTreeHtml(d.toc) : '<p class="text-xs text-muted-foreground">无目录</p>';
       }
       document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
-      history.replaceState(null, '', `#${id}`);
+      // pushState 入历史：后退/前进时 ClientRouter 转场加载对应 ?article= URL，SSR 直出正确文章；
+      // 刷新同样由 SSR 按 query 渲染。旧 heading 锚点随切换清除。
+      // ⚠️ state 必须带 ClientRouter 的 {index, scrollX, scrollY} 结构（index 单调递增）：
+      //    onPopState 遇 state===null 的条目会直接 return 不转场 → URL 变了内容不变。
+      const u = new URL(window.location.href);
+      u.searchParams.set('article', id);
+      u.hash = '';
+      const curIndex = typeof history.state?.index === 'number' ? history.state.index : 0;
+      history.pushState({ index: curIndex + 1, scrollX: 0, scrollY: 0 }, '', u);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
-      window.location.href = `/doc/${readBundle().id}#${id}`;
+      window.location.href = `/doc/${readBundle().id}?article=${encodeURIComponent(id)}`;
     }
   });
 
@@ -610,6 +622,26 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   }
   document.addEventListener('astro:page-load', () => setActiveArticle(currentActiveId()));
   setActiveArticle(currentActiveId());
+
+  /* ================= 旧版 hash 直达链接迁移 =================
+     旧版把当前文章存在 URL hash（/doc/{bundle}#{nodeId}），但 fragment 不会随
+     HTTP 请求发送，SSR 读不到 → 刷新/直达恒渲染第一篇。检测到 hash 指向本册
+     文章时，一次性 location.replace 整页迁移为 /doc/{bundle}?article={nodeId}
+     （SSR 直出正确文章；replace 不产生历史记录，前进后退不受影响）。
+     正文 TOC 的 heading 锚点 hash 不是节点 id，不会命中迁移。 */
+  function migrateLegacyHash(): void {
+    const h = window.location.hash.slice(1);
+    if (!h) return;
+    try {
+      if (!readNodes().some((n) => n.id === h)) return;
+      const b = readBundle();
+      if (b?.id) window.location.replace(`/doc/${b.id}?article=${encodeURIComponent(h)}`);
+    } catch {
+      /* 非详情页上下文：忽略 */
+    }
+  }
+  migrateLegacyHash();
+  document.addEventListener('astro:page-load', migrateLegacyHash);
 
   /* ================= 正文就地编辑（无跳转；滚动保持由岛内部完成） =================
      标题旁「编辑/完成」按钮：未编辑 → 打开就地编辑；编辑态再点 = 保存并退出。

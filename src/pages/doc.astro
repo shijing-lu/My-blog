@@ -285,7 +285,7 @@ function esc(s: string): string {
         html += articles
           .map(
             (a) =>
-              `<a href="/doc/${a.bundleId}#${a.id}" class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-accent hover:text-foreground">` +
+              `<a href="/doc/${a.bundleId}?article=${a.id}" class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-accent hover:text-foreground">` +
               `<span>📄</span><span class="truncate">${escHtml(a.title)}</span><span class="ml-auto shrink-0 text-[0.6rem] text-muted-foreground">${escHtml(a.bundleName)}</span></a>`,
           )
           .join('');
