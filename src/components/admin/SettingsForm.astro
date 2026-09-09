@@ -8,7 +8,7 @@
  * - 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
  */
 interface Props {
-  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css';
+  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'ai';
 }
 const { section } = Astro.props;
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
@@ -19,6 +19,7 @@ import { getSiteName } from '@/lib/site-name';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 import { getMdCssLibrary } from '@/lib/md-css-library';
+import { getAiConfig, serializeAiConfig } from '@/lib/ai-config';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -39,9 +40,13 @@ const showLanding = !section || section === 'landing';
 const showAppearance = !section || section === 'appearance';
 const showImageBed = !section || section === 'image-bed';
 const showMdCss = !section || section === 'md-css';
+const showAi = !section || section === 'ai';
 
 /** GitHub 图床配置（token 掩码：SSR 注入 hasToken，明文永不出库） */
 const imageBed = serializeImageBedConfig(await getImageBedConfig());
+
+/** AI 助手配置（apiKey 掩码：SSR 注入 hasApiKey，明文永不出库） */
+const aiConfig = serializeAiConfig(await getAiConfig());
 
 /** 自定义 Markdown 样式（CSS 原文进 textarea；作用域化后注入预览实时生效） */
 const mdCss = await getCustomMdCss();
@@ -703,6 +708,132 @@ const mdCssLib = await getMdCssLibrary();
       </div>
     </section>
     </>)}
+
+    <!-- AI 助手（小卿）分区 -->
+    {showAi && (<>
+    <section id="ai" data-settings-section="ai" class="border-t border-border pt-6" data-ai-config={JSON.stringify(aiConfig)}>
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">AI ASSISTANT</p>
+          <h2 class="mt-1 font-medium">AI 助手（小卿）</h2>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        接入任意 OpenAI 兼容服务（DeepSeek / GLM / Kimi / OpenRouter / Ollama 等）。访客在页面选中文字右键
+        「问问小卿」即可唤起 AI 悬浮对话。API Key 仅存数据库不回显，前端通过服务端代理调用。
+      </p>
+
+      <label class="mt-4 flex items-center gap-2 text-sm">
+        <input id="ai-enabled" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
+        启用 AI 助手（关闭后 /api/ai/chat 直接拒绝）
+      </label>
+
+      <div class="mt-4 grid grid-cols-2 gap-3">
+        <label class="col-span-2 block text-xs font-medium text-muted-foreground">
+          API 地址（根地址即可，自动拼接 /v1/chat/completions）
+          <input
+            id="ai-baseurl"
+            type="text"
+            placeholder="例如 https://api.deepseek.com"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          模型名称
+          <input
+            id="ai-model"
+            type="text"
+            placeholder="例如 deepseek-chat"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          API Key（仅存数据库，不回显）
+          <input
+            id="ai-apikey"
+            type="password"
+            placeholder="sk-..."
+            autocomplete="new-password"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          采样温度（0-2，默认 0.7）
+          <input
+            id="ai-temperature"
+            type="number"
+            min="0"
+            max="2"
+            step="0.1"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          回答最大 token（64-8192，默认 1024）
+          <input
+            id="ai-maxtokens"
+            type="number"
+            min="64"
+            max="8192"
+            step="64"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="col-span-2 block text-xs font-medium text-muted-foreground">
+          系统提示词（「小卿」人设，留空使用内置默认）
+          <textarea
+            id="ai-sysprompt"
+            rows="3"
+            placeholder="你是「小卿」，本个人博客的 AI 阅读助手……"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          ></textarea>
+        </label>
+      </div>
+
+      <div class="mt-4 rounded-md border border-border p-3">
+        <p class="text-xs font-medium text-muted-foreground">访客可用性（费用闸门）</p>
+        <label class="mt-2 flex items-center gap-2 text-sm">
+          <input id="ai-guests" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
+          允许访客使用（关闭后仅站主/管理员可用）
+        </label>
+        <label class="mt-2 block text-xs font-medium text-muted-foreground">
+          访客每日全局次数上限（0 = 不限）
+          <input
+            id="ai-guest-limit"
+            type="number"
+            min="0"
+            max="100000"
+            step="10"
+            class="mt-1 block w-40 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+      </div>
+
+      <div class="mt-4 flex items-center gap-3">
+        <button
+          id="ai-test"
+          type="button"
+          class="rounded-md border border-input bg-background px-4 py-1.5 text-sm transition-colors hover:bg-accent"
+        >
+          测试连接
+        </button>
+        <span id="ai-test-result" class="text-xs" role="status"></span>
+      </div>
+
+      <p id="ai-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
+
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <span id="ai-saved-hint" class="text-xs text-emerald-600"></span>
+        <button
+          id="ai-save"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          保存并应用
+        </button>
+      </div>
+    </section>
+    </>)}
 </div>
 
 <script>
@@ -1106,6 +1237,144 @@ const mdCssLib = await getMdCssLibrary();
             }
           } catch (err) {
             setIbErr(err instanceof Error ? err.message : '保存失败，请重试');
+          }
+        });
+      }
+
+      /* ---------- AI 助手（配置存 DB；apiKey 留空 = 不修改） ---------- */
+      const aiSection = document.getElementById('ai');
+      if (aiSection) {
+        interface PublicAiCfg {
+          enabled: boolean;
+          baseUrl: string;
+          model: string;
+          temperature: number;
+          maxTokens: number;
+          systemPrompt: string;
+          allowGuests: boolean;
+          guestDailyLimit: number;
+          hasApiKey: boolean;
+        }
+        let aiCfg: PublicAiCfg = {
+          enabled: false,
+          baseUrl: '',
+          model: '',
+          temperature: 0.7,
+          maxTokens: 1024,
+          systemPrompt: '',
+          allowGuests: true,
+          guestDailyLimit: 100,
+          hasApiKey: false,
+        };
+        try {
+          aiCfg = { ...aiCfg, ...(JSON.parse(aiSection.dataset.aiConfig ?? '{}') as Partial<PublicAiCfg>) };
+        } catch {
+          /* 配置解析失败用默认（关闭态） */
+        }
+
+        const aiEnabled = document.getElementById('ai-enabled') as HTMLInputElement | null;
+        const aiBaseUrl = document.getElementById('ai-baseurl') as HTMLInputElement | null;
+        const aiModel = document.getElementById('ai-model') as HTMLInputElement | null;
+        const aiApiKey = document.getElementById('ai-apikey') as HTMLInputElement | null;
+        const aiTemperature = document.getElementById('ai-temperature') as HTMLInputElement | null;
+        const aiMaxTokens = document.getElementById('ai-maxtokens') as HTMLInputElement | null;
+        const aiSysPrompt = document.getElementById('ai-sysprompt') as HTMLTextAreaElement | null;
+        const aiGuests = document.getElementById('ai-guests') as HTMLInputElement | null;
+        const aiGuestLimit = document.getElementById('ai-guest-limit') as HTMLInputElement | null;
+        const aiErr = document.getElementById('ai-err');
+        const aiHint = document.getElementById('ai-saved-hint');
+        const aiTestResult = document.getElementById('ai-test-result');
+
+        /** 已存 Key 不回显，placeholder 提示「留空表示不修改」 */
+        const applyKeyPlaceholder = (): void => {
+          if (aiApiKey) aiApiKey.placeholder = aiCfg.hasApiKey ? '已保存，留空表示不修改' : 'sk-...';
+        };
+
+        if (aiEnabled) aiEnabled.checked = aiCfg.enabled;
+        if (aiBaseUrl) aiBaseUrl.value = aiCfg.baseUrl;
+        if (aiModel) aiModel.value = aiCfg.model;
+        if (aiTemperature) aiTemperature.value = String(aiCfg.temperature);
+        if (aiMaxTokens) aiMaxTokens.value = String(aiCfg.maxTokens);
+        if (aiSysPrompt) aiSysPrompt.value = aiCfg.systemPrompt;
+        if (aiGuests) aiGuests.checked = aiCfg.allowGuests;
+        if (aiGuestLimit) aiGuestLimit.value = String(aiCfg.guestDailyLimit);
+        applyKeyPlaceholder();
+
+        const setAiErr = (msg: string): void => {
+          if (!aiErr) return;
+          aiErr.textContent = msg;
+          aiErr.classList.toggle('hidden', !msg);
+        };
+
+        /* 测试连接：用当前表单值（Key 空 → 后端用已存 Key） */
+        document.getElementById('ai-test')?.addEventListener('click', async () => {
+          if (!aiTestResult) return;
+          aiTestResult.textContent = '测试中…';
+          aiTestResult.className = 'text-xs text-muted-foreground';
+          try {
+            const res = await fetch('/api/ai/test', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                baseUrl: aiBaseUrl?.value.trim() ?? '',
+                model: aiModel?.value.trim() ?? '',
+                apiKey: aiApiKey?.value.trim() ?? '',
+              }),
+            });
+            const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
+            if (!res.ok) throw new Error(d.error ?? '测试失败');
+            aiTestResult.textContent = d.message ?? (d.ok ? '连接成功' : '连接失败');
+            aiTestResult.className = `text-xs ${d.ok ? 'text-emerald-600' : 'text-destructive'}`;
+          } catch (err) {
+            aiTestResult.textContent = err instanceof Error ? err.message : '测试失败';
+            aiTestResult.className = 'text-xs text-destructive';
+          }
+        });
+
+        /* 保存：apiKey 留空 = 后端保留原值；数字字段越界回落默认 */
+        document.getElementById('ai-save')?.addEventListener('click', async () => {
+          const tempNum = Number(aiTemperature?.value);
+          const maxNum = Number(aiMaxTokens?.value);
+          const limitNum = Number(aiGuestLimit?.value);
+          const payload = {
+            enabled: aiEnabled?.checked ?? false,
+            baseUrl: aiBaseUrl?.value.trim() ?? '',
+            model: aiModel?.value.trim() ?? '',
+            apiKey: aiApiKey?.value.trim() ?? '',
+            temperature: Number.isFinite(tempNum) ? tempNum : undefined,
+            maxTokens: Number.isFinite(maxNum) ? maxNum : undefined,
+            systemPrompt: aiSysPrompt?.value.trim() ?? '',
+            allowGuests: aiGuests?.checked ?? false,
+            guestDailyLimit: Number.isFinite(limitNum) ? limitNum : undefined,
+          };
+          try {
+            const res = await fetch('/api/ai/config', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const d = (await res.json().catch(() => ({}))) as { error?: string; hasApiKey?: boolean };
+            if (!res.ok) throw new Error(d.error ?? '保存失败');
+            aiCfg = {
+              ...aiCfg,
+              enabled: payload.enabled,
+              baseUrl: payload.baseUrl,
+              model: payload.model,
+              systemPrompt: payload.systemPrompt,
+              allowGuests: payload.allowGuests,
+              hasApiKey: d.hasApiKey ?? aiCfg.hasApiKey,
+            };
+            setAiErr('');
+            if (aiApiKey) aiApiKey.value = '';
+            applyKeyPlaceholder();
+            if (aiHint) {
+              aiHint.textContent = '已保存并应用';
+              window.setTimeout(() => {
+                aiHint.textContent = '';
+              }, 2000);
+            }
+          } catch (err) {
+            setAiErr(err instanceof Error ? err.message : '保存失败，请重试');
           }
         });
       }

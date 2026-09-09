@@ -33,6 +33,8 @@ import ManageDialog from '@/components/ManageDialog.astro';
 import SettingsModal from '@/components/admin/SettingsModal.astro';
 import { canManage } from '@/lib/admin-auth';
 import { isUserGitHubConfigured } from '@/lib/auth';
+import AiChatFloat from '@/components/ai/AiChatFloat';
+import { getAiConfig, isAiReady } from '@/lib/ai-config';
 import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
@@ -53,6 +55,8 @@ const footerQuote =
 const isAuthed = await canManage(Astro.cookies, 'articles');
 /** 是否具备站点设置权限（设置弹窗仅对管理端渲染，游客零输出） */
 const canSettings = await canManage(Astro.cookies, 'settings');
+/** AI 助手是否就绪（SSR 判定；未配置时岛不渲染交互 UI） */
+const aiReady = isAiReady(await getAiConfig());
 /** 全站背景配置（统一背景 / 按页面独立，设置页可配） */
 const bg = await getSiteBackground();
 /** 当前页面应渲染的背景（null = 不渲染） */
@@ -220,6 +224,9 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
     </footer>
 
     <RightToolbar />
+
+    <!-- AI 助手「小卿」：选中文本右键 → 悬浮对话（全站，client:idle 惰性水合） -->
+    <AiChatFloat client:idle enabled={aiReady} />
 
     <!-- 公开页交互：代码复制按钮 + 图片灯箱（document 委托，View Transitions 下依然有效） -->
     <script>
