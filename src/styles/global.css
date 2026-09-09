@@ -1341,26 +1341,32 @@
     background: var(--color-accent);
   }
 
-  /* 代码块：相对定位 + 少量顶部留白（复制按钮浮动贴角，不占独立空行） */
-  .code-block {
-    position: relative;
-    padding-top: 0.4rem;
+  /* ===== 代码块（rehype-prism-plus 输出结构：pre.code-block > code > span.code-line） =====
+     ⚠️ pre 排版规则在文件末尾 unlayered 区（此处若放 @layer components 会被
+     typography 插件 utilities 层的 pre padding/font-size/line-height 覆盖）。 */
+  .prose pre.code-block code {
+    display: block;
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
   }
-  /* 复制按钮：绝对定位右上，默认隐藏，悬停/聚焦显示 */
+  /* 复制按钮：绝对定位右上，默认隐藏，悬停/聚焦显示；触屏无 hover → 常显 */
   .code-block .copy-button {
     position: absolute;
-    top: 0.3rem;
-    right: 0.4rem;
+    top: 0.45rem;
+    right: 0.55rem;
+    z-index: 10;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.25rem 0.5rem;
+    padding: 0.3rem 0.5rem;
     border-radius: var(--radius-md);
     border: 1px solid rgb(255 255 255 / 0.12);
     background-color: rgb(255 255 255 / 0.06);
     color: rgb(212 212 216 / 0.9);
     opacity: 0;
-    transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+    transition: opacity 0.2s, background-color 0.2s, color 0.2s, border-color 0.2s;
   }
   .code-block:hover .copy-button,
   .code-block .copy-button:focus-visible {
@@ -1370,11 +1376,100 @@
     background-color: rgb(255 255 255 / 0.16);
     color: #fff;
   }
-  /* 行号不可选中 */
-  .line-number {
+  @media (hover: none) {
+    .code-block .copy-button {
+      opacity: 0.75;
+    }
+  }
+  /* 复制成功：主色高亮（对勾图标由 copy-button.ts 切换） */
+  .code-block .copy-button.copied {
+    color: var(--color-primary);
+    border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  }
+  /* 复制失败：红色 + 抖动 */
+  .code-block .copy-button.copy-failed {
+    color: #f87171;
+    border-color: rgb(248 113 113 / 0.55);
+    animation: copy-shake 0.32s ease;
+  }
+  @keyframes copy-shake {
+    25% { transform: translateX(-2px); }
+    50% { transform: translateX(2px); }
+    75% { transform: translateX(-1px); }
+  }
+  /* 行号：CSS ::before 渲染（rehype-prism-plus 的 line 属性），不可选中 */
+  .prose pre.code-block .code-line.line-number::before {
+    content: attr(line);
+    display: inline-block;
+    width: 1.8em;
+    margin-right: 1.1em;
+    text-align: right;
+    color: rgb(255 255 255 / 0.28);
     user-select: none;
     -webkit-user-select: none;
-    opacity: 0.5;
+  }
+  /* ===== Prism token 配色（One Dark 系；pre 底色恒深，亮暗主题通用） ===== */
+  .prose pre.code-block .token.comment,
+  .prose pre.code-block .token.prolog,
+  .prose pre.code-block .token.doctype,
+  .prose pre.code-block .token.cdata {
+    color: #7f848e;
+    font-style: italic;
+  }
+  .prose pre.code-block .token.punctuation,
+  .prose pre.code-block .token.operator,
+  .prose pre.code-block .token.entity,
+  .prose pre.code-block .token.namespace {
+    color: #abb2bf;
+  }
+  .prose pre.code-block .token.keyword,
+  .prose pre.code-block .token.important,
+  .prose pre.code-block .token.atrule,
+  .prose pre.code-block .token.rule {
+    color: #c678dd;
+  }
+  .prose pre.code-block .token.string,
+  .prose pre.code-block .token.char,
+  .prose pre.code-block .token.attr-value,
+  .prose pre.code-block .token.regex,
+  .prose pre.code-block .token.inserted {
+    color: #98c379;
+  }
+  .prose pre.code-block .token.number,
+  .prose pre.code-block .token.boolean,
+  .prose pre.code-block .token.constant,
+  .prose pre.code-block .token.symbol,
+  .prose pre.code-block .token.builtin,
+  .prose pre.code-block .token.variable,
+  .prose pre.code-block .token.template-variable,
+  .prose pre.code-block .token.selector {
+    color: #d19a66;
+  }
+  .prose pre.code-block .token.function,
+  .prose pre.code-block .token.method {
+    color: #61afef;
+  }
+  .prose pre.code-block .token.class-name,
+  .prose pre.code-block .token.tag,
+  .prose pre.code-block .token.maybe-class-name,
+  .prose pre.code-block .token.property,
+  .prose pre.code-block .token.attr-name,
+  .prose pre.code-block .token.parameter,
+  .prose pre.code-block .token.deleted {
+    color: #e06c75;
+  }
+  .prose pre.code-block .token.url,
+  .prose pre.code-block .token.link {
+    color: #61afef;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .prose pre.code-block .token.bold {
+    font-weight: 700;
+  }
+  .prose pre.code-block .token.italic {
+    font-style: italic;
   }
   /* 目录项：块级 + 内边距 + 悬停高亮 */
   .toc-link {
@@ -2051,6 +2146,32 @@
   --tw-prose-th-borders: oklch(0.42 0.01 285);
   --tw-prose-td-borders: oklch(0.3 0.01 285);
   --tw-prose-pre-bg: oklch(0.24 0.006 285);
+}
+
+/* ==================== 代码块排版（unlayered：压过 typography utilities 层） ====================
+   rehype-prism-plus 输出结构：pre.code-block > code > span.code-line[.line-number]。
+   恒深底（--tw-prose-pre-bg 亮暗主题均为深色），token 配色（@layer components 内
+   One Dark 系）在亮暗主题下通用；顶部留出复制按钮工具行，不压代码。 */
+.prose pre.code-block {
+  position: relative;
+  padding: 2.3rem 1.25rem 1.1rem;
+  font-size: 0.875rem;
+  line-height: 1.75;
+  color: #d4d4d8;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.1);
+}
+/* 复制成功/失败状态样式同样依赖 .copied/.copy-failed 与基础规则的层内竞争，
+   一并提升到 unlayered 保证生效（颜色走 CSS 变量，主题切换自动适配） */
+.code-block .copy-button.copied {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
+  background-color: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+.code-block .copy-button.copy-failed {
+  color: #f87171;
+  border-color: rgb(248 113 113 / 0.55);
+  animation: copy-shake 0.32s ease;
 }
 
 /* ==================== 思维导图锚点跳转高亮 ==================== */

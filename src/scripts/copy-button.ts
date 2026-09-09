@@ -2,22 +2,39 @@
  * 代码块复制按钮（原生 JS，无依赖）
  *
  * - document 级事件委托：点击任意 [data-copy] 生效，View Transitions 后无需重绑；
- * - 复制时剔除行号 span（.line-number）与 aria-hidden 元素，保留纯代码文本；
- * - navigator.clipboard 不可用（非 https / 权限被拒）时回退 document.execCommand('copy')。
+ * - 复制时剔除 aria-hidden 元素（行号数字由 CSS ::before 伪元素渲染，不在文本流，
+ *   无需额外剔除——⚠️ 勿把 .line-number/.code-line 行容器当"行号元素"移除：
+ *   rehype-prism-plus 把每行代码都包在 `<span class="code-line line-number">` 里，
+ *   移除它会删光全部代码文本（曾导致复制功能静默失效）；
+ * - navigator.clipboard 不可用（非 https / 权限被拒）时回退 document.execCommand('copy')；
+ * - 成功 → 对勾 + .copied 高亮；失败 → .copy-failed 抖动提示（不再静默）。
  */
 
-/** 复制后：图标切到对勾并高亮 */
+/** 反馈时长（ms） */
+const FLASH_MS = 1400;
+
+/** 复制成功：图标切到对勾并高亮 */
 function flash(btn: HTMLButtonElement): void {
   const copyIcon = btn.querySelector('[data-icon="copy"]');
   const checkIcon = btn.querySelector('[data-icon="check"]');
   copyIcon?.classList.add('hidden');
   checkIcon?.classList.remove('hidden');
-  btn.classList.add('text-primary');
+  btn.classList.add('copied');
   window.setTimeout(() => {
     copyIcon?.classList.remove('hidden');
     checkIcon?.classList.add('hidden');
-    btn.classList.remove('text-primary');
-  }, 1200);
+    btn.classList.remove('copied');
+  }, FLASH_MS);
+}
+
+/** 复制失败：抖动 + 红色提示（不再静默吞掉） */
+function flashError(btn: HTMLButtonElement): void {
+  btn.classList.add('copy-failed');
+  btn.setAttribute('title', '复制失败，请手动选择代码复制');
+  window.setTimeout(() => {
+    btn.classList.remove('copy-failed');
+    btn.setAttribute('title', '复制代码');
+  }, FLASH_MS);
 }
 
 /** 复制文本：优先 Clipboard API，失败回退 execCommand */
@@ -47,13 +64,14 @@ async function copyText(text: string): Promise<void> {
   if (!ok) throw new Error('copy failed');
 }
 
-/** 提取代码块纯文本（剔除行号与 aria-hidden 节点） */
+/** 提取代码块纯文本（剔除 aria-hidden 节点；行容器保留，见文件头注释） */
 function codeText(block: HTMLElement): string {
   const code = block.querySelector('code');
   if (!code) return '';
   const clone = code.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll<HTMLElement>('.line-number, [aria-hidden]').forEach((el) => el.remove());
-  return clone.textContent ?? '';
+  clone.querySelectorAll<HTMLElement>('[aria-hidden]').forEach((el) => el.remove());
+  // CRLF → LF：源文件行尾不带入剪贴板（避免粘贴到部分编辑器出现 ^M）
+  return (clone.textContent ?? '').replace(/\r\n/g, '\n');
 }
 
 /** 文档级点击委托：点击复制按钮 → 复制所在代码块 */
@@ -66,7 +84,5 @@ document.addEventListener('click', (e) => {
   if (!text) return;
   copyText(text)
     .then(() => flash(btn))
-    .catch(() => {
-      /* 复制失败静默（按钮保持原样） */
-    });
+    .catch(() => flashError(btn));
 });
