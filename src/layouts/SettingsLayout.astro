@@ -4,7 +4,7 @@
  * Props.section: 当前激活分区；传递相同 form
  */
 interface Props {
-  section: 'site-name' | 'hero-quotes' | 'landing' | 'appearance';
+  section: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed';
 }
 const { section } = Astro.props;
 import AdminLayout from '@/layouts/AdminLayout.astro';
@@ -14,6 +14,7 @@ const SECTION_LABELS: Record<Props['section'], string> = {
   'hero-quotes': '诗词轮播',
   'landing': '落地页',
   'appearance': '外观',
+  'image-bed': 'GitHub 图床',
 };
 const titleSuffix = SECTION_LABELS[section] ?? '设置';
 const tabs: { id: Props['section']; label: string; href: string }[] = [
@@ -21,6 +22,7 @@ const tabs: { id: Props['section']; label: string; href: string }[] = [
   { id: 'hero-quotes', label: '诗词轮播', href: '/admin/settings/hero-quotes' },
   { id: 'landing', label: '落地页', href: '/admin/settings/landing' },
   { id: 'appearance', label: '外观', href: '/admin/settings/appearance' },
+  { id: 'image-bed', label: 'GitHub 图床', href: '/admin/settings/image-bed' },
 ];
 ---
 <AdminLayout title={`设置 · ${titleSuffix}`}>

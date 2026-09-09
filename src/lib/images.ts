@@ -132,6 +132,45 @@ export async function storeImage(mime: string, dataBase64: string): Promise<Stor
   return row as StoredImage;
 }
 
+/**
+ * GitHub 图床上传成功后的元数据落库：url 列存站内反代路径（/img/...）。
+ *
+ * /api/images/[id] 对「data 为空且有 url」的行 307 重定向 —— 零 schema 变更复用输出链路，
+ * 站外引用仍是 /api/images/<id>（尺寸注入 / 封面提取等下游全部无感）。
+ * GitHub 模式不生成缩略图（仓库存原图），消费方均有 thumbUrl ?? url 兜底。
+ */
+export async function storeImageViaGitHub(
+  mime: string,
+  buffer: Buffer,
+  ghPath: string,
+): Promise<StoredImage> {
+  const id = randomUUID();
+  let width: number | null = null;
+  let height: number | null = null;
+  try {
+    const dims = await imageMeta(buffer);
+    width = dims.width;
+    height = dims.height;
+  } catch {
+    // 尺寸读取失败不阻断（对应图片保持无尺寸属性，由 CSS 兜底）
+  }
+  const row = {
+    id,
+    mime,
+    data: '',
+    key: null,
+    url: `/${ghPath}`,
+    thumbKey: null,
+    thumbUrl: null,
+    width,
+    height,
+    size: buffer.length,
+    createdAt: new Date(),
+  };
+  await db.insert(images).values(row);
+  return row as StoredImage;
+}
+
 /** 按 id 读取图片（供公开路由 /api/images/[id] 输出） */
 export async function getImage(id: string): Promise<StoredImage | null> {
   const rows = await db.select().from(images).where(eq(images.id, id)).limit(1);

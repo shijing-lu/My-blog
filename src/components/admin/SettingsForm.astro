@@ -1,14 +1,14 @@
 ---
 /*
- * SettingsForm.astro —— 站点设置表单（分区分页：4 个独立页面 + 弹窗复用）
- * 由 admin/settings.astro 抽离：四个分区（站点名称/诗词轮播/落地页/外观）+ 全部交互脚本。
- * - Props.section 为 'site-name' | 'hero-quotes' | 'landing' | 'appearance'：
+ * SettingsForm.astro —— 站点设置表单（分区分页：5 个独立页面 + 弹窗复用）
+ * 由 admin/settings.astro 抽离：五个分区（站点名称/诗词轮播/落地页/外观/GitHub 图床）+ 全部交互脚本。
+ * - Props.section 为 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed'：
  *   - 省略 → 渲染全部（用于弹窗和兼容旧 /admin/settings）
  *   - 指定 → 仅渲染该分区（用于独立子页面 /admin/settings/<section>）
  * - 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
  */
 interface Props {
-  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance';
+  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed';
 }
 const { section } = Astro.props;
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
@@ -16,6 +16,7 @@ import { getSiteBackground } from '@/lib/background';
 import { getLandingHero } from '@/lib/landing';
 import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
+import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -34,6 +35,10 @@ const showSiteName = !section || section === 'site-name';
 const showHeroQuotes = !section || section === 'hero-quotes';
 const showLanding = !section || section === 'landing';
 const showAppearance = !section || section === 'appearance';
+const showImageBed = !section || section === 'image-bed';
+
+/** GitHub 图床配置（token 掩码：SSR 注入 hasToken，明文永不出库） */
+const imageBed = serializeImageBedConfig(await getImageBedConfig());
 ---
 
 <!-- ===== Template ===== -->
@@ -441,6 +446,95 @@ const showAppearance = !section || section === 'appearance';
       </div>
     </section>
     </>)}
+
+    <!-- GitHub 图床分区 -->
+    {showImageBed && (<>
+    <section id="image-bed" data-settings-section="image-bed" class="border-t border-border pt-6" data-image-bed={JSON.stringify(imageBed)}>
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">GITHUB IMAGE BED</p>
+          <h2 class="mt-1 font-medium">GitHub 图床</h2>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        开启后，文章/动态中粘贴的图片自动上传到 GitHub 仓库，通过本站 /img/ 反代展示（国内可直连）；
+        上传失败或开关关闭时沿用原有 Cloudflare R2 流程，互不影响。
+      </p>
+
+      <label class="mt-4 flex items-center gap-2 text-sm">
+        <input id="ib-enabled" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
+        启用 GitHub 图床（粘贴图片上传到 GitHub 仓库）
+      </label>
+
+      <div class="mt-4 grid grid-cols-2 gap-3">
+        <label class="block text-xs font-medium text-muted-foreground">
+          仓库属主 Owner（用户名或组织）
+          <input
+            id="ib-owner"
+            type="text"
+            placeholder="例如 your-name"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          仓库名 Repository（建议独立公开仓库）
+          <input
+            id="ib-repo"
+            type="text"
+            placeholder="例如 image-bed"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          分支 Branch
+          <input
+            id="ib-branch"
+            type="text"
+            placeholder="main"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          访问令牌 Token（仅存数据库，不回显）
+          <input
+            id="ib-token"
+            type="password"
+            placeholder="github_pat_..."
+            autocomplete="new-password"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+      </div>
+      <p class="mt-2 text-xs text-muted-foreground">
+        建议使用 Fine-grained PAT：仅授权该仓库的 Contents 读写权限。Token 保存后不回显，留空表示不修改。
+        仓库需为 public（访客经本站反代读取原图无需鉴权）。
+      </p>
+
+      <div class="mt-4 flex items-center gap-3">
+        <button
+          id="ib-test"
+          type="button"
+          class="rounded-md border border-input bg-background px-4 py-1.5 text-sm transition-colors hover:bg-accent"
+        >
+          测试连接
+        </button>
+        <span id="ib-test-result" class="text-xs" role="status"></span>
+      </div>
+
+      <p id="ib-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
+
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <span id="ib-saved-hint" class="text-xs text-emerald-600"></span>
+        <button
+          id="ib-save"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          保存并应用
+        </button>
+      </div>
+    </section>
+    </>)}
 </div>
 
 <script>
@@ -455,6 +549,112 @@ const showAppearance = !section || section === 'appearance';
     formRoot.dataset.inited = '1';
 
       /** 站点设置页：诗词轮播配置（增删/调速/保存）。配置来自服务端注入 data-settings。 */
+
+      /* ---------- GitHub 图床（配置存 DB；token 留空 = 不修改） ---------- */
+      const ibSection = document.getElementById('image-bed');
+      if (ibSection) {
+        interface PublicBedConfig {
+          enabled: boolean;
+          owner: string;
+          repo: string;
+          branch: string;
+          hasToken: boolean;
+        }
+        let ibCfg: PublicBedConfig = { enabled: false, owner: '', repo: '', branch: 'main', hasToken: false };
+        try {
+          ibCfg = { ...ibCfg, ...(JSON.parse(ibSection.dataset.imageBed ?? '{}') as Partial<PublicBedConfig>) };
+        } catch {
+          /* 配置解析失败用默认（关闭态） */
+        }
+
+        const ibEnabled = document.getElementById('ib-enabled') as HTMLInputElement | null;
+        const ibOwner = document.getElementById('ib-owner') as HTMLInputElement | null;
+        const ibRepo = document.getElementById('ib-repo') as HTMLInputElement | null;
+        const ibBranch = document.getElementById('ib-branch') as HTMLInputElement | null;
+        const ibToken = document.getElementById('ib-token') as HTMLInputElement | null;
+        const ibErr = document.getElementById('ib-err');
+        const ibHint = document.getElementById('ib-saved-hint');
+        const ibTestResult = document.getElementById('ib-test-result');
+
+        /** 已存 token 时不回显，placeholder 提示「留空表示不修改」 */
+        const applyTokenPlaceholder = (): void => {
+          if (ibToken) ibToken.placeholder = ibCfg.hasToken ? '已保存，留空表示不修改' : 'github_pat_...';
+        };
+
+        if (ibEnabled) ibEnabled.checked = ibCfg.enabled;
+        if (ibOwner) ibOwner.value = ibCfg.owner;
+        if (ibRepo) ibRepo.value = ibCfg.repo;
+        if (ibBranch) ibBranch.value = ibCfg.branch;
+        applyTokenPlaceholder();
+
+        const setIbErr = (msg: string): void => {
+          if (!ibErr) return;
+          ibErr.textContent = msg;
+          ibErr.classList.toggle('hidden', !msg);
+        };
+
+        /* 测试连接：用当前表单值（token 空 → 后端用已存 token） */
+        document.getElementById('ib-test')?.addEventListener('click', async () => {
+          if (!ibTestResult) return;
+          ibTestResult.textContent = '测试中…';
+          ibTestResult.className = 'text-xs text-muted-foreground';
+          try {
+            const res = await fetch('/api/image-bed-test', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                owner: ibOwner?.value.trim() ?? '',
+                repo: ibRepo?.value.trim() ?? '',
+                token: ibToken?.value.trim() ?? '',
+              }),
+            });
+            const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
+            if (!res.ok) throw new Error(d.error ?? '测试失败');
+            ibTestResult.textContent = d.message ?? (d.ok ? '连接成功' : '连接失败');
+            ibTestResult.className = `text-xs ${d.ok ? 'text-emerald-600' : 'text-destructive'}`;
+          } catch (err) {
+            ibTestResult.textContent = err instanceof Error ? err.message : '测试失败';
+            ibTestResult.className = 'text-xs text-destructive';
+          }
+        });
+
+        /* 保存：token 留空 = 后端保留原值 */
+        document.getElementById('ib-save')?.addEventListener('click', async () => {
+          const payload = {
+            enabled: ibEnabled?.checked ?? false,
+            owner: ibOwner?.value.trim() ?? '',
+            repo: ibRepo?.value.trim() ?? '',
+            branch: ibBranch?.value.trim() || 'main',
+            token: ibToken?.value.trim() ?? '',
+          };
+          try {
+            const res = await fetch('/api/image-bed-settings', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const d = (await res.json().catch(() => ({}))) as { error?: string; hasToken?: boolean };
+            if (!res.ok) throw new Error(d.error ?? '保存失败');
+            ibCfg = {
+              ...ibCfg,
+              enabled: payload.enabled,
+              owner: payload.owner,
+              repo: payload.repo,
+              branch: payload.branch,
+              hasToken: d.hasToken ?? ibCfg.hasToken,
+            };
+            setIbErr('');
+            if (ibToken) ibToken.value = '';
+            applyTokenPlaceholder();
+            if (ibHint) {
+              ibHint.textContent = '已保存并应用';
+              window.setTimeout(() => { ibHint.textContent = ''; }, 2000);
+            }
+          } catch (err) {
+            setIbErr(err instanceof Error ? err.message : '保存失败，请重试');
+          }
+        });
+      }
 
       /* ---------- 站点名称（导航栏品牌文字） ---------- */
       const siteNameSection = document.getElementById('site-name');
