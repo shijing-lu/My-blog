@@ -28,6 +28,29 @@ const timestampMs = customType<{ data: Date; driverData: string | number | Date 
   },
 });
 
+/**
+ * 双方言布尔列：读写映射 boolean，存储按方言区分
+ *
+ * ⚠️ 勿回退为 `integer('x', { mode: 'boolean' })`（2026-09-10 生产事故根因）：
+ * SQLiteBoolean 的 `toDriver` 恒编码为整数 `1`/`0`，而生产 PG 的对应列是
+ * `boolean` 类型——PG 不会把整数 `1` 当真值，静默存成 `false`。
+ * 症状极具迷惑性：同一次写入中 text 列（encrypt_hint/encrypt_meta）全部正常，
+ * 只有布尔列恒为 false，且本地 SQLite 完全复现不出。
+ *
+ * @see https://www.postgresql.org/docs/current/datatype-boolean.html
+ */
+const booleanFlag = customType<{ data: boolean; driverData: boolean | number }>({
+  dataType() {
+    return 'boolean';
+  },
+  toDriver(value: boolean) {
+    return isPostgres ? value : value ? 1 : 0;
+  },
+  fromDriver(value: boolean | number) {
+    return typeof value === 'boolean' ? value : value === 1;
+  },
+});
+
 /** articles 表（SQLite 方言） */
 export const articles = sqliteTable(
   'articles',
@@ -49,12 +72,15 @@ export const articles = sqliteTable(
     /** 标签：JSON 编码的 string[] */
     tags: text('tags').notNull().default('[]'),
     /**
-     * 是否启用文章加密（1/0）。
+     * 是否启用文章加密。
      *
      * 加密文章：`content` 存**空串**，真实正文以密文形式存于 `encryptMeta`；
      * 列表/搜索可展示标题与摘要，但正文必须解锁后才能取得。
+     *
+     * ⚠️ 必须用 `booleanFlag`（双方言），勿用 `integer(mode:'boolean')` ——
+     * 后者的整数编码会让 PG boolean 列恒存 false。
      */
-    encrypted: integer('encrypted', { mode: 'boolean' }).notNull().default(false),
+    encrypted: booleanFlag('encrypted').notNull().default(false),
     /** 密码提示语（明文，仅用于解锁页提示；不含密码本身） */
     encryptHint: text('encrypt_hint').notNull().default(''),
     /**
@@ -160,7 +186,7 @@ export const todos = sqliteTable('todos', {
   /** 待办内容 */
   text: text('text').notNull(),
   /** 是否完成 */
-  done: integer('done', { mode: 'boolean' }).notNull().default(false),
+  done: booleanFlag('done').notNull().default(false),
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
@@ -191,9 +217,9 @@ export const calendarEvents = sqliteTable('calendar_events', {
   /** 阳历日期 YYYY-MM-DD（lunar 为 false 时使用） */
   date: text('date').notNull(),
   /** 是否每年重复（生日/纪念日） */
-  repeat: integer('repeat', { mode: 'boolean' }).notNull().default(false),
+  repeat: booleanFlag('repeat').notNull().default(false),
   /** 是否农历日期（如农历生日） */
-  lunar: integer('lunar', { mode: 'boolean' }).notNull().default(false),
+  lunar: booleanFlag('lunar').notNull().default(false),
   /** 农历月日："MM-DD"（如 08-15），闰月用 "-MM-DD" 前缀负号 */
   lunarDate: text('lunar_date'),
   createdAt: timestampMs('created_at')
@@ -488,7 +514,7 @@ export const studySessions = sqliteTable(
     /** 实际专注秒数 */
     durationSec: integer('duration_sec').notNull(),
     /** 是否完整完成（仅 completed=true 入库） */
-    completed: integer('completed', { mode: 'boolean' }).notNull().default(true),
+    completed: booleanFlag('completed').notNull().default(true),
     /** 完成时间 */
     createdAt: timestampMs('created_at')
       .notNull()
@@ -511,7 +537,7 @@ export const studyTasks = sqliteTable(
     /** 预估番茄数 */
     estPomodoros: integer('est_pomodoros').notNull().default(1),
     /** 是否完成 */
-    done: integer('done', { mode: 'boolean' }).notNull().default(false),
+    done: booleanFlag('done').notNull().default(false),
     /** 创建时间 */
     createdAt: timestampMs('created_at')
       .notNull()
