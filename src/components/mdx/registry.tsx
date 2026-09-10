@@ -7,6 +7,9 @@
  * - `pre` → `Pre`：代码块包装（复制按钮）
  * - `img` → `LightboxImage`：图片灯箱包装
  * - `a` → `ExternalLink`：外链新窗口
+ *
+ * 注：荧光高亮 `==文本==` 由 rehypeMark 直接产出 hast `<mark>` 元素，
+ * 不经过 React 组件注册表（见 src/lib/mdx-plugins.ts 的设计说明）。
  */
 import type { ComponentType } from 'react';
 import Admonition from './Admonition';

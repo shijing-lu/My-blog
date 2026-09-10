@@ -416,6 +416,416 @@ export function remarkCallout() {
   };
 }
 
+/* ============================================================================
+ * 荧光高亮标记：`==文本==` → <mark class="mark mark-*">（M3E 风格语法）
+ *
+ * 语法：
+ *   ==文本==                默认（primary，跟随文章主色调）
+ *   ==文本=={.tip}          后缀语义色修饰符（可省 `.`）
+ *   ==tip:文本==            前缀语义色修饰符（本项目扩展简写）
+ *   别名归一：danger/warn/caution → error；success/info/note → tip；…
+ *
+ * ## 为什么在 rehype 阶段实现（关键决策，勿回退）
+ *
+ * 最初按 remark 插件实现（产出 `mdxJsxTextElement`）——**实测失败**：
+ * `mdast-util-mdx-jsx` 序列化「程序化构造」的行内 JSX 节点时会回写为源码形态，
+ * 再被 MDX 的表达式/JSX tokenizer 二次解析，`==tip:文本==` 最终渲染成
+ * `==<!-- -->tip<div></div>` 这种残骸。
+ *
+ * 改到 **rehype 阶段直接产出 hast `<mark>` 元素**后，绕开了 MDX 的 JSX 序列化，
+ * 输出稳定。同时 rehype 阶段看得到真实的 `pre`/`code` 元素边界，
+ * 「代码内不触发渲染」的屏障更直观可靠。
+ *
+ * ## 与源码层哨兵的配合
+ *
+ * 源码层 `encodeMarkSyntax()`（src/lib/mdx.ts）在 MDX 解析前打哨兵 SENT：
+ *   `\=\=`         → `SENT=SENT=`      （字面量 `==`，不触发高亮）
+ *   `==x=={.tip}`  → `==x==SENT.tipSENT`（后缀；花括号必须消失否则 acorn 崩）
+ *
+ * 本插件解读哨兵并还原。
+ * ==========================================================================*/
+
+/** 源码层哨兵（须与 src/lib/mdx.ts 的 SENT 一致）：私有区字符，正文不会自然出现 */
+const SENT = '\uE000';
+
+/**
+ * 第二哨兵（须与 src/lib/mdx.ts 的 SENT2 一致）：受保护的花括号。
+ * 形态 `SENT2L` / `SENT2R` → 还原为 `{` / `}`。
+ */
+const SENT2 = '\uE001';
+
+/** 支持的语义色角色（对齐 M3E：primary / secondary / tertiary / error / tip） */
+export const MARK_VARIANTS = ['primary', 'secondary', 'tertiary', 'error', 'tip'] as const;
+export type MarkVariant = (typeof MARK_VARIANTS)[number];
+
+/** 变体别名归一（warn/caution/danger → error；success/info/note → tip；…） */
+const MARK_VARIANT_ALIASES: Record<string, MarkVariant> = {
+  primary: 'primary', main: 'primary', default: 'primary',
+  secondary: 'secondary', sub: 'secondary',
+  tertiary: 'tertiary', third: 'tertiary',
+  error: 'error', danger: 'error', warning: 'error', warn: 'error', caution: 'error',
+  tip: 'tip', success: 'tip', info: 'tip', note: 'tip', hint: 'tip',
+};
+
+/**
+ * 后缀修饰符（源码层哨兵形态）：`SENT.tipSENT`。
+ * 同时容忍未编码的退化形态 `{.tip}`，便于单测/其他调用方直接使用。
+ */
+const MARK_SUFFIX_RE = new RegExp(
+  `^(?:${SENT}\\s*\\.?([A-Za-z][\\w-]*)\\s*${SENT}|\\{\\s*\\.?([A-Za-z][\\w-]*)\\s*\\})`,
+);
+
+/** `==` 定界符 */
+const MARK_TOKEN = '==';
+
+/** 字面量等号的哨兵形态（源码层 `\=` 的编码）；还原时变回 `=` */
+const LITERAL_EQ = `${SENT}=`;
+
+/** 归一化变体名（大小写不敏感 + 别名映射）；非法名返回 null */
+function normalizeVariant(raw: string): MarkVariant | null {
+  return MARK_VARIANT_ALIASES[raw.toLowerCase()] ?? null;
+}
+
+/** 从前缀/后缀正则结果里取变体名（两种捕获组形态二选一） */
+function variantFromMatch(m: RegExpExecArray): MarkVariant | null {
+  return normalizeVariant(m[1] ?? m[2] ?? '');
+}
+
+/**
+ * 尝试消费「后缀修饰符」：命中且**变体名合法**时返回消费长度与变体，否则返回 null。
+ *
+ * 只在合法时消费：非法后缀名（如 `{.notavariant}`）应原样保留为字面文本，
+ * 不能被静默吞掉——那属于无声的数据丢失。
+ */
+function consumeSuffix(rest: string): { len: number; variant: MarkVariant } | null {
+  const m = MARK_SUFFIX_RE.exec(rest);
+  if (!m) return null;
+  const v = variantFromMatch(m);
+  if (!v) return null;
+  return { len: m[0].length, variant: v };
+}
+
+/**
+ * 还原哨兵为作者可读原文：
+ * - `SENT=` → `=`（字面量等号）
+ * - 残留 `SENT` → `` （后缀包裹用的哨兵，后缀已被摘除）
+ * - `SENT2L` / `SENT2R` → `{` / `}`（受保护的字面花括号，如非法后缀 `{.x}`）
+ */
+function decodeSentinel(text: string): string {
+  if (!text.includes(SENT) && !text.includes(SENT2)) return text;
+  return text
+    .split(LITERAL_EQ)
+    .join('=')
+    .split(`${SENT2}L`)
+    .join('{')
+    .split(`${SENT2}R`)
+    .join('}')
+    .split(SENT)
+    .join('');
+}
+
+/**
+ * 在文本里找下一个**真定界符** `==`。
+ *
+ * 需要跳过两类哨兵形态：
+ * 1. `SENT=`  —— 字面量等号（源码层 `\=` 的编码）
+ * 2. `SENT=SENT=` —— **开标记的编码**（源码层 `==` 的编码，用于前缀写法
+ *    `==tip:x==` 以及字面量 `\=\=`）
+ *
+ * 判定规则：若 `==` 前面紧邻哨兵，则该 `==` 属于编码形态，跳过。
+ * 例：`SENT=SENT=tip:正文==` 中首个真定界符是末尾的 `==`。
+ */
+function findToken(text: string, from = 0): number {
+  let at = text.indexOf(MARK_TOKEN, from);
+  while (at !== -1) {
+    if (at > 0 && text[at - 1] === SENT) {
+      at = text.indexOf(MARK_TOKEN, at + MARK_TOKEN.length);
+      continue;
+    }
+    return at;
+  }
+  return -1;
+}
+
+/**
+ * 识别并消费「前缀开标记编码」：`SENT=SENT=tipSENT` → 变体 tip，返回已消费长度。
+ *
+ * 源码层把 `==tip:` 编码为 `SENT=SENT=tipSENT`：
+ * - 首个 `=` 前有哨兵 → findToken 跳过（避开 MDX 表达式解析）
+ * - 冒号替换为哨兵 → 避开 remark-directive 的 textDirective 解析
+ * 因此插件在此处主动识别该形态作为**开标记**。
+ */
+const MARK_OPEN_PREFIX_RE = new RegExp(`^${SENT}=${SENT}=([A-Za-z][\\w-]*)${SENT}[ \\t]*`);
+
+/**
+ * 识别并消费「字面量 `==` 编码」：`SENT=SENT=` → 还原为字面 `==`，返回已消费长度。
+ * （只有当它**不是**前缀开标记、也不是真定界符时才走到这里）
+ */
+const MARK_OPEN_LITERAL_RE = new RegExp(`^${SENT}=${SENT}=`);
+
+/** 构造 `<mark class="mark mark-{variant}" data-mark="{variant}">` hast 元素 */
+function makeMarkElement(children: ElementContent[], variant: MarkVariant): Element {
+  return {
+    type: 'element',
+    tagName: 'mark',
+    properties: {
+      className: variant === 'primary' ? ['mark', 'mark-primary'] : ['mark', `mark-${variant}`],
+      'data-mark': variant,
+    },
+    children,
+  };
+}
+
+/** 文本 hast 节点 */
+function hastText(value: string): ElementContent {
+  return { type: 'text', value };
+}
+
+/**
+ * 在单个 hast 文本节点序列里完成高亮转换。
+ *
+ * 返回新子级数组。为支持「跨节点嵌套」（`==a <strong>b</strong> c==`），
+ * 采用「开标记 → 收集 → 闭合」的状态机，非文本元素在打开状态下被收进内容。
+ */
+function convertChildren(children: ElementContent[]): ElementContent[] {
+  const out: ElementContent[] = [];
+  /**
+   * 状态收敛到一个对象里。
+   *
+   * ⚠️ 不要拆成多个 `let` 局部变量：`collected` 只在闭包（openMark/closeMark/rollback）
+   * 内被赋值，TS 的控制流分析在循环体内会认为它恒为初始值 `null`，
+   * `collected !== null` 分支里类型被窄化为 `never`，所有 `.push()` 报错。
+   * 挂在对象属性上可阻断该窄化（TS 不做跨闭包属性窄化）。
+   */
+  interface MarkState {
+    /** 已收集内容；null = 未打开 */
+    collected: ElementContent[] | null;
+    /** 打开时已确定的变体（前缀写法）；后缀可在闭合时覆盖 */
+    openVariant: MarkVariant | null;
+    /** 打开时的原文形态（未闭合回滚用，如 `==` / `==tip:`） */
+    opener: string;
+    /** 打开前已写入 `out` 的内容数（回滚点）；-1 = 本节点内打开 */
+    openAt: number;
+  }
+  const S: MarkState = { collected: null, openVariant: null, opener: MARK_TOKEN, openAt: -1 };
+
+  /** 闭合当前高亮 */
+  const closeMark = (variant: MarkVariant): void => {
+    out.push(makeMarkElement(S.collected ?? [], variant));
+    S.collected = null;
+    S.openVariant = null;
+    S.opener = MARK_TOKEN;
+    S.openAt = -1;
+  };
+
+  /** 未闭合回滚：把 opener 与已收集内容按原文还原 */
+  const rollback = (): void => {
+    const restored: ElementContent[] = [hastText(S.opener), ...(S.collected ?? [])];
+    if (S.openAt >= 0) out.splice(S.openAt, out.length - S.openAt, ...restored);
+    else out.push(...restored);
+    S.collected = null;
+    S.openVariant = null;
+    S.opener = MARK_TOKEN;
+    S.openAt = -1;
+  };
+
+  /** 打开一个高亮（进入收集态） */
+  const openMark = (body: string, variant: MarkVariant | null, openText: string): void => {
+    S.openAt = out.length;
+    S.opener = openText;
+    S.openVariant = variant;
+    S.collected = body !== '' ? [hastText(decodeSentinel(body))] : [];
+  };
+
+  for (const child of children) {
+    // 非文本元素：打开态则收进内容（支持 `==a <strong>b</strong> c==`）
+    if (child.type !== 'text') {
+      if (S.collected !== null) S.collected.push(child);
+      else out.push(child);
+      continue;
+    }
+
+    let value = child.value;
+
+    // ── 打开态：只找闭合 ────────────────────────────────────────────
+    if (S.collected !== null) {
+      const closeAt = findToken(value);
+      if (closeAt === -1) {
+        if (value !== '') S.collected.push(hastText(decodeSentinel(value)));
+        continue;
+      }
+      if (closeAt > 0) S.collected.push(hastText(decodeSentinel(value.slice(0, closeAt))));
+      let rest = value.slice(closeAt + MARK_TOKEN.length);
+      let final: MarkVariant = S.openVariant ?? 'primary';
+      const sfx = consumeSuffix(rest);
+      if (sfx) {
+        final = sfx.variant;
+        rest = rest.slice(sfx.len);
+      }
+      closeMark(final);
+      value = rest; // 余下文本继续按闭合态解析
+      if (value === '') continue;
+    }
+
+    // ── 闭合态：逐个消费开标记 ──────────────────────────────────────
+    let cursor = 0;
+    for (;;) {
+      // 先看当前位置是否就是「编码开标记」（`SENT=SENT=` 或 `SENT=SENT=tip:`）
+      const atHead = value.slice(cursor);
+      const encodedPrefix = MARK_OPEN_PREFIX_RE.exec(atHead);
+      const encodedLiteral = MARK_OPEN_LITERAL_RE.exec(atHead);
+
+      if (encodedPrefix) {
+        const v = normalizeVariant(encodedPrefix[1] ?? '');
+        // 合法变体名 → 前缀开标记
+        if (v) {
+          const body = atHead.slice(encodedPrefix[0].length);
+          const closeAt = findToken(body);
+          if (closeAt === -1) {
+            // 未闭合 → 进入收集态（原文还原用 `==name:`）
+            openMark(body, v, MARK_TOKEN + encodedPrefix[1] + ':');
+            cursor = value.length;
+            break;
+          }
+          const inner = body.slice(0, closeAt);
+          let tail = body.slice(closeAt + MARK_TOKEN.length);
+          let final: MarkVariant = v;
+          const sfx = consumeSuffix(tail);
+          if (sfx) {
+            final = sfx.variant;
+            tail = tail.slice(sfx.len);
+          }
+          out.push(makeMarkElement(inner !== '' ? [hastText(decodeSentinel(inner))] : [], final));
+          value = tail;
+          cursor = 0;
+          continue;
+        }
+        // 变体名非法（不该发生，源码层已过滤）→ 当字面量处理
+      }
+
+      if (encodedLiteral) {
+        // 字面 `==`：还原输出，继续往后找
+        out.push(hastText(MARK_TOKEN));
+        value = atHead.slice(encodedLiteral[0].length);
+        cursor = 0;
+        continue;
+      }
+
+      // 普通真定界符
+      const open = findToken(value, cursor);
+      if (open === -1) {
+        const tail = value.slice(cursor);
+        if (tail !== '') out.push(hastText(decodeSentinel(tail)));
+        break;
+      }
+      const lead = value.slice(cursor, open);
+      if (lead !== '') out.push(hastText(decodeSentinel(lead)));
+
+      const rest = value.slice(open + MARK_TOKEN.length);
+      const closeAt = findToken(rest);
+      if (closeAt === -1) {
+        openMark(rest, null, MARK_TOKEN);
+        break;
+      }
+      const inner = rest.slice(0, closeAt);
+      let tail = rest.slice(closeAt + MARK_TOKEN.length);
+      let final: MarkVariant = 'primary';
+      const sfx = consumeSuffix(tail);
+      if (sfx) {
+        final = sfx.variant;
+        tail = tail.slice(sfx.len);
+      }
+      out.push(makeMarkElement(inner !== '' ? [hastText(decodeSentinel(inner))] : [], final));
+      value = tail;
+      cursor = 0;
+    }
+  }
+
+  if (S.collected !== null) rollback();
+  return out;
+}
+
+/**
+ * 行内容器标签：只在这些元素上执行高亮转换。
+ *
+ * ⚠️ 不能包含 `div` / `aside` / `details` 这类**块级包装**元素：
+ * 它们内部可能嵌套 `<p>`/`<ul>`/`<blockquote>` 等块级子元素，
+ * 在这些包装层上做「行内序列扫描」会把跨块的内容当成同一行处理，
+ * 导致定界符被提前消费、后代块内的标记反而失效（实测 Callout 标题/正文即如此）。
+ * 正确做法是在**真正承载行内内容的最小容器**（p / li / td / h2…）上转换，
+ * 由 walk 逐层下钻自然覆盖全部正文。
+ */
+const MARK_CONTAINER_TAGS = new Set([
+  'p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'summary', 'figcaption', 'dt', 'dd', 'caption',
+]);
+
+/**
+ * rehype 插件：把 `==文本==` 转换 `<mark class="mark mark-*">` 元素。
+ *
+ * 屏障（天然满足「代码内不触发」）：
+ * - `pre` / `code` / `kbd` / `samp` / `script` / `style` 一律不下钻，
+ *   围栏代码块与行内代码内容原样保留；
+ * - 公式 `katex` 子树不下钻（避免把 `==` 拼进公式语义）。
+ */
+export function rehypeMark() {
+  return (tree: HastRoot) => {
+    const SKIP = new Set(['code', 'pre', 'kbd', 'samp', 'script', 'style', 'textarea']);
+    /**
+     * 下钻遍历。
+     *
+     * ⚠️ 必须同时识别 MDX 的 JSX 节点（`mdxJsxFlowElement` / `mdxJsxTextElement`）：
+     * `<Callout>` 是 React 组件，在 rehype 阶段仍是 `mdxJsxFlowElement`，
+     * 其内部承载行内的 `<p data-callout-head>`（标题行）同样是 JSX 节点而非 hast
+     * `element`。若只认 `element`，整棵 Callout 子树会被跳过，
+     * 标题行与正文里的 `==…==` 都不会转换（实测现象）。
+     */
+    /**
+     * 通用树节点（hast element / hast root / MDX JSX 节点）。
+     * 本插件同时处理三类节点，用结构化最小接口而非完整 hast 联合类型，
+     * 避免 mdast / hast 的 `Root` 类型互不兼容导致的赋值报错。
+     */
+    interface WalkNode {
+      type?: string;
+      tagName?: string;
+      name?: string;
+      properties?: Record<string, unknown>;
+      children?: ElementContent[];
+    }
+
+    const walk = (node: WalkNode): void => {
+      if (!Array.isArray(node.children)) return;
+      const t = node.type;
+
+      if (t === 'element') {
+        const tagName = String(node.tagName ?? '');
+        if (SKIP.has(tagName)) return;
+        // KaTeX 子树不下钻（.katex / .katex-mathml 内部是排版产物）
+        const cls = classListOf(node as unknown as Element);
+        if (cls.includes('katex') || cls.includes('katex-mathml')) return;
+        if (MARK_CONTAINER_TAGS.has(tagName)) {
+          node.children = convertChildren(node.children);
+        }
+      } else if (t === 'mdxJsxFlowElement' || t === 'mdxJsxTextElement') {
+        // JSX 元素：按标签名判定容器。组件本身（如 Callout）不扫描（其子级由下钻覆盖），
+        // 但内部的原生小写标签（`p`/`li`/…）仍是**行内容器**，需要在此转换。
+        const name = String(node.name ?? '');
+        if (MARK_CONTAINER_TAGS.has(name)) {
+          node.children = convertChildren(node.children);
+        }
+      }
+
+      for (const child of node.children) {
+        const ct = (child as unknown as WalkNode).type;
+        if (ct === 'element' || ct === 'mdxJsxFlowElement' || ct === 'mdxJsxTextElement') {
+          walk(child as unknown as WalkNode);
+        }
+      }
+    };
+    walk(tree as unknown as WalkNode);
+  };
+}
+
 /** 读取元素 class 列表 */
 function classListOf(node: Element): string[] {
   // hast 的 className 类型在不同子包里声明不一（string / string[] / 混合），统一按 unknown 收窄
@@ -677,7 +1087,15 @@ export const remarkPlugins = [
   remarkLegacyFootnotes,
 ];
 
-/** rehype 插件数组：slug → autolink → katex（LaTeX 公式，纯 CSS 渲染无需客户端 JS）→ prism（行号）→ 块锚点（思维导图引用） */
+/**
+ * rehype 插件数组：slug → autolink → katex（LaTeX 公式，纯 CSS 渲染无需客户端 JS）
+ * → prism（行号）→ 荧光高亮 → 块锚点（思维导图引用）
+ *
+ * 顺序说明：
+ * - `rehypeMark` 在 `rehypeKatex` **之后**：KaTeX 已渲染完公式，插件跳过 `.katex` 子树；
+ * - `rehypeMark` 在 `rehypeBlockAnchors` **之后**：块锚点先给块级元素挂 id，
+ *   高亮只改行内内容，不影响块级结构（顺序其实无关，但保持「结构先定、内容后改」）。
+ */
 export const rehypePlugins = [
   rehypeSlug,
   rehypeAutolinkHeadings,
@@ -686,4 +1104,6 @@ export const rehypePlugins = [
   rehypeTableMath,
   [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
   rehypeBlockAnchors,
+  // M3E 风格荧光高亮 `==文本==` → <mark>（须在 KaTeX 之后，跳过公式子树）
+  rehypeMark,
 ];

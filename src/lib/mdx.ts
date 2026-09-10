@@ -258,6 +258,155 @@ function tableLineToSafe(t: string): string {
 }
 
 /**
+ * 荧光高亮语法：源码层哨兵协议（**必须在 MDX 解析之前执行**）
+ *
+ * ## 为什么需要源码层预处理（多次实测后的定版结论）
+ *
+ * MDX 的解析发生在 **remark 插件链之前**（@mdx-js/mdx 先跑 micromark 扩展建树，
+ * 再把树交给 remark 插件）。这带来两个无法在插件内解决的问题：
+ *
+ * 1. **裸 `{` 崩 acorn**：`==文本=={.tip}` 的 `{.tip}` 被
+ *    micromark-extension-mdx-expression 当 JS 表达式 → acorn 抛
+ *    「Could not parse expression with acorn」→ 整篇 evaluate 500。
+ * 2. **反斜杠转义在插件前就被吃掉**：`\=\=` / `\{` 经 micromark 的
+ *    character-escape 还原为 `==` / `{` **之后**才轮到 remark 插件——
+ *    插件看到的文本里已经没有任何「这是转义」的痕迹，无法区分
+ *    「作者想写字面 `==`」与「作者想用高亮」。
+ *
+ * ## 协议（实测有效的唯一形态）
+ *
+ * 私有区字符 SENT（`\uE000`）作哨兵，且在源码层**完全替换掉花括号**——
+ * 实测：只在 `{` 前后加哨兵**不能**阻止 acorn（`{` 依然裸露）；必须让 `{`/`}`
+ * 彻底消失，`{.tip}` 整体降级为 `SENT.tipSENT` 这种纯文本形态。
+ *
+ * | 源码写法           | 替换为        | remark 阶段的含义      |
+ * | ------------------ | ------------- | ---------------------- |
+ * | `\=\=`（想写字面） | `SENT=SENT=`  | 字面 `==`，不触发高亮  |
+ * | `==x=={.tip}`      | `==x==SENT.tipSENT` | 后缀修饰符        |
+ * | `==tip:x==`        | `SENT=SENT=tipSENTx==` | 前缀修饰符     |
+ *
+ * 哨兵不参与任何 markdown 语法，能原样穿过 micromark 到达 remark 插件；
+ * 插件据此精确区分「真定界符 / 字面量 / 后缀」，处理完把哨兵还原掉。
+ *
+ * ⚠️ 两个字符必须编码，各有独立的破坏源：
+ * 1. **`=`**：`==tip` 里的第二个 `=` 紧贴字母，MDX 的 mdx-expression tokenizer
+ *    会把 `=tip` 当表达式起点 → 残骸 `==<!-- -->tip<div></div>`。
+ * 2. **`:`**：`tip:正文` 里的冒号会被 **remark-directive** 当 textDirective 开头
+ *    （`:::note` 指令语法的基础）→ 文本被切成 `text("tip")` +
+ *    `textDirective(name="正文==")`，高亮彻底失效。
+ *    因此前缀写法的冒号也替换为哨兵。
+ */
+const SENT = '\uE000';
+
+/**
+ * 第二哨兵：**受保护的花括号**。
+ *
+ * MDX 把裸 `{…}` 当 JS 表达式解析（acorn），源码里任何字面花括号都必须先藏起来。
+ * 但「非法后缀」`{.notavariant}` 又必须**原样保留**给用户看，不能被吞掉，
+ * 因此用独立哨兵编码花括号本身，插件层不消费它、只在最终还原为 `{` / `}`。
+ */
+const SENT2 = '\uE001';
+
+/** 源码层：把「紧跟 `==…==` 的 `{…}`」标记为后缀 */
+const SOURCE_MARK_SUFFIX_RE = /(==[^=\n]*==)\{([^}\n]*)\}/g;
+
+/**
+ * 源码层：前缀写法 `==variant:正文==` → 开标记编码。
+ * 变体名限定为标识符字符，且必须在白名单内，避免误伤
+ * `==注意：这里是重点==` 这类正文含全角冒号的场景（全角 `：` 不匹配）。
+ */
+const SOURCE_MARK_PREFIX_RE = /==([A-Za-z][\w-]*):/g;
+
+/** 内置变体 + 别名白名单（须与 mdx-plugins.ts 的 MARK_VARIANT_ALIASES 保持一致） */
+const MARK_VARIANT_NAMES = new Set([
+  'primary', 'main', 'default',
+  'secondary', 'sub',
+  'tertiary', 'third',
+  'error', 'danger', 'warning', 'warn', 'caution',
+  'tip', 'success', 'info', 'note', 'hint',
+]);
+
+/**
+ * 源码层预处理：转义字面量 + 编码后缀/前缀修饰符。
+ *
+ * ⚠️ **必须跳过代码区域**：围栏代码块（``` / ~~~）与行内代码（`…`）里的内容
+ * 一律原样保留——用户在那里写的 `==x=={.tip}` 是**讲解示例**，不该被编码，
+ * 否则解码后哨兵残留在 `<code>` 里，且花括号会被 MDX 当表达式（acorn 崩）。
+ *
+ * 处理顺序敏感：
+ * 1. 先在「非代码区域」内做字面量/后缀/前缀编码
+ * 2. 花括号兜底：非代码区域内所有剩余 `{` `}` 用 SENT2 保护，
+ *    避免被 MDX 表达式解析器吃成 JS
+ */
+export function encodeMarkSyntax(source: string): string {
+  return mapOutsideCode(source, (chunk) =>
+    chunk
+      // ① `\=\=` → 字面量哨兵形态
+      .replace(/\\=\\=/g, `${SENT}=${SENT}=`)
+      // ② 后缀修饰符 `==…=={…}`：合法变体 → 哨兵编码（供插件消费）；
+      //    非法名 → 花括号用 SENT2 保护（原样还原为 `{.notavariant}`，
+      //    既不静默吞掉用户内容，也不让裸花括号触发 MDX 表达式解析）
+      .replace(SOURCE_MARK_SUFFIX_RE, (m, mark: string, inner: string) =>
+        MARK_VARIANT_NAMES.has(inner.replace(/^\./, '').trim().toLowerCase())
+          ? `${mark}${SENT}${inner}${SENT}`
+          : `${mark}${SENT2}L${inner}${SENT2}R`,
+      )
+      // ③ 前缀开标记：`==tip:` → `SENT=SENT=tipSENT`（冒号也换成哨兵，
+      //    否则被 remark-directive 当 textDirective 解析）
+      .replace(SOURCE_MARK_PREFIX_RE, (m, name: string) =>
+        MARK_VARIANT_NAMES.has(name.toLowerCase()) ? `${SENT}=${SENT}=${name}${SENT}` : m,
+      ),
+  );
+}
+
+/**
+ * 对源码里**围栏代码块之外**的片段应用 `fn`，围栏块原样透传。
+ *
+ * 识别围栏代码块（与 Markdown 规范一致）：
+ * 行首 0-3 空格 + ``` / ~~~（含 info string），直到同字符的闭合围栏；
+ * 未闭合则延伸到文末（保守：宁可少转换也不破坏代码）。
+ *
+ * ⚠️ **行内代码不在此处切分**：`==请在 \`npm install\` 后重试=={.tip}` 这类写法里，
+ * 行内代码位于高亮定界符**内部**，若按 `` ` `` 切段会导致 `==…=={.tip}` 被拆散、
+ * 后缀编码失效。行内代码「不触发高亮」由 rehype 阶段的 `code` 屏障保证，不靠源码层。
+ */
+function mapOutsideCode(source: string, fn: (chunk: string) => string): string {
+  let out = '';
+  const lines = source.split('\n');
+
+  for (let li = 0; li < lines.length; li += 1) {
+    const line = lines[li] ?? '';
+    const nl = li < lines.length - 1 ? '\n' : '';
+
+    // 围栏代码块起点：0-3 空格 + 至少 3 个 ` 或 ~
+    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      const marker = fence[1] ?? '';
+      const ch = marker[0] ?? '`';
+      out += line + nl;
+      li += 1;
+      // 找闭合围栏（同字符、长度不短于起始）
+      let closed = false;
+      for (; li < lines.length; li += 1) {
+        const l = lines[li] ?? '';
+        const eol = li < lines.length - 1 ? '\n' : '';
+        out += l + eol;
+        const closeRe = new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`);
+        if (closeRe.test(l)) {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) break;
+      continue;
+    }
+
+    out += fn(line) + nl;
+  }
+  return out;
+}
+
+/**
  * 纯 Markdown → HTML（轻量管线，无 JSX 组件）
  *
  * 用于日记悬浮预览等"只需渲染成 HTML"的场景，比 evaluate 轻量得多。
@@ -368,7 +517,9 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
   // 反引号变体规范化：全角/修饰符变体 → ASCII，修复行内代码渲染失败
   // 数学 fence 规整：内容与 $$ 同行 → 拆为独占行（remark-math fence 语法要求），
   // 修复「编辑正常、阅读红字」（KaTeX 收到含 $$ 的非法 TeX → .katex-error）
-  const normalized = normalizeMathFences(normalizeBackticks(source));
+  // 荧光语法哨兵编码：字面量 `\=\=` 与后缀 `{…}` 在 MDX 解析前打上私有区哨兵，
+  // 防 acorn 表达式崩溃 + 让插件能区分「字面量 / 真定界符 / 后缀」
+  const normalized = encodeMarkSyntax(normalizeMathFences(normalizeBackticks(source)));
 
   // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果
   if (!options.components) {

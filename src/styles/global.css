@@ -1604,6 +1604,83 @@
     @apply border-t bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground;
   }
 
+  /* ---------------------------------------------------------------------
+     荧光高亮标记 —— M3E 风格 `==文本==`（remarkMark → <Mark>）
+     形态：**背景色块**（淡彩底 + 深色文字），不是下划线/边框
+     5 类语义角色：primary（默认，跟随文章主色调）/ secondary / tertiary / error / tip
+     ⚠️ 浏览器对 <mark> 有 UA 默认样式（黄底黑字），必须显式覆写 background 与 color，
+        否则未命中的变体会漏出刺眼的纯黄。
+     --------------------------------------------------------------------- */
+  .mark {
+    /* 覆写 UA 默认黄底；颜色由各变体给出 */
+    background-color: color-mix(in oklab, var(--color-primary) 22%, transparent);
+    color: inherit;
+    border-radius: 3px;
+    padding: 0.06em 0.28em;
+    margin: 0 -0.06em;
+    /* 让色块在换行断行处也保持连续观感 */
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  /* 高亮内的强调文字保持自身字重/字形，只是颜色沿用主体的对比色 */
+  .mark strong,
+  .mark em {
+    color: inherit;
+  }
+  /* 高亮内的行内代码：去掉站点默认灰底，改半透明白底描边，避免与色块打架 */
+  .mark code {
+    background-color: color-mix(in oklab, var(--background) 55%, transparent);
+    color: inherit;
+  }
+
+  /* primary —— 文章主色调（Claude 陶土橙），默认高亮 */
+  .mark-primary {
+    background-color: color-mix(in oklab, var(--color-primary) 22%, transparent);
+    color: color-mix(in oklab, var(--color-primary) 78%, var(--foreground));
+  }
+  /* secondary —— 柔和低调的辅助对比（中性灰调） */
+  .mark-secondary {
+    background-color: color-mix(in oklab, var(--color-muted-foreground) 20%, transparent);
+    color: color-mix(in oklab, var(--color-muted-foreground) 65%, var(--foreground));
+  }
+  /* tertiary —— 独立的第三编辑色调（紫调，与主色明显区分） */
+  .mark-tertiary {
+    background-color: color-mix(in oklab, var(--color-chart-4) 22%, transparent);
+    color: color-mix(in oklab, var(--color-chart-4) 80%, var(--foreground));
+  }
+  /* error —— 突出错误 / 异常 */
+  .mark-error {
+    background-color: color-mix(in oklab, var(--color-destructive) 20%, transparent);
+    color: color-mix(in oklab, var(--color-destructive) 82%, var(--foreground));
+  }
+  /* tip —— 高亮实用操作建议 */
+  .mark-tip {
+    background-color: color-mix(in oklab, var(--color-chart-2) 24%, transparent);
+    color: color-mix(in oklab, var(--color-chart-2) 80%, var(--foreground));
+  }
+
+  /* 暗色：提高底色占比、文字压到浅色端，保证对比度 */
+  .dark .mark-primary {
+    background-color: color-mix(in oklab, var(--color-primary) 26%, transparent);
+    color: color-mix(in oklab, var(--color-primary) 88%, #ffffff);
+  }
+  .dark .mark-secondary {
+    background-color: color-mix(in oklab, #a8a29e 24%, transparent);
+    color: color-mix(in oklab, #e7e5e4 85%, #ffffff);
+  }
+  .dark .mark-tertiary {
+    background-color: color-mix(in oklab, var(--color-chart-4) 28%, transparent);
+    color: color-mix(in oklab, var(--color-chart-4) 88%, #ffffff);
+  }
+  .dark .mark-error {
+    background-color: color-mix(in oklab, var(--color-destructive) 26%, transparent);
+    color: color-mix(in oklab, var(--color-destructive) 90%, #ffffff);
+  }
+  .dark .mark-tip {
+    background-color: color-mix(in oklab, var(--color-chart-2) 28%, transparent);
+    color: color-mix(in oklab, var(--color-chart-2) 88%, #ffffff);
+  }
+
   /* ===== 正文图片：原始形态（左对齐、无说明文字、无边框包裹），仅超限等比缩小 =====
      默认 .lightbox-figure 是满宽块级 + 边框圆角 + img w-full + figcaption 说明
      （影集 PhotoLayout 依赖该呈现，见 .layout-photo 规则）。正文（.prose）内：

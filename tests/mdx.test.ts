@@ -214,6 +214,145 @@ describe('renderMdx', () => {
   });
 });
 
+describe('荧光高亮：==文本== → <Mark>', () => {
+  it('默认高亮（primary，不带 variant 属性）', async () => {
+    const { html } = await renderMdx('这里是 ==重点内容== 的部分。');
+    expect(html).toContain('class="mark mark-primary"');
+    expect(html).toContain('data-mark="primary"');
+    expect(html).toContain('重点内容');
+    expect(html).not.toContain('==');
+  });
+
+  it('后缀语义色修饰符', async () => {
+    const { html } = await renderMdx('==次要=={.secondary} ==第三=={.tertiary} ==错误=={.error} ==建议=={.tip}');
+    expect(html).toContain('mark-secondary');
+    expect(html).toContain('mark-tertiary');
+    expect(html).toContain('mark-error');
+    expect(html).toContain('mark-tip');
+    expect(html).not.toContain('{.');
+  });
+
+  it('后缀省略点号亦可识别', async () => {
+    const { html } = await renderMdx('==提示内容=={tip}');
+    expect(html).toContain('mark-tip');
+    expect(html).not.toContain('{tip}');
+  });
+
+  it('前缀简写写法 ==tip:文本==', async () => {
+    const { html } = await renderMdx('==tip:记得先备份== 收尾。');
+    expect(html).toContain('mark-tip');
+    expect(html).toContain('记得先备份');
+    expect(html).not.toContain('==');
+    expect(html).not.toContain('tip:');
+  });
+
+  it('别名归一（warn→error / info→tip / main→primary）', async () => {
+    const err = await renderMdx('==注意=={.warn}');
+    expect(err.html).toContain('mark-error');
+    const tip = await renderMdx('==注意=={.info}');
+    expect(tip.html).toContain('mark-tip');
+    const pri = await renderMdx('==注意=={.main}');
+    expect(pri.html).toContain('mark-primary');
+  });
+
+  it('行内强调可嵌套进高亮（跨节点配对）', async () => {
+    const { html } = await renderMdx('==外层 **加粗** 与 *斜体* 都在里面==');
+    expect(html).toContain('class="mark mark-primary"');
+    expect(html).toContain('<strong>加粗</strong>');
+    expect(html).toContain('<em>斜体</em>');
+    expect(html).not.toContain('==');
+  });
+
+  it('同一文本节点内多组高亮', async () => {
+    const { html } = await renderMdx('==第一处== 与 ==第二处== 与 ==第三处=={.tip}');
+    expect(html.match(/class="mark mark-/g)?.length).toBe(3);
+    expect(html).toContain('第一处');
+    expect(html).toContain('第二处');
+    expect(html).toContain('第三处');
+  });
+
+  it('高亮可跨软换行（同行内多节点配对）', async () => {
+    const { html } = await renderMdx('前段。==高亮开始\n继续高亮==。后段。');
+    expect(html).toContain('mark-primary');
+    expect(html).toContain('高亮开始');
+    expect(html).toContain('继续高亮');
+  });
+
+  it('行内代码内不触发渲染（屏障）', async () => {
+    const { html } = await renderMdx('写作 `==字面量标记语法==` 即可。');
+    expect(html).toContain('==字面量标记语法==');
+    expect(html).not.toContain('class="mark');
+  });
+
+  it('围栏代码块内不触发渲染（屏障）', async () => {
+    const src = '讲解示例：\n\n```md\n==这是示例高亮=={.tip}\n```\n';
+    const { html } = await renderMdx(src);
+    expect(html).toContain('==这是示例高亮=={.tip}');
+    expect(html).not.toContain('class="mark');
+  });
+
+  it('未闭合的 == 保守还原为原文', async () => {
+    const { html } = await renderMdx('这里的 ==没有闭合 就结束了。');
+    // MDX 会在文本节点边界插入 `<!-- -->` 分隔注释，断言允许其存在
+    expect(html).toMatch(/==(<!-- -->)?没有闭合 就结束了。/);
+    expect(html).not.toContain('class="mark');
+  });
+
+  it('未闭合的前缀写法也保守还原（含前缀原文）', async () => {
+    const { html } = await renderMdx('==tip:没写完');
+    expect(html).toMatch(/==tip:(<!-- -->)?没写完/);
+    expect(html).not.toContain('class="mark');
+  });
+
+  it('转义的 \\=\\= 输出字面量', async () => {
+    const { html } = await renderMdx('转义写法 \\=\\=字面量\\=\\= 不渲染。');
+    expect(html).toContain('==字面量==');
+    expect(html).not.toContain('class="mark');
+  });
+
+  it('非法后缀名不误伤（保留字面量）', async () => {
+    const { html } = await renderMdx('==内容=={.notavariant}');
+    expect(html).toContain('mark-primary');
+    // 非法后缀原样保留在文本里（不被静默吞掉）
+    expect(html).toContain('{.notavariant}');
+  });
+
+  it('冒号前不是合法变体名时不误判前缀', async () => {
+    const { html } = await renderMdx('==注意：这里是重点==');
+    expect(html).toContain('mark-primary');
+    expect(html).toContain('注意：这里是重点');
+  });
+
+  it('标题与表格单元格内同样生效', async () => {
+    const h = await renderMdx('## 标题里的 ==高亮==');
+    expect(h.html).toContain('mark-primary');
+    const t = await renderMdx('| a | b |\n| --- | --- |\n| ==单元== | x |');
+    expect(t.html).toContain('mark-primary');
+    expect(t.html).toContain('单元');
+  });
+
+  it('Callout 标题行与正文内均生效', async () => {
+    const { html } = await renderMdx('> [!tip] ==高亮标题==\n> 正文里也有 ==高亮内容=={.tip}');
+    expect(html).toContain('mark-primary');
+    expect(html).toContain('mark-tip');
+    expect(html).toContain('高亮标题');
+    expect(html).toContain('高亮内容');
+  });
+
+  it('列表项与引用块内生效', async () => {
+    const li = await renderMdx('- 第一项 ==高亮=='.repeat(1));
+    expect(li.html).toContain('mark-primary');
+    const bq = await renderMdx('> 引用里的 ==高亮=={.error}');
+    expect(bq.html).toContain('mark-error');
+  });
+
+  it('高亮内的行内代码保留为 <code>', async () => {
+    const { html } = await renderMdx('==请在 `npm install` 后重试=={.tip}');
+    expect(html).toContain('mark-tip');
+    expect(html).toContain('<code>npm install</code>');
+  });
+});
+
 describe('目录：层级、KaTeX 与树形渲染', () => {
   it('从 h2/h3/h4 提取目录（h4 亦采集）', async () => {
     const { toc } = await renderMdx('## A\n### B\n#### C\n## D');
