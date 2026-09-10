@@ -153,45 +153,70 @@ export function normalizeMathFences(source: string): string {
       out.push(t);
       continue;
     }
+    // 引用前缀剥离开销：拆分行内 `$$` 时逐段回添 `>` 前缀，
+    // 否则 fence 行会逃出 blockquote，产生「未闭合引用 + 引用内 $…$ 被拒」双重报错。
+    const { prefix, content } = splitQuotePrefix(t);
     // ② 表格数据行（顶格/≤3 缩进 + 行首 `|`）：remark-math 的 `$…$` 在 GFM 表格
     //    cell 内不激活 → 剥掉 `$` 以干净字面 LaTeX 显示，并把裸 `{`/`}` 转义为
     //    `\{`/`\}`（MDX 文本原样输出），阻止表达式解析崩溃（见 tableLineToSafe）。
     //    ⚠️ 勿加「缩进 ≥4 空格行跳过」分支：列表/引用内常有缩进 display 数学
     //    （如 `  $$ … $$`），跳过会破坏其拆分（曾在生产文档引发 acorn 崩溃回归）。
-    if (/^\s{0,3}\|/.test(t)) {
-      out.push(tableLineToSafe(t));
+    if (/^\s{0,3}\|/.test(content)) {
+      out.push(prefix + tableLineToSafe(content));
       continue;
     }
     // ① 非表格行：拆分行内所有非转义 `$$` 为独立行（每段一行，保持内容原样）
     const segs: string[] = [];
+    let sawFence = false;
     let buf = '';
-    for (let i = 0; i < t.length; ) {
-      if (t[i] === '\\' && t[i + 1] === '$') {
+    for (let i = 0; i < content.length; ) {
+      if (content[i] === '\\' && content[i + 1] === '$') {
         buf += '\\$';
         i += 2;
         continue;
       }
-      if (t[i] === '$' && t[i + 1] === '$') {
-        if (buf.trim() !== '') segs.push(buf.trimEnd());
+      if (content[i] === '$' && content[i + 1] === '$') {
+        if (buf.trim() !== '') segs.push(buf.replace(/^[ \t]+/, '').trimEnd());
         segs.push('$$');
+        sawFence = true;
         buf = '';
         i += 2;
         continue;
       }
-      buf += t[i];
+      buf += content[i];
       i += 1;
     }
-    if (buf.trim() !== '') segs.push(buf.trimEnd());
-    // 行无 `$$` → 原样输出
-    if (segs.length === 0) {
+    if (buf.trim() !== '') segs.push(buf.replace(/^[ \t]+/, '').trimEnd());
+    // 行内没有 `$$` → **整行原样输出**（含缩进/尾空格）。
+    // ⚠️ 判定必须用 sawFence 而非 `segs.length === 0`：无 `$$` 时 buf 也会攒出一个
+    //    分段（segs.length === 1），若走 else 分支会把前导缩进 `/^\s+/` 剥掉 ——
+    //    这会破坏 markdown 结构（列表项续行段落退化为顶层段落，
+    //    `:::collapse` 内「恰好一个列表」校验失败 → 整个折叠面板静默消失）。
+    if (!sawFence) {
       out.push(t);
-    } else if (segs.length === 1 && segs[0] === '$$' && /^\s*\$\$\s*$/.test(t)) {
+    } else if (segs.length === 1 && segs[0] === '$$' && /^\s*\$\$\s*$/.test(content)) {
       out.push(t); // 已是标准独立 fence 行：保持原样（含缩进/尾空格）
     } else {
-      out.push(...segs);
+      // 每段回添引用前缀（`$$` 段与文本段都要带，保持在同一 blockquote 内）
+      for (const s of segs) out.push(prefix + s);
     }
   }
   return out.join('\n');
+}
+
+/**
+ * 剥出行首的引用块前缀（`>` 层级，可含空白），返回 `{ prefix, content }`。
+ *
+ * 用途：`normalizeMathFences` 拆行时必须逐段回添前缀 —— 否则 `> $$ … $$` 的
+ * fence 行会跑到 blockquote 外，既造成「引用未闭合」，又让引用内的 `$…$`
+ * 因 GFM 限制不激活（acorn 把 `{bmatrix}` 当 JS 表达式 → 整篇渲染 500）。
+ *
+ * 非引用行返回 `prefix = ''`。嵌套引用（`> > `）与带缩进的引用一并支持。
+ */
+function splitQuotePrefix(line: string): { prefix: string; content: string } {
+  const m = /^((?:[ \t]{0,3}>[ \t]?)*)(.*)$/.exec(line);
+  if (!m || !m[1]) return { prefix: '', content: line };
+  return { prefix: m[1], content: m[2] ?? '' };
 }
 
 /**
@@ -308,7 +333,16 @@ const SENT = '\uE000';
 const SENT2 = '\uE001';
 
 /** 源码层：把「紧跟 `==…==` 的 `{…}`」标记为后缀 */
-const SOURCE_MARK_SUFFIX_RE = /(==[^=\n]*==)\{([^}\n]*)\}/g;
+// ⚠️ 正文部分**不能**再用 `[^=\n]*`：高亮文本里出现 `=` 是常态
+//    （例：`==$|A| = 0$=={.tip}`、`==x == y=={.tip}`），旧写法会让整条
+//    后缀失配 → `{` 裸露 → MDX 表达式解析 → acorn「Unexpected token」
+//    → 整篇 evaluate 失败（/render 500 或编辑页红字）。
+// 现写法要点：
+//   - 左边界 `(?<!=)` + 起始 `==(?!=)`：排除 `===` 三连等号，避免吃掉字面量；
+//   - 正文 `(?:(?!==)[^\n])*?` 非贪婪 + 内部禁止出现 `==`：在**第一个**可闭合的
+//     `==` 处收边（跨 `==` 贪婪会把 `==a=={.tip} 与 ==b==` 并成一体）；
+//   - `$…$` 内的 `=` 因此在正文范围内，后缀能正常匹配。
+const SOURCE_MARK_SUFFIX_RE = /(?<!=)(==(?:(?!==)[^\n])*?==)\{([^}\n]*)\}/g;
 
 /**
  * 源码层：前缀写法 `==variant:正文==` → 开标记编码。
