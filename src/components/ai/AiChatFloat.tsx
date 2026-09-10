@@ -7,13 +7,14 @@
  *   原始 TeX 源码（$…$ / $$…$$），避免 toString() 视觉文本丢格式；
  * - F3 悬浮框：鼠标附近 clamp 定位弹出，自动把选中文字模板化为首条消息发送，SSE 流式渲染；
  * - F4 多轮追问：messages 累积，回答中可继续输入，新发送时 abort 旧流（保留已生成文本）；
- * - F5 可调整大小：右/下/右下三向自绘手柄拖拽 resize，尺寸持久化 localStorage；
+ * - F5 可调整大小：右/下/右下三向自绘手柄拖拽 resize（**尺寸不持久化**，每次打开均以默认尺寸初始化）；
  * - 附加：标题栏拖动移动浮窗、Esc 关闭、自动滚动（stick-to-bottom：ResizeObserver 跟滚流式增高
  *   + 发送后平滑到底 + 上滚暂停跟随）；回答渲染走 marked + KaTeX（$…$ / $$…$$）+ DOMPurify。
  *
  * 会话语义（重要）：**每次选词提问都是一个全新对话**——打开浮窗或关闭浮窗（含 Esc、清空按钮）
- * 都会终止在途流并清空消息与上下文，确保不会把上一轮历史带给模型。仅浮窗尺寸跨会话保留
- * （localStorage），消息不再持久化（早期版本写 sessionStorage，现已清除并移除该行为）。
+ * 都会终止在途流并清空消息与上下文，确保不会把上一轮历史带给模型。**尺寸亦不持久化**：
+ * 每次打开浮窗一律以 DEFAULT_W/DEFAULT_H 初始化（早期版本把尺寸写入 localStorage 跨会话沿用，
+ * 现已移除该行为并清理遗留键）；消息同样不持久化（早期版本写 sessionStorage，现已清除）。
  *
  * SSE 帧格式（服务端 /api/ai/chat 重帧）：data: {"delta":"…"} / {"error":"…"} / {"done":true}
  */
@@ -52,6 +53,7 @@ const DEFAULT_W = 380;
 const DEFAULT_H = 480;
 const MARGIN = 12;
 
+/** 遗留键：早期版本曾把浮窗尺寸写入 localStorage 跨会话沿用，现已取消持久化，仅用于清理 */
 const SIZE_KEY = 'ai_float_size_v1';
 const MESSAGES_KEY = 'ai_chat_messages_v1';
 
@@ -70,20 +72,16 @@ function clampRect(x: number, y: number, w: number, h: number): FloatPos {
   };
 }
 
-/** 读取持久化尺寸（损坏/越界回落默认） */
-function loadSize(): { w: number; h: number } {
-  try {
-    const raw = localStorage.getItem(SIZE_KEY);
-    if (raw) {
-      const s = JSON.parse(raw) as { w?: number; h?: number };
-      const w = Math.min(Math.max(MIN_W, Number(s.w) || DEFAULT_W), window.innerWidth - MARGIN * 2);
-      const h = Math.min(Math.max(MIN_H, Number(s.h) || DEFAULT_H), window.innerHeight - MARGIN * 2);
-      return { w, h };
-    }
-  } catch {
-    /* 忽略 */
-  }
-  return { w: DEFAULT_W, h: DEFAULT_H };
+/**
+ * 初始尺寸：恒定返回默认值（**不做任何持久化读取**）。
+ * 语义要求——聊天框不记住旧尺寸，每次进入都以默认尺寸重新初始化；
+ * 此处只做一次视口保护：窗口比默认值还小时（如移动端极窄屏）向下压缩，避免溢出视口。
+ */
+function initialSize(): { w: number; h: number } {
+  return {
+    w: Math.min(DEFAULT_W, Math.max(MIN_W, window.innerWidth - MARGIN * 2)),
+    h: Math.min(DEFAULT_H, Math.max(MIN_H, window.innerHeight - MARGIN * 2)),
+  };
 }
 
 /** 页面标题去站点后缀（「xxx · 站名」→「xxx」） */
@@ -208,20 +206,25 @@ export default function AiChatFloat({ enabled }: Props) {
     };
   }, [enabled]);
 
-  /* ---------- 会话恢复 + 尺寸恢复（ClientRouter 转场岛重建后执行） ---------- */
-  /* 说明：消息不再跨页面持久化——每次「重新选词提问」或关闭浮窗都视为新对话（见 openFloat/resetConversation），
-     这里仅恢复**浮窗尺寸**（尺寸属于用户偏好，跨会话保留）。 */
+  /* ---------- 尺寸初始化（ClientRouter 转场岛重建后执行） ---------- */
+  /* 说明：消息与尺寸均**不跨页面/跨会话持久化**——每次重建都回到默认尺寸（见 initialSize），
+     消息在每次「重新选词提问」或关闭浮窗时清空（见 openFloat/resetConversation）。 */
   useEffect(() => {
     if (!enabled) return;
-    setSize(loadSize());
+    setSize(initialSize());
     return () => abortRef.current?.abort();
   }, [enabled]);
 
-  /* ---------- 遗留数据清理：历史版本曾把消息写入 sessionStorage，启动时清除避免串场 ---------- */
+  /* ---------- 遗留数据清理：历史版本曾把消息写 sessionStorage、尺寸写 localStorage，启动时清除 ---------- */
   useEffect(() => {
     if (!enabled) return;
     try {
       sessionStorage.removeItem(MESSAGES_KEY);
+    } catch {
+      /* 隐私模式忽略 */
+    }
+    try {
+      localStorage.removeItem(SIZE_KEY);
     } catch {
       /* 隐私模式忽略 */
     }
@@ -388,8 +391,8 @@ export default function AiChatFloat({ enabled }: Props) {
       setMenu(null);
       resetConversation();
       setSelectionCtx({ text: m.text, title: m.title });
-      // 每次打开都重读持久化尺寸（state 可能是转场/窗口变化后的旧值）
-      const { w, h } = loadSize();
+      // 每次打开都回到默认尺寸（不读取任何持久化记忆/缓存）
+      const { w, h } = initialSize();
       setSize({ w, h });
       // 鼠标附近弹出：右侧优先，放不下翻转左侧，统一 clamp
       const flipX = m.x + MARGIN + w > window.innerWidth;
@@ -409,39 +412,25 @@ export default function AiChatFloat({ enabled }: Props) {
       const startX = e.clientX;
       const startY = e.clientY;
       const { w: w0, h: h0 } = size;
-      /** 拖动过程中的最新尺寸：onUp 写入必须用它，闭包里的 size 是拖动前的旧值 */
-      let latest = { w: w0, h: h0 };
       const onMove = (ev: PointerEvent): void => {
         const dw = dir === 's' ? 0 : ev.clientX - startX;
         const dh = dir === 'e' ? 0 : ev.clientY - startY;
         const w = Math.min(Math.max(MIN_W, w0 + dw), window.innerWidth - MARGIN * 2);
         const h = Math.min(Math.max(MIN_H, h0 + dh), window.innerHeight - MARGIN * 2);
-        latest = { w, h };
         setSize({ w, h });
         setPos((p) => clampRect(p.x, p.y, w, h));
       };
       const onUp = (): void => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
-        try {
-          localStorage.setItem(SIZE_KEY, JSON.stringify(latest));
-        } catch {
-          /* 忽略 */
-        }
+        // 尺寸仅在本次会话内生效（不写 localStorage）：关闭/重开浮窗一律回到默认尺寸
       };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
     [size],
   );
-  /* size 变更即持久化（尺寸属用户偏好，跨会话保留；不受浮窗开关影响） */
-  useEffect(() => {
-    try {
-      localStorage.setItem(SIZE_KEY, JSON.stringify(size));
-    } catch {
-      /* 忽略 */
-    }
-  }, [size]);
+  /* 尺寸变更不做任何持久化：仅当前会话生效，浮窗重开即回默认尺寸（见 initialSize / openFloat） */
 
   /* ---------- 标题栏拖动移动浮窗 ---------- */
   const startDrag = useCallback(
