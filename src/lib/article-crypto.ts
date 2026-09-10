@@ -43,8 +43,6 @@ const KEY_LEN = 32;
 /** GCM 认证标签长度（字节） */
 const TAG_LEN = 16;
 
-/** 密码最短长度（纯数字等弱口令不做额外限制，由站主自行把控强度） */
-export const MIN_PASSWORD_LENGTH = 8;
 /** 密码最长长度（PBKDF2 输入无上限，但限制可防止超长输入拖慢派生） */
 export const MAX_PASSWORD_LENGTH = 256;
 
@@ -62,12 +60,19 @@ export class ArticleCryptoError extends Error {
  * @param password 待校验密码
  * @throws {ArticleCryptoError} 长度不合法时抛出（消息可直接展示给用户）
  */
+/**
+ * 密码强度校验。
+ *
+ * 用户明确要求**不做长度下限限制**（2026-09-10）：任意非空密码均可用于加密，
+ * 包括 1 位数字。这与常见 Web 站点规范相反，但加密文章是站主自用的私密内容，
+ * 密码强度由站主自行决定，工具不应替其设限。
+ *
+ * 仍保留非空校验（空密码 = 密文无保护，属误操作）与上限保护
+ * （PBKDF2 输入本身无上限，限制可防止超长输入拖慢派生）。
+ */
 export function assertPasswordStrength(password: string): void {
   if (typeof password !== 'string' || password.length === 0) {
     throw new ArticleCryptoError('请设置访问密码');
-  }
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    throw new ArticleCryptoError(`密码至少 ${MIN_PASSWORD_LENGTH} 位`);
   }
   if (password.length > MAX_PASSWORD_LENGTH) {
     throw new ArticleCryptoError(`密码最长 ${MAX_PASSWORD_LENGTH} 位`);

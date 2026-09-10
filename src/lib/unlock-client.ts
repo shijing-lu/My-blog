@@ -111,6 +111,16 @@ export async function unlockArticle(password: string, params: UnlockParams): Pro
     return { ok: false, reason: 'wrong-password', message: '密码错误，请重试' };
   }
 
+  // 密码正确但解出来是空正文：说明保存加密时正文就是空的（并非密码错），
+  // 单独给出可操作的提示，避免用户误以为密码输错而反复重试。
+  if (!plaintext.trim()) {
+    return {
+      ok: false,
+      reason: 'empty',
+      message: '密码正确，但这篇文章加密时正文就是空的——请到写作台重新填写正文并保存',
+    };
+  }
+
   try {
     const res = await fetch(params.renderUrl ?? '/api/unlock-render', {
       method: 'POST',

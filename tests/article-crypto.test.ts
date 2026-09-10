@@ -18,7 +18,6 @@ import {
   assertPasswordStrength,
   ArticleCryptoError,
   CRYPTO_PARAMS,
-  MIN_PASSWORD_LENGTH,
 } from '../src/lib/article-crypto';
 
 describe('文章加密：AES-256-GCM + PBKDF2', () => {
@@ -84,9 +83,12 @@ describe('文章加密：AES-256-GCM + PBKDF2', () => {
     expect(Buffer.from(meta.iv, 'base64').length).toBe(12);
   });
 
-  it('密码过短被拒绝', () => {
-    expect(() => assertPasswordStrength('123')).toThrow(ArticleCryptoError);
-    expect(() => encryptContent('内容', '123')).toThrow(/至少/);
+  it('密码不做长度下限限制（用户可自行决定强度）', () => {
+    for (const pwd of ['1', '12', '123']) {
+      expect(() => assertPasswordStrength(pwd)).not.toThrow();
+      const meta = encryptContent('内容', pwd);
+      expect(decryptContent(meta, pwd)).toBe('内容');
+    }
   });
 
   it('空密码被拒绝', () => {
@@ -96,12 +98,6 @@ describe('文章加密：AES-256-GCM + PBKDF2', () => {
 
   it('超长密码被拒绝', () => {
     expect(() => assertPasswordStrength('a'.repeat(300))).toThrow(/最长/);
-  });
-
-  it('恰好最小长度的密码可用', () => {
-    const pwd = 'a'.repeat(MIN_PASSWORD_LENGTH);
-    const meta = encryptContent('内容', pwd);
-    expect(decryptContent(meta, pwd)).toBe('内容');
   });
 });
 

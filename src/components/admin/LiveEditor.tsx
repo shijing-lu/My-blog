@@ -89,7 +89,8 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
    * - 取消勾选 = 提交 `encrypt:'disable'`，正文以明文回填。 */
   const [encryptOn, setEncryptOn] = useState<boolean>(Boolean(initial.encrypted));
   const [encryptPassword, setEncryptPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  /** 密码框默认**明文显示**（站主要能随时核对密码）；点眼睛图标可临时打码 */
+  const [showPassword, setShowPassword] = useState(true);
   const [encryptHint, setEncryptHint] = useState(initial.encryptHint ?? '');
   const [cryptoMsg, setCryptoMsg] = useState('');
   // 用 ref 保存最新值供防抖保存读取（避免闭包陈旧）
@@ -157,8 +158,9 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
         setCryptoMsg('');
         setSaveStatus('saved');
         setLastSaved(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
-        // 加密保存成功后清空密码输入框（避免密码长期停留在输入框里）
-        if (c.encryptOn && c.encryptPassword) setEncryptPassword('');
+        // 注：保存成功后**不清空密码框**——站主要能随时看到自己设的密码，
+        // 自动清空会让「改标题」等操作后误以为密码丢了。密码框内容仅存在于
+        // 当前页面内存中，不会持久化，刷新即重置。
         const d = draftRef.current;
         setList((prev) => {
           const exists = prev.some((x) => x.id === d.id);
@@ -563,7 +565,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                       scheduleSave();
                     }}
                     placeholder={
-                      draft.encrypted ? '如需修改密码请输入新密码（留空保留原密码）' : '设置访问密码（至少 8 位）'
+                      draft.encrypted ? '如需修改密码请输入新密码（留空保留原密码）' : '设置访问密码'
                     }
                     className="w-full rounded-md border border-input bg-background py-1.5 pl-3 pr-9 outline-none transition-colors focus-visible:border-ring"
                   />
