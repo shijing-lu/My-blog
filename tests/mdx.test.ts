@@ -17,6 +17,114 @@ describe('renderMdx', () => {
     expect(html).toContain('hello');
   });
 
+  it('将 > [!note] 转换为 Callout 组件（不可折叠）', async () => {
+    const { html } = await renderMdx('> [!note]\n> 这是一条笔记');
+    expect(html).toContain('callout-note');
+    expect(html).toContain('这是一条笔记');
+    // 未带 -/+ 时不渲染 details（不可折叠）
+    expect(html).not.toContain('<details');
+  });
+
+  it('Callout 支持空格分隔的自定义标题', async () => {
+    const { html } = await renderMdx('> [!tip] 部署提示\n> 记得先构建');
+    expect(html).toContain('callout-tip');
+    expect(html).toContain('部署提示');
+    expect(html).not.toContain('callout-tip-icon');
+  });
+
+  it('Callout 支持紧贴式自定义标题（中括号写法）', async () => {
+    const { html } = await renderMdx('> [!warning]【重要】检查配置\n> 正文内容');
+    expect(html).toContain('callout-warning');
+    expect(html).toContain('【重要】检查配置');
+  });
+
+  it('> [!note]- 默认折叠（details 无 open，且仅标题可见）', async () => {
+    const { html } = await renderMdx('> [!note]- 折叠标题\n> 隐藏的正文');
+    expect(html).toContain('<details');
+    expect(html).toContain('callout-foldable');
+    expect(html).toContain('折叠标题');
+    expect(html).toContain('隐藏的正文'); // 内容仍在 DOM 中（details 原生隐藏）
+    // 折叠态不得带 open 属性
+    expect(html).not.toMatch(/<details[^>]*\sopen/);
+  });
+
+  it('> [!note]+ 默认展开（details 带 open）', async () => {
+    const { html } = await renderMdx('> [!example]+ 展开标题\n> 可见正文');
+    expect(html).toMatch(/<details[^>]*\sopen/);
+    expect(html).toContain('callout-example');
+  });
+
+  it('Callout 类型别名归一（hint → tip，caution → warning）', async () => {
+    const hint = await renderMdx('> [!hint]\n> x');
+    expect(hint.html).toContain('callout-tip');
+    const caution = await renderMdx('> [!caution]\n> x');
+    expect(caution.html).toContain('callout-warning');
+  });
+
+  it('未知 Callout 类型降级为 note', async () => {
+    const { html } = await renderMdx('> [!nonexistent]\n> x');
+    expect(html).toContain('callout-note');
+  });
+
+  it('Callout 内保留嵌套引用（题干 + 解析结构）', async () => {
+    const src = [
+      '> [!example]- **【例 5.1】** 设 $\\lambda$ 是矩阵 $A$ 的特征值。',
+      '> > **解析**：利用特征值映射表求解。',
+    ].join('\n');
+    const { html } = await renderMdx(src);
+    expect(html).toContain('callout-example');
+    expect(html).toContain('<details');
+    expect(html).toContain('【例 5.1】');
+    expect(html).toContain('<blockquote');
+    expect(html).toContain('解析');
+  });
+
+  it('Callout 富文本标题：加粗保留、公式在 <summary> 内渲染、前缀被剥离', async () => {
+    const src = '> [!example]- **【例 5.1】** 设 $\\lambda$ 是特征值。\n> > **解析**：略。';
+    const { html } = await renderMdx(src);
+    // 标题在 summary 内，且含加粗与 KaTeX（公式已渲染，不是原始 $…$）
+    const summary = html.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1] ?? '';
+    expect(summary).toContain('<strong>【例 5.1】</strong>');
+    expect(summary).toContain('class="katex"');
+    expect(summary).not.toContain('$\\lambda$');
+    // `[!example]-` 前缀不得出现在标题里
+    expect(summary).not.toContain('[!example]');
+    // 标题行的 P 标签被抽走，不在 body 里重复出现
+    expect(html).not.toContain('data-callout-head');
+  });
+
+  it('Callout 标题含下划线公式不被误当斜体标记', async () => {
+    const src = '> [!note] 矩阵 $A^{-1}$ 的逆\n> 正文';
+    const { html } = await renderMdx(src);
+    // 非折叠块标题在 <div class="callout-title"> 内
+    const titleHtml = html.match(/<div class="callout-title">([\s\S]*?)<\/div>/)?.[1] ?? '';
+    expect(titleHtml).toContain('class="katex"');
+    const annotation = titleHtml.match(/<annotation[^>]*>([\s\S]*?)<\/annotation>/)?.[1] ?? '';
+    expect(annotation).toContain('A^{-1}');
+    // 不应出现被斜体规则吃掉的 <em>
+    expect(titleHtml).not.toContain('<em>');
+    // 正文正常
+    expect(html).toContain('正文');
+  });
+
+  it('Callout 内的 LaTeX 公式正常渲染为 KaTeX', async () => {
+    const { html } = await renderMdx('> [!note]\n> 公式 $E = mc^2$ 行内测试');
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain('$E = mc^2$');
+  });
+
+  it('普通引用块不受影响（回归）', async () => {
+    const { html } = await renderMdx('> 这只是一段普通引用\n> 没有 callout 标注');
+    expect(html).toContain('<blockquote');
+    expect(html).not.toContain('callout-');
+    expect(html).toContain('这只是一段普通引用');
+  });
+
+  it('以 [! 开头但不是合法类型时不误伤', async () => {
+    const { html } = await renderMdx('> [!这不是类型]\n> 内容');
+    expect(html).not.toContain('callout-note');
+  });
+
   it('为代码块添加行号', async () => {
     const { html } = await renderMdx('```ts\nconst a = 1;\n```');
     expect(html).toContain('line-number');

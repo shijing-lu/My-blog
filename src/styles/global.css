@@ -1518,6 +1518,81 @@
     @apply border-violet-500 bg-violet-50 dark:bg-violet-950/40;
   }
 
+  /* ---------------------------------------------------------------------
+     Callout —— Obsidian 风格 `> [!type]` 引用块（remarkCallout → <Callout>）
+     11 类内置类型各有独立配色；支持 `-` 折叠（原生 details/summary）
+     --------------------------------------------------------------------- */
+  .callout {
+    @apply my-6 rounded-lg border border-l-4 px-4 py-3;
+  }
+  /* 折叠态：summary 就是标题行，去掉原生三角、自绘箭头 */
+  .callout > .callout-title {
+    @apply flex cursor-pointer select-none items-center gap-2 text-sm font-semibold;
+    /* 干掉原生 disclosure 三角（Chromium 认 list-style，Safari 认 ::-webkit-details-marker） */
+    list-style: none;
+  }
+  .callout > .callout-title::-webkit-details-marker {
+    display: none;
+  }
+  .callout-icon {
+    @apply flex size-5 shrink-0 items-center justify-center rounded-full border text-xs;
+  }
+  .callout-title-text {
+    @apply min-w-0 flex-1;
+  }
+  .callout-title-text > p {
+    @apply m-0 inline;
+  }
+  /* 折叠箭头：收起时朝右，展开时旋转 90° 朝下 */
+  .callout-chevron {
+    @apply ml-auto inline-block size-2 shrink-0 border-b-2 border-r-2;
+    transform: rotate(-45deg);
+    transition: transform 0.15s ease;
+  }
+  .callout[open] > .callout-title .callout-chevron {
+    transform: rotate(45deg);
+  }
+  .callout-body {
+    @apply mt-1.5 text-sm text-muted-foreground;
+  }
+  .callout-body :where(p, ul, ol, pre, blockquote) {
+    @apply first:mt-0 last:mb-0;
+  }
+  /* 展开态：标题行与正文之间留出分隔线（收起态不显示，避免悬空的横线） */
+  .callout[open] > .callout-title {
+    @apply mb-1.5 border-b pb-1.5;
+    border-bottom-color: color-mix(in oklab, currentColor 22%, transparent);
+  }
+
+  /* 各类型配色：左侧色带 + 浅色底 + 标题色 */
+  .callout[data-callout='note']     { @apply border-sky-500/70 bg-sky-50 dark:border-sky-400/60 dark:bg-sky-950/40; }
+  .callout[data-callout='note']     > .callout-title { @apply text-sky-700 dark:text-sky-300; }
+  .callout[data-callout='info']     { @apply border-cyan-500/70 bg-cyan-50 dark:border-cyan-400/60 dark:bg-cyan-950/40; }
+  .callout[data-callout='info']     > .callout-title { @apply text-cyan-700 dark:text-cyan-300; }
+  .callout[data-callout='tip']      { @apply border-emerald-500/70 bg-emerald-50 dark:border-emerald-400/60 dark:bg-emerald-950/40; }
+  .callout[data-callout='tip']      > .callout-title { @apply text-emerald-700 dark:text-emerald-300; }
+  .callout[data-callout='success']  { @apply border-green-500/70 bg-green-50 dark:border-green-400/60 dark:bg-green-950/40; }
+  .callout[data-callout='success']  > .callout-title { @apply text-green-700 dark:text-green-300; }
+  .callout[data-callout='question'] { @apply border-amber-500/70 bg-amber-50 dark:border-amber-400/60 dark:bg-amber-950/40; }
+  .callout[data-callout='question'] > .callout-title { @apply text-amber-700 dark:text-amber-300; }
+  .callout[data-callout='warning']  { @apply border-orange-500/70 bg-orange-50 dark:border-orange-400/60 dark:bg-orange-950/40; }
+  .callout[data-callout='warning']  > .callout-title { @apply text-orange-700 dark:text-orange-300; }
+  .callout[data-callout='failure']  { @apply border-rose-500/70 bg-rose-50 dark:border-rose-400/60 dark:bg-rose-950/40; }
+  .callout[data-callout='failure']  > .callout-title { @apply text-rose-700 dark:text-rose-300; }
+  .callout[data-callout='danger']   { @apply border-red-500/70 bg-red-50 dark:border-red-400/60 dark:bg-red-950/40; }
+  .callout[data-callout='danger']   > .callout-title { @apply text-red-700 dark:text-red-300; }
+  .callout[data-callout='bug']      { @apply border-pink-500/70 bg-pink-50 dark:border-pink-400/60 dark:bg-pink-950/40; }
+  .callout[data-callout='bug']      > .callout-title { @apply text-pink-700 dark:text-pink-300; }
+  .callout[data-callout='example']  { @apply border-violet-500/70 bg-violet-50 dark:border-violet-400/60 dark:bg-violet-950/40; }
+  .callout[data-callout='example']  > .callout-title { @apply text-violet-700 dark:text-violet-300; }
+  .callout[data-callout='quote']    { @apply border-stone-400/70 bg-stone-50 dark:border-stone-500/60 dark:bg-stone-900/50; }
+  .callout[data-callout='quote']    > .callout-title { @apply text-stone-600 dark:text-stone-300; }
+
+  /* 嵌套 callout：内层去掉外边距，避免层层叠加留白 */
+  .callout .callout {
+    @apply my-3;
+  }
+
   /* 图片灯箱（figure 包装） */
   .lightbox-figure {
     @apply my-6 overflow-hidden rounded-lg border;
