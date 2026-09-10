@@ -456,3 +456,116 @@ describe('renderMarkdownHtml', () => {
     expect((await renderMarkdownHtml('   ')).trim()).toBe('');
   });
 });
+
+/**
+ * 折叠面板 `:::collapse` —— 对齐 VuePress Plume 主题语法
+ *
+ * 语法规则：
+ * - 容器内**恰好一个顶层无序列表**，每项 = 一个面板；
+ * - 列表项内「首行到首个空行」= 标题，首个空行之后 = 正文（完整块级 Markdown）；
+ * - `:+` / `:-` 标记该项初始展开 / 折叠；
+ * - `accordion` 整组互斥（HTML `<details name>`）；
+ * - `expand` 整组默认展开；
+ * - 默认（无参数）全部折叠。
+ */
+describe('折叠面板 :::collapse', () => {
+  it('基本形态：默认全部折叠，标题与正文正确拆分', async () => {
+    const { html } = await renderMdx(
+      ':::collapse\n\n- 第一个面板标题\n\n  第一个面板的正文内容。\n\n- 第二个面板标题\n\n  第二个面板正文。\n\n:::\n',
+    );
+    expect(html).toContain('class="md-collapse"');
+    expect(html).toContain('md-collapse-panel');
+    expect(html).toContain('第一个面板标题');
+    expect(html).toContain('第一个面板的正文内容。');
+    expect(html).toContain('第二个面板正文。');
+    // 默认折叠：所有面板都不带 open
+    expect(html).not.toContain('<details class="md-collapse-panel" open');
+    // 语法本身不残留
+    expect(html).not.toContain(':::collapse');
+    // 两个面板
+    expect(html.match(/md-collapse-panel"/g)?.length).toBe(2);
+  });
+
+  it('空格参数 `accordion` 被正确识别（图片写法）', async () => {
+    const { html } = await renderMdx(
+      ':::collapse accordion\n\n- :+ 第一个面板标题\n\n  第一个面板的正文内容。\n\n- 第二个带 `code` 的标题\n\n  第二个面板的正文内容。\n\n:::\n',
+    );
+    expect(html).toContain('data-collapse-accordion="true"');
+    // 手风琴：所有面板共享同一个 name 值
+    const names = [...html.matchAll(/name="(collapse-group-[^"]*)"/g)].map((m) => m[1]);
+    expect(names.length).toBe(2);
+    expect(new Set(names).size).toBe(1);
+    // `:+` 标记项初始展开
+    expect(html).toContain('open');
+    expect(html).toContain('第一个面板标题');
+    // 标记字符本身不出现
+    expect(html).not.toContain(':+');
+  });
+
+  it('`expand` 整组默认展开', async () => {
+    const { html } = await renderMdx(
+      ':::collapse expand\n\n- 标题一\n\n  正文一\n\n- 标题二\n\n  正文二\n\n:::\n',
+    );
+    const opens = html.match(/<details class="md-collapse-panel" open/g);
+    expect(opens?.length).toBe(2);
+    // 非手风琴：不带 name
+    expect(html).not.toContain('name="collapse-group-');
+  });
+
+  it('`:-` 在 expand 整组展开时把单项压回折叠', async () => {
+    const { html } = await renderMdx(
+      ':::collapse expand\n\n- 标题一\n\n  正文一\n\n- :- 强制折叠\n\n  正文二\n\n:::\n',
+    );
+    const opens = html.match(/<details class="md-collapse-panel" open/g);
+    expect(opens?.length).toBe(1);
+    expect(html).toContain('强制折叠');
+    expect(html).not.toContain(':-');
+  });
+
+  it('`accordion expand` 组合：互斥 + 默认展开', async () => {
+    const { html } = await renderMdx(
+      ':::collapse accordion expand\n\n- 标题一\n\n  正文一\n\n- 标题二\n\n  正文二\n\n:::\n',
+    );
+    expect(html).toContain('data-collapse-accordion="true"');
+    expect(html.match(/<details class="md-collapse-panel" open/g)?.length).toBe(2);
+  });
+
+  it('标题支持行内富文本（加粗 / 行内代码）', async () => {
+    const { html } = await renderMdx(
+      ':::collapse expand\n\n- 标题含 **加粗** 与 `code`\n\n  正文\n\n:::\n',
+    );
+    expect(html).toContain('<strong>加粗</strong>');
+    expect(html).toContain('<code>code</code>');
+  });
+
+  it('正文支持完整块级 Markdown（引用 / 代码块 / 列表 / 公式）', async () => {
+    const { html } = await renderMdx(
+      ':::collapse expand\n\n- 富正文面板\n\n  > 引用一段话\n\n  ```js\n  const a = 1;\n  ```\n\n  - 子项 A\n  - 子项 B\n\n  行内 $E=mc^2$ 公式。\n\n:::\n',
+    );
+    expect(html).toContain('<blockquote');
+    expect(html).toContain('language-js');
+    expect(html).toContain('子项 A');
+    expect(html).toContain('katex');
+  });
+
+  it('非法形态（容器内无列表）→ 原样保留，不吞内容', async () => {
+    const { html } = await renderMdx(':::collapse\n\n这里只是一段普通文字，没有列表。\n\n:::\n');
+    // 不产出组件，但文本仍在（降级为普通段落）
+    expect(html).not.toContain('md-collapse-panel');
+    expect(html).toContain('这里只是一段普通文字');
+  });
+
+  it('围栏代码块内的 ::collapse 示例原样保留（不被解析）', async () => {
+    const { html } = await renderMdx('```md\n:::collapse accordion\n\n- 标题\n\n:::\n```\n');
+    expect(html).not.toContain('md-collapse-panel');
+    expect(html).toContain(':::collapse');
+  });
+
+  it('同页多组手风琴互不干扰（name 值不同）', async () => {
+    const { html } = await renderMdx(
+      ':::collapse accordion\n\n- A1\n\n  a\n\n:::\n\n:::collapse accordion\n\n- B1\n\n  b\n\n:::\n',
+    );
+    const names = [...new Set([...html.matchAll(/name="(collapse-group-[^"]*)"/g)].map((m) => m[1]))];
+    expect(names.length).toBe(2);
+  });
+});

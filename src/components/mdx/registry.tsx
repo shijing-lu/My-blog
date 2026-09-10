@@ -4,6 +4,7 @@
  * 将自定义组件映射到 MDX 元素：
  * - `Admonition`：`:::note` 指令生成的 JSX 组件
  * - `Callout`：`> [!note]` Obsidian 风格引用块（remarkCallout 生成，支持 `-` 折叠）
+ * - `Collapse` / `CollapsePanel`：`:::collapse` 折叠面板组与单个面板
  * - `pre` → `Pre`：代码块包装（复制按钮）
  * - `img` → `LightboxImage`：图片灯箱包装
  * - `a` → `ExternalLink`：外链新窗口
@@ -14,6 +15,7 @@
 import type { ComponentType } from 'react';
 import Admonition from './Admonition';
 import Callout from './Callout';
+import Collapse, { CollapsePanel } from './Collapse';
 import Pre from './Pre';
 import LightboxImage from './LightboxImage';
 import ExternalLink from './ExternalLink';
@@ -25,6 +27,8 @@ export type MDXComponentMap = Record<string, ComponentType<Record<string, unknow
 export const mdxComponents: MDXComponentMap = {
   Admonition,
   Callout,
+  Collapse,
+  CollapsePanel,
   pre: Pre,
   img: LightboxImage,
   a: ExternalLink,

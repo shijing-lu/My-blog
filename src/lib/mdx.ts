@@ -360,6 +360,80 @@ export function encodeMarkSyntax(source: string): string {
 }
 
 /**
+ * 源码层：把 `:::collapse` 容器的**空格参数**改写为 remark-directive 认得的**花括号属性**。
+ *
+ * ## 为什么必须做这一步
+ *
+ * 语法设计对齐 VuePress Plume 主题，参数写在容器名之后、以空格分隔：
+ *
+ *   :::collapse accordion
+ *   :::collapse expand
+ *   :::collapse accordion expand
+ *
+ * 但 `remark-directive` **只认花括号属性语法**（`:::collapse{accordion}`），
+ * 空格形式会被它整个丢弃 —— 实测 `:::collapse accordion` 被解析成
+ * **普通段落**（type=paragraph），容器与列表全部失效。
+ *
+ * 因此在 MDX 解析前把空格参数改写为花括号属性，插件层就能拿到
+ * `node.attributes = { accordion: '', expand: '' }`。
+ *
+ * ## 边界
+ *
+ * - 只改写 `:::` 开标记行（行首、前导空格 ≤3），`:::` 闭合行与普通文本不受影响；
+ * - 仅在「非代码区域」生效（与荧光高亮同一约束），围栏代码块里的示例写法原样保留；
+ * - 参数白名单限定 `accordion` / `expand`，未知词原样留着（不静默吞用户内容）；
+ * - 已经写了花括号属性的不动（幂等）。
+ */
+export function normalizeCollapseParams(source: string): string {
+  return mapOutsideCode(source, (chunk) =>
+    // 只匹配「行首 + :::collapse + 空格参数 + 行尾」，闭合的 `:::` 与行内提及不受影响
+    chunk.replace(
+      /^([ \t]{0,3}:{3,}[ \t]*collapse)[ \t]+((?:[A-Za-z][\w-]*[ \t]*)+)$/gm,
+      (full, head: string, params: string) => {
+        const names = params.trim().split(/[ \t]+/).filter(Boolean);
+        // 全部参数都需在白名单内才改写；含未知词则原样保留（降级为普通文本，不破坏原文）
+        if (names.length === 0) return full;
+        if (!names.every((n) => COLLAPSE_PARAM_NAMES.has(n.toLowerCase()))) return full;
+        return `${head}{${names.join(' ')}}`;
+      },
+    ),
+  );
+}
+
+/** `:::collapse` 允许的参数名白名单 */
+const COLLAPSE_PARAM_NAMES = new Set(['accordion', 'expand']);
+
+/** 折叠面板初始状态标记的哨兵（私有区字符，正文不会自然出现） */
+const COLLAPSE_MARK_SENT = '\uE002';
+
+/**
+ * 源码层：把折叠面板列表项的 `:+` / `:-` 初始状态标记编码为哨兵。
+ *
+ * ## 为什么必须编码（与 `==tip:` 前缀被吃掉是同一类坑）
+ *
+ * `:` 是 **remark-directive** 的指令起始字符。实测 `- :+ 标题` 被解析为
+ * `textDirective(name="+")` + `text(" 标题")` —— 标记字符在插件层已经
+ * 不再是文本，既无法用文本匹配识别，还会渲染出一个空的 `<div></div>`。
+ *
+ * 因此在 MDX 解析前把 `+` / `-` 换成哨兵，穿过 micromark 后由
+ * `remarkCollapse` 精确还原。哨兵只替换标记字符本身，`:` 一并吃掉
+ * （留着仍是 textDirective 起点）。
+ *
+ * 形态：`:+` → `SENT_P`，`:-` → `SENT_M`；插件还原为 `+` / `-`。
+ */
+export function encodeCollapseMarkers(source: string): string {
+  return mapOutsideCode(source, (chunk) =>
+    // 只匹配「列表项行首 + :+/:- + 空白 + 内容」，避免误伤正文里的 `:+`（如时间 `12:+3`）
+    chunk.replace(/^([ \t]{0,3}[-*+][ \t]+):([+-])(?=[ \t])/gm, (_, head: string, sign: string) =>
+      `${head}${COLLAPSE_MARK_SENT}${sign}`,
+    ),
+  );
+}
+
+/** 折叠面板标记哨兵（供 mdx-plugins 消费） */
+export const COLLAPSE_MARK_SENTINEL = COLLAPSE_MARK_SENT;
+
+/**
  * 对源码里**围栏代码块之外**的片段应用 `fn`，围栏块原样透传。
  *
  * 识别围栏代码块（与 Markdown 规范一致）：
@@ -519,7 +593,11 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
   // 修复「编辑正常、阅读红字」（KaTeX 收到含 $$ 的非法 TeX → .katex-error）
   // 荧光语法哨兵编码：字面量 `\=\=` 与后缀 `{…}` 在 MDX 解析前打上私有区哨兵，
   // 防 acorn 表达式崩溃 + 让插件能区分「字面量 / 真定界符 / 后缀」
-  const normalized = encodeMarkSyntax(normalizeMathFences(normalizeBackticks(source)));
+  // 折叠面板参数改写：`:::collapse accordion` → `:::collapse{accordion}`
+  // （remark-directive 只认花括号属性，空格参数会被整行降级为普通段落）
+  const normalized = encodeMarkSyntax(
+    encodeCollapseMarkers(normalizeCollapseParams(normalizeMathFences(normalizeBackticks(source)))),
+  );
 
   // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果
   if (!options.components) {
