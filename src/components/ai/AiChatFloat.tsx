@@ -8,8 +8,12 @@
  * - F3 悬浮框：鼠标附近 clamp 定位弹出，自动把选中文字模板化为首条消息发送，SSE 流式渲染；
  * - F4 多轮追问：messages 累积，回答中可继续输入，新发送时 abort 旧流（保留已生成文本）；
  * - F5 可调整大小：右/下/右下三向自绘手柄拖拽 resize，尺寸持久化 localStorage；
- * - 附加：标题栏拖动移动浮窗、Esc 关闭、ClientRouter 转场经 sessionStorage 恢复对话记录；
- *   自动滚动（stick-to-bottom）：ResizeObserver 跟滚流式增高 + 发送后平滑到底 + 上滚暂停跟随。
+ * - 附加：标题栏拖动移动浮窗、Esc 关闭、自动滚动（stick-to-bottom：ResizeObserver 跟滚流式增高
+ *   + 发送后平滑到底 + 上滚暂停跟随）；回答渲染走 marked + KaTeX（$…$ / $$…$$）+ DOMPurify。
+ *
+ * 会话语义（重要）：**每次选词提问都是一个全新对话**——打开浮窗或关闭浮窗（含 Esc、清空按钮）
+ * 都会终止在途流并清空消息与上下文，确保不会把上一轮历史带给模型。仅浮窗尺寸跨会话保留
+ * （localStorage），消息不再持久化（早期版本写 sessionStorage，现已清除并移除该行为）。
  *
  * SSE 帧格式（服务端 /api/ai/chat 重帧）：data: {"delta":"…"} / {"error":"…"} / {"done":true}
  */
@@ -17,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, Square, Trash2, X } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import katex from 'katex';
 
 interface Props {
   /** SSR 判定 AI 是否就绪（enabled + baseUrl/apiKey/model 齐全）；false 时组件不渲染任何 UI */
@@ -116,10 +121,40 @@ function buildFirstMessage(text: string, title: string): string {
 
 marked.setOptions({ gfm: true, breaks: true });
 
-/** Markdown → 消毒后 HTML（仅用于 assistant 回答；user 消息永远纯文本渲染） */
+/** 行内公式 $...$（不跨行、内部无空白边界）与块级公式 $$...$$（可跨行） */
+const MATH_BLOCK_RE = /\$\$([\s\S]+?)\$\$/g;
+const MATH_INLINE_RE = /(?<!\$)\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)/g;
+
+/** 把 TeX 渲染为 KaTeX HTML（失败时回退为等宽原文，避免整条回答渲染崩掉） */
+function renderTex(tex: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(tex, { displayMode, throwOnError: false, output: 'htmlAndMathml' });
+  } catch {
+    return `<code>${displayMode ? `$$${tex}$$` : `$${tex}$`}</code>`;
+  }
+}
+
+/**
+ * Markdown → 消毒后 HTML（仅用于 assistant 回答；user 消息永远纯文本渲染）。
+ * 数学公式管线：先把 $$…$$ / $…$ 抽出为占位符 → marked 解析（避免 \frac、矩阵 `&`、`\\`、
+ * `a_1`/`x^2` 被当成 Markdown 语法误伤，例如 `_` 触发斜体、`&` 变实体）→ 再把占位符
+ * 替换为 KaTeX 渲染结果 → 最后统一消毒（KaTeX 输出含 MathML + 内联样式，需放行）。
+ * 样式复用 BaseLayout 全局引入的 katex.min.css，岛内无需重复引入。
+ */
 function renderMarkdown(md: string): string {
-  const html = marked.parse(md, { async: false });
-  return DOMPurify.sanitize(typeof html === 'string' ? html : '');
+  const slots: { key: string; html: string }[] = [];
+  const stash = (tex: string, displayMode: boolean): string => {
+    const key = `@@AI_MATH_${slots.length}@@`;
+    slots.push({ key, html: renderTex(tex, displayMode) });
+    return key;
+  };
+  const prepared = md
+    .replace(MATH_BLOCK_RE, (_m, tex: string) => stash(tex, true))
+    .replace(MATH_INLINE_RE, (_m, tex: string) => stash(tex, false));
+  const raw = marked.parse(prepared, { async: false });
+  let html = typeof raw === 'string' ? raw : '';
+  for (const { key, html: texHtml } of slots) html = html.split(key).join(texHtml);
+  return DOMPurify.sanitize(html, { ADD_TAGS: ['math', 'semantics', 'annotation', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtext', 'mspace', 'mstyle', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mroot', 'mpadded', 'mphantom', 'menclose', 'line', 'svg', 'path', 'g', 'use', 'defs'] });
 }
 
 /** 主人身份（顶级管理员）模块级缓存：页面生命周期内只请求一次 /api/admin-auth/me */
@@ -142,6 +177,8 @@ export default function AiChatFloat({ enabled }: Props) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   /** 贴底跟踪：用户手动上滚（离底 >80px）暂停自动滚动，回到底部附近恢复 */
   const stickRef = useRef(true);
+  /** 关闭浮窗回调（Esc 全局监听器在 useCallback 之前注册，需经 ref 引用避免闭包顺序问题） */
+  const closeRef = useRef<(() => void) | null>(null);
   /** 最新消息快照（send 组装历史用，避免在 setState updater 里做副作用） */
   const messagesRef = useRef<ChatMessage[]>([]);
   useEffect(() => {
@@ -172,33 +209,23 @@ export default function AiChatFloat({ enabled }: Props) {
   }, [enabled]);
 
   /* ---------- 会话恢复 + 尺寸恢复（ClientRouter 转场岛重建后执行） ---------- */
+  /* 说明：消息不再跨页面持久化——每次「重新选词提问」或关闭浮窗都视为新对话（见 openFloat/resetConversation），
+     这里仅恢复**浮窗尺寸**（尺寸属于用户偏好，跨会话保留）。 */
   useEffect(() => {
     if (!enabled) return;
-    try {
-      const raw = sessionStorage.getItem(MESSAGES_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as ChatMessage[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed.filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'));
-        }
-      }
-    } catch {
-      /* 忽略 */
-    }
     setSize(loadSize());
     return () => abortRef.current?.abort();
   }, [enabled]);
 
-  /* ---------- 消息变更同步 sessionStorage ---------- */
+  /* ---------- 遗留数据清理：历史版本曾把消息写入 sessionStorage，启动时清除避免串场 ---------- */
   useEffect(() => {
     if (!enabled) return;
     try {
-      if (messages.length > 0) sessionStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
-      else sessionStorage.removeItem(MESSAGES_KEY);
+      sessionStorage.removeItem(MESSAGES_KEY);
     } catch {
-      /* 存储满/隐私模式忽略 */
+      /* 隐私模式忽略 */
     }
-  }, [messages, enabled]);
+  }, [enabled]);
 
   /* ---------- 流式消费 SSE ---------- */
   const consumeStream = useCallback(async (res: Response, controller: AbortController) => {
@@ -323,7 +350,8 @@ export default function AiChatFloat({ enabled }: Props) {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         setMenu(null);
-        setOpen(false);
+        // 关闭浮窗同样结束本次对话（清空历史），经 ref 调用规避闭包顺序
+        closeRef.current?.();
       }
     };
     document.addEventListener('contextmenu', onContextMenu, true);
@@ -336,12 +364,33 @@ export default function AiChatFloat({ enabled }: Props) {
     };
   }, [enabled, menu]);
 
+  /* 会话重置：终止在途流、清空消息与选区上下文、清掉遗留持久化数据，保证下一次提问是干净上下文 */
+  const resetConversation = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    messagesRef.current = [];
+    setMessages([]);
+    setSelectionCtx(null);
+    setInput('');
+    setStreaming(false);
+    try {
+      sessionStorage.removeItem(MESSAGES_KEY);
+    } catch {
+      /* 忽略 */
+    }
+  }, []);
+
   /* ---------- 菜单点击 → 弹出浮窗 + 自动发送选中文字 ---------- */
+  /* ⚠️ 每次选词提问都是**新对话**：先清空上一轮的消息与上下文（含在途流），再发送首条消息，
+     避免把旧历史一并带给模型，也避免旧问答残留在浮窗里。 */
   const openFloat = useCallback(
     (m: MenuState) => {
       setMenu(null);
+      resetConversation();
       setSelectionCtx({ text: m.text, title: m.title });
-      const { w, h } = size;
+      // 每次打开都重读持久化尺寸（state 可能是转场/窗口变化后的旧值）
+      const { w, h } = loadSize();
+      setSize({ w, h });
       // 鼠标附近弹出：右侧优先，放不下翻转左侧，统一 clamp
       const flipX = m.x + MARGIN + w > window.innerWidth;
       const p = clampRect(flipX ? m.x - w - MARGIN : m.x + MARGIN, m.y + MARGIN, w, h);
@@ -349,7 +398,7 @@ export default function AiChatFloat({ enabled }: Props) {
       setOpen(true);
       void send(buildFirstMessage(m.text, m.title));
     },
-    [size, send],
+    [send, resetConversation],
   );
 
   /* ---------- F5：三向 resize（右/下/右下） ---------- */
@@ -360,11 +409,14 @@ export default function AiChatFloat({ enabled }: Props) {
       const startX = e.clientX;
       const startY = e.clientY;
       const { w: w0, h: h0 } = size;
+      /** 拖动过程中的最新尺寸：onUp 写入必须用它，闭包里的 size 是拖动前的旧值 */
+      let latest = { w: w0, h: h0 };
       const onMove = (ev: PointerEvent): void => {
         const dw = dir === 's' ? 0 : ev.clientX - startX;
         const dh = dir === 'e' ? 0 : ev.clientY - startY;
         const w = Math.min(Math.max(MIN_W, w0 + dw), window.innerWidth - MARGIN * 2);
         const h = Math.min(Math.max(MIN_H, h0 + dh), window.innerHeight - MARGIN * 2);
+        latest = { w, h };
         setSize({ w, h });
         setPos((p) => clampRect(p.x, p.y, w, h));
       };
@@ -372,7 +424,7 @@ export default function AiChatFloat({ enabled }: Props) {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         try {
-          localStorage.setItem(SIZE_KEY, JSON.stringify(size));
+          localStorage.setItem(SIZE_KEY, JSON.stringify(latest));
         } catch {
           /* 忽略 */
         }
@@ -382,15 +434,14 @@ export default function AiChatFloat({ enabled }: Props) {
     },
     [size],
   );
-  // size 变化结束后持久化（避免闭包旧值）
+  /* size 变更即持久化（尺寸属用户偏好，跨会话保留；不受浮窗开关影响） */
   useEffect(() => {
-    if (!open) return;
     try {
       localStorage.setItem(SIZE_KEY, JSON.stringify(size));
     } catch {
       /* 忽略 */
     }
-  }, [size, open]);
+  }, [size]);
 
   /* ---------- 标题栏拖动移动浮窗 ---------- */
   const startDrag = useCallback(
@@ -414,35 +465,62 @@ export default function AiChatFloat({ enabled }: Props) {
   );
 
   /* ---------- 自动滚动到底（stick-to-bottom）：流式长回答逐段增高也有跟随效果 ---------- */
-  /* 1) 内容增高（消息变化 / 流式追加 / Markdown 布局 / 公式与图片就绪）→ 贴底时即时跟滚 */
+  /* 0) 基础工具：scrollToBottom 标记 suppress，避免程序性滚动被 onBodyScroll 误判为"用户上滚" */
+  const suppressScrollRef = useRef(false);
+  const scrollToBottom = useCallback((smooth: boolean) => {
+    const body = bodyRef.current;
+    if (!body) return;
+    suppressScrollRef.current = true;
+    if (smooth) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+    else body.scrollTop = body.scrollHeight;
+    // smooth 滚动持续多帧，延迟解除；instant 下一帧解除即可
+    window.setTimeout(
+      () => {
+        suppressScrollRef.current = false;
+      },
+      smooth ? 600 : 50,
+    );
+  }, []);
+
+  /* 0b) 用户上滚暂停跟随、回到底部恢复。
+        阈值取「离底 120px 或浮窗高度 1/4」的较小值：浮窗本身不高（约 400-600px），
+        固定 80px 在流式追加时会因单帧增高被提前判定为"回到底部"。 */
+  const onBodyScroll = useCallback(() => {
+    if (suppressScrollRef.current) return;
+    const body = bodyRef.current;
+    if (!body) return;
+    const threshold = Math.min(120, body.clientHeight / 4);
+    stickRef.current = body.scrollHeight - body.scrollTop - body.clientHeight < threshold;
+  }, []);
+
+  /* 1) 内容增高（消息变化 / 流式追加 / Markdown 布局 / 公式与图片就绪）→ 贴底时即时跟滚。
+        ⚠️ 只在**贴底**状态跟滚：用户主动上滚查看历史时绝不打扰（stickRef 由 onBodyScroll 维护）。 */
   useEffect(() => {
     if (!open) return;
     const content = contentRef.current;
-    const body = bodyRef.current;
-    if (!content || !body || typeof ResizeObserver === 'undefined') return;
+    if (!content || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
-      if (stickRef.current) body.scrollTop = body.scrollHeight;
+      if (!stickRef.current) return;
+      const b = bodyRef.current;
+      if (b) b.scrollTop = b.scrollHeight;
     });
     ro.observe(content);
     return () => ro.disconnect();
   }, [open]);
 
-  /* 2) 打开浮窗 / 恢复历史消息 / 发送新消息：平滑滚到底；发送时强制恢复贴底 */
+  /* 2) 打开浮窗 / 发送新消息：恢复贴底并平滑滚到底（仅在气泡数增加时，流式期间交给 RO 跟滚） */
+  const lastMsgCountRef = useRef(0);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      lastMsgCountRef.current = 0;
+      return;
+    }
+    const grew = messages.length > lastMsgCountRef.current;
+    lastMsgCountRef.current = messages.length;
+    if (!grew) return;
     stickRef.current = true;
-    const body = bodyRef.current;
-    if (!body) return;
-    const id = requestAnimationFrame(() => body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' }));
-    return () => cancelAnimationFrame(id);
-  }, [messages.length, open]);
-
-  /* 3) 用户上滚暂停跟随、回到底部恢复（阈值 80px） */
-  const onBodyScroll = useCallback(() => {
-    const body = bodyRef.current;
-    if (!body) return;
-    stickRef.current = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
-  }, []);
+    scrollToBottom(true);
+  }, [messages.length, open, scrollToBottom]);
 
   /* ---------- 输入框：Enter 发送 / Shift+Enter 换行 ---------- */
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -458,11 +536,14 @@ export default function AiChatFloat({ enabled }: Props) {
     abortRef.current?.abort();
   }, []);
 
-  const clearChat = useCallback(() => {
-    abortRef.current?.abort();
-    setMessages([]);
-    setSelectionCtx(null);
-  }, []);
+  /* 关闭浮窗：视为结束本次对话，下次选词提问重新开始 */
+  const closeFloat = useCallback(() => {
+    setOpen(false);
+    resetConversation();
+  }, [resetConversation]);
+  closeRef.current = closeFloat;
+
+  const clearChat = resetConversation;
 
   /* ---------- 渲染 ---------- */
   if (!enabled) return null;
@@ -494,6 +575,10 @@ export default function AiChatFloat({ enabled }: Props) {
 .ai-md-body table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; display: block; overflow-x: auto; }
 .ai-md-body th, .ai-md-body td { border: 1px solid rgba(128,128,128,0.35); padding: 0.3em 0.6em; }
 .ai-md-body img { max-width: 100%; border-radius: 0.4em; }
+/* KaTeX：公式字号随气泡缩放，块级公式独立成行可横向滚动（长矩阵不撑破浮窗） */
+.ai-md-body .katex { font-size: 1.05em; }
+.ai-md-body .katex-display { margin: 0.7em 0; overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
+.ai-md-body .katex-error { color: #d33; }
 .ai-md.ai-streaming .ai-md-body > :last-child::after { content: '▌'; margin-left: 1px; animation: ai-caret 1s step-end infinite; }
 @keyframes ai-caret { 50% { opacity: 0; } }
       `}</style>
@@ -546,7 +631,7 @@ export default function AiChatFloat({ enabled }: Props) {
               <button type="button" title="清空对话" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={clearChat}>
                 <Trash2 className="size-3.5" />
               </button>
-              <button type="button" title="关闭" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={() => setOpen(false)}>
+              <button type="button" title="关闭（结束本次对话）" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={closeFloat}>
                 <X className="size-3.5" />
               </button>
             </div>
