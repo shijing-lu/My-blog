@@ -34,6 +34,8 @@ export function serializeArticle(article: Article): {
   summary: string;
   cover: string | null;
   tags: string[];
+  encrypted: boolean;
+  encryptHint: string;
   createdAt: string;
   updatedAt: string;
 } {
@@ -46,6 +48,8 @@ export function serializeArticle(article: Article): {
     summary: article.summary,
     cover: article.cover,
     tags: article.tags,
+    encrypted: article.encrypted,
+    encryptHint: article.encryptHint,
     createdAt: article.createdAt.toISOString(),
     updatedAt: article.updatedAt.toISOString(),
   };

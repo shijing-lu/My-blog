@@ -216,13 +216,39 @@ function formatShort(date?: Date): string {
                     <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">
                       {article.title}
                     </h3>
+                    {
+                      article.encrypted && (
+                        /* 加密文章：锁标识（标题摘要仍可见，正文需解锁） */
+                        <span
+                          class="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                          title="加密文章"
+                          aria-label="加密文章"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            class="size-3.5"
+                            aria-hidden="true"
+                          >
+                            <rect x="4" y="11" width="16" height="10" rx="2" />
+                            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                          </svg>
+                        </span>
+                      )
+                    }
                   </div>
                   <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">{article.summary}</p>
                 </div>
                 {/* 右：时间 + 字数（右对齐，等宽对齐） */}
                 <div class="post-row-meta">
                   <span class="text-xs text-muted-foreground tabular-nums">{formatShort(article.updatedAt)}</span>
-                  <span class="font-pixel text-xs text-primary tabular-nums">{countChars(article.content)}字</span>
+                  <span class="font-pixel text-xs text-primary tabular-nums">
+                    {article.encrypted ? '已加密' : `${countChars(article.content)}字`}
+                  </span>
                 </div>
                 {
                   isAuthed && (

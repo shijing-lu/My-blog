@@ -22,9 +22,21 @@ const initial = article
       cover: article.cover ?? '',
       tags: article.tags,
       content: article.content,
+      encrypted: article.encrypted,
+      encryptHint: article.encryptHint,
     }
   : id
-    ? { id, title: '', type: 'tech' as ArticleType, summary: '', cover: '', tags: [], content: '' }
+    ? {
+        id,
+        title: '',
+        type: 'tech' as ArticleType,
+        summary: '',
+        cover: '',
+        tags: [],
+        content: '',
+        encrypted: false,
+        encryptHint: '',
+      }
     : null;
 
 if (!initial) return Astro.redirect('/edit/new');

@@ -6,6 +6,7 @@
 import { getArticleBySlug, listArticleMeta } from '@/lib/articles';
 import { renderMdx } from '@/lib/mdx';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
+import { parseEncryptMeta } from '@/lib/article-crypto';
 import TechLayout from '@/layouts/TechLayout.astro';
 import NoteLayout from '@/layouts/NoteLayout.astro';
 import PhotoLayout from '@/layouts/PhotoLayout.astro';
@@ -17,7 +18,13 @@ const { slug } = Astro.params;
 const article = slug ? await getArticleBySlug(slug) : null;
 if (!article) return Astro.redirect('/404');
 
-const { html: rawHtml, toc, blockMap } = await renderMdx(article.content);
+/* ---- 加密文章：服务端不下发正文，交由浏览器解密 ----
+ * 密文与派生参数（salt/iv/iterations）可以安全内联进 HTML——
+ * 没有密码就无法由它们还原出任何明文（AES-GCM 的机密性基于密钥，不是基于参数保密）。 */
+const encryptMeta = article.encrypted ? parseEncryptMeta(article.encryptMeta) : null;
+const locked = Boolean(article.encrypted && encryptMeta);
+
+const { html: rawHtml, toc, blockMap } = await renderMdx(locked ? '' : article.content);
 // 正文图片注入原始宽高（DB 图片；避免懒加载时宽度跳变、为 fit-content 预留空间）。
 // photo 类型由 PhotoLayout 的 16/9 aspect-ratio + object-cover 主导排版，不注入。
 let html = rawHtml;
@@ -61,6 +68,19 @@ const mapPanels = maps
   }))
   .filter((m) => m.data !== null);
 const blockMapJson = JSON.stringify(blockMap);
+
+/* 解锁参数（仅在加密文章时下发）：salt/iv/ct 是密文材料，公开无妨——
+ * AES-GCM 的机密性完全依赖密码派生出的密钥。 */
+const gateParams = locked && encryptMeta
+  ? {
+      iterations: encryptMeta.iterations,
+      salt: encryptMeta.salt,
+      iv: encryptMeta.iv,
+      ct: encryptMeta.ct,
+      renderUrl: '/api/unlock-render',
+      photo: article.type === 'photo',
+    }
+  : null;
 ---
 <!-- ===== Template ===== -->
 <ContentLayout article={article} toc={toc} prev={prev} next={next}>
@@ -125,7 +145,162 @@ const blockMapJson = JSON.stringify(blockMap);
       </div>
     )
   }
-  <article class={articleClass} set:html={html} />
+  {
+    locked ? (
+      /* 解锁门禁：密文材料通过 data-* 下发给客户端解密脚本（见页面底部脚本）。
+         这些值可以公开 —— 没有密码就无法从 salt/iv/ct 还原出任何明文。 */
+      <div
+        id="article-gate"
+        class="mx-auto w-full max-w-md py-6"
+        data-slug={article.slug}
+        data-iterations={gateParams?.iterations}
+        data-salt={gateParams?.salt}
+        data-iv={gateParams?.iv}
+        data-ct={gateParams?.ct}
+        data-render-url={gateParams?.renderUrl}
+        data-photo={gateParams?.photo ? '1' : '0'}
+      >
+        {/* 锁形图标 */}
+        <div class="flex justify-center">
+          <div class="flex size-14 items-center justify-center rounded-full border border-border bg-muted/50">
+            <svg
+              class="size-6 text-muted-foreground"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              <circle cx="12" cy="16" r="1.2" fill="currentColor" stroke="none" />
+            </svg>
+          </div>
+        </div>
+
+        <h2 class="mt-4 text-center text-lg font-semibold">受保护的文章</h2>
+        <p class="mt-1.5 text-center text-sm text-muted-foreground">
+          该文章已被加密保护，请输入访问密码以解锁内容。
+        </p>
+
+        {
+          article.encryptHint ? (
+            <p class="mt-4 flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <span aria-hidden="true" class="mt-px shrink-0">
+                💡
+              </span>
+              <span>
+                提示：{article.encryptHint}
+              </span>
+            </p>
+          ) : null
+        }
+
+        <form id="article-gate-form" class="mt-4" novalidate>
+          <label class="block">
+            <span class="sr-only">访问密码</span>
+            <div class="relative">
+              <span
+                class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-muted-foreground"
+                aria-hidden="true"
+              >
+                <svg
+                  class="size-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              </span>
+              <input
+                id="article-gate-password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="访问密码"
+                class="w-full rounded-md border border-input bg-background py-2.5 pl-9 pr-10 text-sm outline-none transition-colors focus-visible:border-ring"
+              />
+              <button
+                id="article-gate-toggle"
+                type="button"
+                aria-label="显示密码"
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <svg
+                  id="gate-icon-eye"
+                  class="size-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <svg
+                  id="gate-icon-eye-off"
+                  class="hidden size-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M10.7 5.1A10.9 10.9 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1M6.6 6.6A17.3 17.3 0 0 0 2 12s3.6 7 10 7a10.7 10.7 0 0 0 5.4-1.4" />
+                  <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                  <path d="m2 2 20 20" />
+                </svg>
+              </button>
+            </div>
+          </label>
+
+          <button
+            id="article-gate-submit"
+            type="submit"
+            class="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            <svg
+              class="size-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+            解锁文章
+          </button>
+
+          <p
+            id="article-gate-status"
+            class="mt-2.5 hidden text-center text-xs text-destructive"
+            role="alert"
+          >
+          </p>
+        </form>
+      </div>
+    ) : (
+      <article class={articleClass} set:html={html} />
+    )
+  }
+
+  {/* 解锁成功后正文注入于此（保持与普通文章相同的排版容器） */}
+  {locked ? <article id="article-gate-content" class={articleClass} hidden /> : null}
 
   {
     mapPanels.length > 0 && (
@@ -226,6 +401,119 @@ const blockMapJson = JSON.stringify(blockMap);
   });
 
   // 导图节点跳转文章段落（viewer 直接滚动，不收起抽屉）
+  // ---------- 加密文章解锁 ----------
+  /**
+   * 解密参数从 DOM 读取（而非 `define:vars`）：脚本经 Astro 打包后是独立模块，
+   * 用 data-* 属性传参可以避免把密文材料重复内联进两份 HTML，
+   * 也让 ClientRouter 转场后重新绑定逻辑保持一致。
+   */
+  function readGateParams(): {
+    iterations: number;
+    salt: string;
+    iv: string;
+    ct: string;
+    renderUrl: string;
+    photo: boolean;
+    slug: string;
+  } | null {
+    const gate = document.getElementById('article-gate');
+    if (!gate) return null;
+    const d = gate.dataset;
+    if (!d.salt || !d.iv || !d.ct) return null;
+    return {
+      iterations: Number(d.iterations ?? 250000),
+      salt: d.salt,
+      iv: d.iv,
+      ct: d.ct,
+      renderUrl: d.renderUrl ?? '/api/unlock-render',
+      photo: d.photo === '1',
+      slug: d.slug ?? '',
+    };
+  }
+
+  /** 显示门禁错误提示 */
+  function gateError(msg: string): void {
+    const el = document.getElementById('article-gate-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+
+  /** 清空门禁错误提示 */
+  function gateClearError(): void {
+    document.getElementById('article-gate-status')?.classList.add('hidden');
+  }
+
+  /** 密码显隐切换 */
+  function bindGateToggle(): void {
+    const btn = document.getElementById('article-gate-toggle');
+    const input = document.getElementById('article-gate-password') as HTMLInputElement | null;
+    const on = document.getElementById('gate-icon-eye');
+    const off = document.getElementById('gate-icon-eye-off');
+    if (!btn || !input || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+      on?.classList.toggle('hidden', show);
+      off?.classList.toggle('hidden', !show);
+    });
+  }
+
+  /** 解锁流程：解密 → 渲染 → 注入正文 */
+  async function submitGate(): Promise<void> {
+    const params = readGateParams();
+    const input = document.getElementById('article-gate-password') as HTMLInputElement | null;
+    const submit = document.getElementById('article-gate-submit') as HTMLButtonElement | null;
+    const gate = document.getElementById('article-gate');
+    const contentEl = document.getElementById('article-gate-content');
+    if (!params || !input || !submit || !gate || !contentEl) return;
+
+    gateClearError();
+    submit.disabled = true;
+    const original = submit.innerHTML;
+    submit.textContent = '解锁中…';
+
+    const { unlockArticle } = await import('/src/lib/unlock-client.ts');
+    const result = await unlockArticle(input.value, params);
+
+    submit.disabled = false;
+    submit.innerHTML = original;
+
+    if (!result.ok) {
+      gateError(result.message);
+      input.select();
+      return;
+    }
+
+    // 成功：用正文替换门禁
+    contentEl.innerHTML = result.html;
+    contentEl.hidden = false;
+    gate.remove();
+    // 解锁后重新触发懒加载图片与外部脚本绑定
+    window.dispatchEvent(new Event('astro:page-load'));
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  function bindGate(): void {
+    const form = document.getElementById('article-gate-form');
+    if (!form || form.dataset.bound === '1') return;
+    form.dataset.bound = '1';
+    bindGateToggle();
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void submitGate();
+    });
+    // 输入时清掉上一次的错误提示
+    document
+      .getElementById('article-gate-password')
+      ?.addEventListener('input', gateClearError);
+  }
+
+  bindGate();
+  document.addEventListener('astro:page-load', bindGate);
+
 
   // 多图切换
   document.addEventListener('click', (e) => {

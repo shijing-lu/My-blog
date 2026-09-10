@@ -31,11 +31,11 @@ function formatShort(date: Date): string {
     </div>
     <div class="flex items-center justify-between gap-3">
       <dt class="text-muted-foreground">字数</dt>
-      <dd>{countChars(article.content)}</dd>
+      <dd>{article.encrypted ? '已加密' : countChars(article.content)}</dd>
     </div>
     <div class="flex items-center justify-between gap-3">
       <dt class="text-muted-foreground">阅读时长</dt>
-      <dd>约 {readingTime(article.content)} 分钟</dd>
+      <dd>{article.encrypted ? '解锁后可见' : `约 ${readingTime(article.content)} 分钟`}</dd>
     </div>
   </dl>
   {

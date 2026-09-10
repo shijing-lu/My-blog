@@ -13,18 +13,34 @@ import type { Article, ArticleMeta, ArticleType, ArticleUpsertInput } from '../.
 import { parseTags, serializeTags } from './tags';
 import { slugifyOrFallback } from './slugify';
 import { extractFirstImage } from './images';
+import { encryptContent, parseEncryptMeta, ArticleCryptoError } from './article-crypto';
 
 /** 数据库原始行类型（sqlite 形态，tags 为 JSON 文本） */
 type ArticleRow = typeof articles.$inferSelect;
 
 /**
- * 行 → 实体映射（解码 tags、收窄 type 联合）
+ * 行 → 实体映射（解码 tags、收窄 type 联合、归一加密字段）
+ *
+ * 加密字段做**缺列容错**：新列在生产库需要一次性迁移（见 /api/migrate-article-crypto），
+ * 迁移完成前旧行可能没有这三列 → 按「未加密」处理，避免整个文章列表 500。
  *
  * @param row 数据库行
  * @returns 对外统一实体
  */
 function mapRow(row: ArticleRow): Article {
-  return { ...row, tags: parseTags(row.tags), type: row.type as ArticleType };
+  const r = row as ArticleRow & {
+    encrypted?: boolean | number | null;
+    encryptHint?: string | null;
+    encryptMeta?: string | null;
+  };
+  return {
+    ...row,
+    tags: parseTags(row.tags),
+    type: row.type as ArticleType,
+    encrypted: Boolean(r.encrypted),
+    encryptHint: r.encryptHint ?? '',
+    encryptMeta: r.encryptMeta ?? '',
+  };
 }
 
 /** 封面 URL 规范化：空串视为 null */
@@ -47,6 +63,7 @@ const META_COLUMNS = {
   summary: articles.summary,
   cover: articles.cover,
   tags: articles.tags,
+  encrypted: articles.encrypted,
   createdAt: articles.createdAt,
   updatedAt: articles.updatedAt,
 };
@@ -58,7 +75,12 @@ const META_COLUMNS = {
  */
 export async function listArticleMeta(): Promise<ArticleMeta[]> {
   const rows = await db.select(META_COLUMNS).from(articles).orderBy(desc(articles.updatedAt));
-  return rows.map((r) => ({ ...r, tags: parseTags(r.tags), type: r.type as ArticleType }));
+  return rows.map((r) => ({
+    ...r,
+    tags: parseTags(r.tags),
+    type: r.type as ArticleType,
+    encrypted: Boolean(r.encrypted),
+  }));
 }
 
 /**
@@ -146,10 +168,72 @@ async function uniqueSlug(base: string): Promise<string> {
 }
 
 /**
+ * 计算保存时的加密相关字段。
+ *
+ * 加密语义（关键，勿回退）：
+ * - `encrypt === true` 且有密码 → 加密 `content`，`content` 落库置空、写 `encryptMeta`。
+ * - `encrypt === 'disable'` → 显式关闭加密：清空密文与提示；此时 `content` 落库为明文。
+ * - 其他（缺省/false）→ **保留原有加密状态**，防止 500ms 防抖自动保存把已加密的
+ *   密文覆盖成空串（自动保存时前端拿不到明文密码）。
+ *
+ * @param input 保存入参
+ * @param existing 已存在的行（null = 新建）
+ * @returns 待写入的 { content, encrypted, encryptHint, encryptMeta }
+ */
+function resolveEncryption(
+  input: ArticleUpsertInput,
+  existing: Article | null,
+): { content: string; encrypted: boolean; encryptHint: string; encryptMeta: string } {
+  const prevMeta = existing?.encryptMeta ?? '';
+  const prevEncrypted = Boolean(existing?.encrypted) && prevMeta !== '';
+
+  // 显式关闭加密：回到明文模式
+  if (input.encrypt === 'disable') {
+    return { content: input.content, encrypted: false, encryptHint: '', encryptMeta: '' };
+  }
+
+  // 显式开启加密：必须带密码
+  if (input.encrypt === true) {
+    const password = input.encryptPassword ?? '';
+    if (!password) {
+      throw new ArticleCryptoError('请设置访问密码');
+    }
+    // 已加密且未提供新密码 → 沿用旧密文（改标题摘要不该要求重输密码）
+    if (prevEncrypted && input.encryptPassword === undefined) {
+      return {
+        content: '',
+        encrypted: true,
+        encryptHint: input.encryptHint?.trim() ?? existing?.encryptHint ?? '',
+        encryptMeta: prevMeta,
+      };
+    }
+    const meta = encryptContent(input.content, password);
+    return {
+      content: '',
+      encrypted: true,
+      encryptHint: (input.encryptHint ?? '').trim(),
+      encryptMeta: JSON.stringify(meta),
+    };
+  }
+
+  // 未指定：沿用既有加密状态
+  if (prevEncrypted) {
+    return {
+      content: '',
+      encrypted: true,
+      encryptHint: input.encryptHint?.trim() ?? existing?.encryptHint ?? '',
+      encryptMeta: prevMeta,
+    };
+  }
+  return { content: input.content, encrypted: false, encryptHint: '', encryptMeta: '' };
+}
+
+/**
  * 保存草稿（按 id upsert）
  *
  * - 已存在 → 更新内容并刷新 updatedAt（slug 沿用原值，除非显式传入新 slug）。
  * - 不存在 → 插入新行；slug 优先取显式传入值，否则由标题生成并保证唯一。
+ * - 加密文章：`content` 落库为空串，正文以密文存于 `encrypt_meta`。
  *
  * @param input 保存入参
  * @returns 保存后的完整实体
@@ -157,6 +241,7 @@ async function uniqueSlug(base: string): Promise<string> {
 export async function saveDraft(input: ArticleUpsertInput): Promise<Article> {
   const now = new Date();
   const existing = await getArticleById(input.id);
+  const enc = resolveEncryption(input, existing);
 
   if (existing) {
     const slug = input.slug?.trim() || existing.slug;
@@ -165,11 +250,14 @@ export async function saveDraft(input: ArticleUpsertInput): Promise<Article> {
       .set({
         title: input.title,
         slug,
-        content: input.content,
+        content: enc.content,
         type: input.type,
         summary: input.summary,
         cover: normalizeCover(input.cover),
         tags: serializeTags(input.tags),
+        encrypted: enc.encrypted,
+        encryptHint: enc.encryptHint,
+        encryptMeta: enc.encryptMeta,
         updatedAt: now,
       })
       .where(eq(articles.id, input.id))
@@ -184,14 +272,34 @@ export async function saveDraft(input: ArticleUpsertInput): Promise<Article> {
       id: input.id,
       title: input.title,
       slug,
-      content: input.content,
+      content: enc.content,
       type: input.type,
       summary: input.summary,
       cover: normalizeCover(input.cover),
       tags: serializeTags(input.tags),
+      encrypted: enc.encrypted,
+      encryptHint: enc.encryptHint,
+      encryptMeta: enc.encryptMeta,
       createdAt: now,
       updatedAt: now,
     })
     .returning();
   return mapRow(rows[0] as ArticleRow);
+}
+
+/**
+ * 关闭文章加密并回填明文正文（管理端「取消加密」场景）。
+ *
+ * @param id 文章 id
+ * @param plaintext 待回填的明文 MDX
+ * @returns 更新后的实体；文章不存在返回 null
+ */
+export async function disableEncryption(id: string, plaintext: string): Promise<Article | null> {
+  const rows = await db
+    .update(articles)
+    .set({ content: plaintext, encrypted: false, encryptHint: '', encryptMeta: '', updatedAt: new Date() })
+    .where(eq(articles.id, id))
+    .returning();
+  const row = rows[0];
+  return row ? mapRow(row as ArticleRow) : null;
 }

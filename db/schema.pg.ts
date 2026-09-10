@@ -28,6 +28,22 @@ export const articles = pgTable(
     cover: text('cover'),
     /** 标签：jsonb 数组（应用层以 JSON 字符串写入，PG 自动解析） */
     tags: jsonb('tags').notNull().default([]),
+    /**
+     * 是否启用文章加密。
+     *
+     * 加密文章：`content` 存**空串**，真实正文以密文形式存于 `encryptMeta`；
+     * 列表/搜索可展示标题与摘要，但正文必须解锁后才能取得。
+     */
+    encrypted: boolean('encrypted').notNull().default(false),
+    /** 密码提示语（明文，仅用于解锁页提示；不含密码本身） */
+    encryptHint: text('encrypt_hint').notNull().default(''),
+    /**
+     * 加密元数据（JSON 文本）：
+     * `{ v:1, algo:'AES-GCM', kdf:'PBKDF2-SHA256', iterations:250000,
+     *    salt:<base64>, iv:<base64>, ct:<base64> }`
+     * 空串 = 未加密。密钥由用户密码派生，**服务端不保存密码**。
+     */
+    encryptMeta: text('encrypt_meta').notNull().default(''),
     /** 创建时间 */
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()

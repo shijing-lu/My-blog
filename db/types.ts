@@ -19,6 +19,29 @@ export function isArticleType(value: unknown): value is ArticleType {
   return typeof value === 'string' && (ARTICLE_TYPES as readonly string[]).includes(value);
 }
 
+/**
+ * 加密元数据（服务端存储形态）。
+ *
+ * 密钥由**用户密码**经 PBKDF2-SHA256 派生，服务端不保存密码本身。
+ * 客户端用 Web Crypto 以同样的参数派生密钥后解密 `ct`。
+ */
+export interface EncryptMeta {
+  /** 格式版本（后续换算法时用于兼容分支） */
+  v: 1;
+  /** 对称加密算法，固定 AES-GCM */
+  algo: 'AES-GCM';
+  /** 密钥派生函数，固定 PBKDF2-SHA256 */
+  kdf: 'PBKDF2-SHA256';
+  /** 派生迭代次数（必须与客户端一致） */
+  iterations: number;
+  /** 随机盐（base64，16 字节） */
+  salt: string;
+  /** 初始化向量（base64，12 字节） */
+  iv: string;
+  /** 密文 + GCM 认证标签（base64） */
+  ct: string;
+}
+
 /** 文章完整实体（对外统一形态，tags 已解码为数组） */
 export interface Article {
   /** UUID 主键 */
@@ -27,7 +50,12 @@ export interface Article {
   title: string;
   /** 唯一 URL 标识 */
   slug: string;
-  /** MDX 源码 */
+  /**
+   * MDX 源码。
+   *
+   * ⚠️ 加密文章此字段为**空串**（正文在 `encryptMeta.ct` 里）。
+   * 只有「管理端二次编辑」场景才会在解密后临时填充。
+   */
   content: string;
   /** 文章类型 */
   type: ArticleType;
@@ -37,6 +65,12 @@ export interface Article {
   cover: string | null;
   /** 标签列表 */
   tags: string[];
+  /** 是否启用加密 */
+  encrypted: boolean;
+  /** 密码提示语（明文；未设置时为空串） */
+  encryptHint: string;
+  /** 加密元数据 JSON 文本（空串 = 未加密） */
+  encryptMeta: string;
   /** 创建时间 */
   createdAt: Date;
   /** 更新时间 */
@@ -52,6 +86,8 @@ export interface ArticleMeta {
   summary: string;
   cover: string | null;
   tags: string[];
+  /** 是否启用加密（列表页据此显示锁标识、跳过正文检索） */
+  encrypted: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -63,11 +99,23 @@ export interface ArticleUpsertInput {
   type: ArticleType;
   summary: string;
   tags: string[];
+  /** MDX 明文源码；`encryptPassword` 存在时会被服务端加密后丢弃 */
   content: string;
   /** 手动指定封面 URL；空字符串视为未指定 */
   cover?: string | null;
   /** 可选：显式指定 slug；为空则由标题自动生成 */
   slug?: string;
+  /**
+   * 加密开关。
+   * - `true`：用 `encryptPassword` 加密 `content` 后写 `encryptMeta`，`content` 置空。
+   * - `false`/缺省：若该文章原先已加密，则**保留原有密文**（避免自动保存把密文覆盖成空）。
+   * - `'disable'`：显式关闭加密并清空密文（用户主动取消加密）。
+   */
+  encrypt?: boolean | 'disable';
+  /** 加密密码（仅 `encrypt === true` 时有意义；服务端用完即弃，不落库） */
+  encryptPassword?: string;
+  /** 密码提示语（明文，展示在解锁页） */
+  encryptHint?: string;
 }
 
 /** 相册照片完整实体 */

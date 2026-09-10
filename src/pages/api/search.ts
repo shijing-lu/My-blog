@@ -37,8 +37,9 @@ export const GET: APIRoute = async ({ url }) => {
   });
 
   const articles = matched.slice(0, MAX_RESULTS).map((a) => {
-    /** 正文命中 → 命中处片段；否则沿用摘要 */
-    const snippet = extractSnippet(a.content, q) ?? a.summary;
+    // 加密文章 content 落库为空串 → 天然不会「正文命中」；snippet 回退为摘要。
+    // 前端据 encrypted 显示锁标识并提示需解锁。
+    const snippet = a.encrypted ? a.summary : (extractSnippet(a.content, q) ?? a.summary);
     return {
       id: a.id,
       title: a.title,
@@ -48,8 +49,9 @@ export const GET: APIRoute = async ({ url }) => {
       snippet,
       cover: cardCoverUrl(resolveCover(a)),
       tags: a.tags,
+      encrypted: a.encrypted,
       updatedAt: a.updatedAt.toISOString(),
-      charCount: countChars(a.content),
+      charCount: a.encrypted ? 0 : countChars(a.content),
     };
   });
 

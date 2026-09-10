@@ -30,7 +30,31 @@ function formatShort(date: Date): string {
       {formatShort(article.updatedAt)}
     </time>
     <span class="text-muted-foreground" aria-hidden="true">·</span>
-    <span class="text-muted-foreground">{countChars(article.content)} 字 · 约 {readingTime(article.content)} 分钟</span>
+    {
+      article.encrypted ? (
+        /* 加密文章：正文未解密，无法统计字数 → 显示锁标识（不暴露真实篇幅） */
+        <span class="inline-flex items-center gap-1 text-muted-foreground">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="size-3"
+            aria-hidden="true"
+          >
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          已加密
+        </span>
+      ) : (
+        <span class="text-muted-foreground">
+          {countChars(article.content)} 字 · 约 {readingTime(article.content)} 分钟
+        </span>
+      )
+    }
   </div>
   <h1 class="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">{article.title}</h1>
   {

@@ -26,6 +26,10 @@ export interface InitialDraft {
   cover: string;
   tags: string[];
   content: string;
+  /** 是否已启用加密（服务端状态） */
+  encrypted?: boolean;
+  /** 密码提示语（明文） */
+  encryptHint?: string;
 }
 
 /** 文章元信息（左栏列表） */
@@ -76,7 +80,22 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
   const [uploading, setUploading] = useState(false);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
-  // 导图面板（边写文章边编辑思维导图）
+
+  /* ---- 文章加密 ----
+   * 加密语义（与 /api/save-draft 对齐）：
+   * - 勾选「加密」= 提交 `encrypt:true` + 密码 → 服务端加密正文，content 置空。
+   * - 已加密文章继续编辑：密码**必须**由用户重新输入或以明文载入，
+   *   否则自动保存只能保留旧密文（改密码需显式提交新密码）。
+   * - 取消勾选 = 提交 `encrypt:'disable'`，正文以明文回填。 */
+  const [encryptOn, setEncryptOn] = useState<boolean>(Boolean(initial.encrypted));
+  const [encryptPassword, setEncryptPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [encryptHint, setEncryptHint] = useState(initial.encryptHint ?? '');
+  const [cryptoMsg, setCryptoMsg] = useState('');
+  // 用 ref 保存最新值供防抖保存读取（避免闭包陈旧）
+  const cryptoRef = useRef({ encryptOn, encryptPassword, encryptHint });
+  cryptoRef.current = { encryptOn, encryptPassword, encryptHint };
+
   const [mapOpen, setMapOpen] = useState(false);
   const [mapInfo, setMapInfo] = useState<{ id: string; title: string; data: string } | null>(null);
   const [mapLoading, setMapLoading] = useState(false);
@@ -92,22 +111,47 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     const v = ++versionRef.current;
     setSaveStatus('saving');
     try {
+      const c = cryptoRef.current;
+      // 构造请求体：加密字段按状态注入（见 resolveEncryption 的语义说明）
+      const payload: Record<string, unknown> = { ...draftRef.current };
+      delete payload.encrypted;
+      delete payload.encryptHint;
+      if (c.encryptOn) {
+        payload.encrypt = true;
+        payload.encryptHint = c.encryptHint;
+        // 仅在用户输入了新密码时提交；否则服务端保留旧密文
+        if (c.encryptPassword) payload.encryptPassword = c.encryptPassword;
+        else delete payload.encryptPassword;
+        // 已加密文章的明文正文不提交（服务端会用密文覆盖为空）
+        delete payload.content;
+      } else {
+        payload.encrypt = 'disable';
+      }
+
       const res = await fetch('/api/save-draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(draftRef.current),
+        body: JSON.stringify(payload),
       });
       if (res.status === 401) {
         if (v === versionRef.current) setSaveStatus('expired');
         return;
       }
       if (!res.ok) {
+        // 400 多为密码强度等可展示的业务错误
+        if (res.status === 400) {
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          if (d.error && v === versionRef.current) setCryptoMsg(d.error);
+        }
         if (v === versionRef.current) setSaveStatus('error');
         return;
       }
       if (v === versionRef.current) {
+        setCryptoMsg('');
         setSaveStatus('saved');
         setLastSaved(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+        // 加密保存成功后清空密码输入框（避免密码长期停留在输入框里）
+        if (c.encryptOn && c.encryptPassword) setEncryptPassword('');
         const d = draftRef.current;
         setList((prev) => {
           const exists = prev.some((x) => x.id === d.id);
@@ -480,6 +524,88 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
               </button>
             ) : null}
           </div>
+
+          {/* 文章加密 */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 select-none">
+              <input
+                type="checkbox"
+                checked={encryptOn}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setEncryptOn(on);
+                  setCryptoMsg('');
+                  // 切换加密状态 → 立即触发一次保存，让服务端同步落库
+                  scheduleSave();
+                }}
+                className="size-3.5 accent-primary"
+              />
+              <span className={encryptOn ? 'text-primary' : undefined}>加密文章</span>
+            </label>
+
+            {encryptOn ? (
+              <>
+                <div className="relative min-w-0 flex-1">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={encryptPassword}
+                    onChange={(e) => {
+                      setEncryptPassword(e.target.value);
+                      setCryptoMsg('');
+                    }}
+                    placeholder={
+                      draft.encrypted ? '如需修改密码请输入新密码（留空保留原密码）' : '设置访问密码（至少 8 位）'
+                    }
+                    className="w-full rounded-md border border-input bg-background py-1.5 pl-3 pr-9 outline-none transition-colors focus-visible:border-ring"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                    className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {showPassword ? (
+                      <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M10.7 5.1A10.9 10.9 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1M6.6 6.6A17.3 17.3 0 0 0 2 12s3.6 7 10 7a10.7 10.7 0 0 0 5.4-1.4" />
+                        <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                        <path d="m2 2 20 20" />
+                      </svg>
+                    ) : (
+                      <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                <input
+                  value={encryptHint}
+                  onChange={(e) => {
+                    setEncryptHint(e.target.value);
+                    scheduleSave();
+                  }}
+                  placeholder="密码提示（可选，会展示给访客）"
+                  className="w-52 rounded-md border border-input bg-background px-3 py-1.5 outline-none transition-colors focus-visible:border-ring"
+                />
+              </>
+            ) : null}
+
+            {draft.encrypted && encryptOn ? (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-emerald-600">
+                <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+                已加密
+              </span>
+            ) : null}
+          </div>
+          {cryptoMsg ? (
+            <p className="text-xs text-destructive" role="alert">
+              {cryptoMsg}
+            </p>
+          ) : null}
+
           <div className="flex items-center gap-2 text-xs">
             <span
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 ${
