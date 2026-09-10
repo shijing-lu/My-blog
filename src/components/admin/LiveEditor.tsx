@@ -81,12 +81,13 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
 
-  /* ---- 文章加密 ----
-   * 加密语义（与 /api/save-draft 对齐）：
-   * - 勾选「加密」= 提交 `encrypt:true` + 密码 → 服务端加密正文，content 置空。
-   * - 已加密文章继续编辑：密码**必须**由用户重新输入或以明文载入，
-   *   否则自动保存只能保留旧密文（改密码需显式提交新密码）。
-   * - 取消勾选 = 提交 `encrypt:'disable'`，正文以明文回填。 */
+  /* ---- 文章访问密码（服务端拦截）----
+   * 语义（与 /api/save-draft 对齐，2026-09-10 由全文加密改造而来）：
+   * - 勾选「访问密码」= 提交 `encrypt:true` + 密码 → 服务端存**密码哈希**；
+   *   正文始终明文入库，不做加密。
+   * - 已设置密码的文章继续编辑：密码框留空即可（服务端沿用旧哈希），
+   *   填新密码则更换密码。
+   * - 取消勾选 = 提交 `encrypt:'disable'`，文章恢复公开。 */
   const [encryptOn, setEncryptOn] = useState<boolean>(Boolean(initial.encrypted));
   const [encryptPassword, setEncryptPassword] = useState('');
   /** 密码框默认**明文显示**（站主要能随时核对密码）；点眼睛图标可临时打码 */
@@ -113,24 +114,23 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
     setSaveStatus('saving');
     try {
       const c = cryptoRef.current;
-      // 构造请求体：加密字段按状态注入（见 resolveEncryption 的语义说明）
+      // 构造请求体：访问密码字段按状态注入（见 resolveEncryption 的语义说明）
       const payload: Record<string, unknown> = { ...draftRef.current };
       delete payload.encrypted;
       delete payload.encryptHint;
+      // ⚠️ 正文**始终提交**（勿回退）：服务端拦截模式下正文明文入库，
+      // 旧实现「加密时删除 content」会让服务端拿到空串 → 正文被清空（线上事故）。
       if (c.encryptOn) {
-        // ⚠️ 首次勾选加密但尚未输入密码时，不能立刻提交 encrypt:true：
-        // 服务端会以「请设置访问密码」400 拒绝，把一次正常编辑变成报错。
-        // 此处保持「未勾选」语义（不发 encrypt 字段），待用户输入密码后再由
-        // password 的 onChange → scheduleSave 提交真实加密。
+        // 首次勾选但尚未输入密码时，不能立刻提交 encrypt:true：
+        // 服务端会以「请设置访问密码」400 拒绝。此处保持「未勾选」语义，
+        // 待用户输入密码后再由 password 的 onChange → scheduleSave 提交。
         const ready = Boolean(c.encryptPassword) || Boolean(draftRef.current.encrypted);
         if (ready) {
           payload.encrypt = true;
           payload.encryptHint = c.encryptHint;
-          // 仅在用户输入了新密码时提交；否则服务端保留旧密文
+          // 仅在用户输入了新密码时提交；否则服务端沿用旧哈希
           if (c.encryptPassword) payload.encryptPassword = c.encryptPassword;
           else delete payload.encryptPassword;
-          // 已加密文章的明文正文不提交（服务端会用密文覆盖为空）
-          delete payload.content;
         }
       } else {
         payload.encrypt = 'disable';
@@ -549,7 +549,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                 }}
                 className="size-3.5 accent-primary"
               />
-              <span className={encryptOn ? 'text-primary' : undefined}>加密文章</span>
+              <span className={encryptOn ? 'text-primary' : undefined}>访问密码</span>
             </label>
 
             {encryptOn ? (
@@ -565,7 +565,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                       scheduleSave();
                     }}
                     placeholder={
-                      draft.encrypted ? '如需修改密码请输入新密码（留空保留原密码）' : '设置访问密码'
+                      draft.encrypted ? '留空保留原密码，输入则更换' : '设置访问密码（长度不限）'
                     }
                     className="w-full rounded-md border border-input bg-background py-1.5 pl-3 pr-9 outline-none transition-colors focus-visible:border-ring"
                   />
@@ -607,7 +607,7 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                   <rect x="4" y="11" width="16" height="10" rx="2" />
                   <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                 </svg>
-                已加密
+                已设密码
               </span>
             ) : null}
             {/* 勾选但尚未输入密码（且原本未加密）：提示还需填密码才会生效 */}

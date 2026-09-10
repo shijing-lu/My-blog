@@ -6,7 +6,6 @@
 import { getArticleBySlug, listArticleMeta } from '@/lib/articles';
 import { renderMdx } from '@/lib/mdx';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
-import { parseEncryptMeta } from '@/lib/article-crypto';
 import TechLayout from '@/layouts/TechLayout.astro';
 import NoteLayout from '@/layouts/NoteLayout.astro';
 import PhotoLayout from '@/layouts/PhotoLayout.astro';
@@ -18,11 +17,18 @@ const { slug } = Astro.params;
 const article = slug ? await getArticleBySlug(slug) : null;
 if (!article) return Astro.redirect('/404');
 
-/* ---- 加密文章：服务端不下发正文，交由浏览器解密 ----
- * 密文与派生参数（salt/iv/iterations）可以安全内联进 HTML——
- * 没有密码就无法由它们还原出任何明文（AES-GCM 的机密性基于密钥，不是基于参数保密）。 */
-const encryptMeta = article.encrypted ? parseEncryptMeta(article.encryptMeta) : null;
-const locked = Boolean(article.encrypted && encryptMeta);
+/* ---- 访问密码拦截（服务端判定）----
+ * 正文明文存库；未解锁时**服务端不渲染正文**，HTML 里不存在任何明文，
+ * F12 / 禁用 JS 都无法绕过。解锁后靠签名 Cookie 重新渲染本页。 */
+const { signPayload: _signPayload, verifySignedPayload } = await import('@/lib/auth');
+const { isArticleUnlocked, decodeTokenPayload, parsePasswordHash, unlockCookieName } = await import('@/lib/article-password');
+const passwordMeta = article.encrypted ? parsePasswordHash(article.encryptMeta) : null;
+const gated = Boolean(article.encrypted && passwordMeta);
+const unlocked = gated
+  ? isArticleUnlocked(Astro.cookies, article.id, verifySignedPayload, decodeTokenPayload)
+  : false;
+// 被拦截且未解锁 → 正文不下发
+const locked = gated && !unlocked;
 
 const { html: rawHtml, toc, blockMap } = await renderMdx(locked ? '' : article.content);
 // 正文图片注入原始宽高（DB 图片；避免懒加载时宽度跳变、为 fit-content 预留空间）。
@@ -68,19 +74,6 @@ const mapPanels = maps
   }))
   .filter((m) => m.data !== null);
 const blockMapJson = JSON.stringify(blockMap);
-
-/* 解锁参数（仅在加密文章时下发）：salt/iv/ct 是密文材料，公开无妨——
- * AES-GCM 的机密性完全依赖密码派生出的密钥。 */
-const gateParams = locked && encryptMeta
-  ? {
-      iterations: encryptMeta.iterations,
-      salt: encryptMeta.salt,
-      iv: encryptMeta.iv,
-      ct: encryptMeta.ct,
-      renderUrl: '/api/unlock-render',
-      photo: article.type === 'photo',
-    }
-  : null;
 ---
 <!-- ===== Template ===== -->
 <ContentLayout article={article} toc={toc} prev={prev} next={next}>
@@ -147,18 +140,13 @@ const gateParams = locked && encryptMeta
   }
   {
     locked ? (
-      /* 解锁门禁：密文材料通过 data-* 下发给客户端解密脚本（见页面底部脚本）。
-         这些值可以公开 —— 没有密码就无法从 salt/iv/ct 还原出任何明文。 */
+      /* 解锁门禁：服务端拦截模式 —— 正文根本不在 HTML 里，
+         表单提交到 /api/unlock-article 校验密码，成功后 reload 由服务端渲染正文。 */
       <div
         id="article-gate"
         class="mx-auto w-full max-w-md py-6"
         data-slug={article.slug}
-        data-iterations={gateParams?.iterations}
-        data-salt={gateParams?.salt}
-        data-iv={gateParams?.iv}
-        data-ct={gateParams?.ct}
-        data-render-url={gateParams?.renderUrl}
-        data-photo={gateParams?.photo ? '1' : '0'}
+        data-article-id={article.id}
       >
         {/* 锁形图标 */}
         <div class="flex justify-center">
@@ -299,9 +287,6 @@ const gateParams = locked && encryptMeta
     )
   }
 
-  {/* 解锁成功后正文注入于此（保持与普通文章相同的排版容器） */}
-  {locked ? <article id="article-gate-content" class={articleClass} hidden /> : null}
-
   {
     mapPanels.length > 0 && (
       <>
@@ -401,34 +386,19 @@ const gateParams = locked && encryptMeta
   });
 
   // 导图节点跳转文章段落（viewer 直接滚动，不收起抽屉）
-  // ---------- 加密文章解锁 ----------
+  // ---------- 访问密码解锁（服务端拦截） ----------
   /**
-   * 解密参数从 DOM 读取（而非 `define:vars`）：脚本经 Astro 打包后是独立模块，
-   * 用 data-* 属性传参可以避免把密文材料重复内联进两份 HTML，
-   * 也让 ClientRouter 转场后重新绑定逻辑保持一致。
+   * 门禁参数从 DOM 读取（而非 `define:vars`）：脚本经 Astro 打包后是独立模块，
+   * 用 data-* 传参可避免重复内联，也让 ClientRouter 转场后重新绑定保持一致。
+   *
+   * 服务端拦截模式下**没有密文材料**下发，只需文章 id（用于按文章隔离解锁 Cookie）。
    */
-  function readGateParams(): {
-    iterations: number;
-    salt: string;
-    iv: string;
-    ct: string;
-    renderUrl: string;
-    photo: boolean;
-    slug: string;
-  } | null {
+  function readGateParams(): { articleId: string; slug: string } | null {
     const gate = document.getElementById('article-gate');
     if (!gate) return null;
     const d = gate.dataset;
-    if (!d.salt || !d.iv || !d.ct) return null;
-    return {
-      iterations: Number(d.iterations ?? 250000),
-      salt: d.salt,
-      iv: d.iv,
-      ct: d.ct,
-      renderUrl: d.renderUrl ?? '/api/unlock-render',
-      photo: d.photo === '1',
-      slug: d.slug ?? '',
-    };
+    if (!d.articleId) return null;
+    return { articleId: d.articleId, slug: d.slug ?? '' };
   }
 
   /** 显示门禁错误提示 */
@@ -467,33 +437,40 @@ const gateParams = locked && encryptMeta
     const input = document.getElementById('article-gate-password') as HTMLInputElement | null;
     const submit = document.getElementById('article-gate-submit') as HTMLButtonElement | null;
     const gate = document.getElementById('article-gate');
-    const contentEl = document.getElementById('article-gate-content');
-    if (!params || !input || !submit || !gate || !contentEl) return;
+    if (!params || !input || !submit || !gate) return;
+
+    if (!input.value) {
+      gateError('请输入访问密码');
+      input.focus();
+      return;
+    }
 
     gateClearError();
     submit.disabled = true;
     const original = submit.innerHTML;
-    submit.textContent = '解锁中…';
+    submit.textContent = '验证中…';
 
-    const { unlockArticle } = await import('/src/lib/unlock-client.ts');
-    const result = await unlockArticle(input.value, params);
-
-    submit.disabled = false;
-    submit.innerHTML = original;
-
-    if (!result.ok) {
-      gateError(result.message);
-      input.select();
-      return;
+    try {
+      const res = await fetch('/api/unlock-article', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: params.articleId, password: input.value }),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        submit.disabled = false;
+        submit.innerHTML = original;
+        gateError(d.error ?? '密码错误，请重试');
+        input.select();
+        return;
+      }
+      // 校验通过：解锁 Cookie 已写入 → 重新加载由服务端渲染正文
+      location.reload();
+    } catch {
+      submit.disabled = false;
+      submit.innerHTML = original;
+      gateError('网络异常，请稍后重试');
     }
-
-    // 成功：用正文替换门禁
-    contentEl.innerHTML = result.html;
-    contentEl.hidden = false;
-    gate.remove();
-    // 解锁后重新触发懒加载图片与外部脚本绑定
-    window.dispatchEvent(new Event('astro:page-load'));
-    window.dispatchEvent(new Event('resize'));
   }
 
   function bindGate(): void {

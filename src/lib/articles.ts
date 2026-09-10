@@ -13,7 +13,7 @@ import type { Article, ArticleMeta, ArticleType, ArticleUpsertInput } from '../.
 import { parseTags, serializeTags } from './tags';
 import { slugifyOrFallback } from './slugify';
 import { extractFirstImage } from './images';
-import { encryptContent, parseEncryptMeta, ArticleCryptoError } from './article-crypto';
+import { hashPassword, parsePasswordHash, ArticlePasswordError, type PasswordHashMeta } from './article-password';
 
 /** 数据库原始行类型（sqlite 形态，tags 为 JSON 文本） */
 type ArticleRow = typeof articles.$inferSelect;
@@ -168,13 +168,22 @@ async function uniqueSlug(base: string): Promise<string> {
 }
 
 /**
- * 计算保存时的加密相关字段。
+ * 计算保存时的「访问密码」相关字段。
  *
- * 加密语义（关键，勿回退）：
- * - `encrypt === true` 且有密码 → 加密 `content`，`content` 落库置空、写 `encryptMeta`。
- * - `encrypt === 'disable'` → 显式关闭加密：清空密文与提示；此时 `content` 落库为明文。
- * - 其他（缺省/false）→ **保留原有加密状态**，防止 500ms 防抖自动保存把已加密的
- *   密文覆盖成空串（自动保存时前端拿不到明文密码）。
+ * 语义（2026-09-10 由全文加密改造为服务端拦截，勿回退）：
+ * - `encrypt === true` 且提供了新密码 → 存密码**哈希**到 `encryptMeta`；
+ *   **`content` 照常落明文**（服务端拦截模式下不再清空正文）。
+ * - `encrypt === true` 但未提供密码（undefined）→ 沿用旧哈希（改标题不该要求重输密码）。
+ * - `encrypt === 'disable'` → 关闭拦截：清空哈希与提示，文章恢复公开。
+ * - 缺省/其他 → 保留原有拦截状态。
+ *
+ * ⚠️ 与旧实现的关键差异：**不再把 content 置空**。旧实现置空是因为正文以
+ * 密文存于 encryptMeta；现在正文明文入库，置空会导致正文丢失（线上事故根因）。
+ *
+ * ⚠️ 顺序陷阱（勿回退）：`undefined`（字段缺省=没改密码）与 `''`（用户留空）
+ * 语义不同，必须**先用 `=== undefined` 判定沿用，再做密码校验**。若把
+ * `input.encryptPassword ?? ''` 放前面，undefined 会被折叠成 '' 并命中
+ * 「请设置访问密码」，使沿用分支成为死代码（曾导致改标题必 400）。
  *
  * @param input 保存入参
  * @param existing 已存在的行（null = 新建）
@@ -189,21 +198,17 @@ export function resolveEncryption(
   const prevMeta = existing?.encryptMeta ?? '';
   const prevEncrypted = Boolean(existing?.encrypted) && prevMeta !== '';
 
-  // 显式关闭加密：回到明文模式
+  // 显式关闭拦截：清空哈希与提示，正文保持明文
   if (input.encrypt === 'disable') {
     return { content: input.content, encrypted: false, encryptHint: '', encryptMeta: '' };
   }
 
-  // 显式开启加密
+  // 显式开启拦截
   if (input.encrypt === true) {
-    // ⚠️ 顺序关键：`undefined`（字段缺省）与 `''`（用户留空）语义不同，
-    // 必须先用「是否提供了字段」判定，再退回密码强度校验。
-    // 已加密且未提供新密码 → 沿用旧密文（改标题摘要不该要求重输密码）。
-    // 若把 `input.encryptPassword ?? ''` 放在前面，`undefined` 会被提前折叠为 `''`
-    // 并命中「请设置访问密码」，使此分支永远不可达（线上曾由此导致改标题必 400）。
+    // 已开启拦截且未提供新密码 → 沿用旧哈希（改标题摘要不该要求重输密码）
     if (prevEncrypted && input.encryptPassword === undefined) {
       return {
-        content: '',
+        content: input.content,
         encrypted: true,
         encryptHint: input.encryptHint?.trim() ?? existing?.encryptHint ?? '',
         encryptMeta: prevMeta,
@@ -211,27 +216,55 @@ export function resolveEncryption(
     }
     const password = input.encryptPassword ?? '';
     if (!password) {
-      throw new ArticleCryptoError('请设置访问密码');
+      throw new ArticlePasswordError('请设置访问密码');
     }
-    const meta = encryptContent(input.content, password);
     return {
-      content: '',
+      content: input.content,
       encrypted: true,
       encryptHint: (input.encryptHint ?? '').trim(),
-      encryptMeta: JSON.stringify(meta),
+      encryptMeta: JSON.stringify(hashPassword(password)),
     };
   }
 
-  // 未指定：沿用既有加密状态
+  // 未指定：沿用既有拦截状态
   if (prevEncrypted) {
     return {
-      content: '',
+      content: input.content,
       encrypted: true,
       encryptHint: input.encryptHint?.trim() ?? existing?.encryptHint ?? '',
       encryptMeta: prevMeta,
     };
   }
   return { content: input.content, encrypted: false, encryptHint: '', encryptMeta: '' };
+}
+
+/**
+ * 读取文章的密码校验元数据（供解锁接口使用）。
+ *
+ * 刻意只取校验所需字段，不返回正文，避免误用造成明文外泄。
+ *
+ * @param id 文章 id
+ * @returns 拦截状态与密码哈希；文章不存在返回 null
+ */
+export async function getArticlePasswordMeta(
+  id: string,
+): Promise<{ id: string; encrypted: boolean; passwordMeta: PasswordHashMeta | null } | null> {
+  const rows = await db
+    .select({
+      id: articles.id,
+      encrypted: articles.encrypted,
+      encryptMeta: articles.encryptMeta,
+    })
+    .from(articles)
+    .where(eq(articles.id, id))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    encrypted: Boolean(row.encrypted),
+    passwordMeta: parsePasswordHash((row.encryptMeta as string) ?? ''),
+  };
 }
 
 /**

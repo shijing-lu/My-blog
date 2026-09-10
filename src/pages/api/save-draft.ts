@@ -10,7 +10,7 @@ import type { APIRoute } from 'astro';
 import { saveDraft } from '@/lib/articles';
 import { json, serializeArticle } from '@/lib/api';
 import { ARTICLE_TYPES, isArticleType } from '../../../db/types';
-import { ArticleCryptoError } from '@/lib/article-crypto';
+import { ArticlePasswordError } from '@/lib/article-password';
 
 export const prerender = false;
 
@@ -60,7 +60,7 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ ok: true, article: serializeArticle(article) });
   } catch (err) {
     // 密码强度等参数错误 → 400，消息可直接展示给用户
-    if (err instanceof ArticleCryptoError) {
+    if (err instanceof ArticlePasswordError) {
       return json({ error: err.message }, 400);
     }
     console.error('[api/save-draft]', err);

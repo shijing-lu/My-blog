@@ -19,6 +19,8 @@ export const USER_SESSION_COOKIE = 'user_session';
 export const OAUTH_STATE_COOKIE = 'oauth_state';
 /** 会话时长：7 天 */
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** 文章解锁令牌「永久有效」的实际时长：10 年（避免无限期令牌无法自然过期） */
+export const SIGNED_TTL_PERMANENT_MS = 10 * 365 * 24 * 60 * 60 * 1000;
 /** OAuth state 有效期：10 分钟 */
 const STATE_TTL_MS = 10 * 60 * 1000;
 
