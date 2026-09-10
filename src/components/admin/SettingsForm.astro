@@ -653,7 +653,7 @@ const mdCssLib = await getMdCssLibrary();
           id="mdcss-text"
           rows="10"
           spellcheck="false"
-          placeholder={'strong { color: orange; }\nem { color: #7dd3fc; }\nh1, h2 { border-bottom: 1px solid #f97316; }'}
+          placeholder={'strong { color: orange; }\nem { color: #7dd3fc; }\nh1, h2 { border-bottom: 1px solid #f97316; }\n\n/* Callout 提示块（多色提示 / 折叠引用块） */\n.callout { border-radius: 14px; }\n.callout[data-callout="tip"] { background: #ecfdf5; }\n.callout > .callout-title { letter-spacing: .04em; }'}
           class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none transition-colors focus-visible:border-ring"
         >{mdCss.css}</textarea>
       </label>
@@ -681,6 +681,42 @@ const mdCssLib = await getMdCssLibrary();
             <li>有序列表项二</li>
           </ol>
           <blockquote><p>引用块：路漫漫其修远兮，吾将上下而求索。</p></blockquote>
+
+          <!-- Callout 彩色提示块（可选自定义 .callout / [data-callout] 样式） -->
+          <aside class="callout callout-note" data-callout="note" role="note">
+            <div class="callout-title">
+              <span class="callout-icon" aria-hidden="true">✎</span>
+              <span class="callout-title-text">笔记（note）</span>
+            </div>
+            <div class="callout-body"><p>多彩提示块的常规形态。</p></div>
+          </aside>
+
+          <aside class="callout callout-tip" data-callout="tip" role="note">
+            <div class="callout-title">
+              <span class="callout-icon" aria-hidden="true">✦</span>
+              <span class="callout-title-text">提示（tip）</span>
+            </div>
+            <div class="callout-body"><p>另一类型，用于对比配色。</p></div>
+          </aside>
+
+          <details class="callout callout-example callout-foldable" data-callout="example" open>
+            <summary class="callout-title">
+              <span class="callout-icon" aria-hidden="true">≡</span>
+              <span class="callout-title-text">示例（example，已展开）</span>
+              <span class="callout-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="callout-body"><p>可折叠提示块的展开形态。</p></div>
+          </details>
+
+          <details class="callout callout-warning callout-foldable" data-callout="warning">
+            <summary class="callout-title">
+              <span class="callout-icon" aria-hidden="true">!</span>
+              <span class="callout-title-text">警告（warning，已收起）</span>
+              <span class="callout-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="callout-body"><p>收起态：仅标题行可见。</p></div>
+          </details>
+
           <pre><code set:html={"function hello() {\n  console.log('code block');\n}"} /></pre>
           <table><thead><tr><th>表头一</th><th>表头二</th></tr></thead><tbody><tr><td>单元格</td><td>单元格</td></tr></tbody></table>
           <hr />
