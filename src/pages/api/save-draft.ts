@@ -36,6 +36,9 @@ export const POST: APIRoute = async ({ request }) => {
   const encryptPassword = typeof body.encryptPassword === 'string' ? body.encryptPassword : undefined;
   const encryptHint = typeof body.encryptHint === 'string' ? body.encryptHint : undefined;
 
+  // 可选：显式指定 slug（为空则由标题自动生成 / 沿用原值）
+  const slug = typeof body.slug === 'string' && body.slug.trim() !== '' ? body.slug.trim() : undefined;
+
   if (!id) return json({ error: '缺少 id' }, 400);
   if (!isArticleType(type)) {
     return json({ error: `type 必须为 ${ARTICLE_TYPES.join(' | ')}` }, 400);
@@ -53,6 +56,7 @@ export const POST: APIRoute = async ({ request }) => {
       cover,
       tags: tagsRaw as string[],
       content,
+      slug,
       encrypt,
       encryptPassword,
       encryptHint,
