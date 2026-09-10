@@ -361,6 +361,11 @@ export function remarkCallout() {
             }
             body.push(...inner.slice(1));
 
+            // ⚠️ 必须先把 body 递归处理完再 push 进 jsxChildren：
+            // walk 是「就地替换数组元素」（children[i] = ...），而 jsxChildren.push(...body)
+            // 是展开 push——push 之后替换 body[i] 不会反映到 jsxChildren，嵌套 Callout 会丢失。
+            walk(body);
+
             const attrs: unknown[] = [
               { type: 'mdxJsxAttribute', name: 'type', value: type },
             ];
@@ -398,7 +403,6 @@ export function remarkCallout() {
               attributes: attrs,
               children: jsxChildren,
             } as unknown as RootContent;
-            walk(body);
             continue;
           }
           // 非 callout 的引用块：继续深入其子级（内部可能含 callout）

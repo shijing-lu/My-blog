@@ -125,6 +125,26 @@ describe('renderMdx', () => {
     expect(html).not.toContain('callout-note');
   });
 
+  // 回归：walk 必须先递归 body 再 push 进 jsxChildren，否则嵌套 Callout 丢失
+  it('callout 内嵌套 callout（递归转换）', async () => {
+    const { html } = await renderMdx(
+      '> [!info] 外层\n> 外层内容。\n> > [!tip] 内层\n> > 内层内容。',
+    );
+    expect(html.match(/class="callout /g)?.length).toBe(2);
+    expect(html).toContain('data-callout="info"');
+    expect(html).toContain('data-callout="tip"');
+    // 内层不应残留字面量 [!tip]
+    expect(html).not.toContain('[!tip]');
+    expect(html).toContain('内层内容。');
+  });
+
+  it('callout 内保留普通引用块（只转 callout）', async () => {
+    const { html } = await renderMdx('> [!note] 外层\n> 正文\n> > 普通引用\n> > 保留原样');
+    expect(html.match(/class="callout /g)?.length).toBe(1);
+    expect(html).toContain('<blockquote');
+    expect(html).toContain('普通引用');
+  });
+
   it('为代码块添加行号', async () => {
     const { html } = await renderMdx('```ts\nconst a = 1;\n```');
     expect(html).toContain('line-number');
