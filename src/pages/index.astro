@@ -199,12 +199,23 @@ function formatShort(date?: Date): string {
         <SearchBox total={total} />
       </div>
 
+      <!-- 标签筛选状态条（点击文章标签后显示；仅筛选当前页，全站请跳标签页） -->
+      <div id="tag-filter-bar" class="mt-4 hidden flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+        <span class="text-muted-foreground">正在筛选</span>
+        <span id="tag-filter-name" class="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">#</span>
+        <span id="tag-filter-count" class="text-muted-foreground tabular-nums">0 篇</span>
+        <a id="tag-filter-all" href="#" class="text-muted-foreground underline underline-offset-2 transition-colors hover:text-primary">在全站查看 →</a>
+        <button type="button" id="tag-filter-clear" class="ml-auto rounded border border-border px-2 py-0.5 text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+          清除筛选 ✕
+        </button>
+      </div>
+
       <!-- 文章行式列表（Claude 简约表格风格：无图、细分割线、大留白） -->
       <div id="post-grid" class="post-list mt-8">
         {
           articles.map((article) => {
             return (
-              <article class="post-row group relative">
+              <article class="post-row group relative" data-tags={article.tags.join('|').toLowerCase()}>
                 {/* 整行可点：进入详情页（stretched-link） */}
                 <a href={`/blog/${article.slug}`} class="absolute inset-0 z-0" aria-label={`阅读《${article.title || '未命名'}》`} />
                 {/* 左：类型章 + 标题 + 一行摘要 */}
@@ -242,6 +253,27 @@ function formatShort(date?: Date): string {
                     }
                   </div>
                   <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">{article.summary}</p>
+                  {
+                    article.tags.length > 0 && (
+                      /* 标签行：点击即在当前列表内按该标签过滤（再点一次取消）；
+                         relative z-[1] 抬到整行链接之上，否则点不到 */
+                      <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                        {article.tags.slice(0, 4).map((tag) => (
+                          <button
+                            type="button"
+                            data-tag-filter={tag}
+                            class="post-tag relative z-[1] rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary"
+                            title={`只看「${tag}」`}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                        {article.tags.length > 4 && (
+                          <span class="relative z-[1] text-xs text-muted-foreground/70">+{article.tags.length - 4}</span>
+                        )}
+                      </div>
+                    )
+                  }
                 </div>
                 {/* 右：时间 + 字数（右对齐，等宽对齐） */}
                 <div class="post-row-meta">
@@ -332,6 +364,66 @@ function formatShort(date?: Date): string {
     if (!cue) return;
     e.preventDefault();
     document.getElementById('latest')?.scrollIntoView({ behavior: 'smooth' });
+  });
+
+  /** ================= 首页标签筛选（点击文章下方标签即时过滤） =================
+   *  - 只筛选**当前页**的服务端列表（无请求、无刷新）；全站检索走 /tags/[tag] 链接；
+   *  - 与搜索框互斥：点击标签时先清空搜索词回到静态列表，再执行过滤；
+   *  - 事件用 document 委托 + 每次重新查询 DOM，规避 View Transitions 后绑定失效。 */
+  let activeTag = '';
+
+  function applyTagFilter(tag: string): void {
+    activeTag = tag;
+    const bar = document.getElementById('tag-filter-bar');
+    const nameEl = document.getElementById('tag-filter-name');
+    const countEl = document.getElementById('tag-filter-count');
+    const allLink = document.getElementById('tag-filter-all') as HTMLAnchorElement | null;
+    const pagination = document.getElementById('post-pagination');
+
+    // 让标签过滤与搜索互斥：有搜索词时先清空（SearchBox 监听 input 事件回到静态列表）
+    const input = document.getElementById('search-input') as HTMLInputElement | null;
+    if (input && input.value.trim()) {
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    const needle = tag.toLowerCase();
+    let shown = 0;
+    document.querySelectorAll<HTMLElement>('#post-grid .post-row').forEach((row) => {
+      const tags = (row.dataset.tags ?? '').split('|').filter(Boolean);
+      const match = !needle || tags.includes(needle);
+      row.classList.toggle('hidden', !match);
+      if (match) shown += 1;
+    });
+    // 同页内高亮被选中的标签
+    document.querySelectorAll<HTMLElement>('#post-grid [data-tag-filter]').forEach((btn) => {
+      const on = !!needle && (btn.dataset.tagFilter ?? '').toLowerCase() === needle;
+      btn.classList.toggle('bg-primary/15', on);
+      btn.classList.toggle('text-primary', on);
+    });
+
+    if (!tag) {
+      bar?.classList.add('hidden');
+      pagination?.classList.remove('hidden');
+      return;
+    }
+    if (bar) bar.classList.remove('hidden');
+    if (nameEl) nameEl.textContent = `#${tag}`;
+    if (countEl) countEl.textContent = `${shown} 篇（当前页）`;
+    if (allLink) allLink.href = `/tags/${encodeURIComponent(tag)}`;
+    // 过滤态下分页失效（分页针对全量列表），先隐藏避免误导
+    pagination?.classList.add('hidden');
+  }
+
+  document.addEventListener('click', (e) => {
+    const tagBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-tag-filter]');
+    if (tagBtn) {
+      const tag = tagBtn.dataset.tagFilter ?? '';
+      // 再次点击同一标签 = 取消筛选
+      applyTagFilter(tag && tag.toLowerCase() === activeTag.toLowerCase() ? '' : tag);
+      return;
+    }
+    if ((e.target as HTMLElement).closest('#tag-filter-clear')) applyTagFilter('');
   });
 
   /** 微信二维码弹窗（document 委托） */
