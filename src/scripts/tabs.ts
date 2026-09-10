@@ -16,8 +16,15 @@
  * 1. 点击 / 键盘（←→/Home/End）切换选项卡；
  * 2. **跨组联动**：同页所有 `[data-tabs-stable-id]` 值相同的组同步选中，
  *    对齐优先用 `data-tab-anchor` 锚点，无锚点时回落到序号；
- * 3. 横向滚动：卡栏原生 `overflow-x:auto`，脚本额外让**选中的选项卡滚入视野**
- *    （窄屏下切换后自动把它带到可见区）。
+ * 3. 横向滚动：卡栏原生 `overflow-x:auto`，脚本额外让**选中的选项卡在卡栏内可见**
+ *    （窄屏下切换后自动把它带进可见区）。
+ *
+ * ## ⚠️ 绝不影响页面滚动位置
+ *
+ * 切换选项卡**必须只在卡栏内部横向滚动**，不能带动页面上下跳。
+ * 因此这里一律手动调整卡栏的 `scrollLeft`（见 `scrollTabIntoView`），
+ * 且焦点用 `focus({ preventScroll: true })`——**禁用 `scrollIntoView()`**，
+ * 它会连带滚动所有可滚动的祖先（含页面本身）。
  *
  * ## 幂等
  *
@@ -31,6 +38,37 @@ const GROUP_SEL = '.md-tabs';
 /** 当前全局绑定标记（View Transition 重执行脚本时避免重复绑定） */
 interface TabsWindow extends Window {
   __tabsBound?: boolean;
+}
+
+/**
+ * 把卡栏内某个选项卡滚入视野。
+ *
+ * ⚠️ **不能用 `scrollIntoView`**：它会连带滚动**所有可滚动的祖先**
+ * （含页面本身），导致切换选项卡时整页往下跳。这里只手动调整卡栏
+ * 自身的 `scrollLeft`，完全不影响页面滚动位置。
+ *
+ * @param nav  卡栏元素（.md-tabs-nav）
+ * @param tab  目标选项卡
+ */
+function scrollTabIntoView(nav: HTMLElement | null, tab: HTMLElement | undefined): void {
+  if (!nav || !tab) return;
+  // 卡栏未溢出时无需滚动
+  if (nav.scrollWidth <= nav.clientWidth + 1) return;
+
+  const tabLeft = tab.offsetLeft;
+  const tabRight = tabLeft + tab.offsetWidth;
+  const viewLeft = nav.scrollLeft;
+  const viewRight = viewLeft + nav.clientWidth;
+
+  // 已在视野内 → 不动（避免无谓的横向跳动）
+  if (tabLeft >= viewLeft && tabRight <= viewRight) return;
+
+  // 左侧被裁 → 对齐到左缘；右侧被裁 → 对齐到右缘
+  let next = viewLeft;
+  if (tabLeft < viewLeft) next = tabLeft;
+  else if (tabRight > viewRight) next = tabRight - nav.clientWidth;
+
+  nav.scrollLeft = Math.max(0, next);
 }
 
 /**
@@ -54,8 +92,8 @@ function selectInGroup(group: HTMLElement, index: number): void {
     else panel.setAttribute('hidden', '');
   });
 
-  // 让选中的选项卡滚入卡栏视野（窄屏横向滚动场景）
-  tabs[index]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  // 让选中的选项卡在卡栏内可见（只动卡栏 scrollLeft，不碰页面滚动）
+  scrollTabIntoView(group.querySelector<HTMLElement>(':scope > .md-tabs-nav'), tabs[index]);
 }
 
 /** 读取组内的选中序号 */
@@ -97,7 +135,7 @@ function activate(group: HTMLElement, index: number): void {
   });
 }
 
-/** 首次加载：把选中项滚入视野（窄屏下避免选中项被裁在卡栏外） */
+/** 首次加载：把选中项在卡栏内滚入视野（窄屏下避免选中项被裁在卡栏外） */
 function ensureVisibleOnLoad(root: ParentNode): void {
   root.querySelectorAll<HTMLElement>(GROUP_SEL).forEach((group) => {
     const i = currentIndex(group);
@@ -105,11 +143,8 @@ function ensureVisibleOnLoad(root: ParentNode): void {
     const tabs = Array.from(
       group.querySelectorAll<HTMLButtonElement>(':scope > .md-tabs-nav [role="tab"]'),
     );
-    // 仅在确实溢出时滚动，避免无谓的视觉跳动
-    const nav = group.querySelector<HTMLElement>(':scope > .md-tabs-nav');
-    if (nav && nav.scrollWidth > nav.clientWidth + 1) {
-      tabs[i]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
+    // 只调整卡栏自身 scrollLeft，绝不触发页面滚动
+    scrollTabIntoView(group.querySelector<HTMLElement>(':scope > .md-tabs-nav'), tabs[i]);
   });
 }
 
@@ -149,7 +184,7 @@ if (!(window as TabsWindow).__tabsBound) {
     if (next === -1) return;
     e.preventDefault();
     activate(group, next);
-    tabs[next]?.focus();
+    tabs[next]?.focus({ preventScroll: true });
   });
 
   // 首屏 + 转场后：把选中项滚入视野
