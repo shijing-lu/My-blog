@@ -6,6 +6,7 @@
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import LiveEditor from '@/components/admin/LiveEditor';
 import { getArticleById, listArticleMeta } from '@/lib/articles';
+import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
 import type { ArticleType } from '../../../db/types';
 
 /* ===== Logic ===== */
@@ -48,8 +49,13 @@ const articles = (await listArticleMeta()).map((a) => ({
   type: a.type as ArticleType,
   updatedAt: a.updatedAt.toISOString(),
 }));
+
+/** 自定义分类（表未迁移时返回空数组 → 写作台回落到「按类型分组」，不会 500） */
+const categories = await listArticleCategories();
+/** 文章 → 分类 归属映射 */
+const categoryMap = Object.fromEntries(await articleCategoryMap());
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="写作">
-  <LiveEditor client:load initial={initial} articles={articles} />
+  <LiveEditor client:load initial={initial} articles={articles} categories={categories} categoryMap={categoryMap} />
 </AdminLayout>

@@ -63,7 +63,8 @@ function requiredApiPermission(pathname: string, method: string): PermissionKey[
   if (
     (pathname === '/api/sync-databases' ||
       pathname === '/api/migrate-photos-tags' ||
-      pathname === '/api/migrate-article-crypto') &&
+      pathname === '/api/migrate-article-crypto' ||
+      pathname === '/api/migrate-article-categories') &&
     method === 'POST'
   ) {
     return ['settings'];

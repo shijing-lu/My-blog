@@ -683,3 +683,43 @@ export const checkinRecords = pgTable(
     index('checkin_records_task_idx').on(table.taskId),
   ],
 );
+
+/** 写作台·自定义文章分类（用户可增删改排序；与固定 type 维度并存） */
+export const articleCategories = pgTable(
+  'article_categories',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 分类名 */
+    name: text('name').notNull(),
+    /** 主题色（可选；空串 = 跟随站点主色） */
+    color: text('color').notNull().default(''),
+    /** 排序（升序） */
+    sort: integer('sort').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('article_categories_sort_idx').on(table.sort),
+  ],
+);
+
+/** 写作台·文章 → 分类归属（一篇文章至多一个自定义分类；同上，独立表降级友好） */
+export const articlePostCategories = pgTable(
+  'article_post_categories',
+  {
+    /** 文章 id（主键 = 单分类语义） */
+    articleId: text('article_id').primaryKey(),
+    /** 所属自定义分类 id */
+    categoryId: text('category_id').notNull(),
+    /** 归属时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('article_post_categories_category_idx').on(table.categoryId),
+  ],
+);

@@ -23,6 +23,7 @@ import { searchKeymap } from '@codemirror/search';
 import { livePreview } from './cm-live-preview';
 import { mdKeymap } from './md-keymap';
 import { compressImageForUpload } from '../../lib/client-image-upload';
+import { countChars } from '../../lib/reading';
 
 /** 对外暴露的编辑器句柄 */
 export interface MarkdownEditorHandle {
@@ -198,9 +199,22 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   contentRef.current = initialContent;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  /** 状态栏节点（DOM 直写字数/行数/光标位置，避免每次输入触发 React 重渲染） */
+  const statRef = useRef<HTMLSpanElement | null>(null);
+  const writeStatsRef = useRef<((state: EditorState) => void) | null>(null);
 
   onChangeRef.current = (v) => onChange?.(v);
   onSaveRef.current = onSave;
+
+  /** 写入状态栏（字数 / 行数 / 光标 行:列）；DOM 直写，不进 React 状态 */
+  writeStatsRef.current = (state: EditorState): void => {
+    const el = statRef.current;
+    if (!el) return;
+    const text = state.doc.toString();
+    const head = state.selection.main.head;
+    const line = state.doc.lineAt(head);
+    el.textContent = `${countChars(text)} 字 · ${state.doc.lines} 行 · ${line.number}:${head - line.from + 1}`;
+  };
 
   /** 上传本地图片 → /api/images → URL（自动压缩避免超 Vercel 4.5MB 限制） */
   const uploadFile = useCallback(async (file: File): Promise<string> => {
@@ -225,6 +239,75 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     }
     const head = view.state.selection.main.head;
     view.dispatch({ changes: { from: head, insert: text } });
+    view.focus();
+  }, []);
+
+  /* ---- 格式化（工具条按钮）：对当前选区/行做 Markdown 包裹与行首前缀切换 ----
+   * 说明：统一走 view.dispatch 的单次事务，撤销（Ctrl/Cmd-Z）可一步回退。 */
+  const wrapSelection = useCallback((before: string, after: string, placeholder: string): void => {
+    const view = viewRef.current;
+    if (!view) return;
+    const { from, to } = view.state.selection.main;
+    const selected = view.state.sliceDoc(from, to);
+    const text = selected || placeholder;
+    // 已包裹则脱掉（toggle 语义：再点一次取消格式）
+    const around = view.state.sliceDoc(Math.max(0, from - before.length), from) === before &&
+      view.state.sliceDoc(to, Math.min(view.state.doc.length, to + after.length)) === after;
+    if (around && selected) {
+      view.dispatch({
+        changes: [
+          { from: from - before.length, to: from },
+          { from: to, to: to + after.length },
+        ],
+        selection: { anchor: from - before.length + selected.length },
+      });
+    } else {
+      view.dispatch({
+        changes: { from, to, insert: `${before}${text}${after}` },
+        // 选区为占位文本时把光标放进占位里，方便直接打字覆盖
+        selection: selected
+          ? { anchor: from + before.length + text.length }
+          : { anchor: from + before.length, head: from + before.length + text.length },
+      });
+    }
+    view.focus();
+  }, []);
+
+  /** 行首前缀切换（- 列表 / > 引用 / # 标题）：已在则升级或去掉 */
+  const toggleLinePrefix = useCallback((prefixes: string[], fallbackEmpty: string): void => {
+    const view = viewRef.current;
+    if (!view) return;
+    const { from } = view.state.selection.main;
+    const line = view.state.doc.lineAt(from);
+    const text = line.text;
+    const hit = prefixes.find((p) => text.startsWith(p));
+    const rest = hit ? text.slice(hit.length) : text;
+    let next: string;
+    if (!hit) next = `${fallbackEmpty}${rest}`;
+    else {
+      const idx = prefixes.indexOf(hit);
+      // 已到最后一级（如 ### ）→ 去掉前缀回到纯文本
+      next = idx === prefixes.length - 1 ? rest : `${prefixes[idx + 1]!}${rest}`;
+    }
+    view.dispatch({
+      changes: { from: line.from, to: line.to, insert: next },
+      selection: { anchor: line.from + next.length },
+    });
+    view.focus();
+  }, []);
+
+  /** 插入块级片段（代码块 / 表格） */
+  const insertBlock = useCallback((snippet: string): void => {
+    const view = viewRef.current;
+    if (!view) return;
+    const { from } = view.state.selection.main;
+    const line = view.state.doc.lineAt(from);
+    const needBreak = line.length > 0;
+    const text = `${needBreak ? '\n' : ''}${snippet}`;
+    view.dispatch({
+      changes: { from: line.to, insert: text },
+      selection: { anchor: line.to + text.length },
+    });
     view.focus();
   }, []);
 
@@ -462,6 +545,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           mdKeymap,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+            // 状态栏走 **DOM 直写**（不走 setState）：打字/移动光标时不触发 React 重渲染，
+            // 避免长文输入时的额外渲染开销（这是"打字流畅度"的关键一处）。
+            writeStatsRef.current?.(update.state);
           }),
           // 视口标题跟踪（可选）：视口移动/几何变化 → rAF 节流回调当前小节
           ...(onViewportHeading
@@ -569,40 +655,76 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     <div className={`flex min-h-0 flex-col ${className ?? ''}`}>
       {/* 工具条：图片上传 + 网络图片（ghost 就地编辑隐藏——图片走粘贴/拖拽） */}
       {!ghost && (
-        <div className="flex shrink-0 items-center gap-2 border-b bg-background px-3 py-1.5">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleImageFile(file);
-              e.target.value = '';
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary disabled:opacity-50"
-            title="插入本地图片"
-            aria-label="插入本地图片"
-          >
-            {uploading ? '上传中…' : '图片'}
-          </button>
-          <button
-            type="button"
-            onClick={insertNetworkImage}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
-            title="插入网络图片"
-            aria-label="插入网络图片"
-          >
-            网络图片
-          </button>
-          <span className="ml-auto text-[0.65rem] text-muted-foreground">
-            Ctrl/Cmd+B 加粗 · I 斜体 · K 链接 · Alt+H 标题 · S 保存
-          </span>
+        <div className="shrink-0 border-b bg-background">
+          {/* 第一行：格式化（点击即对选区生效，再点一次取消） */}
+          <div className="flex flex-wrap items-center gap-1 px-3 py-1.5">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleImageFile(file);
+                e.target.value = '';
+              }}
+            />
+            {([
+              { label: 'B', title: '加粗（Ctrl/Cmd+B）', cls: 'font-bold', run: () => wrapSelection('**', '**', '粗体') },
+              { label: 'I', title: '斜体（Ctrl/Cmd+I）', cls: 'italic', run: () => wrapSelection('*', '*', '斜体') },
+              { label: 'S', title: '删除线', cls: 'line-through', run: () => wrapSelection('~~', '~~', '删除线') },
+              { label: 'H', title: '标题（# / ## / ### 循环）', cls: '', run: () => toggleLinePrefix(['# ', '## ', '### '], '# ') },
+              { label: '•', title: '无序列表', cls: '', run: () => toggleLinePrefix(['- '], '- ') },
+              { label: '1.', title: '有序列表', cls: '', run: () => insertBlock('\n1. 第一项\n2. 第二项') },
+              { label: '❝', title: '引用', cls: '', run: () => toggleLinePrefix(['> '], '> ') },
+              { label: '`', title: '行内代码', cls: '', run: () => wrapSelection('`', '`', 'code') },
+              { label: '```', title: '代码块', cls: '', run: () => insertBlock('\n```ts\n\n```\n') },
+              { label: '🔗', title: '链接（Ctrl/Cmd+K）', cls: '', run: () => wrapSelection('[', '](https://)', '链接文字') },
+              { label: '⊞', title: '表格', cls: '', run: () => insertBlock('\n| 列 A | 列 B |\n| --- | --- |\n|  |  |\n') },
+              { label: '≡', title: '高亮（==文本==）', cls: '', run: () => wrapSelection('==', '==', '重点') },
+            ] as Array<{ label: string; title: string; cls: string; run: () => void }>).map((b) => (
+              <button
+                key={b.title}
+                type="button"
+                onClick={b.run}
+                title={b.title}
+                aria-label={b.title}
+                className={`inline-flex size-6 shrink-0 items-center justify-center rounded border border-transparent text-xs text-muted-foreground transition-colors duration-150 hover:border-border hover:bg-accent hover:text-foreground active:scale-95 ${b.cls}`}
+              >
+                {b.label}
+              </button>
+            ))}
+            <span className="mx-1 h-4 w-px shrink-0 bg-border" />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary disabled:opacity-50"
+              title="插入本地图片"
+              aria-label="插入本地图片"
+            >
+              {uploading ? '上传中…' : '🖼 图片'}
+            </button>
+            <button
+              type="button"
+              onClick={insertNetworkImage}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
+              title="插入网络图片"
+              aria-label="插入网络图片"
+            >
+              🔗 网络图
+            </button>
+            <span className="ml-auto hidden text-[0.65rem] text-muted-foreground lg:inline">
+              Ctrl/Cmd+B 加粗 · I 斜体 · K 链接 · S 保存
+            </span>
+          </div>
+          {/* 第二行：实时状态（DOM 直写，不触发重渲染） */}
+          <div className="flex items-center gap-2 border-t px-3 py-1 text-[0.65rem] text-muted-foreground">
+            <span ref={statRef} className="tabular-nums">
+              0 字 · 1 行 · 1:1
+            </span>
+            <span className="ml-auto hidden sm:inline">粘贴 / 拖拽图片可直接上传</span>
+          </div>
         </div>
       )}
       {/* 编辑器区：panel 模式给卡片底色 + 横向留白；ghost 透明、宽度跟随宿主（正文同宽） */}
