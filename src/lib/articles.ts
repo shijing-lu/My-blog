@@ -179,8 +179,10 @@ async function uniqueSlug(base: string): Promise<string> {
  * @param input 保存入参
  * @param existing 已存在的行（null = 新建）
  * @returns 待写入的 { content, encrypted, encryptHint, encryptMeta }
+ *
+ * @internal 导出仅为单测覆盖，业务代码请用 saveDraft。
  */
-function resolveEncryption(
+export function resolveEncryption(
   input: ArticleUpsertInput,
   existing: Article | null,
 ): { content: string; encrypted: boolean; encryptHint: string; encryptMeta: string } {
@@ -192,13 +194,13 @@ function resolveEncryption(
     return { content: input.content, encrypted: false, encryptHint: '', encryptMeta: '' };
   }
 
-  // 显式开启加密：必须带密码
+  // 显式开启加密
   if (input.encrypt === true) {
-    const password = input.encryptPassword ?? '';
-    if (!password) {
-      throw new ArticleCryptoError('请设置访问密码');
-    }
-    // 已加密且未提供新密码 → 沿用旧密文（改标题摘要不该要求重输密码）
+    // ⚠️ 顺序关键：`undefined`（字段缺省）与 `''`（用户留空）语义不同，
+    // 必须先用「是否提供了字段」判定，再退回密码强度校验。
+    // 已加密且未提供新密码 → 沿用旧密文（改标题摘要不该要求重输密码）。
+    // 若把 `input.encryptPassword ?? ''` 放在前面，`undefined` 会被提前折叠为 `''`
+    // 并命中「请设置访问密码」，使此分支永远不可达（线上曾由此导致改标题必 400）。
     if (prevEncrypted && input.encryptPassword === undefined) {
       return {
         content: '',
@@ -206,6 +208,10 @@ function resolveEncryption(
         encryptHint: input.encryptHint?.trim() ?? existing?.encryptHint ?? '',
         encryptMeta: prevMeta,
       };
+    }
+    const password = input.encryptPassword ?? '';
+    if (!password) {
+      throw new ArticleCryptoError('请设置访问密码');
     }
     const meta = encryptContent(input.content, password);
     return {

@@ -117,13 +117,20 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
       delete payload.encrypted;
       delete payload.encryptHint;
       if (c.encryptOn) {
-        payload.encrypt = true;
-        payload.encryptHint = c.encryptHint;
-        // 仅在用户输入了新密码时提交；否则服务端保留旧密文
-        if (c.encryptPassword) payload.encryptPassword = c.encryptPassword;
-        else delete payload.encryptPassword;
-        // 已加密文章的明文正文不提交（服务端会用密文覆盖为空）
-        delete payload.content;
+        // ⚠️ 首次勾选加密但尚未输入密码时，不能立刻提交 encrypt:true：
+        // 服务端会以「请设置访问密码」400 拒绝，把一次正常编辑变成报错。
+        // 此处保持「未勾选」语义（不发 encrypt 字段），待用户输入密码后再由
+        // password 的 onChange → scheduleSave 提交真实加密。
+        const ready = Boolean(c.encryptPassword) || Boolean(draftRef.current.encrypted);
+        if (ready) {
+          payload.encrypt = true;
+          payload.encryptHint = c.encryptHint;
+          // 仅在用户输入了新密码时提交；否则服务端保留旧密文
+          if (c.encryptPassword) payload.encryptPassword = c.encryptPassword;
+          else delete payload.encryptPassword;
+          // 已加密文章的明文正文不提交（服务端会用密文覆盖为空）
+          delete payload.content;
+        }
       } else {
         payload.encrypt = 'disable';
       }
@@ -552,6 +559,8 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                     onChange={(e) => {
                       setEncryptPassword(e.target.value);
                       setCryptoMsg('');
+                      // 输入密码后才真正提交加密：勾选加密本身不再立即落库
+                      scheduleSave();
                     }}
                     placeholder={
                       draft.encrypted ? '如需修改密码请输入新密码（留空保留原密码）' : '设置访问密码（至少 8 位）'
@@ -597,6 +606,12 @@ export default function LiveEditor({ initial, articles }: LiveEditorProps): Reac
                   <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                 </svg>
                 已加密
+              </span>
+            ) : null}
+            {/* 勾选但尚未输入密码（且原本未加密）：提示还需填密码才会生效 */}
+            {encryptOn && !draft.encrypted && !encryptPassword ? (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-amber-600">
+                待输入密码后生效
               </span>
             ) : null}
           </div>
