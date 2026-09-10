@@ -1665,6 +1665,69 @@
     @apply bg-muted/30;
   }
 
+  /* ---------------------------------------------------------------------
+     选项卡组 `:::tabs#id`（remarkTabs → <Tabs>）
+     ⚠️ 全部加 `md-` 前缀：Tailwind 自带部分同名工具类（如 .collapse）会冲突。
+     结构：.md-tabs > .md-tabs-nav[role=tablist] > .md-tabs-tab（按钮）
+                  + .md-tabs-panel[role=tabpanel] × N
+     --------------------------------------------------------------------- */
+  .md-tabs {
+    @apply my-6 overflow-hidden rounded-lg border bg-card;
+    border-color: var(--border);
+  }
+  /* 卡栏：单行 + 独立横向滚动（窄屏/移动端），隐藏滚动条保持整洁 */
+  .md-tabs-nav {
+    @apply flex items-stretch gap-1 border-b px-2;
+    border-bottom-color: var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge 旧版 */
+    overscroll-behavior-x: contain; /* 滑动不冒泡到页面 */
+  }
+  .md-tabs-nav::-webkit-scrollbar {
+    display: none; /* Chromium / Safari */
+  }
+  /* 单个选项卡按钮：下划线指示条 + 悬停态，与导航栏交互语言一致 */
+  .md-tabs-tab {
+    @apply relative shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 py-3 text-sm font-medium;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    background: transparent;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .md-tabs-tab:hover {
+    color: var(--foreground);
+    background-color: color-mix(in oklab, var(--foreground) 4%, transparent);
+  }
+  .md-tabs-tab:focus-visible {
+    outline: 2px solid var(--color-primary, var(--foreground));
+    outline-offset: -2px;
+  }
+  /* 选中态：主色文字 + 主色下划线（与站点其它选中态同一套配色） */
+  .md-tabs-tab[aria-selected='true'] {
+    color: var(--foreground);
+    border-bottom-color: var(--color-primary, var(--foreground));
+  }
+  .md-tabs-tab-text {
+    @apply inline-flex items-center gap-1;
+  }
+  /* 标签里的行内代码/加粗跟随文字色，不额外抢眼 */
+  .md-tabs-tab-text > code {
+    @apply text-[0.9em];
+  }
+  /* 面板区 */
+  .md-tabs-panel {
+    @apply px-4 py-3 text-sm;
+  }
+  .md-tabs-panel[hidden] {
+    display: none;
+  }
+  /* 面板首尾块去外边距，避免上下留白过多 */
+  .md-tabs-panel > :where(p, ul, ol, pre, blockquote, table, figure) {
+    @apply first:mt-0 last:mb-0;
+  }
+
   /* 图片灯箱（figure 包装） */
   .lightbox-figure {
     @apply my-6 overflow-hidden rounded-lg border;

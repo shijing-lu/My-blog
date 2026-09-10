@@ -228,10 +228,11 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
     <!-- AI 助手「小卿」：选中文本右键 → 悬浮对话（全站，client:idle 惰性水合） -->
     <AiChatFloat client:idle enabled={aiReady} />
 
-    <!-- 公开页交互：代码复制按钮 + 图片灯箱（document 委托，View Transitions 下依然有效） -->
+    <!-- 公开页交互：代码复制按钮 + 图片灯箱 + 选项卡组（document 委托，View Transitions 下依然有效） -->
     <script>
       import '@/scripts/copy-button';
       import '@/scripts/lightbox';
+      import '@/scripts/tabs';
     </script>
 
     <!-- 全局动效：滚动进度条 + 卡片入场动画 + GSAP 分割线展开 -->

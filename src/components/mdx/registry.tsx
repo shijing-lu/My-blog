@@ -5,6 +5,7 @@
  * - `Admonition`：`:::note` 指令生成的 JSX 组件
  * - `Callout`：`> [!note]` Obsidian 风格引用块（remarkCallout 生成，支持 `-` 折叠）
  * - `Collapse` / `CollapsePanel`：`:::collapse` 折叠面板组与单个面板
+ * - `Tabs` / `Tab`：`:::tabs#id` 选项卡组与单个选项卡（同 stableId 跨组联动）
  * - `pre` → `Pre`：代码块包装（复制按钮）
  * - `img` → `LightboxImage`：图片灯箱包装
  * - `a` → `ExternalLink`：外链新窗口
@@ -16,6 +17,7 @@ import type { ComponentType } from 'react';
 import Admonition from './Admonition';
 import Callout from './Callout';
 import Collapse, { CollapsePanel } from './Collapse';
+import Tabs, { Tab } from './Tabs';
 import Pre from './Pre';
 import LightboxImage from './LightboxImage';
 import ExternalLink from './ExternalLink';
@@ -29,6 +31,8 @@ export const mdxComponents: MDXComponentMap = {
   Callout,
   Collapse,
   CollapsePanel,
+  Tabs,
+  Tab,
   pre: Pre,
   img: LightboxImage,
   a: ExternalLink,

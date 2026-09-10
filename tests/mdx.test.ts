@@ -569,3 +569,135 @@ describe('折叠面板 :::collapse', () => {
     expect(names.length).toBe(2);
   });
 });
+
+/**
+ * 选项卡组 `:::tabs#id` + `@tab` —— 对齐 VuePress Plume 主题语法
+ *
+ * 语法规则：
+ * - `:::tabs#稳定标识` 开启容器（`#` 后为跨组联动用的稳定标识，可省略）；
+ * - 每个 `@tab[:active] 标签[#锚点]` 开启一个选项卡；
+ * - `:active` 指定初始激活（同组多个只取第一个）；
+ * - 标签支持行内 Markdown，尾部 `#锚点` 从可见标题剥离；
+ * - 每个分区内容支持完整块级 Markdown；
+ * - 少于 2 个分区 / 格式不完整 → 降级为普通 Markdown。
+ */
+describe('选项卡组 :::tabs', () => {
+  it('基本形态：容器、按钮、面板结构正确', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab npm\n\n使用 npm 安装。\n\n@tab pnpm\n\n使用 pnpm 安装。\n\n:::\n',
+    );
+    expect(html).toContain('class="md-tabs"');
+    expect(html).toContain('data-tabs-stable-id="pkg"');
+    expect(html).toContain('role="tablist"');
+    // 两个选项卡按钮
+    expect(html.match(/role="tab"/g)?.length).toBe(2);
+    // 标签文本正确
+    expect(html).toContain('>npm<');
+    expect(html).toContain('>pnpm<');
+    // 语法本身不残留
+    expect(html).not.toContain(':::tabs');
+    expect(html).not.toContain('@tab');
+  });
+
+  it('未标记 :active 时默认激活第一个选项卡', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab npm\n\n正文一\n\n@tab pnpm\n\n正文二\n\n:::\n',
+    );
+    const selected = [...html.matchAll(/aria-selected="true"/g)];
+    expect(selected.length).toBe(1);
+    // 第一个按钮 aria-selected=true：出现在 npm 标签之后
+    const idxNpm = html.indexOf('>npm<');
+    const idxSelected = html.indexOf('aria-selected="true"');
+    expect(idxSelected).toBeLessThan(idxNpm);
+  });
+
+  it('`@tab:active` 指定初始激活项，且不改动可见标题', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab npm\n\n正文一\n\n@tab:active pnpm\n\n正文二\n\n:::\n',
+    );
+    // 第二个按钮（pnpm）为选中态
+    expect(/<button[^>]*aria-selected="true"[^>]*>[\s\S]{0,80}?pnpm/.test(html)).toBe(true);
+    // 第一个按钮（npm）为未选中态
+    expect(/<button[^>]*aria-selected="false"[^>]*>[\s\S]{0,80}?npm/.test(html)).toBe(true);
+    // `:active` 标记不泄漏到标题
+    expect(html).not.toContain(':active');
+    expect(html).not.toContain('@tab');
+  });
+
+  it('标签尾部的 `#锚点` 被剥离，不进入可见标题', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab npm#npm\n\n正文一\n\n@tab:active **pnpm**#pnpm-core\n\n正文二\n\n:::\n',
+    );
+    expect(html).toContain('>npm<');
+    expect(html).not.toContain('npm#npm');
+    expect(html).not.toContain('pnpm-core<');
+    // 但锚点写进了 data 属性（跨组联动对齐用）
+    expect(html).toContain('data-tab-anchor="pnpm-core"');
+    expect(html).toContain('data-tab-panel-anchor="pnpm-core"');
+  });
+
+  it('标签支持行内 Markdown（加粗 / 行内代码）', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab **npm**\n\n正文一\n\n@tab `pnpm`\n\n正文二\n\n:::\n',
+    );
+    expect(html).toContain('<strong>npm</strong>');
+    expect(html).toContain('<code>pnpm</code>');
+  });
+
+  it('分区内容支持完整块级 Markdown（代码块 / 列表 / 引用）', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab npm\n\n```bash\nnpm install\n```\n\n@tab pnpm\n\n- 子项 A\n- 子项 B\n\n:::\n',
+    );
+    expect(html).toContain('language-bash');
+    expect(html).toContain('子项 A');
+  });
+
+  it('每个分区的正文彼此独立（不串区）', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab A\n\n甲区内容。\n\n@tab B\n\n乙区内容。\n\n:::\n',
+    );
+    const firstPanel = html.slice(html.indexOf('md-tabs-panel'), html.indexOf('md-tabs-panel', html.indexOf('md-tabs-panel') + 1));
+    expect(firstPanel).toContain('甲区内容。');
+    expect(firstPanel).not.toContain('乙区内容。');
+  });
+
+  it('少于 2 个分区（仅 1 个 @tab）→ 降级为普通 Markdown，内容不丢', async () => {
+    const { html } = await renderMdx(':::tabs#pkg\n\n@tab npm\n\n只有一条。\n\n:::\n');
+    expect(html).not.toContain('md-tabs');
+    expect(html).toContain('只有一条。');
+  });
+
+  it('容器内没有任何 @tab → 降级为普通 Markdown，内容不丢', async () => {
+    const { html } = await renderMdx(':::tabs#pkg\n\n这里没有分区。\n\n:::\n');
+    expect(html).not.toContain('md-tabs');
+    expect(html).toContain('这里没有分区。');
+  });
+
+  it('围栏代码块内的 :::tabs 示例原样保留（不被解析）', async () => {
+    const { html } = await renderMdx('```md\n:::tabs#pkg\n\n@tab npm\n\n正文\n\n:::\n```\n');
+    expect(html).not.toContain('md-tabs');
+    expect(html).toContain(':::tabs#pkg');
+  });
+
+  it('无 `#标识` 时容器仍然可用（不带跨组联动）', async () => {
+    const { html } = await renderMdx(':::tabs\n\n@tab A\n\n甲\n\n@tab B\n\n乙\n\n:::\n');
+    expect(html).toContain('class="md-tabs"');
+    expect(html).not.toContain('data-tabs-stable-id');
+  });
+
+  it('同页多组选项卡各自独立，稳定标识不同', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#a\n\n@tab A1\n\n甲一\n\n@tab A2\n\n甲二\n\n:::\n\n:::tabs#b\n\n@tab B1\n\n乙一\n\n@tab B2\n\n乙二\n\n:::\n',
+    );
+    expect(html).toContain('data-tabs-stable-id="a"');
+    expect(html).toContain('data-tabs-stable-id="b"');
+    expect(html.match(/class="md-tabs"/g)?.length).toBe(2);
+  });
+
+  it('同页同标识的两组共享同一 stableId（前端据此联动）', async () => {
+    const { html } = await renderMdx(
+      ':::tabs#pkg\n\n@tab npm\n\n甲\n\n@tab pnpm\n\n乙\n\n:::\n\n:::tabs#pkg\n\n@tab npm\n\n丙\n\n@tab pnpm\n\n丁\n\n:::\n',
+    );
+    expect(html.match(/data-tabs-stable-id="pkg"/g)?.length).toBe(2);
+  });
+});

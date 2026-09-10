@@ -433,6 +433,186 @@ export function encodeCollapseMarkers(source: string): string {
 /** 折叠面板标记哨兵（供 mdx-plugins 消费） */
 export const COLLAPSE_MARK_SENTINEL = COLLAPSE_MARK_SENT;
 
+/** 选项卡组分区分隔哨兵（`@tab` 改写为列表项时的标签前缀） */
+export const TABS_MARK_SENTINEL = '\uE003';
+
+/** 选项卡组标签行的二级分隔符（哨兵之后的字段分隔） */
+export const TABS_FIELD_SEP = '\uE004';
+
+/**
+ * 源码层：把 `:::tabs#id` + `@tab` 分区语法改写为 remark-directive 能解析的形态。
+ *
+ * ## 源语法（对齐 VuePress Plume 主题的 tabs 容器）
+ *
+ *   :::tabs#package-manager
+ *
+ *   @tab npm
+ *
+ *   使用 npm 安装。
+ *
+ *   @tab:active **pnpm**#pnpm
+ *
+ *   使用 pnpm 安装。
+ *
+ *   :::
+ *
+ * ## 为什么必须改写（三重障碍，与 `:::collapse` 同源）
+ *
+ * 1. `:::tabs#package-manager` —— remark-directive 的容器名不允许 `#`，
+ *    整个开标记行被降级为**普通段落**，容器失效；
+ * 2. `@tab` 不是任何标准语法，需要自建分隔语义；
+ * 3. `@tab:active` 里的 `:` 会被 remark-directive 吃成 `textDirective`，
+ *    既无法文本匹配、又会渲染出空 `<div>`。
+ *
+ * 且 remark-directive **不支持嵌套容器**（实测内层 `:::tab` 不会被解析）。
+ *
+ * ## 改写策略
+ *
+ * 把「容器 + 若干 `@tab` 分区」改写为「**容器 + 一个无序列表**」：
+ * 每个 `@tab` 变成列表项 `- <哨兵>标签行`，其后内容整体缩进 2 空格成为该项正文。
+ * 插件层 `remarkTabs` 只需处理「容器内恰好一个列表」这一种形态，
+ * 与 `remarkCollapse` 完全同构。
+ *
+ * 容器标识改写为 `:::tabs{#id}`（remark-directive 的 `#id` 简写，
+ * 解析结果落在 `attributes.id`）。
+ *
+ * 标签行编码（全部用哨兵避开 remark-directive 的字符冲突）：
+ *
+ *   @tab npm            → `- <S>label<npm`
+ *   @tab:active pnpm    → `- <S>active<label<pnpm`
+ *   @tab **pnpm**#pnpm  → 同上，但 `#锚点` 在插件层从标签尾部剥离
+ *
+ * 其中 `<S>` = `TABS_MARK_SENTINEL`，`<` = 二级分隔符 `TABS_FIELD_SEP`。
+ *
+ * ## 边界
+ *
+ * - 仅在「非代码区域」生效（围栏代码块里的示例原样保留）；
+ * - 未闭合的 `:::tabs` 或没有任何 `@tab` 的行 → 原样保留（降级为普通 Markdown）；
+ * - `:::tabs` 之外的 `@tab` 行不受影响（必须处于 tabs 容器内）。
+ */
+export function normalizeTabs(source: string): string {
+  const lines = source.split('\n');
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? '';
+
+    // 围栏代码块：整体透传（不做任何改写）
+    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      const marker = fence[1] ?? '';
+      const ch = marker[0] ?? '`';
+      out.push(line);
+      i += 1;
+      for (; i < lines.length; i += 1) {
+        const l = lines[i] ?? '';
+        out.push(l);
+        if (new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`).test(l)) {
+          i += 1;
+          break;
+        }
+      }
+      continue;
+    }
+
+    const open = /^([ \t]{0,3}):{3,}[ \t]*tabs(?:[ \t]*#([\w-]+)|[ \t]*\{[^}]*\})?[ \t]*$/.exec(line);
+    if (!open) {
+      out.push(line);
+      i += 1;
+      continue;
+    }
+
+    // 收集容器内容（直到 `:::` 闭合行）
+    const indent = open[1] ?? '';
+    const stableId = open[2] ?? '';
+    const body: string[] = [];
+    let j = i + 1;
+    let closed = false;
+    for (; j < lines.length; j += 1) {
+      if (/^[ \t]{0,3}:{3,}[ \t]*$/.test(lines[j] ?? '')) {
+        closed = true;
+        break;
+      }
+      body.push(lines[j] ?? '');
+    }
+    if (!closed) {
+      // 未闭合：原样保留（保守，不破坏原文）
+      out.push(line);
+      i += 1;
+      continue;
+    }
+
+    // 切成若干分区：每个 @tab 行开启一个分区
+    type Section = { active: boolean; label: string; anchor: string; body: string[] };
+    const sections: Section[] = [];
+    let cur: Section | null = null;
+    for (const bl of body) {
+      // @tab 行：`@tab[:active] <标签>[#锚点]`
+      const tab = /^[ \t]{0,3}@tab(:active)?[ \t]+(.+?)[ \t]*$/.exec(bl);
+      if (tab) {
+        const rawLabel = tab[2] ?? '';
+        // 后缀 `#锚点`：从标签尾部剥离（标签本身可能含 `**加粗**` 等富文本）
+        const anchorMatch = /#([\w-]+)[ \t]*$/.exec(rawLabel);
+        let label = rawLabel;
+        let anchor = '';
+        if (anchorMatch) {
+          anchor = anchorMatch[1] ?? '';
+          label = rawLabel.slice(0, anchorMatch.index).trimEnd();
+        }
+        cur = { active: Boolean(tab[1]), label, anchor, body: [] };
+        sections.push(cur);
+        continue;
+      }
+      if (cur) cur.body.push(bl);
+      // 分区之前的散落内容忽略（Plume 语义：@tab 之前的内容不属于任何分区）
+    }
+
+    // 少于 2 个分区 → 原样保留（降级为普通 Markdown）
+    if (sections.length < 2) {
+      out.push(line, ...body, lines[j] ?? '');
+      i = j + 1;
+      continue;
+    }
+
+    // 产出：:::tabs{#stableId} + 无序列表（每项 = 一个分区）
+    // ⚠️ 必须用 `#id` 简写：remark-directive 的属性语法**不支持** `key="value"`，
+    //    `:::tabs{stableId="pkg"}` 会让整个开标记行降级为普通段落（实测）。
+    //    `{#pkg}` → `attributes.id = 'pkg'`，是 remark-directive 原生支持的写法。
+    const attr = stableId ? `{#${stableId}}` : '';
+    out.push(`${indent}:::tabs${attr}`);
+    out.push('');
+    for (const s of sections) {
+      // 标签行编码（全部塞进首个文本节点，插件层一次解出）：
+      //   <哨兵> + active 标记 + <分隔> + 锚点 + <分隔> + 标签原文
+      // ⚠️ 锚点必须排在标签**前面**：标签可能含行内 Markdown（`**x**`），
+      //    被 micromark 拆成多个节点后，落在首文本节点里的只有锚点段，
+      //    标签正文则可能散在后续节点（甚至 strong/em 内部）——这是安全的，
+      //    因为插件只需从首节点剥掉「哨兵+标记+锚点」前缀，余下原样保留。
+      const meta = `${TABS_MARK_SENTINEL}${s.active ? 'active' : ''}${TABS_FIELD_SEP}${s.anchor}${TABS_FIELD_SEP}${s.label}`;
+      out.push(`${indent}- ${meta}`);
+      // 正文整体缩进 2 空格（列表项续行）；空行保留为空行
+      const trimmed = trimBlankEdges(s.body);
+      if (trimmed.length > 0) {
+        out.push('');
+        for (const bl of trimmed) out.push(bl.trim() === '' ? '' : `${indent}  ${bl}`);
+      }
+      out.push('');
+    }
+    out.push(`${indent}:::`);
+    i = j + 1;
+  }
+  return out.join('\n');
+}
+
+/** 去掉数组首尾的空行 */
+function trimBlankEdges(arr: string[]): string[] {
+  let s = 0;
+  let e = arr.length;
+  while (s < e && (arr[s] ?? '').trim() === '') s += 1;
+  while (e > s && (arr[e - 1] ?? '').trim() === '') e -= 1;
+  return arr.slice(s, e);
+}
+
 /**
  * 对源码里**围栏代码块之外**的片段应用 `fn`，围栏块原样透传。
  *
@@ -595,8 +775,12 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
   // 防 acorn 表达式崩溃 + 让插件能区分「字面量 / 真定界符 / 后缀」
   // 折叠面板参数改写：`:::collapse accordion` → `:::collapse{accordion}`
   // （remark-directive 只认花括号属性，空格参数会被整行降级为普通段落）
+  // 选项卡组改写：`:::tabs#id` + `@tab` → `:::tabs{stableId="id"}` + 无序列表
+  // （`#` 容器名不被识别、`@tab` 非标准、`:` 被吃成 textDirective，且不支持嵌套容器）
   const normalized = encodeMarkSyntax(
-    encodeCollapseMarkers(normalizeCollapseParams(normalizeMathFences(normalizeBackticks(source)))),
+    encodeCollapseMarkers(
+      normalizeTabs(normalizeCollapseParams(normalizeMathFences(normalizeBackticks(source)))),
+    ),
   );
 
   // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果
