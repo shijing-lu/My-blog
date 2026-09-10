@@ -559,6 +559,26 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     });
   }
 
+  /* ================= 左栏管理按钮：捕获阶段拦截导航 ================= */
+  // 编辑/删除/移动/新增按钮嵌在文章行 <a data-article-switch> 链接内部（目录行按钮
+  // 在 <summary> 内，点击默认还会翻转 details 开合）。Astro ClientRouter 在 document
+  // 冒泡阶段监听链接点击并触发 SPA 转场，且先于本页冒泡阶段的弹窗逻辑执行 —— 点击
+  // 按钮时弹窗刚 showModal 页面就开始转场，<dialog> 随旧 DOM 一起被替换（弹窗闪退，
+  // confirmDanger 的 Promise 永不 resolve）。修复与 doc.astro 同款：在【捕获阶段】
+  // （先于任何冒泡 handler，含 ClientRouter）对管理按钮立即 preventDefault()，使
+  // ClientRouter 检查 defaultPrevented=true 时跳过导航、<summary> 不再翻转开合；
+  // 弹窗打开/删除确认仍在冒泡阶段正常处理。
+  document.addEventListener(
+    'click',
+    (e) => {
+      const t = e.target as HTMLElement | null;
+      if (t && t.closest('[data-node-edit], [data-node-del], [data-node-move], [data-node-add-article], [data-node-add-folder]')) {
+        e.preventDefault();
+      }
+    },
+    true,
+  );
+
   /* ================= 左栏文章即时切换 ================= */
   document.addEventListener('click', async (e) => {
     const t = e.target as HTMLElement;
