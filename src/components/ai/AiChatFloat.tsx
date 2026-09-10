@@ -2,12 +2,14 @@
  * AiChatFloat.tsx —— AI 助手「小卿」悬浮交互（React 岛，BaseLayout 全站挂载 client:idle）
  *
  * 职责（对应开发计划 F2/F3/F4/F5）：
- * - F2 选中文本右键：捕获阶段监听 document contextmenu，白名单容器（.prose / #post-grid）
- *   内有选区时自绘「问问小卿」菜单；白名单外与未启用时放行浏览器原生菜单；
+ * - F2 选中文本右键：捕获阶段监听 document contextmenu，全站任意位置有选区时自绘「问问小卿」
+ *   菜单并屏蔽原生菜单（可编辑控件内放行）；选区含 KaTeX 公式时从 MathML annotation 取回
+ *   原始 TeX 源码（$…$ / $$…$$），避免 toString() 视觉文本丢格式；
  * - F3 悬浮框：鼠标附近 clamp 定位弹出，自动把选中文字模板化为首条消息发送，SSE 流式渲染；
  * - F4 多轮追问：messages 累积，回答中可继续输入，新发送时 abort 旧流（保留已生成文本）；
  * - F5 可调整大小：右/下/右下三向自绘手柄拖拽 resize，尺寸持久化 localStorage；
- * - 附加：标题栏拖动移动浮窗、Esc 关闭、ClientRouter 转场经 sessionStorage 恢复对话记录。
+ * - 附加：标题栏拖动移动浮窗、Esc 关闭、ClientRouter 转场经 sessionStorage 恢复对话记录；
+ *   自动滚动（stick-to-bottom）：ResizeObserver 跟滚流式增高 + 发送后平滑到底 + 上滚暂停跟随。
  *
  * SSE 帧格式（服务端 /api/ai/chat 重帧）：data: {"delta":"…"} / {"error":"…"} / {"done":true}
  */
@@ -86,6 +88,27 @@ function pageTitle(): string {
   return (idx > 0 ? t.slice(0, idx) : t).trim();
 }
 
+/**
+ * 选区内容提取：选区内含 KaTeX 公式时，从其 MathML annotation（encoding="application/x-tex"）
+ * 取回**原始 TeX 源码**替换视觉文本——getSelection().toString() 只能拿到渲染后的二维排版
+ * 线性化文本（分式/上下标/根号结构丢失变形），而 annotation 保存着无损源码（与 mdx-plugins.ts
+ * 的 TOC 提取同源逻辑）。行内公式 → $…$，块级公式（.katex-display）→ $$…$$。
+ */
+function extractSelectionText(): string {
+  const sel = window.getSelection();
+  const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+  if (!range) return '';
+  const frag = range.cloneContents();
+  for (const k of Array.from(frag.querySelectorAll('.katex'))) {
+    const tex = k.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() ?? '';
+    if (tex === '') continue; // 部分选中的公式克隆不出 annotation → 保留视觉文本优雅降级
+    const display = k.closest('.katex-display');
+    const replacement = document.createTextNode(display ? `$$${tex}$$` : `$${tex}$`);
+    (display ?? k).replaceWith(replacement);
+  }
+  return (frag.textContent ?? '').trim();
+}
+
 /** 首条消息模板：把选中文字模板化为解释请求 */
 function buildFirstMessage(text: string, title: string): string {
   return `请解释/分析以下我选中的内容（来自「${title}」）：\n"""\n${text}\n"""`;
@@ -115,8 +138,10 @@ export default function AiChatFloat({ enabled }: Props) {
 
   const abortRef = useRef<AbortController | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  /** 输入框聚焦标记：流式追加时用户正在输入则不强制滚动到底 */
-  const inputFocusedRef = useRef(false);
+  /** 内层内容 wrapper（ResizeObserver 监听其高度变化：流式增高/图片加载/渲染换行都能跟上） */
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  /** 贴底跟踪：用户手动上滚（离底 >80px）暂停自动滚动，回到底部附近恢复 */
+  const stickRef = useRef(true);
   /** 最新消息快照（send 组装历史用，避免在 setState updater 里做副作用） */
   const messagesRef = useRef<ChatMessage[]>([]);
   useEffect(() => {
@@ -282,11 +307,11 @@ export default function AiChatFloat({ enabled }: Props) {
     document.documentElement.dataset.aiFloatReady = '1';
     const onContextMenu = (e: MouseEvent): void => {
       const sel = window.getSelection();
-      const text = sel?.toString().trim() ?? '';
-      if (text === '') return;
       const anchor = sel?.anchorNode;
       const el = anchor?.nodeType === Node.TEXT_NODE ? anchor.parentElement : (anchor as Element | null);
       if (el?.closest(EDITABLE_SELECTOR)) return; // 可编辑控件内放行原生菜单（粘贴/纠错）
+      const text = extractSelectionText();
+      if (text === '') return;
       e.preventDefault();
       setMenu({ x: e.clientX, y: e.clientY, text: text.slice(0, MAX_SELECTION_CHARS), title: pageTitle() });
     };
@@ -388,11 +413,36 @@ export default function AiChatFloat({ enabled }: Props) {
     [pos, size],
   );
 
-  /* ---------- 消息区自动滚动到底（输入聚焦时不打扰） ---------- */
+  /* ---------- 自动滚动到底（stick-to-bottom）：流式长回答逐段增高也有跟随效果 ---------- */
+  /* 1) 内容增高（消息变化 / 流式追加 / Markdown 布局 / 公式与图片就绪）→ 贴底时即时跟滚 */
   useEffect(() => {
-    if (!open || inputFocusedRef.current) return;
-    bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
-  }, [messages, open]);
+    if (!open) return;
+    const content = contentRef.current;
+    const body = bodyRef.current;
+    if (!content || !body || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (stickRef.current) body.scrollTop = body.scrollHeight;
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [open]);
+
+  /* 2) 打开浮窗 / 恢复历史消息 / 发送新消息：平滑滚到底；发送时强制恢复贴底 */
+  useEffect(() => {
+    if (!open) return;
+    stickRef.current = true;
+    const body = bodyRef.current;
+    if (!body) return;
+    const id = requestAnimationFrame(() => body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' }));
+    return () => cancelAnimationFrame(id);
+  }, [messages.length, open]);
+
+  /* 3) 用户上滚暂停跟随、回到底部恢复（阈值 80px） */
+  const onBodyScroll = useCallback(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    stickRef.current = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
+  }, []);
 
   /* ---------- 输入框：Enter 发送 / Shift+Enter 换行 ---------- */
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -502,8 +552,9 @@ export default function AiChatFloat({ enabled }: Props) {
             </div>
           </div>
 
-          {/* 消息区 */}
-          <div ref={bodyRef} className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3">
+          {/* 消息区（自动滚动：内容增高跟滚 + 发送后平滑到底 + 上滚暂停跟随） */}
+          <div ref={bodyRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+            <div ref={contentRef} className="space-y-3">
             {selectionCtx && messages.length === 0 && (
               <p className="rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">选中内容：{selectionCtx.text.slice(0, 120)}…</p>
             )}
@@ -531,6 +582,7 @@ export default function AiChatFloat({ enabled }: Props) {
                 </div>
               );
             })}
+            </div>
           </div>
 
           {/* 输入区（F4：回答中可继续输入） */}
@@ -541,8 +593,6 @@ export default function AiChatFloat({ enabled }: Props) {
                 className="max-h-24 min-h-0 flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring"
                 placeholder="继续追问…（Enter 发送，Shift+Enter 换行）"
                 value={input}
-                onFocus={() => (inputFocusedRef.current = true)}
-                onBlur={() => (inputFocusedRef.current = false)}
                 onInput={(e) => setInput((e.target as HTMLTextAreaElement).value)}
                 onKeyDown={onInputKeyDown}
               />
