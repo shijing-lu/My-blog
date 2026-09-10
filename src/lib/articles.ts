@@ -14,6 +14,7 @@ import { parseTags, serializeTags } from './tags';
 import { slugifyOrFallback } from './slugify';
 import { extractFirstImage } from './images';
 import { hashPassword, parsePasswordHash, ArticlePasswordError, type PasswordHashMeta } from './article-password';
+import { clearArticleCategories } from './article-categories';
 
 /** 数据库原始行类型（sqlite 形态，tags 为 JSON 文本） */
 type ArticleRow = typeof articles.$inferSelect;
@@ -148,6 +149,8 @@ export async function getArticleById(id: string): Promise<Article | null> {
  */
 export async function deleteArticle(id: string): Promise<void> {
   await db.delete(articles).where(eq(articles.id, id));
+  // 同步清理自定义分类归属，避免孤儿行（表未迁移时内部容错为 no-op）
+  await clearArticleCategories([id]);
 }
 
 /**

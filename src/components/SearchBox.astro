@@ -3,20 +3,18 @@
 interface Props {
   /** 文章总数（初始计数显示） */
   total: number;
+  /**
+   * 自定义分类（写作台维护，服务端注入；表未迁移时为空数组）。
+   * 分类按钮行 = 「全部」+ 各分类；替代旧的内置类型按钮（tech/note/photo 已从 UI 退役，
+   * 仅作为内部元数据保留在 articles.type）。
+   */
+  categories?: Array<{ id: string; name: string }>;
 }
 
-const { total } = Astro.props;
+const { total, categories = [] } = Astro.props;
 
 /* ===== Imports ===== */
 /* （无，原生 JS） */
-
-/* ===== Logic ===== */
-const TYPES: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'all', label: '全部' },
-  { value: 'tech', label: '技术' },
-  { value: 'note', label: '笔记' },
-  { value: 'photo', label: '摄影' },
-];
 ---
 <!-- ===== Template ===== -->
 <div id="search-box" class="border-b border-border pb-3">
@@ -36,37 +34,37 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     />
     <span id="search-count" class="pixel-chip shrink-0 text-muted-foreground">{total} 篇</span>
   </div>
-  <div class="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="类型筛选">
-    {
-      TYPES.map((t) => (
-        <button type="button" class="search-type-btn" data-type-filter={t.value}>
-          {t.label}
+  {
+    categories.length > 0 && (
+      <div class="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="分类筛选">
+        <button type="button" class="search-type-btn" data-cat-filter="all">
+          全部
         </button>
-      ))
-    }
-  </div>
+        {categories.map((c) => (
+          <button type="button" class="search-type-btn" data-cat-filter={c.id} title={`只看分类「${c.name}」`}>
+            {c.name}
+          </button>
+        ))}
+      </div>
+    )
+  }
 </div>
 
 <!-- 搜索结果容器（服务端 /api/search 返回数据后由 JS 渲染文章行，与首页列表同构） -->
 <div id="search-results" class="post-list mt-4 hidden"></div>
 <p id="search-empty" class="mt-6 hidden text-sm text-muted-foreground">
-  未找到匹配的文章，换个关键词或类型试试。
+  未找到匹配的文章，换个关键词或分类试试。
 </p>
 
 <script>
   /** 全站服务端搜索：输入防抖 200ms → GET /api/search → 渲染结果卡片
-   *  - 关键词为空且类型为「全部」时回到服务端分页列表；
+   *  - 关键词为空且分类为「全部」时回到服务端分页列表；
+   *  - 分类筛选 = 自定义分类（写作台维护，服务端注入 data-cat-filter），替代旧内置类型按钮；
    *  - 事件用 document 委托 + 每次解析元素，规避 View Transitions 后绑定失效。 */
-  const TYPE_LABELS: Record<string, string> = { tech: '技术', note: '笔记', photo: '摄影' };
-  const TYPE_CHIP: Record<string, string> = {
-    tech: 'chip-tech',
-    note: 'chip-note',
-    photo: 'chip-photo',
-  };
 
   let controller: AbortController | null = null;
   let debounceTimer: number | null = null;
-  let activeType = 'all';
+  let activeCat = 'all';
 
   function el<T extends HTMLElement>(id: string): T | null {
     return document.getElementById(id) as T | null;
@@ -113,10 +111,7 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     return `<article class="post-row group relative">
       <a href="/blog/${esc(a.slug)}" class="absolute inset-0 z-0" aria-label="阅读《${esc(a.title || '未命名')}》"></a>
       <div class="post-row-main">
-        <div class="flex items-center gap-2.5">
-          <span class="pixel-chip rounded px-1.5 py-0.5 ${TYPE_CHIP[a.type] ?? 'chip-tech'}">${TYPE_LABELS[a.type] ?? a.type}</span>
-          <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">${esc(a.title)}</h3>
-        </div>
+        <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">${esc(a.title)}</h3>
         <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">${esc(a.snippet || a.summary)}</p>
         ${tagLinks ? `<div class="mt-2 flex flex-wrap gap-1.5">${tagLinks}</div>` : ''}
       </div>
@@ -138,11 +133,11 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     if (count) count.textContent = `${total} 篇`;
   }
 
-  /** 触发一次搜索（q 为空且 type=all 时回静态列表） */
+  /** 触发一次搜索（q 为空且分类=全部时回静态列表） */
   function runSearch(): void {
     const input = el<HTMLInputElement>('search-input');
     const q = (input?.value ?? '').trim();
-    if (!q && activeType === 'all') {
+    if (!q && activeCat === 'all') {
       showStatic(Number(input?.dataset.total ?? 0));
       return;
     }
@@ -154,7 +149,7 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     el('search-empty')?.classList.add('hidden');
     const count = el('search-count');
     if (count) count.textContent = '搜索中…';
-    fetch(`/api/search?q=${encodeURIComponent(q)}&type=${activeType}`, { signal: controller.signal })
+    fetch(`/api/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(activeCat)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('bad status'))))
       .then((data: { articles: Array<Parameters<typeof rowHtml>[0]>; total: number }) => {
         const results = el('search-results');
@@ -180,10 +175,10 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
   });
 
   document.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-type-filter]');
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-filter]');
     if (!btn) return;
-    activeType = btn.dataset.typeFilter ?? 'all';
-    document.querySelectorAll<HTMLElement>('[data-type-filter]').forEach((b) => {
+    activeCat = btn.dataset.catFilter ?? 'all';
+    document.querySelectorAll<HTMLElement>('[data-cat-filter]').forEach((b) => {
       b.classList.toggle('active', b === btn);
     });
     runSearch();
@@ -195,10 +190,10 @@ const TYPES: ReadonlyArray<{ value: string; label: string }> = [
     if (!input) return;
     const total = Number(input.dataset.total ?? 0);
     input.value = '';
-    document.querySelectorAll<HTMLElement>('[data-type-filter]').forEach((b) => {
-      b.classList.toggle('active', b.dataset.typeFilter === 'all');
+    document.querySelectorAll<HTMLElement>('[data-cat-filter]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.catFilter === 'all');
     });
-    activeType = 'all';
+    activeCat = 'all';
     showStatic(total);
   }
   document.addEventListener('astro:page-load', init);

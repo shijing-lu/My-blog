@@ -10,6 +10,7 @@ import DeerDots from '@/components/DeerDots.astro';
 import SearchBox from '@/components/SearchBox.astro';
 import Pagination from '@/components/Pagination.astro';
 import { listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
+import { listArticleCategories } from '@/lib/article-categories';
 import { cardCoverUrl } from '@/lib/images';
 import { getLandingHero } from '@/lib/landing';
 import { pageInfo } from '@/lib/pagination';
@@ -47,21 +48,10 @@ const uniqueTags = new Set(allMeta.flatMap((a) => a.tags)).size;
 /** 最近更新时间 */
 const lastUpdated = allMeta[0]?.updatedAt;
 
-/** 文章类型 → 中文标签 */
-const typeLabels: Record<ArticleType, string> = {
-  tech: '技术',
-  note: '笔记',
-  photo: '摄影',
-};
+/** 自定义分类（写作台维护；首页分类筛选项与它保持一致。表未迁移时为空 → 不渲染按钮行） */
+const categories = await listArticleCategories();
 
-/** 文章类型 → 像素章样式类 */
-const typeChipClass: Record<ArticleType, string> = {
-  tech: 'chip-tech',
-  note: 'chip-note',
-  photo: 'chip-photo',
-};
-
-/** 文章类型 → 封面大字字形 */
+/** 文章类型 → 封面大字字形（Hero 装饰；type 仅作内部元数据，分类体系用自定义分类） */
 const typeGlyph: Record<ArticleType, string> = {
   tech: '技',
   note: '记',
@@ -194,9 +184,9 @@ function formatShort(date?: Date): string {
         }
       </div>
 
-      <!-- 检索：服务端搜索 + 类型筛选 -->
+      <!-- 检索：服务端搜索 + 自定义分类筛选（内置类型已从 UI 退役） -->
       <div class="mt-4">
-        <SearchBox total={total} />
+        <SearchBox total={total} categories={categories.map((c) => ({ id: c.id, name: c.name }))} />
       </div>
 
       <!-- 标签筛选状态条（点击文章标签后显示；仅筛选当前页，全站请跳标签页） -->
@@ -218,12 +208,9 @@ function formatShort(date?: Date): string {
               <article class="post-row group relative" data-tags={article.tags.join('|').toLowerCase()}>
                 {/* 整行可点：进入详情页（stretched-link） */}
                 <a href={`/blog/${article.slug}`} class="absolute inset-0 z-0" aria-label={`阅读《${article.title || '未命名'}》`} />
-                {/* 左：类型章 + 标题 + 一行摘要 */}
+                {/* 左：标题 + 一行摘要 + 标签 */}
                 <div class="post-row-main">
                   <div class="flex items-center gap-2.5">
-                    <span class={`pixel-chip rounded px-1.5 py-0.5 text-[0.65rem] ${typeChipClass[article.type]}`}>
-                      {typeLabels[article.type]}
-                    </span>
                     <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">
                       {article.title}
                     </h3>

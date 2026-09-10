@@ -5,7 +5,6 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { listArticles } from '@/lib/articles';
-import TypeBadge from '@/components/TypeBadge.astro';
 import { countChars } from '@/lib/reading';
 
 /* ===== Logic ===== */
@@ -44,7 +43,6 @@ function formatShort(date: Date): string {
           <a href={`/blog/${article.slug}`} class="post-card block overflow-hidden">
             <div class="p-4">
               <div class="flex items-center gap-2">
-                <TypeBadge type={article.type} />
                 <time class="font-pixel text-xs text-muted-foreground" datetime={article.updatedAt.toISOString()}>
                   {formatShort(article.updatedAt)}
                 </time>

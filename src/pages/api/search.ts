@@ -11,6 +11,7 @@
  */
 import type { APIRoute } from 'astro';
 import { listArticles, resolveCover } from '@/lib/articles';
+import { articleCategoryMap } from '@/lib/article-categories';
 import { json } from '@/lib/api';
 import { countChars } from '@/lib/reading';
 import { cardCoverUrl } from '@/lib/images';
@@ -29,10 +30,17 @@ export const GET: APIRoute = async ({ url }) => {
   if (type !== 'all' && !isArticleType(type)) {
     return json({ error: 'type 不合法' }, 400);
   }
+  // 自定义分类筛选（分类 id；'all'/空 = 不过滤）。表未迁移时 map 为空 → 结果为空，不报错。
+  const category = url.searchParams.get('category') ?? 'all';
 
   const all = await listArticles();
+  let catMap: Map<string, string> | null = null;
+  if (category !== 'all' && category) {
+    catMap = await articleCategoryMap();
+  }
   const matched = all.filter((a) => {
     if (type !== 'all' && a.type !== type) return false;
+    if (catMap && catMap.get(a.id) !== category) return false;
     return matchArticle(a, q);
   });
 
@@ -56,7 +64,7 @@ export const GET: APIRoute = async ({ url }) => {
   });
 
   return json(
-    { articles, total: matched.length, query: q, type },
+    { articles, total: matched.length, query: q, type, category },
     { status: 200, headers: { 'cache-control': 'no-store' } },
   );
 };

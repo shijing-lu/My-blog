@@ -13,7 +13,6 @@ import MarkdownEditor from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import MindMapEditor from '../mindmap/MindMapEditor';
 import type { ArticleType } from '../../../db/types';
-import { ARTICLE_TYPES } from '../../../db/types';
 import { compressImageForUpload } from '../../lib/client-image-upload';
 import { confirmDanger } from '../../lib/confirm';
 import { countChars } from '../../lib/reading';
@@ -72,8 +71,6 @@ const STATUS_TEXT: Record<SaveStatus, string> = {
   expired: '登录已过期',
 };
 
-const TYPE_LABELS: Record<ArticleType, string> = { tech: '技术', note: '笔记', photo: '摄影' };
-
 /** 从 Markdown 提取标题（行号供 CM 定位） */
 function extractToc(md: string): Array<{ text: string; line: number; level: number }> {
   const out: Array<{ text: string; line: number; level: number }> = [];
@@ -104,8 +101,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   const [renamingName, setRenamingName] = useState('');
   const [catBusy, setCatBusy] = useState(false);
   const [catError, setCatError] = useState('');
-  /** 左栏分组方式：自定义分类（默认） / 内置类型 */
-  const [groupBy, setGroupBy] = useState<'category' | 'type'>((categories ?? []).length > 0 ? 'category' : 'type');
   /** 折叠的分组 key 集合 */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   /** 专注模式：隐藏左右栏，只留编辑器 */
@@ -361,19 +356,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
     }
   }, [list, selectedId]);
 
-  const moveArticle = useCallback(async (id: string, type: ArticleType): Promise<void> => {
-    const res = await fetch(`/api/articles/${id}`);
-    if (!res.ok) return;
-    const data = (await res.json()) as { article: InitialDraft };
-    await fetch('/api/save-draft', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...data.article, type, tags: data.article.tags ?? [] }),
-    });
-    setList((prev) => prev.map((x) => (x.id === id ? { ...x, type } : x)));
-    if (selectedId === id) setDraft((d) => ({ ...d, type }));
-  }, [selectedId]);
-
   /* ---- 自定义分类 CRUD（/api/article-categories） ---- */
   /**
    * 统一请求：返回**已解析**的 JSON（响应体只能读一次，故在此处 json() 后回传数据，
@@ -411,8 +393,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
     if (!ok) return;
     if (data.category) {
       setCats((prev) => [...prev, data.category!]);
-      // 新建后若左栏还在「按类型分组」，自动切到分类视图让用户看到成果
-      setGroupBy('category');
     }
     setNewCatName('');
   }, [newCatName, catRequest]);
@@ -526,16 +506,8 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   /** 当前文章目录 */
   const toc = useMemo(() => extractToc(draft.content), [draft.content]);
 
-  /** 按类型分组（更新时间倒序） */
-  const groups = useMemo(() => {
-    const g: Record<ArticleType, ArticleMeta[]> = { tech: [], note: [], photo: [] };
-    [...list]
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .forEach((a) => g[a.type]?.push(a));
-    return g;
-  }, [list]);
-
-  /** 按自定义分类分组（末尾固定「未分类」兜底组，承接无归属/分类已删的文章） */
+  /** 按自定义分类分组（末尾固定「未分类」兜底组，承接无归属/分类已删的文章）。
+   *  内置 type（tech/note/photo）已从分类体系退役，仅作内部元数据保留。 */
   const catGroups = useMemo(() => {
     const sorted = [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const known = new Set(cats.map((c) => c.id));
@@ -580,30 +552,11 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
             </button>
           </div>
 
-          {/* 分组方式切换 + 分类管理入口 */}
+          {/* 分类管理入口（分类是唯一的分组维度；内置类型已退役为内部元数据） */}
           <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
-            <div className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="分组方式">
-              <button
-                type="button"
-                onClick={() => setGroupBy('category')}
-                disabled={cats.length === 0}
-                title={cats.length === 0 ? '还没有自定义分类，点右侧「管理」新建' : '按自定义分类分组'}
-                className={`px-2 py-1 text-[0.7rem] transition-colors disabled:opacity-40 ${
-                  groupBy === 'category' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
-                }`}
-              >
-                分类
-              </button>
-              <button
-                type="button"
-                onClick={() => setGroupBy('type')}
-                className={`px-2 py-1 text-[0.7rem] transition-colors ${
-                  groupBy === 'type' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
-                }`}
-              >
-                类型
-              </button>
-            </div>
+            <span className="text-[0.7rem] text-muted-foreground">
+              {cats.length > 0 ? `共 ${cats.length} 个分类` : '尚未创建分类'}
+            </span>
             <button
               type="button"
               onClick={() => setCatPanelOpen(true)}
@@ -615,8 +568,20 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto py-1.5">
-            {groupBy === 'category'
-              ? catGroups.map((g) => {
+            {cats.length === 0 ? (
+              <div className="px-3 py-6 text-center">
+                <p className="text-xs text-muted-foreground">还没有自定义分类。</p>
+                <button
+                  type="button"
+                  onClick={() => setCatPanelOpen(true)}
+                  className="mt-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  + 创建第一个分类
+                </button>
+                <p className="mt-3 text-[0.65rem] text-muted-foreground/60">所有文章暂时显示在「未分类」组。</p>
+              </div>
+            ) : (
+              catGroups.map((g) => {
                   const open = !collapsed.has(g.key);
                   return (
                     <div key={g.key} className="mb-1">
@@ -689,73 +654,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
                     </div>
                   );
                 })
-              : ARTICLE_TYPES.map((type) => {
-                  const key = `type:${type}`;
-                  const open = !collapsed.has(key);
-                  return (
-                    <div key={type} className="mb-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(key)}
-                        className="flex w-full items-center gap-1.5 px-3 py-1 text-left text-[0.7rem] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                        aria-expanded={open}
-                      >
-                        <span className={`text-[0.55rem] transition-transform duration-200 ${open ? 'rotate-90' : ''}`}>▶</span>
-                        <span className="truncate">{TYPE_LABELS[type]}</span>
-                        <span className="ml-auto font-pixel text-[0.6rem] opacity-60">{groups[type]?.length ?? 0}</span>
-                      </button>
-                      {open && (
-                        <ul>
-                          {groups[type]?.map((a) => (
-                            <li key={a.id}>
-                              <div
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => void loadArticle(a.id)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') void loadArticle(a.id);
-                                }}
-                                className={`group/item relative flex cursor-pointer items-center gap-1 py-1.5 pl-3 pr-2 text-sm transition-colors duration-200 ${
-                                  selectedId === a.id ? 'bg-accent text-foreground' : 'hover:bg-accent/50'
-                                }`}
-                              >
-                                {selectedId === a.id && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" />}
-                                <span className="min-w-0 flex-1 truncate">{a.title || '未命名'}</span>
-                                <span className="hidden shrink-0 items-center gap-1 group-hover/item:flex" onClick={(e) => e.stopPropagation()}>
-                                  <select
-                                    value={a.type}
-                                    onChange={(e) => void moveArticle(a.id, e.target.value as ArticleType)}
-                                    className="w-14 cursor-pointer rounded border border-border bg-background px-1 py-0.5 font-pixel text-[0.55rem]"
-                                    aria-label="移动分组"
-                                    title="移动分组"
-                                  >
-                                    {ARTICLE_TYPES.map((t) => (
-                                      <option key={t} value={t}>
-                                        {TYPE_LABELS[t]}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void removeArticle(a.id);
-                                    }}
-                                    className="text-destructive"
-                                    aria-label="删除"
-                                    title="删除"
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })}
+            )}
           </div>
         </aside>
       )}
@@ -912,19 +811,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
               placeholder="标题"
               className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-display text-lg font-semibold outline-none transition-colors placeholder:text-muted-foreground/60 hover:bg-muted/40 focus-visible:border-ring focus-visible:bg-background"
             />
-            <select
-              value={draft.type}
-              onChange={(e) => update('type', e.target.value as ArticleType)}
-              className="shrink-0 rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none transition-colors focus-visible:border-ring"
-              aria-label="文章类型（移动分组）"
-              title="类型 = 移动分组"
-            >
-              {ARTICLE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
             <select
               value={catMap[draft.id] ?? ''}
               onChange={(e) => void setCurrentCategory(e.target.value)}

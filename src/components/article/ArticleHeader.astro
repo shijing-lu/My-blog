@@ -8,7 +8,6 @@ interface Props {
 const { article } = Astro.props;
 
 /* ===== Imports ===== */
-import TypeBadge from '@/components/TypeBadge.astro';
 import { countChars, readingTime } from '@/lib/reading';
 
 /* ===== Logic ===== */
@@ -25,7 +24,6 @@ function formatShort(date: Date): string {
 <!-- ===== Template ===== -->
 <header>
   <div class="flex flex-wrap items-center gap-2 text-xs">
-    <TypeBadge type={article.type} />
     <time class="font-pixel text-muted-foreground" datetime={article.updatedAt.toISOString()}>
       {formatShort(article.updatedAt)}
     </time>

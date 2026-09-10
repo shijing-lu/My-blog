@@ -5,11 +5,14 @@
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import { listArticleMeta } from '@/lib/articles';
-import type { ArticleType } from '../../../db/types';
+import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
 
 /* ===== Logic ===== */
 const articles = await listArticleMeta();
-const TYPE_LABELS: Record<ArticleType, string> = { tech: '技术', note: '笔记', photo: '摄影' };
+/** 自定义分类（写作台维护）：管理列表行的「分类」列与它保持一致 */
+const categories = await listArticleCategories();
+const catNameById = new Map(categories.map((c) => [c.id, c.name]));
+const articleCatMap = await articleCategoryMap();
 
 function formatShort(date: Date): string {
   const p = (n: number): string => String(n).padStart(2, '0');
@@ -42,7 +45,7 @@ function formatShort(date: Date): string {
             <div class="min-w-0">
               <p class="truncate text-sm font-medium">{a.title || '未命名'}</p>
               <p class="font-pixel mt-0.5 text-[0.6rem] text-muted-foreground">
-                {TYPE_LABELS[a.type]} · {formatShort(a.updatedAt)}
+                {articleCatMap[a.id] ? (catNameById.get(articleCatMap[a.id]!) ?? '') : '未分类'} · {formatShort(a.updatedAt)}
               </p>
             </div>
             <div class="flex shrink-0 gap-2 text-xs">
