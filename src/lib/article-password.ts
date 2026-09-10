@@ -194,3 +194,40 @@ export function decodeTokenPayload(token: string | null | undefined): Record<str
     return null;
   }
 }
+
+/** 门禁判定结果 */
+export interface GateDecision {
+  /** 是否需要门禁（正文不下发）。⚠️ 只由 `encrypted` 决定，不以哈希能否解析为准 */
+  gated: boolean;
+  /** 哈希是否可校验。false = 旧格式遗留，任何密码都无法通过，须站主重设 */
+  metaUsable: boolean;
+  /** 当前请求是否已解锁（可渲染正文） */
+  unlocked: boolean;
+  /** 是否拦截正文下发 */
+  locked: boolean;
+}
+
+/**
+ * 门禁判定（页面与测试共用的单一事实来源）。
+ *
+ * ⚠️ 不变式：`gated` 必须**只**取 `encrypted`。
+ * 曾经的写法是 `gated = encrypted && parsePasswordHash(meta) != null`，
+ * 导致存量 AES-GCM 格式的文章（哈希解析为 null）退化成
+ * 「无门禁 + 正文不下发」的空白页 —— 加密文章直接裸奔成空白，
+ * 既看不到内容也看不到门禁。加密标记一旦为真，门禁就必须在。
+ *
+ * @param encrypted 文章是否标记为加密
+ * @param passwordMeta 解析后的密码哈希（null = 无法校验）
+ * @param checkUnlocked 已解锁判定回调（仅在 gated 且 metaUsable 时调用）
+ */
+export function decideArticleGate(
+  encrypted: boolean,
+  passwordMeta: PasswordHashMeta | null,
+  checkUnlocked: () => boolean,
+): GateDecision {
+  const gated = Boolean(encrypted);
+  const metaUsable = Boolean(passwordMeta);
+  const unlocked = gated && metaUsable ? checkUnlocked() : false;
+  return { gated, metaUsable, unlocked, locked: gated && !unlocked };
+}
+

@@ -18,6 +18,7 @@ import {
   assertPasswordStrength,
   ArticlePasswordError,
   unlockCookieName,
+  decideArticleGate,
   MAX_PASSWORD_LENGTH,
 } from '../src/lib/article-password';
 import { SIGNED_TTL_PERMANENT_MS } from '../src/lib/auth';
@@ -123,6 +124,42 @@ describe('密码哈希解析的健壮性', () => {
       ct: 'ghi',
     });
     expect(parsePasswordHash(oldFormat)).toBeNull();
+  });
+});
+
+describe('门禁判定 decideArticleGate', () => {
+  const ok = () => true;
+  const no = () => false;
+
+  it('【回归】旧格式哈希解析失败 → 仍须保留门禁（不得裸奔成空白页）', () => {
+    // 线上事故：曾用 `gated = encrypted && meta != null`，导致存量 AES-GCM
+    // 文章变成「无门禁 + 正文不下发」的空白页。门禁必须由 encrypted 兜底。
+    const d = decideArticleGate(true, null, ok);
+    expect(d.gated).toBe(true);
+    expect(d.metaUsable).toBe(false);
+    expect(d.locked).toBe(true); // ← 关键：正文不下发，且门禁在
+    expect(d.unlocked).toBe(false); // 哈希不可用 → 已解锁也为 false
+  });
+
+  it('旧格式哈希 + 携带解锁 Cookie → 不认解锁（meta 不可用时不得放行）', () => {
+    const d = decideArticleGate(true, null, ok);
+    expect(d.unlocked).toBe(false);
+    expect(d.locked).toBe(true);
+  });
+
+  it('加密 + 正常哈希 + 未解锁 → 门禁拦截', () => {
+    const d = decideArticleGate(true, hashPassword('x'), no);
+    expect(d).toMatchObject({ gated: true, metaUsable: true, unlocked: false, locked: true });
+  });
+
+  it('加密 + 正常哈希 + 已解锁 → 放行正文', () => {
+    const d = decideArticleGate(true, hashPassword('x'), ok);
+    expect(d).toMatchObject({ gated: true, metaUsable: true, unlocked: true, locked: false });
+  });
+
+  it('未加密 → 无门禁、直接放行（哈希即便存在也不生效）', () => {
+    const d = decideArticleGate(false, hashPassword('x'), ok);
+    expect(d).toMatchObject({ gated: false, unlocked: false, locked: false });
   });
 });
 

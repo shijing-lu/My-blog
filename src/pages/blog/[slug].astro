@@ -21,14 +21,14 @@ if (!article) return Astro.redirect('/404');
  * 正文明文存库；未解锁时**服务端不渲染正文**，HTML 里不存在任何明文，
  * F12 / 禁用 JS 都无法绕过。解锁后靠签名 Cookie 重新渲染本页。 */
 const { signPayload: _signPayload, verifySignedPayload } = await import('@/lib/auth');
-const { isArticleUnlocked, decodeTokenPayload, parsePasswordHash, unlockCookieName } = await import('@/lib/article-password');
+const { isArticleUnlocked, decodeTokenPayload, parsePasswordHash, decideArticleGate } = await import('@/lib/article-password');
 const passwordMeta = article.encrypted ? parsePasswordHash(article.encryptMeta) : null;
-const gated = Boolean(article.encrypted && passwordMeta);
-const unlocked = gated
-  ? isArticleUnlocked(Astro.cookies, article.id, verifySignedPayload, decodeTokenPayload)
-  : false;
-// 被拦截且未解锁 → 正文不下发
-const locked = gated && !unlocked;
+// ★ 判定细节见 decideArticleGate：gated 只看 encrypted，哈希解析失败也要保留门禁
+const { metaUsable, unlocked, locked } = decideArticleGate(
+  Boolean(article.encrypted),
+  passwordMeta,
+  () => isArticleUnlocked(Astro.cookies, article.id, verifySignedPayload, decodeTokenPayload),
+);
 
 const { html: rawHtml, toc, blockMap } = await renderMdx(locked ? '' : article.content);
 // 正文图片注入原始宽高（DB 图片；避免懒加载时宽度跳变、为 fit-content 预留空间）。
@@ -172,6 +172,15 @@ const blockMapJson = JSON.stringify(blockMap);
         <p class="mt-1.5 text-center text-sm text-muted-foreground">
           该文章已被加密保护，请输入访问密码以解锁内容。
         </p>
+
+        {
+          /* 旧格式哈希（AES-GCM 时代产物）无法校验，须由站主在写作台重设密码 */
+          !metaUsable ? (
+            <p class="mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+              该文章的密码为旧版格式，无法校验。请站主进入写作台重新设置访问密码后即可正常解锁。
+            </p>
+          ) : null
+        }
 
         {
           article.encryptHint ? (
