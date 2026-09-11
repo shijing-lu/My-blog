@@ -7,7 +7,7 @@
 import type { APIRoute } from 'astro';
 import { getLandingHero, saveLandingHero } from '@/lib/landing';
 import { getImage } from '@/lib/images';
-import { json, jsonCached } from '@/lib/api';
+import { badJson, badRequest, json, jsonCached, readJson } from '@/lib/api';
 
 export const prerender = false;
 
@@ -39,14 +39,10 @@ export const GET: APIRoute = async () => {
 
 /** PUT：保存（管理员） */
 export const PUT: APIRoute = async ({ request }) => {
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return badJson();
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return json({ error: '请求体不合法' }, 400);
+    return badRequest('请求体不合法');
   }
   // 图片列表（兼容旧 imageUrl 单图字段）
   const rawImages = Array.isArray(body.images)
@@ -57,7 +53,7 @@ export const PUT: APIRoute = async ({ request }) => {
   try {
     for (const url of rawImages) {
       const err = await validateHeroImageUrl(url);
-      if (err) return json({ error: err }, 400);
+      if (err) return badRequest(err);
     }
     const saved = await saveLandingHero({
       images: rawImages,

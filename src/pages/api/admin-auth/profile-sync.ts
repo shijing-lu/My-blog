@@ -5,24 +5,20 @@
  * （个人中心与博客头像联动展示处自动生效）。仅顶级管理员可用。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, badRequest, forbidden, json, notFound, readJson } from '@/lib/api';
 import { isTopAdmin, syncGitHubProfile } from '@/lib/admin-auth';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isTopAdmin(cookies))) return json({ error: '无权操作' }, 403);
-  let body: { login?: unknown };
-  try {
-    body = (await request.json()) as { login?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  if (!(await isTopAdmin(cookies))) return forbidden();
+  const body = await readJson<{ login?: unknown }>(request);
+  if (!body) return badJson();
   const login = typeof body.login === 'string' ? body.login.trim().slice(0, 100) : '';
   if (!/^[A-Za-z0-9-]{1,100}$/.test(login)) {
-    return json({ error: '请输入合法的 GitHub 用户名' }, 400);
+    return badRequest('请输入合法的 GitHub 用户名');
   }
   const synced = await syncGitHubProfile(login);
-  if (!synced) return json({ error: 'GitHub 用户不存在或拉取失败' }, 404);
+  if (!synced) return notFound('GitHub 用户不存在或拉取失败');
   return json({ profile: synced });
 };

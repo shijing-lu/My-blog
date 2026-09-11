@@ -2,7 +2,7 @@
  * DELETE /api/comments/[id] —— 删除评论（作者本人 GitHub 登录 或 管理员）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { forbidden, json, notFound } from '@/lib/api';
 import { getCurrentUserId } from '@/lib/auth';
 import { canManage } from '@/lib/admin-auth';
 import { deleteComment, getCommentById } from '@/lib/comments';
@@ -12,7 +12,7 @@ export const prerender = false;
 export const DELETE: APIRoute = async ({ params, cookies }) => {
   const id = params.id ?? '';
   const comment = await getCommentById(id);
-  if (!comment) return json({ error: '评论不存在' }, 404);
+  if (!comment) return notFound('评论不存在');
 
   // 持有 comments 权限的管理员（含站主）可删任意
   if (await canManage(cookies, 'comments')) {
@@ -25,5 +25,5 @@ export const DELETE: APIRoute = async ({ params, cookies }) => {
     await deleteComment(id);
     return json({ ok: true });
   }
-  return json({ error: '无权删除' }, 403);
+  return forbidden('无权删除');
 };

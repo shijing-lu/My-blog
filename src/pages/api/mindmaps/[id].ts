@@ -6,8 +6,7 @@
  * DELETE: → { ok }（管理员）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, notFound, readJson } from '@/lib/api';
 import { deleteMindmap, getMindmap, parseMindmapData, updateMindmap } from '@/lib/mindmaps';
 
 export const prerender = false;
@@ -18,7 +17,7 @@ export const GET: APIRoute = async ({ params }) => {
   const id = params.id ?? '';
   try {
     const map = await getMindmap(id);
-    if (!map) return json({ error: '思维导图不存在' }, 404);
+    if (!map) return notFound('思维导图不存在');
     return json({
       map: {
         id: map.id,
@@ -35,37 +34,34 @@ export const GET: APIRoute = async ({ params }) => {
 };
 
 export const PUT: APIRoute = async ({ params, request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   const id = params.id ?? '';
-  let body: { title?: unknown; articleId?: unknown; data?: unknown };
-  try {
-    body = (await request.json()) as { title?: unknown; articleId?: unknown; data?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ title?: unknown; articleId?: unknown; data?: unknown }>(request);
+  if (!body) return badJson();
 
   const patch: { title?: string; articleId?: string | null; data?: string } = {};
   if (body.title !== undefined) {
     const title = typeof body.title === 'string' ? body.title.trim().slice(0, MAX_TITLE) : '';
-    if (!title) return json({ error: '导图标题不能为空' }, 400);
+    if (!title) return badRequest('导图标题不能为空');
     patch.title = title;
   }
   if (body.articleId !== undefined) {
     patch.articleId = typeof body.articleId === 'string' && body.articleId.trim() ? body.articleId.trim().slice(0, 200) : null;
   }
   if (body.data !== undefined) {
-    if (typeof body.data !== 'string' || !body.data.trim()) return json({ error: '导图数据不合法' }, 400);
+    if (typeof body.data !== 'string' || !body.data.trim()) return badRequest('导图数据不合法');
     try {
       JSON.parse(body.data);
     } catch {
-      return json({ error: '导图数据不合法' }, 400);
+      return badRequest('导图数据不合法');
     }
     patch.data = body.data;
   }
 
   try {
     const map = await updateMindmap(id, patch);
-    if (!map) return json({ error: '思维导图不存在' }, 404);
+    if (!map) return notFound('思维导图不存在');
     return json({
       map: { id: map.id, title: map.title, articleId: map.articleId, updatedAt: map.updatedAt.toISOString() },
     });
@@ -76,7 +72,8 @@ export const PUT: APIRoute = async ({ params, request, cookies }) => {
 };
 
 export const DELETE: APIRoute = async ({ params, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   const id = params.id ?? '';
   try {
     await deleteMindmap(id);

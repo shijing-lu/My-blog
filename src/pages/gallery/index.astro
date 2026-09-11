@@ -224,6 +224,64 @@ const photoTags = await getPhotoTags();
     return window.innerWidth < 640 ? 2 : 3;
   }
 
+  /** 已建好的列数（0 = 尚未建列）；resize 后与 columnCount() 不等则需要重排 */
+  let builtColumns = 0;
+  let resizeTimer = 0;
+
+  /**
+   * 列高缓存：masonry → 各列累计高度（px）
+   *
+   * 原实现每插一张卡都要遍历所有列读 `scrollHeight`——写入与读取交错，
+   * 每张卡触发一次强制同步布局（layout thrashing），一页 30 张就是 30 次。
+   * 改为：高度增量由卡片的 inline `aspect-ratio` 估算（列宽 × 高/宽），
+   * 批量结束后在 rAF 里实测一次校正漂移，把布局计算移出写入循环。
+   */
+  const colHeights = new WeakMap<HTMLElement, number[]>();
+
+  /** 取（或首次实测）各列高度；仅在缓存缺失时读 DOM */
+  function heightsOf(masonry: HTMLElement, columns: HTMLElement[]): number[] {
+    let h = colHeights.get(masonry);
+    if (!h || h.length !== columns.length) {
+      h = columns.map((c) => c.scrollHeight);
+      colHeights.set(masonry, h);
+    }
+    return h;
+  }
+
+  /** 最矮列下标 */
+  function shortestIndex(h: number[]): number {
+    let min = 0;
+    for (let i = 1; i < h.length; i += 1) if (h[i]! < h[min]!) min = i;
+    return min;
+  }
+
+  /** 批量写入结束后异步实测一次，校正估算漂移（在 rAF 里读，不与写入交错） */
+  function scheduleRemeasure(masonry: HTMLElement): void {
+    requestAnimationFrame(() => {
+      const columns = columnsOf(masonry);
+      if (columns.length === 0) return;
+      colHeights.set(masonry, columns.map((c) => c.scrollHeight));
+    });
+  }
+
+  /** 从卡片的 inline `aspect-ratio` 取 高/宽 比；无比例信息时回退 1（按正方形估） */
+  function ratioOf(card: HTMLElement): number {
+    const holder = card.querySelector<HTMLElement>('[style*="aspect-ratio"]');
+    const raw = (holder?.style.aspectRatio ?? '').trim();
+    const m = raw.match(/^([\d.]+)\s*\/\s*([\d.]+)$/);
+    if (m) {
+      const w = Number(m[1]);
+      const h = Number(m[2]);
+      if (w > 0 && h > 0) return h / w;
+    }
+    return 1;
+  }
+
+  /** 由 原始宽高 算 高/宽 比；缺任一维度回退 1 */
+  function ratioFrom(width: number | null, height: number | null): number {
+    return width && height && width > 0 ? height / width : 1;
+  }
+
   /** 构建照片卡片 HTML（与首屏渲染同构；无宽高时按图片自然比例，保持参差） */
   function cardHtml(p: {
     id: string;
@@ -244,16 +302,22 @@ const photoTags = await getPhotoTags();
     </figure>`;
   }
 
-  /** 确保 masonry 容器已建好瀑布流列（用 ready 标记，避免误判照片为列） */
-  function ensureColumns(masonry: HTMLElement): void {
-    if (masonry.dataset.ready === '1') return;
-    const n = columnCount();
+  /** 按指定列数建列（masonry 为空时调用；已建列请先清空） */
+  function createColumns(masonry: HTMLElement, n: number): HTMLElement[] {
     for (let i = 0; i < n; i += 1) {
       const col = document.createElement('div');
       col.className = 'min-w-0 self-start';
       masonry.appendChild(col);
     }
     masonry.dataset.ready = '1';
+    builtColumns = n;
+    return columnsOf(masonry);
+  }
+
+  /** 确保 masonry 容器已建好瀑布流列（用 ready 标记，避免误判照片为列） */
+  function ensureColumns(masonry: HTMLElement): void {
+    if (masonry.dataset.ready === '1') return;
+    createColumns(masonry, columnCount());
   }
 
   /** 取 masonry 下真正的瀑布流列（过滤未分配的照片等非列子元素） */
@@ -263,32 +327,67 @@ const photoTags = await getPhotoTags();
     );
   }
 
-  /** 把 HTML 卡片追加到 masonry 的最短列 */
-  function appendToShortestColumn(masonry: HTMLElement, html: string): void {
-    ensureColumns(masonry);
+  /**
+   * 列数变化后重排：按新列数重建列，卡片按「原各列按下标交错」的顺序轮转分配
+   *
+   * 交错展开（col0[0], col1[0], col2[0], col0[1]…）近似还原此前的插入顺序，
+   * 比直接按 DOM 顺序（列优先）重排更贴近用户看到的视觉次序。
+   * 全程不读几何属性 → 零布局抖动。
+   */
+  function reflowMasonry(masonry: HTMLElement): void {
     const columns = columnsOf(masonry);
     if (columns.length === 0) return;
-    let min = 0;
-    for (let i = 1; i < columns.length; i += 1) {
-      if (columns[i]!.scrollHeight < columns[min]!.scrollHeight) min = i;
+    const perCol = columns.map((c) => Array.from(c.querySelectorAll<HTMLElement>('.photo-card')));
+    const ordered: HTMLElement[] = [];
+    for (let i = 0; ; i += 1) {
+      let any = false;
+      perCol.forEach((list) => {
+        const card = list[i];
+        if (card) {
+          ordered.push(card);
+          any = true;
+        }
+      });
+      if (!any) break;
     }
-    columns[min]!.insertAdjacentHTML('beforeend', html);
+    if (ordered.length === 0) return;
+    columns.forEach((c) => c.remove());
+    masonry.dataset.ready = '';
+    const next = createColumns(masonry, columnCount());
+    ordered.forEach((card, i) => next[i % next.length]!.appendChild(card));
+    colHeights.delete(masonry);
+    scheduleRemeasure(masonry);
   }
 
-  /** 把已有卡片节点移动到 masonry 的最短列 */
-  function moveCardToShortestColumn(masonry: HTMLElement, card: HTMLElement): void {
+  /**
+   * 把 HTML 卡片追加到 masonry 的最短列
+   *
+   * @param ratio 卡片 高/宽 比，用于估算高度增量（见 colHeights 注释）
+   * @param colWidth 列宽（px），由调用方在批量开始前量一次传入
+   */
+  function appendToShortestColumn(masonry: HTMLElement, html: string, ratio: number, colWidth: number): void {
     ensureColumns(masonry);
     const columns = columnsOf(masonry);
     if (columns.length === 0) return;
-    let min = 0;
-    for (let i = 1; i < columns.length; i += 1) {
-      if (columns[i]!.scrollHeight < columns[min]!.scrollHeight) min = i;
-    }
+    const heights = heightsOf(masonry, columns);
+    const min = shortestIndex(heights);
+    columns[min]!.insertAdjacentHTML('beforeend', html);
+    heights[min] = heights[min]! + colWidth * ratio;
+  }
+
+  /** 把已有卡片节点移动到 masonry 的最短列（参数同 appendToShortestColumn） */
+  function moveCardToShortestColumn(masonry: HTMLElement, card: HTMLElement, colWidth: number): void {
+    ensureColumns(masonry);
+    const columns = columnsOf(masonry);
+    if (columns.length === 0) return;
+    const heights = heightsOf(masonry, columns);
+    const min = shortestIndex(heights);
     columns[min]!.appendChild(card);
+    heights[min] = heights[min]! + colWidth * ratioOf(card);
   }
 
   /** 按日期把照片插入对应分组（无则新建分组，更旧日期追加到末尾） */
-  function insertPhoto(html: string, date: string): void {
+  function insertPhoto(html: string, date: string, ratio: number, colWidth: number): void {
     const container = el<HTMLElement>('gallery-groups');
     if (!container) return;
     let section = container.querySelector<HTMLElement>(`.gallery-group[data-date="${CSS.escape(date)}"]`);
@@ -301,9 +400,10 @@ const photoTags = await getPhotoTags();
     }
     const masonry = section.querySelector<HTMLElement>('.masonry');
     if (!masonry) return;
-    appendToShortestColumn(masonry, html);
+    appendToShortestColumn(masonry, html, ratio, colWidth);
     const count = section.querySelector('.gallery-date-count');
     if (count) count.textContent = `${masonry.querySelectorAll('.photo-card').length} 张`;
+    scheduleRemeasure(masonry);
   }
 
   /** 刷新「更多」按钮状态 */
@@ -336,7 +436,12 @@ const photoTags = await getPhotoTags();
         }>;
         total: number;
       };
-      data.photos.forEach((p) => insertPhoto(cardHtml(p), p.takenAt.slice(0, 10)));
+      // 列宽整批只量一次（后续全靠 aspect-ratio 估算，避免逐张读几何属性）
+      const container = el<HTMLElement>('gallery-groups');
+      const colWidth = container ? container.clientWidth / columnCount() : 320;
+      data.photos.forEach((p) =>
+        insertPhoto(cardHtml(p), p.takenAt.slice(0, 10), ratioFrom(p.width, p.height), colWidth),
+      );
       offset += data.photos.length;
       total = data.total;
       done = offset >= total;
@@ -413,12 +518,14 @@ const photoTags = await getPhotoTags();
     // 更多按钮初始隐藏：滚动到底部哨兵进入视口时才显示
     el('gallery-more-wrap')?.classList.add('hidden');
     // 首次：把服务端渲染的卡片分配到各组的列
+    const colWidth = container.clientWidth / columnCount();
     container.querySelectorAll<HTMLElement>('.masonry').forEach((masonry) => {
       if (masonry.dataset.ready === '1') return;
       const cards = Array.from(masonry.querySelectorAll<HTMLElement>('.photo-card'));
       if (cards.length === 0) return;
       ensureColumns(masonry); // 建列并标记 ready
-      cards.forEach((c) => moveCardToShortestColumn(masonry, c));
+      cards.forEach((c) => moveCardToShortestColumn(masonry, c, colWidth));
+      scheduleRemeasure(masonry);
     });
     // 重建底部哨兵观察器
     observer?.disconnect();
@@ -452,6 +559,22 @@ const photoTags = await getPhotoTags();
     const more = (e.target as HTMLElement).closest<HTMLElement>('#load-more');
     if (more) void loadMore();
   });
+
+  // ---- 视口跨越断点（如手机横竖屏切换）后按新列数重排 ----
+  // 原先列数只在首次建列时算一次，之后 resize 永远保持旧列数（手机转横屏仍是两列）
+  window.addEventListener(
+    'resize',
+    () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        if (columnCount() === builtColumns) return; // 未跨断点，无需重排
+        el<HTMLElement>('gallery-groups')
+          ?.querySelectorAll<HTMLElement>('.masonry')
+          .forEach(reflowMasonry);
+      }, 150);
+    },
+    { passive: true },
+  );
 
   document.addEventListener('astro:page-load', init);
   init();

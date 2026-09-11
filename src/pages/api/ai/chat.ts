@@ -13,7 +13,7 @@
  * - 客户端断开时联动终止上游请求（不白烧 token）。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, forbidden, json, readJson } from '@/lib/api';
 import { isManagerSession, isTopAdmin } from '@/lib/admin-auth';
 import {
   getAiConfig,
@@ -75,8 +75,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   // 1. 身份与开关（主人=顶级管理员：站主会话或 role=top 的 GitHub 管理员；判定在服务端，不受前端传参影响）
   const [isManager, isOwner] = await Promise.all([isManagerSession(cookies), isTopAdmin(cookies)]);
   const cfg = await getAiConfig();
-  if (!isAiReady(cfg)) return json({ error: 'AI 功能未启用或配置不完整' }, 403);
-  if (!isManager && !cfg.allowGuests) return json({ error: 'AI 功能仅对管理员开放' }, 403);
+  if (!isAiReady(cfg)) return forbidden('AI 功能未启用或配置不完整');
+  if (!isManager && !cfg.allowGuests) return forbidden('AI 功能仅对管理员开放');
 
   // 2. 游客双层限流（IP 内存计数 + 全局 DB 计数）
   if (!isManager) {
@@ -87,12 +87,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   }
 
   // 3. 请求校验
-  let body: { messages?: unknown };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ messages?: unknown }>(request);
+  if (!body) return badJson();
   const messages = sanitizeMessages(body.messages);
   if (!messages) {
     return json({ error: `消息不合法（1-${MAX_MESSAGES} 条，每条需有内容且不超过 ${MAX_CONTENT_CHARS} 字）` }, 400);

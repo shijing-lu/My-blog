@@ -8,20 +8,16 @@
  */
 import type { APIRoute } from 'astro';
 import { batchUpdateTags } from '@/lib/photos';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, readJson } from '@/lib/api';
 
 export const prerender = false;
 
 export const PATCH: APIRoute = async ({ request }) => {
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return badJson();
   const ids = Array.isArray(body.ids) ? (body.ids as unknown[]).filter((x): x is string => typeof x === 'string') : [];
-  if (ids.length === 0) return json({ error: '请选择照片' }, 400);
-  if (ids.length > 200) return json({ error: '单次最多 200 张' }, 400);
+  if (ids.length === 0) return badRequest('请选择照片');
+  if (ids.length > 200) return badRequest('单次最多 200 张');
   const op = body.op === 'add' || body.op === 'remove' ? body.op : 'set';
   const tags = Array.isArray(body.tags) ? (body.tags as unknown[]).filter((t): t is string => typeof t === 'string') : [];
   try {

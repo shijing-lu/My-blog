@@ -13,7 +13,7 @@ import {
   addPhoto,
   listPhotosAlive,
 } from '@/lib/photos';
-import { json, jsonCached } from '@/lib/api';
+import { badJson, badRequest, json, jsonCached, readJson } from '@/lib/api';
 import { photoStorageEnabled, uploadPhotoObject } from '@/lib/photo-storage';
 import { ALLOWED_MIME } from '@/lib/images';
 
@@ -83,17 +83,13 @@ export const GET: APIRoute = async ({ url }) => {
 
 /** POST：上传单张照片（管理员） */
 export const POST: APIRoute = async ({ request }) => {
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return badJson();
 
   // 展示日期：合法 Date 即可（允许回填任意历史日期）
   const takenAt = new Date(typeof body.takenAt === 'string' ? body.takenAt : '');
   if (Number.isNaN(takenAt.getTime())) {
-    return json({ error: '日期不合法' }, 400);
+    return badRequest('日期不合法');
   }
   const title = typeof body.title === 'string' ? body.title.slice(0, MAX_TITLE_LENGTH) : '';
   const tags = parseTagsArg(body);
@@ -104,7 +100,7 @@ export const POST: APIRoute = async ({ request }) => {
   const importUrl = typeof body.importUrl === 'string' ? body.importUrl.trim() : '';
   if (importUrl) {
     if (!/^https?:\/\/\S+$/.test(importUrl) || importUrl.length > 2048) {
-      return json({ error: 'URL 不合法' }, 400);
+      return badRequest('URL 不合法');
     }
     try {
       const photo = await addPhoto({
@@ -134,12 +130,12 @@ export const POST: APIRoute = async ({ request }) => {
   const thumbBase64 = typeof body.thumbBase64 === 'string' ? body.thumbBase64 : '';
 
   if (!ALLOWED_MIME.test(mime)) {
-    return json({ error: '仅支持 PNG / JPG / GIF / WebP / AVIF / SVG 图片' }, 400);
+    return badRequest('仅支持 PNG / JPG / GIF / WebP / AVIF / SVG 图片');
   }
   const buffer = Buffer.from(dataBase64, 'base64');
-  if (buffer.length === 0) return json({ error: '缺少图片数据' }, 400);
+  if (buffer.length === 0) return badRequest('缺少图片数据');
   if (buffer.length > MAX_PHOTO_BYTES) {
-    return json({ error: '图片不能超过 3MB（压缩后上传）' }, 400);
+    return badRequest('图片不能超过 3MB（压缩后上传）');
   }
   // 请求体体积兜底：base64 原图 + 缩略图不应超过 4.2MB（Vercel 4.5MB 上限留余量）
   if (dataBase64.length + thumbBase64.length > 4.2 * 1024 * 1024) {

@@ -40,8 +40,24 @@ export interface StoredImage {
   size: number | null;
 }
 
-/** 允许的图片 MIME 类型 */
-export const ALLOWED_MIME = /^image\/(png|jpe?g|gif|webp|avif|svg\+xml)$/;
+/**
+ * 允许的图片 MIME 类型。
+ *
+ * ⚠️ **SVG 已从白名单移除（P1-3 安全修复，勿回退）**
+ *
+ * SVG 是**可执行文档**而非纯位图：`<script>` / `onload` / `<foreignObject>`
+ * 都能在其中执行 JS。本项目图片经 `/api/images/<id>` **同源直出**，且
+ * `ContentType` 取自上传时的用户值 —— 恶意 SVG 被直接浏览时会在本站源上执行
+ * 脚本，可读取 `admin_session` Cookie（`sameSite: lax` 对顶层导航放行）。
+ *
+ * 影响面评估：仅管理员可上传，非远程攻击面；但属 OWASP 明确的
+ * 「受信任输入误判」——一旦管理员账号被盗或误传第三方 SVG 即失守。
+ *
+ * 若将来必须支持 SVG，请改用「回源时强制
+ * `Content-Disposition: attachment` + `Content-Security-Policy: default-src 'none'; sandbox`
+ * 」，或对 SVG 做 sanitize（剥离 script/on* 属性/foreignObject）后再入库。
+ */
+export const ALLOWED_MIME = /^image\/(png|jpe?g|gif|webp|avif)$/;
 
 /** 单张图片大小上限：5MB（解码后字节数） */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -53,7 +69,7 @@ const THUMB_WIDTH = 600;
 /** 校验上传参数，返回错误信息或 null */
 export function validateImageUpload(mime: unknown, base64: unknown, byteLength: number): string | null {
   if (typeof mime !== 'string' || !ALLOWED_MIME.test(mime)) {
-    return '仅支持 PNG / JPG / GIF / WebP / AVIF / SVG 图片';
+    return '仅支持 PNG / JPG / GIF / WebP / AVIF 图片';
   }
   if (typeof base64 !== 'string' || base64.length === 0) {
     return '缺少图片数据';
@@ -83,9 +99,10 @@ export async function storeImage(mime: string, dataBase64: string): Promise<Stor
   const buffer = Buffer.from(dataBase64, 'base64');
   const key = `images/${id}`;
 
-  // SVG / GIF：原样传 R2，不生成缩略图
+  // GIF：原样传 R2，不生成缩略图
   // GIF 不能走 sharp 转码 —— webp 编码默认只取第 1 帧，动画会被毁成静态图
-  if (mime === 'image/svg+xml' || mime === 'image/gif') {
+  // （SVG 已从白名单移除，见 ALLOWED_MIME 注释：可执行文档 → 存储型 XSS）
+  if (mime === 'image/gif') {
     const url = await putObject(key, { buffer, contentType: mime });
     const dims = await imageMeta(buffer);
     const row = {

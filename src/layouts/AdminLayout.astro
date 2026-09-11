@@ -34,12 +34,21 @@ const siteTitle = await getSiteName();
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title} · {siteTitle}</title>
+    {/* 后台页面一律不索引（P1-7）：防搜索引擎收录管理入口 */}
+    <meta name="robots" content="noindex, nofollow" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <ThemeHead />
     {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题） */}
     {fontCss !== '' && <style set:html={fontCss} />}
   </head>
   <body class="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+    {/* 跳转到主内容（无障碍 P1-5）：与 BaseLayout 一致，键盘用户可直达后台内容区 */}
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:border focus:border-primary/40 focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary focus:shadow-lg"
+    >
+      跳转到主内容
+    </a>
     <header class="flex h-12 shrink-0 items-center justify-between border-b px-4">
       <a href="/" data-site-name class="font-pixel text-sm tracking-wider text-primary">
         {siteTitle}
@@ -71,7 +80,7 @@ const siteTitle = await getSiteName();
         }
       </nav>
     </header>
-    <main class="min-h-0 flex-1">
+    <main id="main" tabindex="-1" class="min-h-0 flex-1 focus:outline-none">
       <slot />
     </main>
   </body>

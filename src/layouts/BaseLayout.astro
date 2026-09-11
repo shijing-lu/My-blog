@@ -3,12 +3,18 @@
 interface Props {
   title?: string;
   description?: string;
+  /** 页面封面图（OG/Twitter 分享缩略图；相对路径会自动补成绝对 URL，留空则不输出 og:image） */
+  image?: string;
+  /** 是否允许搜索引擎索引该页（默认 true；后台/编辑等私密页传 false → 输出 noindex） */
+  indexable?: boolean;
 }
 
 /* ===== Logic ===== */
 const {
   title = '',
   description = '技术教程 · 学习笔记 · 随笔与摄影',
+  image = '',
+  indexable = true,
 } = Astro.props;
 
 /* ===== Imports ===== */
@@ -45,6 +51,21 @@ import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 const siteTitle = await getSiteName();
 /** 文档标题：无页面标题或与站名相同时只显示站名，否则「页面标题 · 站名」 */
 const pageTitle = title === '' || title === siteTitle ? siteTitle : `${title} · ${siteTitle}`;
+
+/* ---- SEO / 社交分享元信息（P1-7）----
+ * 站点根地址：优先环境变量（部署时配 SITE_URL，如 https://blog.example.com），
+ * 缺失时回落到当前请求 origin——保证 canonical / og:url / og:image 始终是绝对 URL
+ * （Open Graph 规范要求绝对地址，相对路径会被多数抓取方忽略）。 */
+const rawOrigin =
+  import.meta.env.SITE ?? import.meta.env.PUBLIC_SITE_URL ?? Astro.url.origin;
+const origin = String(rawOrigin).replace(/\/+$/, '');
+/** 当前页面规范化绝对地址（去掉查询串与 hash，避免 ?page=2 之类被判重） */
+const canonicalUrl = new URL(Astro.url.pathname, `${origin}/`).href;
+/** 分享缩略图绝对地址（传入相对路径时补全；未传入则回落到站点默认图 public/og-default.svg） */
+const ogImagePath = image || '/og-default.svg';
+const ogImage = /^https?:\/\//.test(ogImagePath)
+  ? ogImagePath
+  : new URL(ogImagePath, `${origin}/`).href;
 /** 页脚标语：每次刷新从诗词轮播配置的名言池随机一条（配置保证至少一条） */
 const heroQuotes = (await getHeroQuoteSettings()).quotes;
 const footerQuote =
@@ -72,6 +93,19 @@ const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
 /** 自定义 Markdown 样式（设置页上传）：作用域化后全站注入，覆盖所有 .prose 渲染处 */
 const mdCustomCss = await getCustomMdCss();
 const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) : '';
+
+/* ---- 是否需要 KaTeX 字体预热（P2-21）----
+ * 6 个 KaTeX 字体每个约 10–30KB，原先**无条件** preload：像 /nav、/calendar、/gallery
+ * 这类零公式页面也白白拉 6 个请求，挤占首屏带宽、抬高 LCP。
+ * 只有「会渲染 MDX 正文」的路由才可能出现公式，故按前缀白名单判定：
+ *   - /blog/*     文章详情（技术笔记大量公式）
+ *   - /doc/*      文档库
+ *   - /demo       MDX 渲染演示页
+ * 公式字体失败时有 MathML 兜底（见下方脚本），因此漏判的代价是可接受的降级，
+ * 而误判（该 preload 却没 preload）只影响首帧公式字体，不影响正确性。 */
+const pathname = Astro.url.pathname;
+const needsKatexFonts =
+  pathname.startsWith('/blog/') || pathname.startsWith('/doc/') || pathname === '/demo';
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
@@ -82,16 +116,38 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
+    {/* 规范化链接：同内容多入口（?page=、尾斜杠、大小写）统一指向本页标准地址 */}
+    <link rel="canonical" href={canonicalUrl} />
+    {!indexable && <meta name="robots" content="noindex, nofollow" />}
+    {/* Open Graph / Twitter Card：分享到微信、X、Telegram 等处不再只有裸链接（P1-7） */}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={siteTitle} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content="zh_CN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <ClientRouter fallback="swap" />
     <ThemeHead />
-    {/* KaTeX 关键字体预热（并行提前拉取，缓解弱网下公式字体加载失败） */}
-    <link rel="preload" as="font" type="font/woff2" href={katexMainRegular} crossorigin="anonymous" />
-    <link rel="preload" as="font" type="font/woff2" href={katexMainBold} crossorigin="anonymous" />
-    <link rel="preload" as="font" type="font/woff2" href={katexMathItalic} crossorigin="anonymous" />
-    <link rel="preload" as="font" type="font/woff2" href={katexMathBoldItalic} crossorigin="anonymous" />
-    <link rel="preload" as="font" type="font/woff2" href={katexSize1} crossorigin="anonymous" />
-    <link rel="preload" as="font" type="font/woff2" href={katexSize2} crossorigin="anonymous" />
+    {/* KaTeX 关键字体预热（并行提前拉取，缓解弱网下公式字体加载失败）。
+        P2-21：仅公式页面 preload（见 needsKatexFonts 判定），其余路由零额外请求。 */}
+    {
+      needsKatexFonts && (
+        <>
+          <link rel="preload" as="font" type="font/woff2" href={katexMainRegular} crossorigin="anonymous" />
+          <link rel="preload" as="font" type="font/woff2" href={katexMainBold} crossorigin="anonymous" />
+          <link rel="preload" as="font" type="font/woff2" href={katexMathItalic} crossorigin="anonymous" />
+          <link rel="preload" as="font" type="font/woff2" href={katexMathBoldItalic} crossorigin="anonymous" />
+          <link rel="preload" as="font" type="font/woff2" href={katexSize1} crossorigin="anonymous" />
+          <link rel="preload" as="font" type="font/woff2" href={katexSize2} crossorigin="anonymous" />
+        </>
+      )
+    }
     {/* KaTeX 字体韧性检测：字体加载失败 → html.katex-font-fallback → 全站公式切原生 MathML 展示
         （KaTeX 每个公式同时输出 .katex-html 视觉层 + .katex-mathml 原生层，兜底零渲染成本）。
         根因背景：KaTeX 字体加载失败时 Times 回退度量使 vlist 行盒塌缩 → 公式糊成一团；
@@ -147,6 +203,14 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
     {mdCssScoped !== '' && <style id="md-custom-css" set:html={mdCssScoped} />}
   </head>
   <body class="flex min-h-dvh flex-col">
+    {/* 跳转到主内容（无障碍 P1-5）：默认视觉隐藏，键盘 Tab 聚焦时才显形。
+        全站导航有 6 个链接 + 若干图标按钮，键盘/读屏用户无需逐个跳过即可直达正文。 */}
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:border focus:border-primary/40 focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary focus:shadow-lg"
+    >
+      跳转到主内容
+    </a>
     {
       resolvedBg && (
         // 注意：不要加 transition:persist —— 持久化会把旧背景元素（含旧 --bg-url）复用到新页面，
@@ -207,7 +271,9 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
       </div>
     </header>
 
-    <main class="flex-1">
+    {/* id + tabindex="-1"：让 skip link 的 #main 锚点可聚焦，
+        焦点转移后读屏会播报主内容区起点（否则浏览器只滚动不移动焦点） */}
+    <main id="main" tabindex="-1" class="flex-1 focus:outline-none">
       <slot />
     </main>
 
@@ -244,13 +310,13 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
       // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
       if (!(window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound) {
         (window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound = true;
-      /** 顶部阅读进度条 */
+      /** 顶部阅读进度条（P2-4：写 CSS 变量驱动 transform，不再改 width 触发布局） */
       const progressEl = document.getElementById('scroll-progress');
       const updateProgress = (): void => {
         if (!progressEl) return;
         const h = document.documentElement.scrollHeight - window.innerHeight;
-        const p = h > 0 ? (window.scrollY / h) * 100 : 0;
-        progressEl.style.width = `${p}%`;
+        const p = h > 0 ? window.scrollY / h : 0;
+        progressEl.style.setProperty('--progress', String(p));
       };
       window.addEventListener('scroll', updateProgress, { passive: true });
       window.addEventListener('resize', updateProgress);
@@ -421,9 +487,17 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
       /** 流星划过 / 点击烟花 / 滑动流星特效（prefers-reduced-motion 时关闭） */
       if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         const PARTICLE_COLORS = ['var(--color-primary)', 'var(--color-chart-3)', 'var(--color-chart-4)', '#ffffff'];
+        /* P2-1：mousemove 粒子原先每 40ms 无条件创建 3 个节点（≈75 节点/秒），
+           长时间移动鼠标会持续制造 DOM churn。改为三重收敛：
+           ① 节流放宽到 90ms；② 单次只生成 2 颗；③ 同屏粒子数上限 40（用计数器而非
+           查 DOM，避免每帧 querySelectorAll 的开销）。命中上限时直接跳过本次生成。 */
+        const MAX_LIVE_PARTICLES = 40;
+        let liveParticles = 0;
 
         /** 生成一颗流星点（fixed 定位，0.6s 后自动清除） */
         function spawnMeteor(x: number, y: number, drift: number): void {
+          if (liveParticles >= MAX_LIVE_PARTICLES) return;
+          liveParticles += 1;
           const span = document.createElement('span');
           span.className = 'meteor';
           const size = 4 + Math.random() * 5;
@@ -435,21 +509,26 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
           span.style.setProperty('--dy', `${drift * (Math.random() - 0.5) * 2}px`);
           span.style.background = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)]!;
           document.body.appendChild(span);
-          span.addEventListener('animationend', () => span.remove());
+          span.addEventListener('animationend', () => {
+            liveParticles -= 1;
+            span.remove();
+          });
         }
 
-        /** 鼠标划过：流星拖尾 */
+        /** 鼠标划过：流星拖尾（90ms 节流，每次 2 颗；同屏上限见 MAX_LIVE_PARTICLES） */
         let lastMeteor = 0;
         document.addEventListener('mousemove', (e) => {
           const now = performance.now();
-          if (now - lastMeteor < 40) return; // 40ms 节流
+          if (now - lastMeteor < 90) return;
           lastMeteor = now;
-          for (let i = 0; i < 3; i += 1) spawnMeteor(e.clientX, e.clientY, 22);
+          for (let i = 0; i < 2; i += 1) spawnMeteor(e.clientX, e.clientY, 22);
         });
 
-        /** 点击：烟花散开 */
+        /** 点击：烟花散开（每次点击固定 12 颗，属用户主动触发，不受 mousemove 节流约束） */
         document.addEventListener('click', (e) => {
           for (let i = 0; i < 12; i += 1) {
+            if (liveParticles >= MAX_LIVE_PARTICLES) break;
+            liveParticles += 1;
             const span = document.createElement('span');
             span.className = 'firework-particle';
             const size = 3 + Math.random() * 3;
@@ -463,7 +542,10 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
             span.style.setProperty('--dy', `${Math.sin(angle) * dist}px`);
             span.style.background = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)]!;
             document.body.appendChild(span);
-            span.addEventListener('animationend', () => span.remove());
+            span.addEventListener('animationend', () => {
+              liveParticles -= 1;
+              span.remove();
+            });
           }
         });
 

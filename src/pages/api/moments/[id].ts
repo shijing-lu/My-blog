@@ -9,7 +9,7 @@
 import type { APIRoute } from 'astro';
 import { MAX_CONTENT, deleteMoment, getMoment, isValidMedia, normalizeVisibility, updateMoment } from '@/lib/moments';
 import { canManage } from '@/lib/admin-auth';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, missing, notFound, readJson } from '@/lib/api';
 import type { MomentMedia } from '../../../../db/types';
 
 export const prerender = false;
@@ -20,11 +20,11 @@ const MAX_MEDIA = 9;
 /** GET：单条动态（私密动态仅管理员可见，其余 404） */
 export const GET: APIRoute = async ({ params, cookies }) => {
   const id = params.id;
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   const moment = await getMoment(id);
-  if (!moment) return json({ error: '动态不存在' }, 404);
+  if (!moment) return notFound('动态不存在');
   if (moment.visibility === 'private' && !(await canManage(cookies, 'moments'))) {
-    return json({ error: '动态不存在' }, 404);
+    return notFound('动态不存在');
   }
   return json({
     moment: {
@@ -41,13 +41,9 @@ export const GET: APIRoute = async ({ params, cookies }) => {
 /** PATCH：更新内容 / 媒体 / 标签 / 可见性（管理员） */
 export const PATCH: APIRoute = async ({ params, request }) => {
   const id = params.id;
-  if (!id) return json({ error: '缺少 id' }, 400);
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  if (!id) return missing('id');
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return badJson();
   const content = typeof body.content === 'string' ? body.content.trim().slice(0, MAX_CONTENT) : undefined;
   const tags = Array.isArray(body.tags)
     ? (body.tags as unknown[]).filter((t): t is string => typeof t === 'string')
@@ -57,17 +53,17 @@ export const PATCH: APIRoute = async ({ params, request }) => {
   // 媒体仅显式传入时更新（未传不改）；校验规则与 POST /api/moments 一致
   let media: MomentMedia[] | undefined;
   if (body.media !== undefined) {
-    if (!Array.isArray(body.media)) return json({ error: 'media 格式错误' }, 400);
+    if (!Array.isArray(body.media)) return badRequest('media 格式错误');
     if (body.media.length > MAX_MEDIA) return json({ error: `最多 ${MAX_MEDIA} 个媒体` }, 400);
     const validMedia = (body.media as unknown[]).filter(isValidMedia);
-    if (validMedia.length !== body.media.length) return json({ error: '媒体格式错误' }, 400);
+    if (validMedia.length !== body.media.length) return badRequest('媒体格式错误');
     media = validMedia;
   }
   if (content === undefined && media === undefined && tags === undefined && visibility === undefined) {
-    return json({ error: '没有可更新字段' }, 400);
+    return badRequest('没有可更新字段');
   }
   const moment = await updateMoment(id, { content, media, tags, visibility });
-  if (!moment) return json({ error: '动态不存在' }, 404);
+  if (!moment) return notFound('动态不存在');
   return json({
     moment: { id: moment.id, content: moment.content, media: moment.media, tags: moment.tags, visibility: moment.visibility },
   });
@@ -76,8 +72,8 @@ export const PATCH: APIRoute = async ({ params, request }) => {
 /** DELETE：删除（管理员） */
 export const DELETE: APIRoute = async ({ params }) => {
   const id = params.id;
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   const moment = await deleteMoment(id);
-  if (!moment) return json({ error: '动态不存在' }, 404);
+  if (!moment) return notFound('动态不存在');
   return json({ ok: true });
 };

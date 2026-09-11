@@ -13,15 +13,20 @@ interface Props {
 
 const { article, toc, prev, next } = Astro.props;
 
+/** 分享缩略图（OG/Twitter，P1-7）：手动封面优先，否则正文首图；无图则交回 BaseLayout 用站点默认图 */
+const ogImage = cardCoverUrl(resolveCover(article), 1200) ?? undefined;
+
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import { resolveCover } from '@/lib/articles';
+import { cardCoverUrl } from '@/lib/images';
 import ArticleHeader from '@/components/article/ArticleHeader.astro';
 import ArticleToc from '@/components/article/ArticleToc.astro';
 import ArticleAside from '@/components/article/ArticleAside.astro';
 import ArticleFooter from '@/components/article/ArticleFooter.astro';
 ---
 <!-- ===== Template ===== -->
-<BaseLayout title={article.title} description={article.summary}>
+<BaseLayout title={article.title} description={article.summary} image={ogImage}>
   <section class="mx-auto w-full max-w-6xl px-4 py-10">
     <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_250px]">
       <div class="min-w-0">

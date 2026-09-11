@@ -8,8 +8,7 @@
  * 防止把任意外部链接/伪造链接写库。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import { addFontBlob } from '@/lib/fonts';
 import { MAX_BLOB_BYTES } from './upload-url';
 
@@ -20,25 +19,22 @@ const MAX_NAME = 100;
 const BLOB_URL_RE = /^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\/fonts\//i;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
 
-  let body: { familyName?: unknown; mime?: unknown; url?: unknown; size?: unknown };
-  try {
-    body = (await request.json()) as { familyName?: unknown; mime?: unknown; url?: unknown; size?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ familyName?: unknown; mime?: unknown; url?: unknown; size?: unknown }>(request);
+  if (!body) return badJson();
 
   const familyName = typeof body.familyName === 'string' ? body.familyName.trim().slice(0, MAX_NAME) : '';
-  if (!familyName) return json({ error: '请填写字体名称' }, 400);
+  if (!familyName) return badRequest('请填写字体名称');
 
   const url = typeof body.url === 'string' ? body.url.trim() : '';
-  if (!url || !BLOB_URL_RE.test(url)) return json({ error: '字体 URL 不合法（仅接受本站 Blob 直传结果）' }, 400);
+  if (!url || !BLOB_URL_RE.test(url)) return badRequest('字体 URL 不合法（仅接受本站 Blob 直传结果）');
 
   const mime = typeof body.mime === 'string' && /^font\/[\w.+-]+$/.test(body.mime) ? body.mime : 'font/woff2';
   const size = Number(body.size);
   if (!Number.isFinite(size) || size <= 0 || size > MAX_BLOB_BYTES) {
-    return json({ error: '文件大小不合法' }, 400);
+    return badRequest('文件大小不合法');
   }
 
   try {

@@ -5,21 +5,17 @@
  * DELETE: → 清除手动字体设置，恢复跟随当前主题字体
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, guardManager, json, readJson } from '@/lib/api';
 import { clearSiteFonts, saveSiteFonts } from '@/lib/fonts';
 import type { SiteFonts } from '../../../db/types';
 
 export const prerender = false;
 
 export const PUT: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: Partial<SiteFonts>;
-  try {
-    body = (await request.json()) as Partial<SiteFonts>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<Partial<SiteFonts>>(request);
+  if (!body) return badJson();
   try {
     const saved = await saveSiteFonts(body);
     return json({ fonts: saved });
@@ -31,7 +27,8 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
 
 /** DELETE：清除手动字体设置（恢复跟随主题字体） */
 export const DELETE: APIRoute = async ({ cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   try {
     await clearSiteFonts();
     return json({ ok: true });

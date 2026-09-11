@@ -9,8 +9,7 @@
  * → 200 { map: { id, updatedAt } }
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, notFound, readJson } from '@/lib/api';
 import { addMindmapRefNode, getMindmap, parseMindmapData, stringifyMindmapData, updateMindmap } from '@/lib/mindmaps';
 
 export const prerender = false;
@@ -19,26 +18,23 @@ const MAX_TEXT = 80;
 const MAX_SNIPPET = 500;
 
 export const POST: APIRoute = async ({ params, request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   const id = params.id ?? '';
-  let body: { text?: unknown; anchorId?: unknown; snippet?: unknown; parentId?: unknown };
-  try {
-    body = (await request.json()) as { text?: unknown; anchorId?: unknown; snippet?: unknown; parentId?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ text?: unknown; anchorId?: unknown; snippet?: unknown; parentId?: unknown }>(request);
+  if (!body) return badJson();
 
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   const anchorId = typeof body.anchorId === 'string' ? body.anchorId.trim() : '';
   const snippet = typeof body.snippet === 'string' ? body.snippet.trim() : '';
-  if (!text) return json({ error: '缺少引用名称' }, 400);
+  if (!text) return badRequest('缺少引用名称');
   // 锚点（文章页引用）或片段文本（编辑页引用）至少其一
-  if (!anchorId && !snippet) return json({ error: '缺少引用内容' }, 400);
+  if (!anchorId && !snippet) return badRequest('缺少引用内容');
   const parentId = typeof body.parentId === 'string' && body.parentId.trim() ? body.parentId.trim() : null;
 
   try {
     const map = await getMindmap(id);
-    if (!map) return json({ error: '思维导图不存在' }, 404);
+    if (!map) return notFound('思维导图不存在');
     const data = parseMindmapData(map.data);
     const next = addMindmapRefNode(data, {
       parentId,

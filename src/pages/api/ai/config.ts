@@ -5,15 +5,15 @@
  * - PUT：保存配置（apiKey 留空 = 保留原值）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import { getAiConfig, saveAiConfig, serializeAiConfig, type AiConfig } from '@/lib/ai-config';
 
 export const prerender = false;
 
 /** GET：读取配置（掩码） */
 export const GET: APIRoute = async ({ cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   try {
     const config = await getAiConfig();
     return json(serializeAiConfig(config));
@@ -25,15 +25,12 @@ export const GET: APIRoute = async ({ cookies }) => {
 
 /** PUT：保存配置 */
 export const PUT: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: Partial<AiConfig>;
-  try {
-    body = (await request.json()) as Partial<AiConfig>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<Partial<AiConfig>>(request);
+  if (!body) return badJson();
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return json({ error: '请求体不合法' }, 400);
+    return badRequest('请求体不合法');
   }
   try {
     const saved = await saveAiConfig(body);

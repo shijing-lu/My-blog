@@ -12,7 +12,7 @@
  * 保证局部更新与服务端渲染结果一致。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badRequest, json } from '@/lib/api';
 import { canManage } from '@/lib/admin-auth';
 import { buildMonthGrid, countdownText, dateKey, nextOccurrence } from '@/lib/calendar';
 import { getDiaryByDate, listDiaryDates, listEvents, listTodos } from '@/lib/calendar-data';
@@ -77,7 +77,7 @@ export const GET: APIRoute = async ({ url, cookies }) => {
   if (MONTH_RE.test(rawMonth)) {
     year = Number(rawMonth.slice(0, 4));
     month = Number(rawMonth.slice(5, 7));
-    if (month < 1 || month > 12) return json({ error: '月份不合法' }, 400);
+    if (month < 1 || month > 12) return badRequest('月份不合法');
   }
   const rawDate = url.searchParams.get('date') ?? '';
   const selectedKey = DATE_RE.test(rawDate) ? rawDate : todayKey;

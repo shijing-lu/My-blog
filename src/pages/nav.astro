@@ -54,11 +54,12 @@ function renderSite(site: SiteLike, authed: boolean): string {
   const dragAttr = authed ? ` draggable="true" data-site-id="${site.id}" data-site-name="${esc(name)}"` : '';
   // 管理员：右上角操作组（编辑 ✎ + 删除 ×，hover 显示）
   const actions = authed
-    ? `<span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">` +
+    // 管理按钮常驻可见（P1-8）：触屏/键盘无 hover，原先 opacity-0 会让按钮不可达
+    ? `<span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
       `<button type="button" data-site-edit="${site.id}" title="编辑" aria-label="编辑" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">✎</button>` +
+      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">✎</button>` +
       `<button type="button" data-site-del="${site.id}" data-site-name="${esc(name)}" title="删除" aria-label="删除" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive">×</button>` +
+      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive">×</button>` +
       `</span>`
     : '';
   return (
@@ -98,11 +99,12 @@ function subBlock(
   authed: boolean,
 ): string {
   const actions = authed
-    ? `<span class="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">` +
+    // 管理按钮常驻可见（P1-8）
+    ? `<span class="ml-auto flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
       `<button type="button" data-sub-edit="${sub.id}" data-sub-name="${esc(sub.name)}" title="重命名子分类" aria-label="重命名子分类" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">✎</button>` +
+      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">✎</button>` +
       `<button type="button" data-sub-del="${sub.id}" data-sub-name="${esc(sub.name)}" data-sub-num="${sites.length}" title="删除子分类" aria-label="删除子分类" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive">×</button>` +
+      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive">×</button>` +
       `</span>`
     : '';
   const head =
@@ -270,14 +272,14 @@ function addSubForm(categoryId: string): string {
                           </button>
                           {isAuthed && (
                             <span
-                              class="absolute -top-1.5 right-0 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"
+                              class="absolute -top-1.5 right-0 z-10 flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                             >
                               <button
                                 type="button"
                                 data-cat-edit={c.id}
                                 title="编辑分类"
                                 aria-label="编辑分类"
-                                class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                                class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
                               >✎</button>
                               <button
                                 type="button"
@@ -285,7 +287,7 @@ function addSubForm(categoryId: string): string {
                                 data-cat-name={esc(c.name)}
                                 title="删除分类"
                                 aria-label="删除分类"
-                                class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                                class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
                               >×</button>
                             </span>
                           )}

@@ -6,7 +6,7 @@
  * 保证编辑/发布预览所见即最终卡片所渲染（单一服务端渲染来源，XSS 安全）。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, json, readJson } from '@/lib/api';
 import { renderMarkdownHtml } from '@/lib/mdx';
 
 export const prerender = false;
@@ -14,12 +14,8 @@ export const prerender = false;
 const MAX_SOURCE = 2000;
 
 export const POST: APIRoute = async ({ request }) => {
-  let body: { source?: unknown };
-  try {
-    body = (await request.json()) as { source?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ source?: unknown }>(request);
+  if (!body) return badJson();
   const source = typeof body.source === 'string' ? body.source.slice(0, MAX_SOURCE) : '';
   try {
     const html = await renderMarkdownHtml(source);

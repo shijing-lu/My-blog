@@ -185,7 +185,9 @@ export async function listPhotosAlive(limit: number, offset: number, filter: Pho
 export async function countPhotos(filter: PhotoFilter = {}): Promise<number> {
   const where = filter.tag ? like(photos.tags, `%"${filter.tag}"%`) : undefined;
   const rows = await db.select({ n: count() }).from(photos).where(where);
-  return rows[0]?.n ?? 0;
+  // P2-12：PG 的 count() 返回 bigint（驱动层给出的是字符串），SQLite 返回 number。
+  // 直接返回会让 `count + 1` 变成字符串拼接，故统一显式转数值。
+  return Number(rows[0]?.n ?? 0);
 }
 
 /** 按 id 查询照片 */

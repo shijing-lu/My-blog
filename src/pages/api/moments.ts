@@ -10,7 +10,7 @@
 import type { APIRoute } from 'astro';
 import { addMoment, isValidMedia, listMoments, MAX_TAGS, normalizeVisibility, toMomentView } from '@/lib/moments';
 import { canManage } from '@/lib/admin-auth';
-import { json, jsonCached } from '@/lib/api';
+import { badJson, badRequest, json, jsonCached, readJson } from '@/lib/api';
 
 export const prerender = false;
 
@@ -62,23 +62,19 @@ export const GET: APIRoute = async ({ url, cookies }) => {
 
 /** POST：发布（管理员） */
 export const POST: APIRoute = async ({ request }) => {
-  let body: { content?: unknown; media?: unknown; tags?: unknown; visibility?: unknown };
-  try {
-    body = (await request.json()) as { content?: unknown; media?: unknown; tags?: unknown; visibility?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ content?: unknown; media?: unknown; tags?: unknown; visibility?: unknown }>(request);
+  if (!body) return badJson();
   const content = typeof body.content === 'string' ? body.content.trim().slice(0, MAX_CONTENT) : '';
   const media = Array.isArray(body.media) ? body.media : [];
   if (content === '' && media.length === 0) {
-    return json({ error: '动态内容不能为空（文字或至少一个媒体）' }, 400);
+    return badRequest('动态内容不能为空（文字或至少一个媒体）');
   }
   if (media.length > MAX_MEDIA) {
     return json({ error: `最多 ${MAX_MEDIA} 个媒体` }, 400);
   }
   const validMedia = media.filter(isValidMedia);
   if (validMedia.length !== media.length) {
-    return json({ error: '媒体格式不合法' }, 400);
+    return badRequest('媒体格式不合法');
   }
   // 标签：字符串数组，最多 MAX_TAGS 个（单个由 serializeTags 限长）
   const rawTags = Array.isArray(body.tags)

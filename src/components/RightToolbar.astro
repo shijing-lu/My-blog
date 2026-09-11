@@ -76,7 +76,22 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
    * - 未编辑 → 打开就地编辑；
    * - 已在编辑态 → 保存并退出。
    * 岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s，避免点击无响应。
+   *
+   * 轮询定时器统一由 bridgeTimer 持有：重复点击 / 页面切换都会取消上一个，
+   * 避免悬挂定时器在导航后仍然触发（访问已卸载页面的 DOM）。
    */
+  let bridgeTimer = 0;
+
+  function cancelBridgeWait(): void {
+    if (bridgeTimer) {
+      window.clearTimeout(bridgeTimer);
+      bridgeTimer = 0;
+    }
+  }
+
+  // View Transitions 换页即取消等待（document 级监听不随 DOM 替换而消失）
+  document.addEventListener('astro:before-swap', cancelBridgeWait);
+
   document.addEventListener('click', (e) => {
     if (!(e.target as HTMLElement).closest('#rt-doc-inline-edit')) return;
     const grid = document.getElementById('doc-3col');
@@ -85,12 +100,14 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
     const tryBridge = (): void => {
       const bridge = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
       if (!bridge) {
-        if (tries++ < 20) window.setTimeout(tryBridge, 100);
+        if (tries++ < 20) bridgeTimer = window.setTimeout(tryBridge, 100);
         return;
       }
+      bridgeTimer = 0;
       if (editing && bridge.saveAndClose) bridge.saveAndClose();
       else bridge.open();
     };
+    cancelBridgeWait();
     tryBridge();
   });
 </script>

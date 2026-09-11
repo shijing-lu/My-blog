@@ -5,16 +5,16 @@
  */
 import type { APIRoute } from 'astro';
 import { deleteArticle, getArticleById } from '@/lib/articles';
-import { json, serializeArticle } from '@/lib/api';
+import { json, missing, notFound, serializeArticle } from '@/lib/api';
 
 export const prerender = false;
 
 /** 载入草稿 */
 export const GET: APIRoute = async ({ params }) => {
   const id = params.id;
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   const article = await getArticleById(id);
-  if (!article) return json({ error: '文章不存在' }, 404);
+  if (!article) return notFound('文章不存在');
 
   return json({ article: serializeArticle(article) });
 };
@@ -22,7 +22,7 @@ export const GET: APIRoute = async ({ params }) => {
 /** 删除文章 */
 export const DELETE: APIRoute = async ({ params }) => {
   const id = params.id;
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   await deleteArticle(id);
   return json({ ok: true });
 };

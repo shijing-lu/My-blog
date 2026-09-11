@@ -28,7 +28,7 @@ const visitorUser = isVisitor ? await getGithubUserById(getCurrentUserId(Astro.c
 const ghLoginUrl = '/api/auth/user/github?next=/manage';
 ---
 <!-- ===== Template ===== -->
-<BaseLayout title="管理" description="博客管理入口">
+<BaseLayout title="管理" description="博客管理入口" indexable={false}>
   <section class="mx-auto w-full max-w-md px-4 py-16">
     <!-- 普通管理员：无权进入授权管理页 -->
     {

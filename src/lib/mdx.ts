@@ -6,6 +6,7 @@
  * - Toc: extractToc（独立轻量管线提取目录，避免依赖 evaluate 中间数据）
  * - Render: renderMdx（evaluate → renderToString）
  */
+import { createHash } from 'node:crypto';
 import { createElement } from 'react';
 import type { ComponentType } from 'react';
 import { renderToString } from 'react-dom/server';
@@ -31,18 +32,25 @@ export interface RenderOptions {
 
 /* ============== renderMdx 内存 LRU 缓存 ==============
  * 切换同一篇文章第二次起几乎零延迟；高频访问受益显著。
- * - key 用源码 hash（djb2 + length 防碰撞），避免 Map 直接持有大字符串作 key
+ * - key 用归一化源码的 SHA-1 前 32 位十六进制（128 bit），避免 Map 直接持有大字符串作 key
+ *   （原先的 djb2 仅 32 bit，理论上两字符即可碰撞；长文档在百条缓存下概率约 2.3e-6）
+ * - 关键约束：写入与失效必须走**同一套** key 计算，即 normalizeSource() + cacheKey()。
+ *   早期版本失效用 djb2(raw source)、写入用 djb2(normalized)，两者永不相等 → 失效彻底 no-op。
  * - 容量 100 条；Map 按插入顺序，超限驱逐最旧
  * - 仅在无自定义 components 时生效（自定义组件会改变渲染结果）
- * - 单 Vercel Function 实例；冷启动清空；文档更新后由调用方在 cacheKey 上拼 updatedAt
+ * - 单 Vercel Function 实例；冷启动清空
  * ======================================================= */
 const RENDER_CACHE_MAX = 100;
 const RENDER_CACHE = new Map<string, RenderedMdx>();
 
-function djb2(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h * 33) + s.charCodeAt(i)) | 0;
-  return `${h}_${s.length}`;
+/**
+ * 计算缓存 key
+ *
+ * 用 SHA-1 前 16 字节（hex 32 字符 = 128 bit）。此处仅用于缓存寻址、不涉及安全，
+ * 取 SHA-1 是因为它比 djb2 碰撞概率低若干个数量级，且比完整存储源码省内存。
+ */
+function cacheKey(s: string): string {
+  return createHash('sha1').update(s, 'utf8').digest('hex').slice(0, 32);
 }
 
 function cacheGet(key: string): RenderedMdx | null {
@@ -64,9 +72,14 @@ function cacheSet(key: string, value: RenderedMdx): void {
   }
 }
 
-/** 显式失效某源码的渲染缓存（文档更新时由调用方触发） */
+/**
+ * 显式失效某源码的渲染缓存（文档更新时由调用方触发）
+ *
+ * 传入**原始源码**即可：内部会跑一遍与 renderMdx 完全相同的 normalizeSource()，
+ * 保证这里的 key 与写入时的 key 一致（否则失效是 no-op）。
+ */
 export function invalidateRenderCache(source: string): void {
-  RENDER_CACHE.delete(djb2(source));
+  RENDER_CACHE.delete(cacheKey(normalizeSource(source)));
 }
 
 /** 清空全部渲染缓存（删除/批量操作等场景使用，LRU 也会自然驱逐） */
@@ -719,10 +732,12 @@ export function normalizeTabs(source: string): string {
       const ch = marker[0] ?? '`';
       out.push(line);
       i += 1;
+      // P3-1：闭合围栏正则与行内容无关，提到循环外只编译一次（原先每行都 new RegExp）
+      const closeFenceRe = new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`);
       for (; i < lines.length; i += 1) {
         const l = lines[i] ?? '';
         out.push(l);
-        if (new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`).test(l)) {
+        if (closeFenceRe.test(l)) {
           i += 1;
           break;
         }
@@ -856,11 +871,12 @@ function mapOutsideCode(source: string, fn: (chunk: string) => string): string {
       li += 1;
       // 找闭合围栏（同字符、长度不短于起始）
       let closed = false;
+      // P3-1：闭合正则只依赖起始围栏，提到循环外编译一次
+      const closeRe = new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`);
       for (; li < lines.length; li += 1) {
         const l = lines[li] ?? '';
         const eol = li < lines.length - 1 ? '\n' : '';
         out += l + eol;
-        const closeRe = new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`);
         if (closeRe.test(l)) {
           closed = true;
           break;
@@ -941,19 +957,29 @@ function elementText(node: { type: string; tagName?: string; value?: unknown; ch
 }
 
 /**
+ * HTML 片段解析器（P3-2）
+ *
+ * 原先每次调用都 `unified().use(rehypeParse, …)` 现造一个 processor，
+ * 构造开销随每篇文档重复支付。parse 本身无状态，复用单例即可。
+ */
+const HTML_PARSER = unified().use(rehypeParse, { fragment: true });
+
+/**
  * 从渲染后的 HTML 收集块级锚点映射（para-N → 块信息）。
  *
  * 与 evaluate 共用同一份 HTML（rehypePlugins 已含 rehypeBlockAnchors），
  * 保证映射与页面实际元素 100% 一致（不依赖独立管线的插件差异）。
  */
 export function collectBlockMapFromHtml(html: string): BlockAnchorMap {
-  const tree = unified().use(rehypeParse, { fragment: true }).parse(html) as unknown as {
+  const map: BlockAnchorMap = {};
+  // P3-2 快路径：没有块级锚点时不必解析整棵 HTML 树（短文档 / 未启用段落锚点直接返回）
+  if (!html.includes('id="para-')) return map;
+  const tree = HTML_PARSER.parse(html) as unknown as {
     type: string;
     tagName?: string;
     properties?: Record<string, unknown>;
     children?: unknown[];
   };
-  const map: BlockAnchorMap = {};
   const walk = (node: { type: string; tagName?: string; properties?: Record<string, unknown>; children?: unknown[] }): void => {
     if (node.type === 'element') {
       const id = node.properties?.id;
@@ -971,6 +997,31 @@ export function collectBlockMapFromHtml(html: string): BlockAnchorMap {
 }
 
 /**
+ * 源码预处理的唯一入口
+ *
+ * 六层规范化，顺序不可调换（后者依赖前者的输出）：
+ * 1. normalizeBackticks  反引号变体 → ASCII（U+0060），修复行内代码渲染失败
+ * 2. normalizeMathFences 「内容与 $$ 同行」→ 拆为独占行，修复 KaTeX 收到非法 TeX 的红字
+ * 3. normalizeCollapseParams `:::collapse accordion` → `:::collapse{accordion}`
+ *    （remark-directive 只认花括号属性，空格参数会被整行降级为普通段落）
+ * 4. normalizeTabs `:::tabs#id` + `@tab` → `:::tabs{stableId="id"}` + 无序列表
+ *    （`#` 容器名不被识别、`@tab` 非标准、`:` 被吃成 textDirective，且不支持嵌套容器）
+ * 5. encodeCollapseMarkers / 6. encodeMarkSyntax
+ *    字面量 `\=\=` 与后缀 `{…}` 在 MDX 解析前打上私有区哨兵，
+ *    防 acorn 表达式崩溃 + 让插件能区分「字面量 / 真定界符 / 后缀」
+ *
+ * **抽成单一函数的原因**：renderMdx 写缓存与 invalidateRenderCache 失效缓存
+ * 必须基于同一份归一化结果，否则两侧 key 永不相等、失效变成 no-op。
+ */
+export function normalizeSource(source: string): string {
+  return encodeMarkSyntax(
+    encodeCollapseMarkers(
+      normalizeTabs(normalizeCollapseParams(normalizeMathFences(normalizeBackticks(source)))),
+    ),
+  );
+}
+
+/**
  * 渲染 MDX 源码为 HTML（服务端）
  *
  * - 通过 `evaluate` 以 react/jsx-runtime 编译，配合 `useMDXComponents` 使用组件注册表；
@@ -983,24 +1034,13 @@ export function collectBlockMapFromHtml(html: string): BlockAnchorMap {
  */
 export async function renderMdx(source: string, options: RenderOptions = {}): Promise<RenderedMdx> {
   const merged: MDXComponentMap = { ...mdxComponents, ...(options.components ?? {}) };
-  // 反引号变体规范化：全角/修饰符变体 → ASCII，修复行内代码渲染失败
-  // 数学 fence 规整：内容与 $$ 同行 → 拆为独占行（remark-math fence 语法要求），
-  // 修复「编辑正常、阅读红字」（KaTeX 收到含 $$ 的非法 TeX → .katex-error）
-  // 荧光语法哨兵编码：字面量 `\=\=` 与后缀 `{…}` 在 MDX 解析前打上私有区哨兵，
-  // 防 acorn 表达式崩溃 + 让插件能区分「字面量 / 真定界符 / 后缀」
-  // 折叠面板参数改写：`:::collapse accordion` → `:::collapse{accordion}`
-  // （remark-directive 只认花括号属性，空格参数会被整行降级为普通段落）
-  // 选项卡组改写：`:::tabs#id` + `@tab` → `:::tabs{stableId="id"}` + 无序列表
-  // （`#` 容器名不被识别、`@tab` 非标准、`:` 被吃成 textDirective，且不支持嵌套容器）
-  const normalized = encodeMarkSyntax(
-    encodeCollapseMarkers(
-      normalizeTabs(normalizeCollapseParams(normalizeMathFences(normalizeBackticks(source)))),
-    ),
-  );
-
-  // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果
-  if (!options.components) {
-    const key = djb2(normalized);
+  // 预处理细节见 normalizeSource() 注释
+  const normalized = normalizeSource(source);
+  // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果。
+  // key 只算一次，查与写复用同一个，避免两次计算不一致导致缓存永不命中。
+  const cacheable = !options.components;
+  const key = cacheable ? cacheKey(normalized) : '';
+  if (cacheable) {
     const hit = cacheGet(key);
     if (hit) return hit;
   }
@@ -1023,8 +1063,8 @@ export async function renderMdx(source: string, options: RenderOptions = {}): Pr
   const blockMap = collectBlockMapFromHtml(html);
 
   const result: RenderedMdx = { html, toc, blockMap };
-  if (!options.components) {
-    cacheSet(djb2(normalized), result);
+  if (cacheable) {
+    cacheSet(key, result);
   }
   return result;
 }

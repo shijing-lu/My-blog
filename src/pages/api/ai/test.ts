@@ -8,8 +8,7 @@
  * 返回 { ok, message, latencyMs?, model? }。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { guardManager, json, readJsonLoose } from '@/lib/api';
 import { getAiConfig, buildChatUrl } from '@/lib/ai-config';
 
 export const prerender = false;
@@ -18,13 +17,10 @@ export const prerender = false;
 const TEST_TIMEOUT_MS = 15_000;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { baseUrl?: string; apiKey?: string; model?: string } = {};
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    body = {};
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  /* 参数全部可选（不传即沿用已保存配置），故宽容解析 */
+  const body = await readJsonLoose<{ baseUrl?: string; apiKey?: string; model?: string }>(request);
   try {
     const saved = await getAiConfig();
     const baseUrl =

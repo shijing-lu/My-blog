@@ -10,8 +10,7 @@
 import type { APIRoute } from 'astro';
 import { randomUUID } from 'node:crypto';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import { blobStorageEnabled, blobToken } from '@/lib/blob';
 
 export const prerender = false;
@@ -42,23 +41,20 @@ const ALLOWED_CONTENT_TYPES = [
 ];
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   if (!blobStorageEnabled) {
     return json({ error: '未配置 BLOB_READ_WRITE_TOKEN，大字体直传不可用（请改用 ≤3MB 字体或先在 Vercel 配置 Blob）' }, 503);
   }
 
-  let body: { mime?: unknown; filename?: unknown };
-  try {
-    body = (await request.json()) as { mime?: unknown; filename?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ mime?: unknown; filename?: unknown }>(request);
+  if (!body) return badJson();
 
   const mime = typeof body.mime === 'string' && /^font\/[\w.+-]+$/.test(body.mime) ? body.mime : '';
   const filenameExt =
     typeof body.filename === 'string' ? (body.filename.split('.').pop() ?? '').toLowerCase() : '';
   const ext = MIME_EXT[mime] ?? (['woff2', 'woff', 'ttf', 'otf'].includes(filenameExt) ? filenameExt : '');
-  if (!ext) return json({ error: '无法识别字体格式（支持 woff2/woff/ttf/otf）' }, 400);
+  if (!ext) return badRequest('无法识别字体格式（支持 woff2/woff/ttf/otf）');
   const contentType = mime || `font/${ext}`;
 
   const pathname = `fonts/${randomUUID()}.${ext}`;

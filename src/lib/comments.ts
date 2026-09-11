@@ -272,32 +272,45 @@ export async function toggleCommentLike(
     )
     .limit(1);
 
-  // 当前 likeCount
-  const cur = await db
+  /* ---- 计数更新：改用 SQL 原子自增/自减（P0-3）----
+   *
+   * 旧实现是「先 SELECT likeCount → 内存 ±1 → UPDATE 写回」的 read-modify-write，
+   * 两次并发点赞会各自读到同一个旧值、各自写回 +1，**丢一次更新**（lost update）。
+   *
+   * 现改为让数据库在单条 UPDATE 内完成 `likeCount = likeCount ± 1`：
+   * - 原子性由 DB 保证，并发下不丢计数；
+   * - 用 `sql\`max(0, ...)\`` 兜底，防止历史脏数据把计数减成负数；
+   * - UPDATE 之后回读一次真实值返回给前端（回读的是最终态，供 UI 校正）。
+   *
+   * ⚠️ 注意 `likes` 表须有 (targetType,targetId,userType,userIdent) 唯一索引
+   *    （见 schema 注释），否则并发点赞仍可能插入重复行 —— 计数不丢，但会出现
+   *    「一个用户两条 like 记录」，取消时只删一条。 */
+  const delta = existing.length > 0 ? -1 : 1;
+
+  // 先写关系表（幂等性由唯一索引兜底）
+  if (delta < 0 && existing[0]) {
+    await db.delete(likes).where(eq(likes.id, existing[0].id));
+  } else if (delta > 0) {
+    await db.insert(likes).values({
+      id: randomUUID(),
+      targetType: 'comment',
+      targetId: commentId,
+      userType,
+      userIdent,
+      createdAt: new Date(),
+    });
+  }
+
+  await db
+    .update(comments)
+    .set({ likeCount: sql`max(0, ${comments.likeCount} + ${delta})` })
+    .where(eq(comments.id, commentId));
+
+  // 回读最终计数（并发场景下这才是权威值）
+  const after = await db
     .select({ c: comments.likeCount })
     .from(comments)
     .where(eq(comments.id, commentId))
     .limit(1);
-  const current = cur[0]?.c ?? 0;
-
-  if (existing.length > 0 && existing[0]) {
-    // 取消
-    await db.delete(likes).where(eq(likes.id, existing[0].id));
-    const next = Math.max(0, current - 1);
-    await db.update(comments).set({ likeCount: next }).where(eq(comments.id, commentId));
-    return { liked: false, likeCount: next };
-  }
-
-  // 点赞
-  await db.insert(likes).values({
-    id: randomUUID(),
-    targetType: 'comment',
-    targetId: commentId,
-    userType,
-    userIdent,
-    createdAt: new Date(),
-  });
-  const next = current + 1;
-  await db.update(comments).set({ likeCount: next }).where(eq(comments.id, commentId));
-  return { liked: true, likeCount: next };
+  return { liked: delta > 0, likeCount: after[0]?.c ?? 0 };
 }

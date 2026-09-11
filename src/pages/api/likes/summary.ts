@@ -8,7 +8,7 @@
  *   - 管理员（admin_session）：{ total, anonymous, github, liked }（拆分视图）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badRequest, json } from '@/lib/api';
 import { getCurrentUserId } from '@/lib/auth';
 import { isManagerSession } from '@/lib/admin-auth';
 import { countLikes, countLikesByType, hasLiked, isLikeTargetType } from '@/lib/likes';
@@ -17,9 +17,9 @@ export const prerender = false;
 
 export const GET: APIRoute = async ({ url, cookies }) => {
   const targetType = url.searchParams.get('targetType');
-  if (!isLikeTargetType(targetType)) return json({ error: '目标类型不合法' }, 400);
+  if (!isLikeTargetType(targetType)) return badRequest('目标类型不合法');
   const targetId = url.searchParams.get('targetId') ?? '';
-  if (!targetId) return json({ error: '缺少目标 ID' }, 400);
+  if (!targetId) return badRequest('缺少目标 ID');
 
   const githubUserId = getCurrentUserId(cookies);
   const fingerprint = url.searchParams.get('fingerprint') ?? '';

@@ -82,21 +82,24 @@ function esc(s: string): string {
                   <span class="font-pixel text-[0.55rem] text-muted-foreground">{c.bundles.length} 册</span>
                 </h2>
                 {isAuthed && (
-                  <span class="flex items-center gap-1">
+                  /* 管理按钮常驻可见（P1-8）：触屏/键盘用户无 hover 状态，
+                     原先 opacity-0 group-hover:opacity-100 会让按钮彻底不可达。
+                     改为低透明度常显 + hover/聚焦加深，既不喧宾夺主又保可用性。 */
+                  <span class="flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <button
                       type="button"
                       data-doc-cat-edit={c.id}
                       title="编辑分类"
-                      aria-label="编辑分类"
-                      class="inline-flex size-5 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                      aria-label={`编辑分类「${c.name}」`}
+                      class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
                     >✎</button>
                     <button
                       type="button"
                       data-doc-cat-del={c.id}
                       data-doc-name={esc(c.name)}
                       title="删除分类"
-                      aria-label="删除分类"
-                      class="inline-flex size-5 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground opacity-40 transition-opacity group-hover:opacity-100 hover:border-destructive/50 hover:text-destructive"
+                      aria-label={`删除分类「${c.name}」`}
+                      class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
                     >×</button>
                   </span>
                 )}
@@ -124,21 +127,22 @@ function esc(s: string): string {
                       </div>
                       <p class="mt-2 text-[0.6rem] text-muted-foreground">{b.articleCount} 篇文章{b.folderCount > 0 ? ` · ${b.folderCount} 个目录` : ''}</p>
                       {isAuthed && (
-                        <span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        /* 文档卡片管理按钮常驻可见（P1-8），理由同分类按钮 */
+                        <span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                           <button
                             type="button"
                             data-doc-bundle-edit={b.id}
                             title="编辑文档"
-                            aria-label="编辑文档"
-                            class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                            aria-label={`编辑文档「${b.name}」`}
+                            class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
                           >✎</button>
                           <button
                             type="button"
                             data-doc-bundle-del={b.id}
                             data-doc-name={esc(b.name)}
                             title="删除文档"
-                            aria-label="删除文档"
-                            class="inline-flex size-4 items-center justify-center rounded-full border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                            aria-label={`删除文档「${b.name}」`}
+                            class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
                           >×</button>
                         </span>
                       )}

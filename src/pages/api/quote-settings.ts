@@ -6,7 +6,7 @@
  */
 import type { APIRoute } from 'astro';
 import { getHeroQuoteSettings, saveHeroQuoteSettings, type HeroQuoteSettings } from '@/lib/quote-settings';
-import { json, jsonCached } from '@/lib/api';
+import { badJson, badRequest, json, jsonCached, readJson } from '@/lib/api';
 
 export const prerender = false;
 
@@ -18,14 +18,10 @@ export const GET: APIRoute = async () => {
 
 /** PUT：保存配置（管理员） */
 export const PUT: APIRoute = async ({ request }) => {
-  let body: Partial<HeroQuoteSettings>;
-  try {
-    body = (await request.json()) as Partial<HeroQuoteSettings>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<Partial<HeroQuoteSettings>>(request);
+  if (!body) return badJson();
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return json({ error: '请求体不合法' }, 400);
+    return badRequest('请求体不合法');
   }
   try {
     const saved = await saveHeroQuoteSettings(body);

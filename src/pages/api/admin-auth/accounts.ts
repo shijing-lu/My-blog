@@ -9,7 +9,7 @@
  * - DELETE：?id= 移除授权账号。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, badRequest, forbidden, json, missing, notFound, readJson } from '@/lib/api';
 import {
   createAdminAccount,
   deleteAdminAccount,
@@ -27,7 +27,7 @@ export const prerender = false;
 
 /** GET：账号列表 */
 export const GET: APIRoute = async ({ cookies }) => {
-  if (!(await isTopAdmin(cookies))) return json({ error: '无权操作' }, 403);
+  if (!(await isTopAdmin(cookies))) return forbidden();
   return json({ accounts: await listAdminAccounts() });
 };
 
@@ -35,21 +35,17 @@ export const GET: APIRoute = async ({ cookies }) => {
 export const POST: APIRoute = async ({ request, cookies }) => {
   const identity = await getAdminIdentity(cookies);
   if (identity.kind !== 'top' && !(identity.kind === 'github' && identity.account.role === 'top')) {
-    return json({ error: '无权操作' }, 403);
+    return forbidden();
   }
-  let body: { login?: unknown; role?: unknown };
-  try {
-    body = (await request.json()) as { login?: unknown; role?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ login?: unknown; role?: unknown }>(request);
+  if (!body) return badJson();
   const login = typeof body.login === 'string' ? body.login.trim() : '';
   if (!login || !/^[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d])){0,38}$/.test(login)) {
-    return json({ error: '请输入有效的 GitHub 用户名' }, 400);
+    return badRequest('请输入有效的 GitHub 用户名');
   }
   const role: AdminRole = body.role === 'top' ? 'top' : 'admin';
   const profile = await fetchGitHubPublicProfile(login);
-  if (!profile) return json({ error: 'GitHub 用户不存在或获取失败' }, 404);
+  if (!profile) return notFound('GitHub 用户不存在或获取失败');
   const existing = await getAdminAccountByGithubId(profile.id);
   if (existing) {
     return json(
@@ -75,24 +71,20 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 export const PATCH: APIRoute = async ({ request, cookies }) => {
   const identity = await getAdminIdentity(cookies);
   if (identity.kind !== 'top' && !(identity.kind === 'github' && identity.account.role === 'top')) {
-    return json({ error: '无权操作' }, 403);
+    return forbidden();
   }
-  let body: { id?: unknown; role?: unknown; permissions?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown; role?: unknown; permissions?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ id?: unknown; role?: unknown; permissions?: unknown }>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' ? body.id : '';
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   // GitHub 顶级管理员不能操作自己的账号（站主会话无对应账号，不受限）
   if (identity.kind === 'github' && identity.account.id === id) {
-    return json({ error: '不能修改自己的账号' }, 403);
+    return forbidden('不能修改自己的账号');
   }
   const role: AdminRole | undefined = body.role === 'top' || body.role === 'admin' ? body.role : undefined;
   const permissions = body.permissions !== undefined ? normalizePermissions(body.permissions) : undefined;
   const account = await updateAdminAccount(id, { role, permissions });
-  if (!account) return json({ error: '账号不存在' }, 404);
+  if (!account) return notFound('账号不存在');
   return json({ account });
 };
 
@@ -100,14 +92,14 @@ export const PATCH: APIRoute = async ({ request, cookies }) => {
 export const DELETE: APIRoute = async ({ url, cookies }) => {
   const identity = await getAdminIdentity(cookies);
   if (identity.kind !== 'top' && !(identity.kind === 'github' && identity.account.role === 'top')) {
-    return json({ error: '无权操作' }, 403);
+    return forbidden();
   }
   const id = (url.searchParams.get('id') ?? '').trim();
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   if (identity.kind === 'github' && identity.account.id === id) {
-    return json({ error: '不能移除自己的账号' }, 403);
+    return forbidden('不能移除自己的账号');
   }
   const ok = await deleteAdminAccount(id);
-  if (!ok) return json({ error: '账号不存在' }, 404);
+  if (!ok) return notFound('账号不存在');
   return json({ ok: true });
 };

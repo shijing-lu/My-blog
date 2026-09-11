@@ -6,22 +6,18 @@
  * getAdminIdentity 对二者均判为顶级管理员。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, readJson, unauthorized } from '@/lib/api';
 import { checkTopPassword, setTopSessionCookie } from '@/lib/admin-auth';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  let body: { password?: unknown };
-  try {
-    body = (await request.json()) as { password?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ password?: unknown }>(request);
+  if (!body) return badJson();
   const password = typeof body.password === 'string' ? body.password : '';
-  if (!password) return json({ error: '请输入站主密码' }, 400);
+  if (!password) return badRequest('请输入站主密码');
   if (!checkTopPassword(password)) {
-    return json({ error: '站主密码错误' }, 401);
+    return unauthorized('站主密码错误');
   }
   setTopSessionCookie(cookies);
   return json({ ok: true });

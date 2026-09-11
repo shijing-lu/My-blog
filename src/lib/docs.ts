@@ -6,10 +6,10 @@
  * - 聚合视图 listDocTree() 供公共页渲染（不含文章 content，减载荷）；
  * - 搜索对 分类名/文档名/简介/文章标题/正文 做大小写不敏感 LIKE 匹配。
  */
-import { asc, eq, like, or } from 'drizzle-orm';
+import { asc, eq, ilike, inArray, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { docArticles, docBundles, docCategories, docNodes } from '../../db/schema.sqlite';
-import { db } from '../../db';
+import { db, dbWrite } from '../../db';
 import { clearRenderCache, invalidateRenderCache } from './mdx';
 import type {
   DocArticle,
@@ -74,6 +74,24 @@ export async function getBundle(id: string): Promise<DocBundle | null> {
   return (rows[0] as DocBundle | undefined) ?? null;
 }
 
+/**
+ * 按 id 取分类**名称**（面包屑专用）。
+ *
+ * 详情页原先用 `listDocTree()`（无 where 全表扫 4 张表）只为拿一个分类名，
+ * 属 P0-1 的浪费点。本函数只查一行，复杂度 O(1)。
+ *
+ * @param id 分类 id
+ * @returns 分类名；不存在返回空串
+ */
+export async function getCategoryName(id: string): Promise<string> {
+  const rows = await db
+    .select({ name: docCategories.name })
+    .from(docCategories)
+    .where(eq(docCategories.id, id))
+    .limit(1);
+  return rows[0]?.name ?? '';
+}
+
 /** 按 id 取文章 */
 export async function getDocArticle(id: string): Promise<DocArticle | null> {
   const rows = await db.select().from(docArticles).where(eq(docArticles.id, id)).limit(1);
@@ -98,11 +116,29 @@ export async function updateDocCategory(id: string, patch: { name?: string; sort
   return (rows[0] as DocCategory | undefined) ?? null;
 }
 
-/** 删除分类（级联删除其下文档与文章） */
+/**
+ * 删除分类（级联删除其下文档与文章）。
+ *
+ * ⚠️ 级联必须**整体**走 `dbWrite` 包成一个写入单元（P0-4）：
+ * 旧实现逐条 `db.delete` 各自走双写 Proxy，一旦主库成功、备库失败，
+ * 就留下「分类已删、文档还在」的分叉数据。`dbWrite` 保证：
+ * - 同一条级联链在**全部端点**上依次执行，两端点看到同一批语句；
+ * - 任一端点失败会 markDown + 记日志，但不会让另一端点半途而废；
+ * - 全部端点失败才抛错。
+ *
+ * 注：本项目的双写 Proxy 不支持真正的分布式事务（无两阶段提交），
+ * `dbWrite` 提供的是「同批次执行 + 一致的错误语义」这一最强保证。
+ */
 export async function deleteDocCategory(id: string): Promise<void> {
   const bundleIds = (await db.select({ id: docBundles.id }).from(docBundles).where(eq(docBundles.categoryId, id))).map((r) => r.id);
-  for (const bid of bundleIds) await deleteDocBundle(bid);
-  await db.delete(docCategories).where(eq(docCategories.id, id));
+  await dbWrite(async (d) => {
+    for (const bid of bundleIds) {
+      await d.delete(docNodes).where(eq(docNodes.bundleId, bid));
+      await d.delete(docArticles).where(eq(docArticles.bundleId, bid));
+      await d.delete(docBundles).where(eq(docBundles.id, bid));
+    }
+    await d.delete(docCategories).where(eq(docCategories.id, id));
+  });
 }
 
 /* ---------------- 文档 CRUD ---------------- */
@@ -143,11 +179,17 @@ export async function updateDocBundle(
   return (rows[0] as DocBundle | undefined) ?? null;
 }
 
-/** 删除文档（级联删除其下文章） */
+/**
+ * 删除文档（级联删除其下节点与文章）。
+ *
+ * 同 `deleteDocCategory`：整条级联包进 `dbWrite`，避免跨端点分叉（P0-4）。
+ */
 export async function deleteDocBundle(id: string): Promise<void> {
-  await db.delete(docNodes).where(eq(docNodes.bundleId, id));
-  await db.delete(docArticles).where(eq(docArticles.bundleId, id));
-  await db.delete(docBundles).where(eq(docBundles.id, id));
+  await dbWrite(async (d) => {
+    await d.delete(docNodes).where(eq(docNodes.bundleId, id));
+    await d.delete(docArticles).where(eq(docArticles.bundleId, id));
+    await d.delete(docBundles).where(eq(docBundles.id, id));
+  });
 }
 
 /* ---------------- 文章 CRUD ---------------- */
@@ -223,7 +265,7 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     })
     .from(docBundles)
     .leftJoin(docCategories, eq(docBundles.categoryId, docCategories.id))
-    .where(or(like(docBundles.name, query), like(docBundles.summary, query)))
+    .where(or(ilike(docBundles.name, query), ilike(docBundles.summary, query)))
     .limit(limit);
   const bundles = bundleRows.map((r) => ({
     id: r.id,
@@ -243,7 +285,7 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     })
     .from(docNodes)
     .leftJoin(docBundles, eq(docNodes.bundleId, docBundles.id))
-    .where(or(like(docNodes.title, query), like(docNodes.content, query)))
+    .where(or(ilike(docNodes.title, query), ilike(docNodes.content, query)))
     .limit(limit);
   const legacyArticleRows = await db
     .select({
@@ -254,7 +296,7 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     })
     .from(docArticles)
     .leftJoin(docBundles, eq(docArticles.bundleId, docBundles.id))
-    .where(or(like(docArticles.title, query), like(docArticles.content, query)))
+    .where(or(ilike(docArticles.title, query), ilike(docArticles.content, query)))
     .limit(limit);
   const seen = new Set<string>();
   const articles = [...nodeRows2, ...legacyArticleRows]
@@ -386,9 +428,11 @@ export async function deleteDocNode(id: string): Promise<DocNode | null> {
       }
     }
   }
-  for (const did of toDelete) {
-    await db.delete(docNodes).where(eq(docNodes.id, did));
-  }
+  // 一次 IN 批量删除替代逐条 DELETE（P2-13）：N 次往返 → 1 次；
+  // 且整批走 dbWrite，跨端点语义一致（P0-4）。
+  await dbWrite(async (d) => {
+    await d.delete(docNodes).where(inArray(docNodes.id, [...toDelete]));
+  });
   // 级联删除涉及多篇文章，保守清空渲染缓存
   clearRenderCache();
   return node;

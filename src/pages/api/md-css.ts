@@ -9,8 +9,7 @@
  * 游客侧受 middleware HTML 缓存影响最多延迟 ~60s。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import {
   MAX_MD_CSS_CHARS,
   clearCustomMdCss,
@@ -22,7 +21,8 @@ export const prerender = false;
 
 /** GET：读取当前自定义样式 */
 export const GET: APIRoute = async ({ cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   try {
     const { css, updatedAt } = await getCustomMdCss();
     return json({ css, updatedAt, hasCustom: css.trim() !== '' });
@@ -34,15 +34,12 @@ export const GET: APIRoute = async ({ cookies }) => {
 
 /** PUT：保存 CSS 文本（{css: string}；空串 = 清除） */
 export const PUT: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { css?: unknown };
-  try {
-    body = (await request.json()) as { css?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ css?: unknown }>(request);
+  if (!body) return badJson();
   if (typeof body?.css !== 'string') {
-    return json({ error: 'css 必须为字符串' }, 400);
+    return badRequest('css 必须为字符串');
   }
   if (body.css.length > MAX_MD_CSS_CHARS) {
     return json({ error: `CSS 过长（上限 ${Math.floor(MAX_MD_CSS_CHARS / 1024)}KB）` }, 400);
@@ -58,7 +55,8 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
 
 /** DELETE：清除自定义样式（恢复默认） */
 export const DELETE: APIRoute = async ({ cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   try {
     await clearCustomMdCss();
     return json({ ok: true, hasCustom: false });

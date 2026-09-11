@@ -45,7 +45,7 @@ function formatShort(date: Date): string {
             <div class="min-w-0">
               <p class="truncate text-sm font-medium">{a.title || '未命名'}</p>
               <p class="font-pixel mt-0.5 text-[0.6rem] text-muted-foreground">
-                {articleCatMap[a.id] ? (catNameById.get(articleCatMap[a.id]!) ?? '') : '未分类'} · {formatShort(a.updatedAt)}
+                {articleCatMap.get(a.id) ? (catNameById.get(articleCatMap.get(a.id)!) ?? '') : '未分类'} · {formatShort(a.updatedAt)}
               </p>
             </div>
             <div class="flex shrink-0 gap-2 text-xs">

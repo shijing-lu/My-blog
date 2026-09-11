@@ -24,7 +24,10 @@ const theme: ThemeDefinition = {
     secondary: '#f2ede2',
     secondaryForeground: '#1c1b18',
     muted: '#f2ede2',
-    mutedForeground: '#7d776b',
+    /* P2-19：原 #7d776b 对 #fbf8f2 仅 4.19:1、对白色卡片 4.45:1，均低于 WCAG AA
+       正文要求的 4.5:1。muted-foreground 承载摘要、时间、字数等**小号正文**，
+       必须达 AA。改 #6f6a60 → 5.07:1（对 bg）/ 5.71:1（对白卡），观感仍是暖灰。 */
+    mutedForeground: '#6f6a60',
     accent: '#f2ede2',
     accentForeground: '#1c1b18',
     destructive: '#b5433b',

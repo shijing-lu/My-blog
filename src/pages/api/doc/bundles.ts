@@ -6,7 +6,7 @@
  * DELETE: { id } → { ok }（级联删除其下文章）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, notFound, readJson } from '@/lib/api';
 import { createDocBundle, deleteDocBundle, updateDocBundle } from '@/lib/docs';
 
 export const prerender = false;
@@ -16,16 +16,12 @@ const MAX_SUMMARY = 200;
 const MAX_ICON = 20;
 
 export const POST: APIRoute = async ({ request }) => {
-  let body: { categoryId?: unknown; name?: unknown; icon?: unknown; summary?: unknown; sort?: unknown };
-  try {
-    body = (await request.json()) as { categoryId?: unknown; name?: unknown; icon?: unknown; summary?: unknown; sort?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ categoryId?: unknown; name?: unknown; icon?: unknown; summary?: unknown; sort?: unknown }>(request);
+  if (!body) return badJson();
   const categoryId = typeof body.categoryId === 'string' && body.categoryId.trim() ? body.categoryId.trim() : '';
-  if (!categoryId) return json({ error: '缺少分类 ID' }, 400);
+  if (!categoryId) return badRequest('缺少分类 ID');
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-  if (!name) return json({ error: '请填写文档名' }, 400);
+  if (!name) return badRequest('请填写文档名');
   const icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
   const summary = typeof body.summary === 'string' && body.summary.trim() ? body.summary.trim().slice(0, MAX_SUMMARY) : null;
   const sort = Number.isFinite(Number(body.sort)) ? Math.max(0, Math.floor(Number(body.sort))) : 0;
@@ -39,31 +35,27 @@ export const POST: APIRoute = async ({ request }) => {
 };
 
 export const PUT: APIRoute = async ({ request }) => {
-  let body: { id?: unknown; name?: unknown; icon?: unknown; summary?: unknown; categoryId?: unknown; sort?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown; name?: unknown; icon?: unknown; summary?: unknown; categoryId?: unknown; sort?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ id?: unknown; name?: unknown; icon?: unknown; summary?: unknown; categoryId?: unknown; sort?: unknown }>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : '';
-  if (!id) return json({ error: '缺少文档 ID' }, 400);
+  if (!id) return badRequest('缺少文档 ID');
   const patch: { name?: string; icon?: string | null; summary?: string | null; categoryId?: string; sort?: number } = {};
   if (body.name !== undefined) {
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-    if (!name) return json({ error: '文档名不能为空' }, 400);
+    if (!name) return badRequest('文档名不能为空');
     patch.name = name;
   }
   if (body.icon !== undefined) patch.icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
   if (body.summary !== undefined) patch.summary = typeof body.summary === 'string' && body.summary.trim() ? body.summary.trim().slice(0, MAX_SUMMARY) : null;
   if (body.categoryId !== undefined) {
     const categoryId = typeof body.categoryId === 'string' && body.categoryId.trim() ? body.categoryId.trim() : '';
-    if (!categoryId) return json({ error: '分类 ID 不合法' }, 400);
+    if (!categoryId) return badRequest('分类 ID 不合法');
     patch.categoryId = categoryId;
   }
   if (body.sort !== undefined && Number.isFinite(Number(body.sort))) patch.sort = Math.max(0, Math.floor(Number(body.sort)));
   try {
     const bundle = await updateDocBundle(id, patch);
-    if (!bundle) return json({ error: '文档不存在' }, 404);
+    if (!bundle) return notFound('文档不存在');
     return json({ bundle });
   } catch (err) {
     console.error('[api/doc/bundles]', err);
@@ -72,14 +64,10 @@ export const PUT: APIRoute = async ({ request }) => {
 };
 
 export const DELETE: APIRoute = async ({ request }) => {
-  let body: { id?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ id?: unknown }>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : '';
-  if (!id) return json({ error: '缺少文档 ID' }, 400);
+  if (!id) return badRequest('缺少文档 ID');
   try {
     await deleteDocBundle(id);
     return json({ ok: true });

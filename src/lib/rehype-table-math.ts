@@ -22,6 +22,7 @@ import type { Element, ElementContent, Root } from 'hast';
 import { visit } from 'unist-util-visit';
 import { fromHtml } from 'hast-util-from-html';
 import katex from 'katex';
+import { KATEX_RENDER_OPTIONS } from './math-sanitize';
 
 /** 行内 $…$：非 `\$` 转义、同一行、成对、含非空内容。`$$` / 多行不在此匹配。 */
 const INLINE_MATH = /(?<!\\)\$([^$\n]+?)(?<!\\)\$/g;
@@ -45,11 +46,11 @@ const rehypeTableMath: Plugin<[], Root> = () => (tree) => {
         const full = m[0] ?? '';
         const src = m[1] ?? '';
         if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) });
+        // 渲染选项与 AI 助手、rehype-katex 共用同一份（见 @/lib/math-sanitize）
         const html = katex.renderToString(src, {
+          ...KATEX_RENDER_OPTIONS,
+          strict: false, // 表格单元格内公式更杂，允许非严格模式（不影响输出正确性）
           displayMode: false,
-          throwOnError: false,
-          strict: false,
-          output: 'htmlAndMathml',
         });
         // 解析为 hast 元素树（用 div 包裹再取 children 兼容 fragment API）
         const root = fromHtml(`<div>${html}</div>`, { fragment: true }).children[0] as Element | undefined;

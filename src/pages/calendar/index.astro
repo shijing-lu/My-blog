@@ -317,6 +317,21 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
   const calTooltip = document.getElementById('cal-tooltip');
   const tooltipAuthed = calTooltip?.dataset.authed === '1';
   let tooltipTimer: number | null = null;
+  /** 上一次 tooltip 日记请求的中止器：快速划过多个格子时取消在途请求，
+   *  避免旧请求后到覆盖新格子的内容（竞态 → 显示错日期的日记） */
+  let tooltipAbort: AbortController | null = null;
+
+  /** 取消待触发的 tooltip 定时器与在途 fetch */
+  function cancelTooltipWork(): void {
+    if (tooltipTimer !== null) {
+      window.clearTimeout(tooltipTimer);
+      tooltipTimer = null;
+    }
+    if (tooltipAbort) {
+      tooltipAbort.abort();
+      tooltipAbort = null;
+    }
+  }
   let tooltipCell: HTMLElement | null = null;
 
   function positionTooltip(cell: HTMLElement): void {
@@ -348,9 +363,14 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (events) parts.push(`<p class="cal-tip-event">◆ ${esc(events)}</p>`);
     let diaryHtml = '';
     if (tooltipAuthed && date) {
+      // 每次构建前先取消上一格的请求；signal 也用于本格被快速离开时中止
+      const ac = new AbortController();
+      tooltipAbort?.abort();
+      tooltipAbort = ac;
       try {
-        const res = await fetch(`/api/diary?date=${date}`);
+        const res = await fetch(`/api/diary?date=${date}`, { signal: ac.signal });
         const data = (await res.json()) as { diary: { title: string; contentHtml: string } | null };
+        if (ac.signal.aborted) return; // 已被新格子取代，丢弃结果
         if (data.diary) {
           // 服务端渲染后的 HTML（Markdown → HTML），悬浮框内限制高度滚动
           diaryHtml = `<div class="cal-tip-diary"><p class="cal-tip-diary-title">📖 ${esc(data.diary.title || '日记')}</p><div class="cal-tip-diary-content">${data.diary.contentHtml}</div></div>`;
@@ -358,10 +378,10 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
           diaryHtml = `<div class="cal-tip-diary cal-tip-empty">当日无日记</div>`;
         }
       } catch {
-        /* 忽略 */
+        /* 忽略（含 AbortError：主动取消不算失败） */
       }
     }
-    calTooltip.innerHTML = parts.join('') + diaryHtml;
+    if (calTooltip) calTooltip.innerHTML = parts.join('') + diaryHtml;
     positionTooltip(cell);
   }
 
@@ -373,8 +393,9 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const cell = (e.target as HTMLElement).closest<HTMLElement>('.cal-cell');
     if (!cell || cell === tooltipCell) return;
     tooltipCell = cell;
-    if (tooltipTimer) window.clearTimeout(tooltipTimer);
+    cancelTooltipWork();
     tooltipTimer = window.setTimeout(() => {
+      tooltipTimer = null;
       void buildTooltip(cell);
     }, 2000);
   });
@@ -384,10 +405,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const rel = e.relatedTarget as HTMLElement | null;
     if (rel && (tooltipCell.contains(rel) || rel.closest?.('.cal-cell') === tooltipCell)) return;
     tooltipCell = null;
-    if (tooltipTimer) {
-      window.clearTimeout(tooltipTimer);
-      tooltipTimer = null;
-    }
+    cancelTooltipWork();
     calTooltip?.classList.add('hidden');
   });
 

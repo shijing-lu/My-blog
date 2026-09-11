@@ -16,7 +16,6 @@ describe('images', () => {
   it('校验上传参数（MIME 白名单 / 大小上限）', () => {
     const b64 = Buffer.from('fake').toString('base64');
     expect(validateImageUpload('image/png', b64, 4)).toBeNull();
-    expect(validateImageUpload('image/svg+xml', b64, 4)).toBeNull();
     expect(validateImageUpload('image/gif', b64, 4)).toBeNull();
     expect(validateImageUpload('text/html', b64, 4)).toContain('仅支持');
     expect(validateImageUpload('image/png', '', 0)).toContain('缺少');
@@ -29,6 +28,15 @@ describe('images', () => {
     expect(ALLOWED_MIME.test('image/webp')).toBe(true);
     expect(ALLOWED_MIME.test('image/gif')).toBe(true);
     expect(ALLOWED_MIME.test('application/pdf')).toBe(false);
+  });
+
+  it('SVG 已被白名单拒绝（可执行文档 → 存储型 XSS，P1-3 防回归）', () => {
+    const b64 = Buffer.from('fake').toString('base64');
+    // SVG 可内嵌 <script>/onload，经 /api/images 同源直出会在本站源上执行 JS，
+    // 可读取 admin_session（sameSite=lax 对顶层导航放行）→ 必须拒收。
+    expect(validateImageUpload('image/svg+xml', b64, 4)).toContain('仅支持');
+    expect(ALLOWED_MIME.test('image/svg+xml')).toBe(false);
+    expect(ALLOWED_MIME.test('image/svg')).toBe(false);
   });
 
   it('GIF / SVG 不可走 sharp 转换（动图转码会丢帧变静态图）', () => {

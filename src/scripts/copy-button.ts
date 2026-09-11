@@ -13,6 +13,28 @@
 /** 反馈时长（ms） */
 const FLASH_MS = 1400;
 
+/**
+ * 待复位定时器：按按钮归集
+ *
+ * 原实现每次点击都无条件 `setTimeout`，连点同一个按钮时多个定时器并存，
+ * 先触发的那个会把后一次点击的高亮提前抹掉（"点了没反应"的观感）。
+ * 这里改为「同按钮只保留一个」：新的复位安排前先取消旧的。
+ */
+const resetTimers = new WeakMap<HTMLButtonElement, number>();
+
+/** 安排一次状态复位（同按钮的旧定时器先取消） */
+function scheduleReset(btn: HTMLButtonElement, fn: () => void): void {
+  const prev = resetTimers.get(btn);
+  if (prev !== undefined) window.clearTimeout(prev);
+  resetTimers.set(
+    btn,
+    window.setTimeout(() => {
+      resetTimers.delete(btn);
+      fn();
+    }, FLASH_MS),
+  );
+}
+
 /** 复制成功：图标切到对勾并高亮 */
 function flash(btn: HTMLButtonElement): void {
   const copyIcon = btn.querySelector('[data-icon="copy"]');
@@ -20,21 +42,22 @@ function flash(btn: HTMLButtonElement): void {
   copyIcon?.classList.add('hidden');
   checkIcon?.classList.remove('hidden');
   btn.classList.add('copied');
-  window.setTimeout(() => {
+  scheduleReset(btn, () => {
     copyIcon?.classList.remove('hidden');
     checkIcon?.classList.add('hidden');
     btn.classList.remove('copied');
-  }, FLASH_MS);
+  });
 }
 
 /** 复制失败：抖动 + 红色提示（不再静默吞掉） */
 function flashError(btn: HTMLButtonElement): void {
+  btn.classList.remove('copied');
   btn.classList.add('copy-failed');
   btn.setAttribute('title', '复制失败，请手动选择代码复制');
-  window.setTimeout(() => {
+  scheduleReset(btn, () => {
     btn.classList.remove('copy-failed');
     btn.setAttribute('title', '复制代码');
-  }, FLASH_MS);
+  });
 }
 
 /** 复制文本：优先 Clipboard API，失败回退 execCommand */

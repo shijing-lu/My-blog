@@ -6,7 +6,7 @@
  * - 标签统一经 `serializeTags`/`parseTags` 编解码，对外形态为 `string[]`。
  * - `saveDraft` 为「按 id upsert」语义，slug 为空时由标题自动生成，冲突追加后缀。
  */
-import { desc, eq, count } from 'drizzle-orm';
+import { and, asc, desc, eq, count, gt, inArray, lt, ne, sql } from 'drizzle-orm';
 import { articles } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type { Article, ArticleMeta, ArticleType, ArticleUpsertInput } from '../../db/types';
@@ -97,11 +97,81 @@ export async function listArticles(): Promise<Article[]> {
 /** 文章总数 */
 export async function countArticles(): Promise<number> {
   const rows = await db.select({ n: count() }).from(articles);
-  return rows[0]?.n ?? 0;
+  // ⚠️ PG 的 `count()` 返回 bigint **字符串**（SQLite 返回 number），必须显式转 Number，
+  //    否则前端 `total + 1`、`n > 0` 之类的算术/比较在 PG 上行为异常。
+  return Number(rows[0]?.n ?? 0);
 }
 
 /**
- * 分页列出文章（按更新时间倒序，含正文）
+ * 取某篇文章在「更新时间倒序」列表中的相邻两篇（上一篇 / 下一篇）。
+ *
+ * ## 为什么不用 `listArticleMeta()` + `findIndex`
+ *
+ * 旧实现为拿相邻两篇，把**整张表**拉进内存再 `findIndex` —— 每次阅读都付 O(N)。
+ * 500 篇文章时每次详情页多扫 500 行。改用两条带索引的定向查询（`limit 1`），
+ * 复杂度降到 O(log N)。
+ *
+ * 语义对齐列表的 `orderBy(desc(updatedAt))`：
+ * - `next`（列表中更靠前、更新时间**更新**的）→ `updatedAt > 当前` 取最小者
+ * - `prev`（列表中更靠后、更新时间**更旧**的）→ `updatedAt < 当前` 取最大者
+ *
+ * ⚠️ 与旧实现的差异：旧代码用 `id` 相等定位下标、用**数组下标**取相邻项。当多篇
+ * 文章 `updatedAt` 完全相同时，新旧顺序可能略有不同（并列项）。这属于可接受的
+ * 边界差异——`updatedAt` 已足够细粒度，且并列时「上一篇/下一篇」本身无客观正解。
+ *
+ * @param article 当前文章（提供 id 与 updatedAt）
+ * @returns { prev, next }（各自可能为 null）
+ */
+export async function getAdjacentArticles(
+  article: Pick<Article, 'id' | 'updatedAt'>,
+): Promise<{ prev: ArticleMeta | null; next: ArticleMeta | null }> {
+  /** 行 → ArticleMeta（tags 解码、type 收窄、null 归一） */
+  const toMeta = (r: {
+    id: string; title: string; slug: string; type: string; summary: string | null;
+    cover: string | null; tags: string; encrypted: boolean | number | null;
+    createdAt: Date; updatedAt: Date;
+  }): ArticleMeta => ({
+    id: r.id,
+    title: r.title,
+    slug: r.slug,
+    type: r.type as ArticleType,
+    summary: r.summary ?? '',
+    cover: r.cover,
+    tags: parseTags(r.tags),
+    encrypted: Boolean(r.encrypted),
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  });
+
+  // 同一条 where 保证「不选中自己」：`updatedAt` 相同时（同一毫秒保存的多篇）
+  // 靠 `id <> 当前` 排除自身，避免把当前文章当成自己的相邻项。
+  const [newer] = await db
+    .select(META_COLUMNS)
+    .from(articles)
+    .where(and(gt(articles.updatedAt, article.updatedAt), ne(articles.id, article.id)))
+    .orderBy(asc(articles.updatedAt))
+    .limit(1);
+  const [older] = await db
+    .select(META_COLUMNS)
+    .from(articles)
+    .where(and(lt(articles.updatedAt, article.updatedAt), ne(articles.id, article.id)))
+    .orderBy(desc(articles.updatedAt))
+    .limit(1);
+
+  const newerRow = newer as Parameters<typeof toMeta>[0] | undefined;
+  const olderRow = older as Parameters<typeof toMeta>[0] | undefined;
+  return {
+    next: newerRow ? toMeta(newerRow) : null,
+    prev: olderRow ? toMeta(olderRow) : null,
+  };
+}
+
+/**
+ * 分页列出文章（按更新时间倒序，**含正文**）
+ *
+ * ⚠️ 列表页请优先用 `listArticlePageMeta()`（不取正文）。本函数仅适合真正需要
+ * 正文的场景（如搜索、导出）。首页 9 篇 × 30KB 正文 = 270KB 无谓传输，而页面
+ * 只用字数——那属于 P1-2 的浪费点。
  *
  * @param page 页码（1 起）
  * @param pageSize 每页数量
@@ -116,6 +186,66 @@ export async function listArticlePage(page: number, pageSize: number): Promise<A
     .limit(pageSize)
     .offset(Math.max(0, offset));
   return rows.map(mapRow);
+}
+
+/**
+ * 分页列出文章**元信息 + 正文字数**（不取正文，供列表页使用）。
+ *
+ * `contentLength` 用 SQL 的 `length(content)` 聚合在库内算好，只回传一个整数，
+ * 取代旧做法「取回 30KB 正文 → 前端 `replace(/\s+/g,'')` 数字数」。
+ *
+ * ⚠️ `length()` 语义跨库有差异：SQLite 返回**字符数**，PG 返回**字符数**
+ * （`length` 对 text 是字符数；`octet_length` 才是字节数）。两库语义一致，
+ * 且这里只用于「x.xk 字」的粗展示，差异不影响。
+ *
+ * @param page 页码（1 起）
+ * @param pageSize 每页数量
+ * @returns 带 `contentLength` 的元信息数组
+ */
+export async function listArticlePageMeta(
+  page: number,
+  pageSize: number,
+): Promise<Array<ArticleMeta & { contentLength: number }>> {
+  const offset = (page - 1) * pageSize;
+  const rows = await db
+    .select({ ...META_COLUMNS, contentLength: sql<number>`length(${articles.content})` })
+    .from(articles)
+    .orderBy(desc(articles.updatedAt))
+    .limit(pageSize)
+    .offset(Math.max(0, offset));
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    slug: r.slug,
+    type: r.type as ArticleType,
+    summary: r.summary ?? '',
+    cover: r.cover,
+    tags: parseTags(r.tags),
+    encrypted: Boolean(r.encrypted),
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    // PG 的 length() 可能以字符串回传（bigint 系），统一转 Number
+    contentLength: Number(r.contentLength ?? 0),
+  }));
+}
+
+/**
+ * 按 id 批量取回**正文**（仅 id + content 两列，供搜索二次细筛）。
+ *
+ * 为什么单独开这个函数（P0-2）：搜索第一阶段只用元信息粗筛，第二阶段才需要
+ * 「经过类型/分类过滤、且元信息未命中」的那批候选的正文。批量 `IN` 一次取回，
+ * 避免逐篇 round-trip；同时只取 content 单列，不回传其它列。
+ *
+ * @param ids 文章 id 列表（空数组直接返回空 Map，不发查询）
+ * @returns id → content 映射（不存在的 id 不会出现在 Map 中）
+ */
+export async function getArticleContents(ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({ id: articles.id, content: articles.content })
+    .from(articles)
+    .where(inArray(articles.id, ids));
+  return new Map(rows.map((r) => [r.id, r.content ?? '']));
 }
 
 /**
@@ -156,16 +286,30 @@ export async function deleteArticle(id: string): Promise<void> {
 /**
  * 生成唯一 slug：存在冲突时依次追加 -2、-3 …（上限 99 次，兜底追加时间戳）
  *
+ * ## 为什么改批量查询（P2-14）
+ *
+ * 旧实现循环内逐次 `getArticleBySlug(candidate)`，最坏情况 **98 次 DB round-trip**
+ * （每篇都要等一次网络往返）。改为**一次 `IN` 查询取回全部候选**，再在内存里
+ * 找第一个空位——round-trip 从 O(候选数) 降到 O(1)。
+ *
+ * 候选集形态：`root`、`root-2` … `root-99`。
+ *
  * @param base 基础 slug
  * @returns 保证未占用的 slug
  */
 async function uniqueSlug(base: string): Promise<string> {
   const root = base || 'untitled';
-  let candidate = root;
-  for (let i = 2; i < 100; i += 1) {
-    const existing = await getArticleBySlug(candidate);
-    if (!existing) return candidate;
-    candidate = `${root}-${i}`;
+  const candidates = [root];
+  for (let i = 2; i < 100; i += 1) candidates.push(`${root}-${i}`);
+
+  const rows = await db
+    .select({ slug: articles.slug })
+    .from(articles)
+    .where(inArray(articles.slug, candidates));
+  const taken = new Set(rows.map((r) => r.slug));
+
+  for (const c of candidates) {
+    if (!taken.has(c)) return c;
   }
   return `${root}-${Date.now().toString(36)}`;
 }

@@ -5,8 +5,7 @@
  * - base64 字体：GET 输出二进制；DELETE 直接删库
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { guardManager, json, notFound } from '@/lib/api';
 import { deleteBlobObject } from '@/lib/blob';
 import { deleteFont, getFontById, isBlobFontData } from '@/lib/fonts';
 
@@ -16,7 +15,7 @@ export const prerender = false;
 export const GET: APIRoute = async ({ params }) => {
   const id = params.id ?? '';
   const font = await getFontById(id);
-  if (!font) return json({ error: '字体不存在' }, 404);
+  if (!font) return notFound('字体不存在');
   if (isBlobFontData(font.data)) {
     return new Response(null, {
       status: 302,
@@ -34,10 +33,11 @@ export const GET: APIRoute = async ({ params }) => {
 
 /** DELETE：删除（管理员）；Blob 字体同时删除存储对象 */
 export const DELETE: APIRoute = async ({ params, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   const id = params.id ?? '';
   const font = await getFontById(id);
-  if (!font) return json({ error: '字体不存在' }, 404);
+  if (!font) return notFound('字体不存在');
   if (isBlobFontData(font.data)) {
     await deleteBlobObject(font.data);
   }

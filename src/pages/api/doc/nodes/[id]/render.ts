@@ -4,7 +4,7 @@
 import type { APIRoute } from 'astro';
 import { getDocNode } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
-import { json, jsonCached } from '@/lib/api';
+import { json, jsonCached, missing, notFound } from '@/lib/api';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 
 export const prerender = false;
@@ -20,10 +20,10 @@ export const prerender = false;
  */
 export const GET: APIRoute = async ({ params, url }) => {
   const id = params.id;
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   const v = url.searchParams.get('v');
   const node = await getDocNode(id);
-  if (!node || node.kind !== 'article') return json({ error: '文章不存在' }, 404);
+  if (!node || node.kind !== 'article') return notFound('文章不存在');
   try {
     const { html: rawHtml, toc } = await renderMdx(node.content);
     // 正文图片注入原始宽高（DB 图片），消除懒加载宽度跳变

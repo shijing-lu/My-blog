@@ -28,7 +28,7 @@ const profile = top ? await getProfile() : null;
 const permEntries = Object.entries(PERMISSION_KEYS);
 ---
 <!-- ===== Template ===== -->
-<BaseLayout title="授权管理" description="授权管理（仅顶级管理员）">
+<BaseLayout title="授权管理" description="授权管理（仅顶级管理员）" indexable={false}>
   <section class="mx-auto w-full max-w-3xl px-4 py-12">
     {
       !top ? (

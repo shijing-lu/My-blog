@@ -9,28 +9,36 @@
  * - 开关关闭/配置不完整/GitHub 失败 → 原 R2 流程，行为与改造前完全一致。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, readJson, tooMany } from '@/lib/api';
 import { storeImage, storeImageViaGitHub, validateImageUpload } from '@/lib/images';
 import { getImageBedConfig, isImageBedReady } from '@/lib/image-bed';
 import { uploadToGitHub } from '@/lib/gh-image-bed';
+import { clientKey, rateLimit } from '@/lib/rate-limit';
 
 export const prerender = false;
 
+/* P3-9 上传限流：同一来源 1 分钟内最多 30 张。
+ * 上限偏宽松是刻意的——批量插图是正常编辑行为，这里只拦脚本循环/误触，不拦正常写作。 */
+const UPLOAD_LIMIT = 30;
+const UPLOAD_WINDOW_MS = 60_000;
+
 /** 上传处理 */
 export const POST: APIRoute = async ({ request }) => {
-  let body: { filename?: unknown; mime?: unknown; data?: unknown };
-  try {
-    body = (await request.json()) as { filename?: unknown; mime?: unknown; data?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
+  // 限流放在最外层：先于任何解析/落库，被拦下时不产生任何存储写入
+  const limited = rateLimit(`upload:${clientKey(request)}`, UPLOAD_LIMIT, UPLOAD_WINDOW_MS);
+  if (!limited.ok) {
+    return tooMany(`上传过于频繁，请 ${Math.ceil(limited.retryAfterSec)} 秒后重试`, limited.retryAfterSec);
   }
+
+  const body = await readJson<{ filename?: unknown; mime?: unknown; data?: unknown }>(request);
+  if (!body) return badJson();
 
   const base64 = typeof body.data === 'string' ? body.data : '';
   let buffer: Buffer;
   try {
     buffer = Buffer.from(base64, 'base64');
   } catch {
-    return json({ error: '图片数据无法解码' }, 400);
+    return badRequest('图片数据无法解码');
   }
 
   const error = validateImageUpload(body.mime, base64, buffer.length);

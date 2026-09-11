@@ -16,7 +16,7 @@
  * - 失败一律返回同一个模糊错误（不区分"文章不存在"与"密码错误"），避免枚举探测。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, json, readJson } from '@/lib/api';
 import { getArticlePasswordMeta } from '@/lib/articles';
 import { verifyPassword } from '@/lib/article-password';
 import { signPayload, SIGNED_TTL_PERMANENT_MS } from '@/lib/auth';
@@ -54,12 +54,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
     return json({ error: '尝试过于频繁，请稍后再试' }, 429);
   }
 
-  let body: { id?: unknown; password?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown; password?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ id?: unknown; password?: unknown }>(request);
+  if (!body) return badJson();
 
   const id = typeof body.id === 'string' ? body.id : '';
   const password = typeof body.password === 'string' ? body.password : '';

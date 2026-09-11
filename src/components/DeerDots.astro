@@ -108,6 +108,11 @@
     let running = false;
     let inView = true;
     let resizeTimer = 0;
+    /** 空闲心跳定时器句柄：必须可取消，否则 stop() 后仍会不断自我唤醒（P2-2） */
+    let idleTimer = 0;
+    /** 缓存的画布边界：pointermove 中调 getBoundingClientRect() 会强制同步布局（P2-2） */
+    let rectLeft = 0;
+    let rectTop = 0;
     /** 主题渐显系数 0..1：暗黑=1，明亮=0；切换时每帧向目标缓动（首帧直接取当前主题，避免加载闪变） */
     let themeMix = htmlEl.classList.contains('dark') ? 1 : 0;
     /** 悬停增亮系数 0..1：鼠标靠近鹿形区域 → 1，离开 → 0 */
@@ -174,6 +179,11 @@
       const mx = mouse.x;
       const my = mouse.y;
       let nearDeer = false;
+      /* P2-2：点数是 cols*rows（1080p 下约 2.1 万），下面两个循环各自跑满一遍。
+         把循环上界、鼠标半径平方等提出循环外，避免每轮重复求值与属性查找。 */
+      const n = cols * rows;
+      const mouseR2 = MOUSE_R * MOUSE_R;
+      const boostR2 = BOOST_R * BOOST_R;
 
       // 主题联动：暗黑渐显（target=1）、明亮隐藏（target=0），每帧向目标缓动
       const themeTarget = htmlEl.classList.contains('dark') ? 1 : 0;
@@ -188,7 +198,7 @@
       }
       const breath = 0.9 + 0.1 * Math.sin(t * 0.00085); // 鹿形缓慢呼吸（周期约 7.4s，±10%）
 
-      for (let k = 0; k < cols * rows; k++) {
+      for (let k = 0; k < n; k++) {
         const b = k * STRIDE;
         const rx = dots[b] ?? 0;
         const ry = dots[b + 1] ?? 0;
@@ -201,15 +211,17 @@
           const dy = y - my;
           const d2 = dx * dx + dy * dy;
           // 悬停增亮判定：鼠标落在鹿形点附近（BOOST_R 内）→ 本帧标记 nearDeer
-          if (!nearDeer && (baseA[k] ?? 0) > 0.25 && d2 < BOOST_R * BOOST_R) nearDeer = true;
-          if (d2 < MOUSE_R * MOUSE_R && d2 > 0.01) {
+          if (!nearDeer && (baseA[k] ?? 0) > 0.25 && d2 < boostR2) nearDeer = true;
+          if (d2 < mouseR2 && d2 > 0.01) {
             const d = Math.sqrt(d2);
             const fall = 1 - d / MOUSE_R;
-            // 「混沌涡流」：切向绕转（每点方向随机）+ 径向外推 + 随机扰动
+            // 「混沌涡流」：切向绕转（每点方向随机）+ 径向外推 + 随机扰动。
+            // P2-2：每帧只取 1 次随机数驱动两轴（原为 2 次），随机性视觉等价、开销减半。
+            const jitter = (Math.random() - 0.5) * fall * 6;
             const spin = (phase[k] ?? 0) % 2 < 1 ? 1 : -1;
             const swirl = fall * 4.6 * spin;
-            vx += (-dy / d) * swirl + (dx / d) * fall * 1.6 + (Math.random() - 0.5) * fall * 6;
-            vy += (dx / d) * swirl + (dy / d) * fall * 1.6 + (Math.random() - 0.5) * fall * 6;
+            vx += (-dy / d) * swirl + (dx / d) * fall * 1.6 + jitter;
+            vy += (dx / d) * swirl + (dy / d) * fall * 1.6 + jitter;
           }
         }
         // 弹簧回位 + 阻尼（鼠标离开后逐渐恢复整齐点阵）
@@ -237,7 +249,7 @@
       // 随机星闪：鹿形内的点偶尔被点亮，随时间衰减
       for (let s = 0; s < 3; s++) {
         if (Math.random() < 0.35) {
-          const k = Math.floor(Math.random() * cols * rows);
+          const k = Math.floor(Math.random() * n);
           if ((baseA[k] ?? 0) > 0.3) spark[k] = 1;
         }
       }
@@ -245,8 +257,9 @@
       // 点：核心亮、边缘消散；整体慢摇曳 + 亮度沿对角线流动 + 星闪衰减
       const swayX = Math.sin(t * 0.0006) * 3.4;
       const swayY = Math.sin(t * 0.00042 + 1.3) * 2.4;
+      const waveT = t * 0.0016;
       ctx.fillStyle = `rgb(${pal.dot})`;
-      for (let k = 0; k < cols * rows; k++) {
+      for (let k = 0; k < n; k++) {
         const b = k * STRIDE;
         const inDeer = (baseA[k] ?? 0) > 0.2;
         let x = dots[b + 2] ?? 0;
@@ -255,10 +268,11 @@
           x += swayX;
           y += swayY;
         }
-        const wave = 0.72 + 0.28 * Math.sin(t * 0.0016 - (x + y) * 0.01 + (phase[k] ?? 0) * 0.4);
+        const wave = 0.72 + 0.28 * Math.sin(waveT - (x + y) * 0.01 + (phase[k] ?? 0) * 0.4);
         spark[k] = (spark[k] ?? 0) * 0.9;
         const ba = baseA[k] ?? 0;
-        let alpha = Math.min(1, ba * wave + (spark[k] ?? 0) * 0.6 * ba);
+        const sp = spark[k] ?? 0;
+        let alpha = Math.min(1, ba * wave + sp * 0.6 * ba);
         if (inDeer) alpha *= breath * dimF; // 呼吸 + 悬停增亮只作用于鹿形点
         alpha *= themeMix; // 主题联动：明亮模式整体隐去，暗黑渐显
         // 核心大点、边缘小点，叠加每点随机尺寸系数（参考图的有机颗粒感）
@@ -292,7 +306,10 @@
       const transitioning = (themeMix > 0.001 && themeMix < 0.999) || (hoverMix > 0.001 && hoverMix < 0.999);
       if (maxVel < 0.05 && !transitioning) {
         running = false;
-        window.setTimeout(() => {
+        // P2-2：心跳句柄必须存下来 —— 否则 stop()（离屏/切后台/主题归零）无法取消它，
+        // 定时器会在页面上留下一条永不停止的 330ms 轮询链。
+        idleTimer = window.setTimeout(() => {
+          idleTimer = 0;
           if (canvas.isConnected && inView && !document.hidden && !running) {
             running = true;
             raf = requestAnimationFrame(frame);
@@ -312,6 +329,11 @@
     function stop(): void {
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
+      // P2-2：连同空闲心跳一起取消，否则 stop() 之后 330ms 又会被自己唤醒
+      if (idleTimer) {
+        window.clearTimeout(idleTimer);
+        idleTimer = 0;
+      }
       running = false;
     }
 
@@ -319,25 +341,37 @@
       draw(performance.now());
     }
 
+    /** 记录画布在视口中的位置：resize / 滚动会改变它，但 pointermove 里不能现算（强制重排） */
+    function captureRect(): void {
+      const rect = canvas.getBoundingClientRect();
+      rectLeft = rect.left;
+      rectTop = rect.top;
+    }
+
     rebuild();
     redrawStatic();
     if (reduced) return;
 
     if (finePointer) {
+      captureRect();
       window.addEventListener(
         'pointermove',
         (e) => {
-          const rect = canvas.getBoundingClientRect();
-          mouse.x = e.clientX - rect.left;
-          mouse.y = e.clientY - rect.top;
+          // P2-2：用缓存的 rect 做减法，避免每帧 getBoundingClientRect() 触发的强制同步布局
+          mouse.x = e.clientX - rectLeft;
+          mouse.y = e.clientY - rectTop;
           wake();
         },
         { passive: true },
       );
+      // 视口变化会移动画布 → 失效缓存（滚动同理，用 passive 监听不阻塞滚动）
+      window.addEventListener('scroll', captureRect, { passive: true });
+      window.addEventListener('resize', captureRect, { passive: true });
     }
     window.addEventListener('resize', () => {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
+        captureRect();
         rebuild();
         redrawStatic();
         wake();

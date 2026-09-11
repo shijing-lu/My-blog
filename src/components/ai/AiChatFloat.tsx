@@ -23,6 +23,7 @@ import { MessageCircle, Send, Square, Trash2, X } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
+import { KATEX_ALLOWED_TAGS, KATEX_RENDER_OPTIONS } from '@/lib/math-sanitize';
 
 interface Props {
   /** SSR 判定 AI 是否就绪（enabled + baseUrl/apiKey/model 齐全）；false 时组件不渲染任何 UI */
@@ -120,13 +121,28 @@ function buildFirstMessage(text: string, title: string): string {
 marked.setOptions({ gfm: true, breaks: true });
 
 /** 行内公式 $...$（不跨行、内部无空白边界）与块级公式 $$...$$（可跨行） */
+/*
+ * P2-23（已评估，决定保留 marked —— 不是遗漏，是有意取舍）：
+ * 审查曾建议「AI 回答改用 /api/doc/preview 复用主渲染管线」以消除双管线漂移。
+ * 实测该方案**不可行**，原因：
+ *   1. /api/doc/preview 走的是服务端 renderMdx（6 层预处理 + @mdx-js/mdx 编译 +
+ *      rehype-katex），单次耗时在百毫秒量级；而 AI 回答是**流式**的，
+ *      每个 token 分片都要重渲染一次 → 会退化成每分片一次 HTTP 往返，延迟爆掉；
+ *   2. 主管线输出的是完整 MDX 组件树，含有 React 岛 / 折叠卡等结构，
+ *      放进聊天气泡里既不安全也不合适。
+ * 因此这里保留轻量客户端 markdown（marked + KaTeX + DOMPurify）。
+ * 为控制「语义漂移」风险，把两边**真正需要保持一致**的部分抽成共享常量：
+ *   - 数学语法：统一使用 `@/lib/math-sanitize` 的 KaTeX 渲染选项与消毒白名单；
+ *   - 其余（callout 语法等）AI 场景本就不需要，不做对齐。
+ */
 const MATH_BLOCK_RE = /\$\$([\s\S]+?)\$\$/g;
 const MATH_INLINE_RE = /(?<!\$)\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)/g;
 
 /** 把 TeX 渲染为 KaTeX HTML（失败时回退为等宽原文，避免整条回答渲染崩掉） */
 function renderTex(tex: string, displayMode: boolean): string {
   try {
-    return katex.renderToString(tex, { displayMode, throwOnError: false, output: 'htmlAndMathml' });
+    // 与主渲染管线共用同一份 KaTeX 选项（output: htmlAndMathml → 字体失败时 MathML 兜底）
+    return katex.renderToString(tex, { ...KATEX_RENDER_OPTIONS, displayMode });
   } catch {
     return `<code>${displayMode ? `$$${tex}$$` : `$${tex}$`}</code>`;
   }
@@ -152,7 +168,8 @@ function renderMarkdown(md: string): string {
   const raw = marked.parse(prepared, { async: false });
   let html = typeof raw === 'string' ? raw : '';
   for (const { key, html: texHtml } of slots) html = html.split(key).join(texHtml);
-  return DOMPurify.sanitize(html, { ADD_TAGS: ['math', 'semantics', 'annotation', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtext', 'mspace', 'mstyle', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mroot', 'mpadded', 'mphantom', 'menclose', 'line', 'svg', 'path', 'g', 'use', 'defs'] });
+  // 白名单与主管线共用（见 @/lib/math-sanitize 注释）：MathML/内联 SVG 不放行会被静默删掉
+  return DOMPurify.sanitize(html, { ADD_TAGS: [...KATEX_ALLOWED_TAGS] });
 }
 
 /** 主人身份（顶级管理员）模块级缓存：页面生命周期内只请求一次 /api/admin-auth/me */
@@ -179,6 +196,26 @@ export default function AiChatFloat({ enabled }: Props) {
   const closeRef = useRef<(() => void) | null>(null);
   /** 最新消息快照（send 组装历史用，避免在 setState updater 里做副作用） */
   const messagesRef = useRef<ChatMessage[]>([]);
+  /** 输入框节点：浮窗打开后把焦点送进去（P2-18 对话框焦点管理） */
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  /** 打开浮窗前的焦点位置，关闭时还原，避免焦点掉到 <body> 造成键盘用户迷失 */
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  /**
+   * P2-18：对话框焦点管理
+   * 打开 → 焦点进入浮窗输入框；关闭 → 还原到打开前的元素。
+   * 说明：本浮窗是**非模态**对话框（无遮罩、不锁滚动，用户仍可继续选中正文提问），
+   * 因此用 aria-modal={false} 且不劫持 Tab——强行做焦点陷阱反而会阻断"边读边问"的主流程。
+   */
+  useEffect(() => {
+    if (open) {
+      inputRef.current?.focus();
+      return;
+    }
+    const target = restoreFocusRef.current;
+    restoreFocusRef.current = null;
+    if (target && document.contains(target)) target.focus();
+  }, [open]);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -389,6 +426,7 @@ export default function AiChatFloat({ enabled }: Props) {
   const openFloat = useCallback(
     (m: MenuState) => {
       setMenu(null);
+      restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       resetConversation();
       setSelectionCtx({ text: m.text, title: m.title });
       // 每次打开都回到默认尺寸（不读取任何持久化记忆/缓存）
@@ -595,6 +633,9 @@ export default function AiChatFloat({ enabled }: Props) {
       {open && (
         <div
           id="ai-chat-float"
+          role="dialog"
+          aria-modal={false}
+          aria-labelledby="ai-chat-float-title"
           className="fixed z-[80] flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
           style={{ left: `${pos.x}px`, top: `${pos.y}px`, width: `${size.w}px`, height: `${size.h}px` }}
         >
@@ -604,7 +645,7 @@ export default function AiChatFloat({ enabled }: Props) {
             onPointerDown={startDrag}
           >
             <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1.5 text-sm font-medium">
+              <p id="ai-chat-float-title" className="flex items-center gap-1.5 text-sm font-medium">
                 <MessageCircle className="size-4 text-primary" />
                 小卿
                 {isOwner && <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">主人</span>}
@@ -613,14 +654,14 @@ export default function AiChatFloat({ enabled }: Props) {
             </div>
             <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
               {streaming && (
-                <button type="button" title="停止生成" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={stopStreaming}>
+                <button type="button" aria-label="停止生成" title="停止生成" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={stopStreaming}>
                   <Square className="size-3.5" />
                 </button>
               )}
-              <button type="button" title="清空对话" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={clearChat}>
+              <button type="button" aria-label="清空对话" title="清空对话" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={clearChat}>
                 <Trash2 className="size-3.5" />
               </button>
-              <button type="button" title="关闭（结束本次对话）" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={closeFloat}>
+              <button type="button" aria-label="关闭对话" title="关闭（结束本次对话）" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={closeFloat}>
                 <X className="size-3.5" />
               </button>
             </div>
@@ -659,11 +700,18 @@ export default function AiChatFloat({ enabled }: Props) {
             </div>
           </div>
 
+          {/* 流式状态播报：读屏用户看不到光标动画与逐字输出，用 live region 补齐状态（P2-18） */}
+          <p aria-live="polite" className="sr-only">
+            {streaming ? '小卿正在回答' : ''}
+          </p>
+
           {/* 输入区（F4：回答中可继续输入） */}
           <div className="border-t border-border px-3 py-2">
             <div className="flex items-end gap-2">
               <textarea
+                ref={inputRef}
                 rows={2}
+                aria-label="追问内容"
                 className="max-h-24 min-h-0 flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring"
                 placeholder="继续追问…（Enter 发送，Shift+Enter 换行）"
                 value={input}
@@ -672,6 +720,7 @@ export default function AiChatFloat({ enabled }: Props) {
               />
               <button
                 type="button"
+                aria-label="发送"
                 title="发送"
                 className="shrink-0 rounded-md bg-primary p-2 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                 disabled={input.trim() === ''}

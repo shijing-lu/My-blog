@@ -5,28 +5,24 @@
  * → 201 { map: { id, title, articleId } }（data 为自动生成的骨架）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, notFound, readJson } from '@/lib/api';
 import { getArticleById } from '@/lib/articles';
 import { createMindmap, generateFromArticleMarkdown } from '@/lib/mindmaps';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { articleId?: unknown; title?: unknown };
-  try {
-    body = (await request.json()) as { articleId?: unknown; title?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ articleId?: unknown; title?: unknown }>(request);
+  if (!body) return badJson();
 
   const articleId = typeof body.articleId === 'string' && body.articleId.trim() ? body.articleId.trim() : '';
-  if (!articleId) return json({ error: '缺少文章 ID' }, 400);
+  if (!articleId) return badRequest('缺少文章 ID');
 
   try {
     const article = await getArticleById(articleId);
-    if (!article) return json({ error: '文章不存在' }, 404);
+    if (!article) return notFound('文章不存在');
 
     const title = (typeof body.title === 'string' && body.title.trim() ? body.title.trim() : article.title).slice(0, 100);
     const data = generateFromArticleMarkdown(title, article.content);

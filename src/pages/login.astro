@@ -10,7 +10,7 @@ import { isGitHubConfigured } from '@/lib/auth';
 const githubEnabled = isGitHubConfigured();
 ---
 <!-- ===== Template ===== -->
-<BaseLayout title="登录" description="登录后台">
+<BaseLayout title="登录" description="登录后台" indexable={false}>
   <section class="mx-auto w-full max-w-sm px-4 py-20">
     <div class="p-6">
       <p class="pixel-chip text-primary">ADMIN ACCESS</p>

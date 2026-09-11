@@ -9,8 +9,7 @@
  * DELETE { id }                              → 删除分类（解除其下文章归属，不删文章）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import {
   articleCategoryMap,
   createArticleCategory,
@@ -27,7 +26,8 @@ const MAX_NAME = 30;
 const MAX_COLOR = 24;
 
 export const GET: APIRoute = async ({ cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: '未登录' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
   const [categories, map] = await Promise.all([listArticleCategories(), articleCategoryMap()]);
   return json(
     { categories, map: Object.fromEntries(map) },
@@ -36,15 +36,12 @@ export const GET: APIRoute = async ({ cookies }) => {
 };
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: '未登录' }, 401);
-  let body: { name?: unknown; color?: unknown };
-  try {
-    body = (await request.json()) as { name?: unknown; color?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ name?: unknown; color?: unknown }>(request);
+  if (!body) return badJson();
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-  if (!name) return json({ error: '请填写分类名' }, 400);
+  if (!name) return badRequest('请填写分类名');
   // 重名直接拒绝：写作台左栏按名分组，重名会让用户分不清
   const exists = await listArticleCategories();
   if (exists.some((c) => c.name === name)) return json({ error: `已存在分类「${name}」` }, 400);
@@ -55,20 +52,17 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 };
 
 export const PATCH: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: '未登录' }, 401);
-  let body: {
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{
     id?: unknown;
     name?: unknown;
     color?: unknown;
     ids?: unknown;
     articleId?: unknown;
     categoryId?: unknown;
-  };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  }>(request);
+  if (!body) return badJson();
 
   /* 重排：{ ids: [...] } */
   if (Array.isArray(body.ids)) {
@@ -87,11 +81,11 @@ export const PATCH: APIRoute = async ({ request, cookies }) => {
 
   /* 重命名 / 改色：{ id, name?, color? } */
   const id = typeof body.id === 'string' ? body.id : '';
-  if (!id) return json({ error: '缺少分类 id' }, 400);
+  if (!id) return badRequest('缺少分类 id');
   const patch: { name?: string; color?: string } = {};
   if (typeof body.name === 'string') {
     const n = body.name.trim().slice(0, MAX_NAME);
-    if (!n) return json({ error: '分类名不能为空' }, 400);
+    if (!n) return badRequest('分类名不能为空');
     const all = await listArticleCategories();
     if (all.some((c) => c.name === n && c.id !== id)) return json({ error: `已存在分类「${n}」` }, 400);
     patch.name = n;
@@ -102,15 +96,12 @@ export const PATCH: APIRoute = async ({ request, cookies }) => {
 };
 
 export const DELETE: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: '未登录' }, 401);
-  let body: { id?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ id?: unknown }>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' ? body.id : '';
-  if (!id) return json({ error: '缺少分类 id' }, 400);
+  if (!id) return badRequest('缺少分类 id');
   const ok = await deleteArticleCategory(id);
   return json({ ok }, ok ? 200 : 500);
 };

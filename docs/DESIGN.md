@@ -29,6 +29,6 @@
 
 ## 4. 既有约定（保持不变）
 
-- 技术栈：Astro 7（server）+ React 岛 + Tailwind v4 + shadcn + Drizzle（SQLite/PG）+ MDX evaluate + Giscus。
+- 技术栈：Astro 7（server）+ React 岛 + Tailwind v4 + shadcn + Drizzle（SQLite/PG）+ MDX evaluate + 自建评论（`comments`/`likes` 表，原 Giscus 已移除）。
 - 公开页零重 JS；微交互仅 CSS hover；View Transitions 用 `<ClientRouter />`。
 - git 提交遵循 Conventional Commits。

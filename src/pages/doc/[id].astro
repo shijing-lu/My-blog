@@ -2,7 +2,7 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { canManage } from '@/lib/admin-auth';
-import { buildNodeTree, getBundle, listBundleNodes, listDocTree } from '@/lib/docs';
+import { buildNodeTree, getBundle, getCategoryName, listBundleNodes } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
@@ -47,9 +47,9 @@ if (activeNode) {
 /** 树形目录 HTML（SSR 初始渲染；客户端切换文章时由同一模块重建） */
 const tocTreeHtml = renderTocTreeHtml(toc);
 
-// 面包屑：分类名（通过列表匹配，可选）
-const allCategories = await listDocTree();
-const catName = allCategories.find((c) => c.bundles.some((b) => b.id === bundle.id))?.name ?? '';
+// 面包屑：分类名。bundle 已带回 categoryId，直接单条查询即可（O(1)）。
+// 旧实现调 listDocTree() 无 where 全表扫 4 张表，只为拿一个名字——属 P0-1 浪费点。
+const catName = await getCategoryName(bundle.categoryId);
 
 // 节点元数据注入：去掉 content(MDX 源码)——大文档首页 HTML 体积断崖下降。
 // 节点编辑/移动时按需走 /api/doc/nodes/${id} 取单节点详情（已有 PATCH/GET 接口）。
@@ -78,11 +78,13 @@ function adminActions(n: DocNodeView, isAuthed: boolean): string {
         `<button type="button" data-node-add-folder="${n.id}" title="新增子目录" aria-label="新增子目录" class="text-[0.65rem] text-muted-foreground hover:text-primary">＋目</button>`
       : '';
   return (
-    `<span class="ml-auto hidden shrink-0 items-center gap-1 group-hover:flex">` +
+    /* 管理按钮组（P1-8）：原先 group-hover:flex 在触屏/键盘下完全不可达。
+       改为常驻 flex + 低透明度，hover / 内部聚焦时提亮。 */
+    `<span class="ml-auto flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
     add +
-    `<button type="button" data-node-move="${n.id}" title="移动" aria-label="移动" class="text-[0.65rem] text-muted-foreground hover:text-primary">⇄</button>` +
-    `<button type="button" data-node-edit="${n.id}" title="编辑" aria-label="编辑" class="text-[0.65rem] text-muted-foreground hover:text-primary">✎</button>` +
-    `<button type="button" data-node-del="${n.id}" data-node-name="${esc(n.title)}" title="删除" aria-label="删除" class="text-[0.65rem] text-muted-foreground hover:text-destructive">×</button>` +
+    `<button type="button" data-node-move="${n.id}" title="移动" aria-label="移动" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-primary">⇄</button>` +
+    `<button type="button" data-node-edit="${n.id}" title="编辑" aria-label="编辑" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-primary">✎</button>` +
+    `<button type="button" data-node-del="${n.id}" data-node-name="${esc(n.title)}" title="删除" aria-label="删除" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-destructive">×</button>` +
     `</span>`
   );
 }
@@ -132,7 +134,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       <span class="mx-1">/</span>
       <span class="text-foreground">{esc(bundle.name)}</span>
       {isAuthed && (
-        <button id="doc-edit-bundle" type="button" title="编辑文档" aria-label="编辑文档" class="ml-2 text-xs text-muted-foreground transition-colors hover:text-primary">✎</button>
+        <button id="doc-edit-bundle" type="button" title="编辑文档" aria-label="编辑文档" class="icon-btn-tap ml-2 text-xs text-muted-foreground transition-colors hover:text-primary">✎</button>
       )}
     </div>
 

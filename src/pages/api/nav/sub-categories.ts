@@ -8,8 +8,7 @@
  * DELETE: { id } → { ok }（其下网站回到主分类「未分组」区，不删网站）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, notFound, readJson } from '@/lib/api';
 import {
   createSubCategory,
   deleteSubCategory,
@@ -23,17 +22,14 @@ export const prerender = false;
 const MAX_NAME = 50;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { categoryId?: unknown; name?: unknown; sort?: unknown };
-  try {
-    body = (await request.json()) as { categoryId?: unknown; name?: unknown; sort?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ categoryId?: unknown; name?: unknown; sort?: unknown }>(request);
+  if (!body) return badJson();
   const categoryId = typeof body.categoryId === 'string' && body.categoryId.trim() ? body.categoryId.trim() : '';
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-  if (!categoryId) return json({ error: '缺少主分类' }, 400);
-  if (!name) return json({ error: '请填写子分类名' }, 400);
+  if (!categoryId) return badRequest('缺少主分类');
+  if (!name) return badRequest('请填写子分类名');
   // sort 省略时追加到末尾（取当前最大值 +1），保证新分组排在已有分组之后
   let sort = Number.isFinite(Number(body.sort)) ? Math.max(0, Math.floor(Number(body.sort))) : 0;
   if (body.sort === undefined) {
@@ -50,19 +46,16 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 };
 
 export const PUT: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { id?: unknown; name?: unknown; sort?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown; name?: unknown; sort?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ id?: unknown; name?: unknown; sort?: unknown }>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : '';
-  if (!id) return json({ error: '缺少子分类 ID' }, 400);
+  if (!id) return badRequest('缺少子分类 ID');
   const patch: { name?: string; sort?: number } = {};
   if (body.name !== undefined) {
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-    if (!name) return json({ error: '子分类名不能为空' }, 400);
+    if (!name) return badRequest('子分类名不能为空');
     patch.name = name;
   }
   if (body.sort !== undefined && Number.isFinite(Number(body.sort))) {
@@ -70,7 +63,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
   }
   try {
     const subCategory = await updateSubCategory(id, patch);
-    if (!subCategory) return json({ error: '子分类不存在' }, 404);
+    if (!subCategory) return notFound('子分类不存在');
     return json({ subCategory });
   } catch (err) {
     console.error('[api/nav/sub-categories]', err);
@@ -79,18 +72,15 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
 };
 
 export const DELETE: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { id?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ id?: unknown }>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : '';
-  if (!id) return json({ error: '缺少子分类 ID' }, 400);
+  if (!id) return badRequest('缺少子分类 ID');
   try {
     const existing = await getSubCategory(id);
-    if (!existing) return json({ error: '子分类不存在' }, 404);
+    if (!existing) return notFound('子分类不存在');
     await deleteSubCategory(id);
     return json({ ok: true });
   } catch (err) {

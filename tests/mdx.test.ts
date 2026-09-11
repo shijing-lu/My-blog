@@ -2,7 +2,14 @@
  * MDX 渲染管线单元测试
  */
 import { describe, expect, it } from 'vitest';
-import { renderMdx, renderMarkdownHtml, normalizeMathFences } from '../src/lib/mdx';
+import {
+  renderMdx,
+  renderMarkdownHtml,
+  normalizeMathFences,
+  normalizeSource,
+  invalidateRenderCache,
+  clearRenderCache,
+} from '../src/lib/mdx';
 import { buildTocTree, renderTocTreeHtml } from '../src/lib/toc-tree';
 
 describe('renderMdx', () => {
@@ -822,5 +829,67 @@ describe('裸花括号安全化（escapeBareBraces）', () => {
   it('代码区域不受影响（围栏 / 行内代码内的 `{.tip}` 字面保留）', async () => {
     const { html } = await renderMdx('```\na {.tip} b\n```');
     expect(html).toContain('{.tip}');
+  });
+
+  it('普通长度代码块照常高亮（P3-4 回归护栏）', async () => {
+    const { html } = await renderMdx('```ts\nconst a: number = 1;\n```');
+    expect(html).toContain('token');
+    expect(html).not.toContain('data-code-plain');
+  });
+
+  it('超长代码块跳过高亮但内容不丢（P3-4）', async () => {
+    const long = 'x'.repeat(60_000);
+    const { html } = await renderMdx('```ts\n' + long + '\n```');
+    // 语言类被摘掉 → Prism 跳过，改由 data-language 记录
+    expect(html).toContain('data-code-plain="true"');
+    expect(html).toContain('data-language="ts"');
+    expect(html).not.toContain('class="token');
+    // 内容一个字不少
+    expect(html).toContain(long.slice(0, 200));
+  });
+});
+
+describe('渲染缓存（normalizeSource / invalidateRenderCache）', () => {
+  it('normalizeSource 稳定：同输入必得同输出', () => {
+    const src = ':::tabs#pkg\n\n@tab npm\n\n正文 ==高亮=={.tip}\n\n:::\n\n$$\\frac{n}{2}$$\n';
+    expect(normalizeSource(src)).toBe(normalizeSource(src));
+  });
+
+  it('缓存命中返回同一对象引用', async () => {
+    const src = '## 缓存一致性\n\n> $$t = 1 + \\frac{n}{2}$$\n\n==重点=={.tip}\n';
+    clearRenderCache();
+    const first = await renderMdx(src);
+    const second = await renderMdx(src);
+    expect(second).toBe(first);
+  });
+
+  it('invalidateRenderCache 传入原始源码即可清除条目', async () => {
+    // 这条用例锁死 P2-24：失效必须用与写入**相同**的归一化结果算 key。
+    // 早期版本用 djb2(raw source) 删、djb2(normalized) 写，两侧永不相等 → 失效是 no-op。
+    const src = '## 待失效\n\n正文 {A} 与 ==高亮==\n';
+    clearRenderCache();
+    const first = await renderMdx(src);
+    const cached = await renderMdx(src);
+    expect(cached).toBe(first);
+
+    invalidateRenderCache(src);
+    const after = await renderMdx(src);
+    // 失效后重新渲染，应得到全新对象（而非缓存里的那个）
+    expect(after).not.toBe(first);
+    expect(after.html).toEqual(first.html);
+  });
+
+  it('自定义 components 不写入缓存（每次都重渲染）', async () => {
+    const src = '## 自定义组件\n\n正文\n';
+    const a = await renderMdx(src, { components: {} });
+    const b = await renderMdx(src, { components: {} });
+    expect(b).not.toBe(a);
+  });
+
+  it('哈希不碰撞：djb2 会撞的两个短串在 SHA-1 下渲染结果互不影响', async () => {
+    // ' A' 与 '! ' 在 32 位 djb2（含长度后缀）下会碰撞；换 SHA-1 后不再撞
+    const a = await renderMdx(' A');
+    const b = await renderMdx('! ');
+    expect(a.html).not.toEqual(b.html);
   });
 });

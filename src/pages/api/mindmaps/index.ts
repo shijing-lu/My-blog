@@ -5,8 +5,7 @@
  * POST: { title, articleId?, data? } → 201 { map }（管理员）
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import { createMindmap, emptyMindmapData, listMindmaps, stringifyMindmapData } from '@/lib/mindmaps';
 
 export const prerender = false;
@@ -32,16 +31,13 @@ export const GET: APIRoute = async ({ url }) => {
 };
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { title?: unknown; articleId?: unknown; data?: unknown };
-  try {
-    body = (await request.json()) as { title?: unknown; articleId?: unknown; data?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ title?: unknown; articleId?: unknown; data?: unknown }>(request);
+  if (!body) return badJson();
 
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, MAX_TITLE) : '';
-  if (!title) return json({ error: '请填写导图标题' }, 400);
+  if (!title) return badRequest('请填写导图标题');
   const articleId = typeof body.articleId === 'string' && body.articleId.trim() ? body.articleId.trim().slice(0, 200) : null;
 
   let data: string;
@@ -50,7 +46,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     try {
       JSON.parse(body.data);
     } catch {
-      return json({ error: '导图数据不合法' }, 400);
+      return badRequest('导图数据不合法');
     }
     data = body.data;
   } else {

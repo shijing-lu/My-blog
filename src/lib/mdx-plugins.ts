@@ -4,8 +4,19 @@
  * <!-- 区域划分 -->
  * - Imports: remark / rehype / mdast·hast 类型
  * - Directive: remarkDirectiveToJsx（:::指令 → Admonition JSX）
+ * - BlockAnchors: rehypeBlockAnchors / rehypeSkipHugeCode
+ * - Mark: 荧光高亮 `==文本==` → <mark>
  * - Toc: rehypeTocCollector（h2/h3 → TOC）
+ * - Footnotes: remarkLegacyFootnotes（旧式 `[1]` 脚注）
  * - Plugins: 服务端与浏览器预览共用的插件数组
+ *
+ * ## P1-9 拆分说明
+ * 本文件曾达 1599 行，四个语法块与公共插件挤在一起。现已按语法拆出：
+ * - `./mdx/nodes` —— 节点构造助手（patched / jsxFlow / footnoteRef…），公共底座
+ * - `./mdx/callout` —— `> [!type]` → <Callout>
+ * - `./mdx/collapse` —— `:::collapse` → <Collapse>
+ * - `./mdx/tabs` —— `:::tabs#id` → <Tabs>
+ * 三者只依赖 `./mdx/nodes`，不反向依赖本文件（避免与插件数组的循环引用）。
  */
 import remarkGfm from 'remark-gfm';
 import remarkDirective from 'remark-directive';
@@ -18,7 +29,15 @@ import rehypeTableMath from './rehype-table-math';
 import { toHtml } from 'hast-util-to-html';
 import type { Processor } from 'unified';
 import type { Root, RootContent, Node, Paragraph } from 'mdast';
+import { footnoteDef, footnoteRef, textNode, type MdxDirectiveNode } from './mdx/nodes';
+import { remarkCallout } from './mdx/callout';
+import { remarkCollapse } from './mdx/collapse';
+import { remarkTabs } from './mdx/tabs';
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
+
+/* 节点助手已拆到 ./mdx/nodes（P1-9）；这里整体再导出，
+   保持 `import { jsxFlow } from '@/lib/mdx-plugins'` 之类的旧写法仍然可用。 */
+export * from './mdx/nodes';
 
 /** 支持的 admonition 类型 */
 export const ADMONITION_TYPES = ['note', 'tip', 'warning', 'danger', 'info'] as const;
@@ -82,13 +101,67 @@ export function rehypeBlockAnchors() {
   };
 }
 
-/** 便捷类型：含可选 name/children/attributes 的节点 */
-type DirectiveNode = Node & {
-  name?: string;
-  children?: Node[];
-  /** remark-directive 解析出的属性（`:::collapse{accordion}` → `{ accordion: '' }`） */
-  attributes?: Record<string, string>;
-};
+/**
+ * rehype 插件：超长代码块跳过高亮（P3-4）
+ *
+ * Prism 高亮是纯 CPU 活儿，耗时随代码长度线性增长。正常文章的代码块几百行以内，
+ * 但偶尔会贴整份日志/大段配置，单个函数实例可能被拖到秒级。
+ *
+ * 做法：超过阈值的块**去掉 language-* 类**，让 rehype-prism-plus 直接跳过它
+ * （无语言类 = 不加载语法 = 不高亮），内容一个字不少地照常输出。
+ * 语言名另存到 `data-language`（供 UI/复制等后续逻辑读取），
+ * 并打 `data-code-plain`，便于将来给这类块加"未高亮"提示。
+ *
+ * 只牺牲配色、不牺牲内容——这是刻意的取舍：截断正文会破坏文档完整性。
+ */
+const MAX_HIGHLIGHT_CHARS = 50_000;
+
+/** 递归累加元素内纯文本长度（不做字符串拼接，避免为大块分配临时串） */
+function textLength(node: Element | HastRoot): number {
+  let sum = 0;
+  const walk = (n: ElementContent | Element | HastRoot): void => {
+    if (n.type === 'text') {
+      sum += (n.value ?? '').length;
+      return;
+    }
+    if (Array.isArray((n as Element).children)) {
+      (n as Element).children.forEach((c) => walk(c as ElementContent));
+    }
+  };
+  (node as Element).children?.forEach((c) => walk(c as ElementContent));
+  return sum;
+}
+
+export function rehypeSkipHugeCode() {
+  return (tree: HastRoot) => {
+    const walk = (node: Element | HastRoot): void => {
+      if (Array.isArray((node as HastRoot).children)) {
+        (node as HastRoot).children.forEach((child) => {
+          if (child.type === 'element') walk(child as Element);
+        });
+      }
+      if (node.type !== 'element' || node.tagName !== 'pre') return;
+      const code = (node as Element).children.find(
+        (c): c is Element => c.type === 'element' && c.tagName === 'code',
+      );
+      if (!code) return;
+      if (textLength(code) <= MAX_HIGHLIGHT_CHARS) return;
+      const classes = Array.isArray(code.properties?.className) ? (code.properties!.className as string[]) : [];
+      const lang = classes.find((c) => typeof c === 'string' && c.startsWith('language-'))?.slice('language-'.length);
+      code.properties = {
+        ...(code.properties ?? {}),
+        className: classes.filter((c) => typeof c !== 'string' || !c.startsWith('language-')),
+        ...(lang ? { dataLanguage: lang } : {}),
+        dataCodePlain: 'true',
+      };
+    };
+    walk(tree);
+  };
+}
+
+/** 便捷类型：含可选 name/children/attributes 的节点（三个容器插件共用，已下沉到 nodes.ts）
+ *  @deprecated 请从 `@/lib/mdx/nodes` 导入 `DirectiveNode`，此处仅为兼容旧引用保留别名。 */
+type DirectiveNode = MdxDirectiveNode;
 
 /** 递归转换某子级数组（含嵌套） */
 function transformChildren(children: Node[]): void {
@@ -125,702 +198,6 @@ function transformChildren(children: Node[]): void {
 export function remarkDirectiveToJsx() {
   return (tree: Root) => {
     transformChildren(tree.children);
-  };
-}
-
-/* ============================================================================
- * Obsidian 风格 Callout：`> [!type] 标题` / `> [!type]-` 折叠
- * ==========================================================================*/
-
-/** 支持的 callout 类型（对齐 Obsidian 全量内置类型） */
-export const CALLOUT_TYPES = [
-  'note', 'info', 'tip', 'success', 'question',
-  'warning', 'failure', 'danger', 'bug', 'example', 'quote',
-] as const;
-export type CalloutType = (typeof CALLOUT_TYPES)[number];
-
-/**
- * Obsidian 内置类型的**别名 → 规范名**映射。
- * 用户写 `> [!hint]` 或 `> [!caution]` 等别名时归一到规范类型，避免样式缺失。
- */
-const CALLOUT_ALIASES: Record<string, CalloutType> = {
-  // note 系
-  note: 'note',
-  // info 系
-  info: 'info', todo: 'info', abstract: 'info', summary: 'info', tldr: 'info',
-  // tip 系
-  tip: 'tip', hint: 'tip', important: 'tip',
-  // success 系
-  success: 'success', check: 'success', done: 'success',
-  // question 系
-  question: 'question', help: 'question', faq: 'question',
-  // warning 系
-  warning: 'warning', caution: 'warning', attention: 'warning',
-  // failure 系
-  failure: 'failure', fail: 'failure', missing: 'failure',
-  // danger 系
-  danger: 'danger', error: 'danger',
-  // bug 系
-  bug: 'bug',
-  // example 系
-  example: 'example',
-  // quote 系
-  quote: 'quote', cite: 'quote',
-};
-
-/**
- * Callout 标题行匹配（blockquote 首段首行的文本）：
- *   [!type]            → 默认标题，不可折叠
- *   [!type]-           → 默认标题，**默认折叠**
- *   [!type]+           → 默认标题，默认展开（显式）
- *   [!type] 自定义标题  → 空格分隔写法
- *   [!type]【自定义标题】→ 紧贴写法（中括号/书名号等任意字符都吃下）
- *
- * 类型名与折叠符号之间不允许有空格（Obsidian 规范），折叠符号后允许空格。
- * ⚠️ 注意：连续引用行会被 mdast 合并为**同一个 text 节点**（值含 `\n`），
- * 因此匹配发生在「首行」而非「整个节点」，见 splitCalloutHead。
- */
-const CALLOUT_HEAD_RE = /^\s*\[!([A-Za-z][\w-]*)\]([+-]?)[ \t]*(.*)$/;
-
-/**
- * 拆出 blockquote 首行：返回 { headText, restChildren }
- *
- * ⚠️ 两个必须同时处理的 mdast 事实：
- * 1. 连续引用行会被合并为**同一个 text 节点**（值含 `\n`）→ 按首个换行切分
- * 2. 标题行含 Markdown 富文本时（如 `**【例 5.1】** 题干`），该行会被拆成
- *    多个节点（text / strong / emphasis / inlineCode …）→ 需按「行内节点」聚合，
- *    直到遇到含 `\n` 的节点为止，才把剩余部分归入正文。
- *
- * headText 为标题行的**纯文本**（富文本节点的文字已并入），用于正则匹配与标题取值。
- */
-function splitCalloutHead(paragraph: Node): { headText: string; headNodes: Node[]; restChildren: Node[] } | null {
-  const children = ((paragraph as { children?: Node[] }).children ?? []).slice();
-  if (children.length === 0) return null;
-  const first = children[0];
-  if (!first || first.type !== 'text') return null;
-
-  const headNodes: Node[] = [];
-  let restChildren: Node[] = [];
-  let headText = '';
-  let done = false;
-
-  for (let i = 0; i < children.length; i += 1) {
-    const node = children[i]!;
-    if (done) {
-      restChildren.push(node);
-      continue;
-    }
-    if (node.type === 'text') {
-      const raw = String((node as { value?: unknown }).value ?? '');
-      const nl = raw.indexOf('\n');
-      if (nl === -1) {
-        headNodes.push(node);
-        headText += raw;
-      } else {
-        // 该节点跨行：切分出标题行部分，余下作为正文续行
-        const headPart = raw.slice(0, nl);
-        const tailPart = raw.slice(nl + 1);
-        if (headPart !== '') {
-          headNodes.push({ ...(node as unknown as Record<string, unknown>), value: headPart } as unknown as Node);
-          headText += headPart;
-        }
-        if (tailPart.trim() !== '') {
-          restChildren.push({ ...(node as unknown as Record<string, unknown>), value: tailPart } as unknown as Node);
-        }
-        done = true;
-      }
-    } else {
-      // 行内富文本节点（strong/emphasis/link/inlineMath…）：属于标题行，结构完整保留
-      headNodes.push(node);
-      headText += rawTextOf(node);
-    }
-  }
-  return { headText, headNodes, restChildren };
-}
-
-/**
- * 提取行内节点的纯文本（用于标题行正则匹配与标题取值）。
- *
- * ⚠️ 此处在 **remark 阶段**运行，`$…$` 还是普通的 text 节点（尚未经 rehype-katex 渲染），
- * 因此公式会以原始 `$…$` 形式并入标题文本——这正是我们想要的：
- * 标题是纯文本，保留 `$\lambda$` 写法比渲染成图片更可读（且不破坏正则匹配）。
- */
-function rawTextOf(node: Node): string {
-  if (node.type === 'text') return String((node as { value?: unknown }).value ?? '');
-  // 行内公式（remark-math 的 inlineMath 节点）→ 还原为 $…$ 原文
-  if (node.type === 'inlineMath') {
-    return `$${String((node as { value?: unknown }).value ?? '')}$`;
-  }
-  const children = (node as { children?: Node[] }).children;
-  if (Array.isArray(children)) return children.map(rawTextOf).join('');
-  return '';
-}
-
-/**
- * 从标题行节点中剥掉 `[!type]-` 前缀，返回剩余的富文本节点（结构完整保留）。
- *
- * 前缀（含 `[!type]` 与折叠符）总是出现在首个文本节点里，因此按前缀长度对其切片。
- * ⚠️ 前缀长度 = `[!` + 类型名 + `]` + 折叠符，必须精确计算——
- * 不能用正则反推整个匹配串（`(.*)` 会吞掉标题正文）。
- *
- * `type` 为归一的规范类型名（长度可能与用户原文不同），因此用原文类型名长度计算。
- */
-function stripHeadPrefix(headNodes: Node[], rawTypeName: string, marker: string): Node[] {
-  const prefixLen = 2 + rawTypeName.length + 1 + marker.length; // `[!` + name + `]` + `-`/`+`
-  const out: Node[] = [];
-  let consumed = 0;
-  let dropped = false;
-  for (const node of headNodes) {
-    if (dropped) {
-      out.push(node);
-      continue;
-    }
-    if (node.type !== 'text') {
-      out.push(node);
-      continue;
-    }
-    const raw = String((node as { value?: unknown }).value ?? '');
-    const remaining = prefixLen - consumed;
-    if (remaining <= 0) {
-      out.push(node);
-      continue;
-    }
-    if (raw.length <= remaining) {
-      consumed += raw.length;
-      dropped = true;
-      continue;
-    }
-    // 前缀后可能紧跟空格（`[!note] 标题`），一并去掉前导空白
-    const rawTail = raw.slice(remaining);
-    const tail = rawTail.replace(/^[ \t]+/, '');
-    if (tail !== '') {
-      out.push({ ...(node as unknown as Record<string, unknown>), value: tail } as unknown as Node);
-    }
-    dropped = true;
-  }
-  return out;
-}
-
-/**
- * 剥离行内 Markdown 标记，保留可读文字。
- * 覆盖：粗体、斜体、行内代码、删除线、链接（保留链接文字）、图片（保留 alt）。
- *
- * ⚠️ 必须跳过 `$…$` / `$$…$$` 公式区域——LaTeX 里的 `_`、`*` 会被误判为
- * 斜体/粗体标记（如 `A^{-1}` 的 `_`、`x^*` 的 `*`）。做法是先把公式抽成占位符，
- * 处理完其余文本后再回填。
- */
-function stripInlineMarkdown(s: string): string {
-  const formulas: string[] = [];
-  // 先保护块级公式，再保护行内公式（避免 $ 成对错配）
-  const guarded = s
-    .replace(/\$\$([\s\S]+?)\$\$/g, (m) => `\u0000${formulas.push(m) - 1}\u0000`)
-    .replace(/\$([^$\n]+?)\$/g, (m) => `\u0000${formulas.push(m) - 1}\u0000`);
-
-  const stripped = guarded
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')   // 图片 → alt
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')    // 链接 → 文字
-    .replace(/(\*\*|__)(.*?)\1/g, '$2')          // 粗体
-    .replace(/(\*|_)(.*?)\1/g, '$2')             // 斜体
-    .replace(/~~(.*?)~~/g, '$1')                 // 删除线
-    .replace(/`([^`]*)`/g, '$1')                 // 行内代码
-    .trim();
-
-  // 回填公式原文
-  return stripped.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => formulas[Number(i)] ?? '');
-}
-
-/**
- * remark 插件：把 Obsidian 风格 `> [!type]` 引用块转换为 `<Callout>` JSX 节点。
- *
- * 语法（blockquote 首段首行）：
- *   > [!note] 自定义标题      默认展开，带标题
- *   > [!note]-               默认折叠（仅标题行可见）
- *   > [!note]+               默认展开（显式声明可折叠）
- *
- * 折叠语义（本项目定版）：折叠时**仅标题行可见**，其余内容整体隐藏。
- * 因此「题干 + 解析」场景需把题干写进标题行（见 README/示例）。
- *
- * 非 callout 的普通引用块原样保留，不受影响。
- */
-export function remarkCallout() {
-  return (tree: Root) => {
-    const walk = (children: Node[]): void => {
-      for (let i = 0; i < children.length; i += 1) {
-        const node = children[i] as DirectiveNode;
-        if (node.type === 'blockquote') {
-          const inner = (node.children ?? []) as Node[];
-          const split = inner[0] ? splitCalloutHead(inner[0]) : null;
-            const m = split ? CALLOUT_HEAD_RE.exec(split.headText) : null;
-          if (m && split) {
-            const rawType = (m[1] ?? '').toLowerCase();
-            const type: CalloutType = CALLOUT_ALIASES[rawType] ?? 'note';
-            const marker = m[2] ?? '';
-            // 标题行剥掉 `[!type]-` 前缀后的富文本节点（保留加粗/公式/行内代码结构），
-            // 作为 Callout 的首个「标记段落」传入，组件渲染时抽进 <summary>。
-            const richNodes = stripHeadPrefix(split.headNodes, m[1] ?? '', marker);
-            const plainTitle = stripInlineMarkdown(m[3] ?? '');
-
-            const body: Node[] = [];
-            if (split.restChildren.length > 0) {
-              body.push({ ...(inner[0] as unknown as Record<string, unknown>), children: split.restChildren } as unknown as Node);
-            }
-            body.push(...inner.slice(1));
-
-            // ⚠️ 必须先把 body 递归处理完再 push 进 jsxChildren：
-            // walk 是「就地替换数组元素」（children[i] = ...），而 jsxChildren.push(...body)
-            // 是展开 push——push 之后替换 body[i] 不会反映到 jsxChildren，嵌套 Callout 会丢失。
-            walk(body);
-
-            const attrs: unknown[] = [
-              { type: 'mdxJsxAttribute', name: 'type', value: type },
-            ];
-            // 无富文本节点时才用纯文本 title（富文本优先，见下方标记段落）
-            if (richNodes.length === 0 && plainTitle) {
-              attrs.push({ type: 'mdxJsxAttribute', name: 'title', value: plainTitle });
-            }
-            // `-` 默认折叠；`+` 或空 默认展开。仅 `-`/`+` 才渲染折叠交互
-            if (marker === '-' || marker === '+') {
-              attrs.push({ type: 'mdxJsxAttribute', name: 'foldable', value: 'true' });
-              if (marker === '-') attrs.push({ type: 'mdxJsxAttribute', name: 'collapsed', value: 'true' });
-            }
-
-            const jsxChildren: Node[] = [];
-            if (richNodes.length > 0) {
-              // 标题行作为首个 children，打上 data-callout-head 标记供组件识别与抽取
-              jsxChildren.push({
-                type: 'mdxJsxFlowElement',
-                name: 'p',
-                attributes: [
-                  {
-                    type: 'mdxJsxAttribute',
-                    name: 'data-callout-head',
-                    value: 'true',
-                  },
-                ],
-                children: richNodes,
-              } as unknown as Node);
-            }
-            jsxChildren.push(...body);
-
-            children[i] = {
-              type: 'mdxJsxFlowElement',
-              name: 'Callout',
-              attributes: attrs,
-              children: jsxChildren,
-            } as unknown as RootContent;
-            continue;
-          }
-          // 非 callout 的引用块：继续深入其子级（内部可能含 callout）
-          walk(inner);
-          continue;
-        }
-        if (Array.isArray(node.children)) walk(node.children);
-      }
-    };
-    walk(tree.children);
-  };
-}
-
-/* ============================================================================
- * 折叠面板：`:::collapse` 容器 + 无序列表 → <Collapse>
- *
- * ## 语法（对齐 VuePress Plume 主题的 collapse 容器）
- *
- *   :::collapse [accordion] [expand]
- *   - 面板标题
- *
- *     面板正文（完整块级 Markdown）
- *
- *   - :+ 默认展开的面板标题
- *
- *     正文……
- *   :::
- *
- * ## 规则
- *
- * - 容器内**有且仅有一个顶层无序列表**；每个列表项 = 一个面板；
- * - 列表项内：**首行到首个空行为标题**，首个空行之后为正文（完整块级 Markdown）；
- * - `:+` / `:-` 前缀标记该项初始「展开 / 折叠」，写在标题之前（`- :+ 标题`）；
- * - `accordion` 整组互斥（用 HTML `<details name>` 原生实现，零 JS）；
- * - `expand` 整组默认展开；此时 `:-` 可把单项压回折叠；
- * - 默认（无参数）：全部折叠，仅 `:+` 标记项展开。
- *
- * ## 参数来源
- *
- * remark-directive 只认花括号属性，源码层的 `normalizeCollapseParams`
- * （src/lib/mdx.ts）已把空格写法 `:::collapse accordion` 改写为
- * `:::collapse{accordion}`，因此这里直接读 `attributes`。
- *
- * ## 与列表项解析的配合
- *
- * 列表项的 `spread`（松散列表）会让「标题行」与「正文」被拆成多个段落。
- * 这里不依赖 spread，而是**按 children 顺序**取：第一个 paragraph 的首行
- * 做标题，其残余内容 + 后续所有块做正文 —— 与 Plume 语义一致且更健壮。
- * ==========================================================================*/
-
-/** `:::collapse` 已识别的参数（由源码层保证只出现白名单词） */
-const COLLAPSE_PARAM_NAMES_LOCAL = new Set(['accordion', 'expand']);
-
-/** 标题行前的初始状态标记：源码层已把 `:+` / `:-` 编码为哨兵 + 符号 */
-const COLLAPSE_MARK_SENT = '\uE002';
-
-/**
- * 从标题节点数组中剥离并返回初始状态标记（`+` 展开 / `-` 折叠）。
- *
- * 源码层 `encodeCollapseMarkers` 已把 `:+` 变为 `<哨兵>+`，因此这里
- * 在**首个文本节点**里找 `<哨兵><符号>`。找不到返回空串（跟随组默认值）。
- *
- * ⚠️ 不能在源码层保留裸 `:` —— remark-directive 会把它吃成 textDirective，
- * 既匹配不到文本，还会渲染出空 `<div>`。
- */
-function takeCollapseMarker(nodes: Node[]): string {
-  for (const node of nodes) {
-    const n = node as Node & { value?: string };
-    if (n.type !== 'text' || typeof n.value !== 'string') continue;
-    const idx = n.value.indexOf(COLLAPSE_MARK_SENT);
-    if (idx === -1) {
-      // 标记必定在最前面的文本节点；首个文本节点没有就说明该项无标记
-      return '';
-    }
-    const sign = n.value.charAt(idx + COLLAPSE_MARK_SENT.length);
-    const marker = sign === '+' || sign === '-' ? sign : '';
-    // 一并吃掉哨兵、符号与紧随其后的空白
-    const before = n.value.slice(0, idx);
-    const after = n.value.slice(idx + COLLAPSE_MARK_SENT.length + 1).replace(/^[ \t]+/, '');
-    n.value = before + after;
-    return marker;
-  }
-  return '';
-}
-
-/**
- * 从列表项中拆出「标题节点」与「正文节点」。
- *
- * 取法：
- * 1. 首个 paragraph 的第一行（遇到 `\n` 为止）为标题原文；
- * 2. 该 paragraph 剩余的兄弟节点（`\n` 之后的富文本）留在正文首段；
- * 3. 其余 children 全部归正文。
- *
- * @returns `{ headNodes, marker, bodyNodes }`；无标题（首子不是段落）时 headNodes 为空
- */
-function splitCollapseItem(item: Node): { headNodes: Node[]; marker: string; bodyNodes: Node[] } {
-  const children = ((item as DirectiveNode).children ?? []) as Node[];
-  const first = children[0];
-  if (!first || first.type !== 'paragraph') {
-    return { headNodes: [], marker: '', bodyNodes: children };
-  }
-
-  const para = first as Paragraph;
-  const paraChildren = (para.children ?? []) as Node[];
-  const headNodes: Node[] = [];
-  const restNodes: Node[] = [];
-  let sawBreak = false;
-
-  for (const child of paraChildren) {
-    const c = child as Node & { value?: string };
-    if (!sawBreak && c.type === 'text' && typeof c.value === 'string' && c.value.includes('\n')) {
-      // 首个含换行的文本节点：换行前为标题，换行后归正文
-      const [headPart, ...restParts] = c.value.split('\n');
-      const restText = restParts.join('\n');
-      if (headPart !== '') headNodes.push({ ...c, value: headPart } as unknown as Node);
-      if (restText !== '') restNodes.push({ ...c, value: restText } as unknown as Node);
-      sawBreak = true;
-      continue;
-    }
-    if (!sawBreak) headNodes.push(child);
-    else restNodes.push(child);
-  }
-
-  // 首段没有换行 → 整段都是标题（项内无正文）
-  const bodyNodes: Node[] = [];
-  if (restNodes.length > 0) {
-    bodyNodes.push({ ...first, children: restNodes } as unknown as Node);
-  }
-  bodyNodes.push(...children.slice(1));
-
-  // 剥离并记录 `:+` / `:-` 标记（哨兵形态，只看标题节点）
-  const marker = takeCollapseMarker(headNodes);
-
-  return { headNodes, marker, bodyNodes };
-}
-
-/**
- * remark 插件：把 `:::collapse` 容器转换为 `<Collapse>` JSX 节点。
- *
- * 每个面板产出为一个 `<CollapsePanel>` 子节点；标题（含富文本）作为
- * `data-collapse-head` 标记段落置于首位，供组件抽进 `<summary>`。
- *
- * 非法形态（容器内没有无序列表 / 列表项为空）→ **原样保留**容器内容，
- * 不静默吞掉用户内容。
- */
-export function remarkCollapse() {
-  return (tree: Root) => {
-    const walk = (children: Node[]): void => {
-      for (let i = 0; i < children.length; i += 1) {
-        const node = children[i] as DirectiveNode;
-        if (node.type !== 'containerDirective' || node.name !== 'collapse') {
-          if (Array.isArray(node.children)) walk(node.children);
-          continue;
-        }
-
-        // 参数：源码层已把空格写法归一为花括号属性
-        const attrs = (node.attributes ?? {}) as Record<string, string>;
-        const accordion = Object.keys(attrs).some(
-          (k) => COLLAPSE_PARAM_NAMES_LOCAL.has(k.toLowerCase()) && k.toLowerCase() === 'accordion',
-        );
-        const expandAll = Object.keys(attrs).some((k) => k.toLowerCase() === 'expand');
-
-        // 容器内必须是「恰好一个顶层无序列表」（允许列表前后有空白段落）
-        const inner = (node.children ?? []) as Node[];
-        const lists = inner.filter((c) => c.type === 'list');
-        const isOrdered = lists.some((l) => (l as unknown as { ordered?: boolean }).ordered === true);
-        if (lists.length !== 1 || isOrdered) {
-          walk(inner);
-          continue;
-        }
-
-        const list = lists[0] as DirectiveNode;
-        const items = ((list.children ?? []) as Node[]).filter((c) => c.type === 'listItem');
-        if (items.length === 0) {
-          walk(inner);
-          continue;
-        }
-
-        const panels: Node[] = items.map((item) => {
-          const { headNodes, marker, bodyNodes } = splitCollapseItem(item);
-          // 展开态优先级：单项 `:-` > 单项 `:+` > 整组 expand > 默认折叠
-          let open = expandAll;
-          if (marker === '+') open = true;
-          if (marker === '-') open = false;
-
-          const panelChildren: Node[] = [];
-          if (headNodes.length > 0) {
-            panelChildren.push({
-              type: 'mdxJsxFlowElement',
-              name: 'p',
-              attributes: [
-                { type: 'mdxJsxAttribute', name: 'data-collapse-head', value: 'true' },
-              ],
-              children: headNodes,
-            } as unknown as Node);
-          }
-          // ⚠️ 必须先递归处理正文再 push（walk 是就地替换，见 remarkCallout 同款说明）
-          walk(bodyNodes);
-          panelChildren.push(...bodyNodes);
-
-          return {
-            type: 'mdxJsxFlowElement',
-            name: 'CollapsePanel',
-            attributes: [
-              { type: 'mdxJsxAttribute', name: 'open', value: open ? 'true' : 'false' },
-            ],
-            children: panelChildren,
-          } as unknown as Node;
-        });
-
-        children[i] = {
-          type: 'mdxJsxFlowElement',
-          name: 'Collapse',
-          attributes: accordion
-            ? [{ type: 'mdxJsxAttribute', name: 'accordion', value: 'true' }]
-            : [],
-          children: panels,
-        } as unknown as RootContent;
-      }
-    };
-    walk(tree.children);
-  };
-}
-
-/* ============================================================================
- * 选项卡组：`:::tabs#id` + `@tab` 分区 → <Tabs>（对齐 VuePress Plume 主题）
- *
- * ## 源语法
- *
- *   :::tabs#package-manager
- *
- *   @tab npm
- *
- *   使用 npm 安装。
- *
- *   @tab:active **pnpm**#pnpm
- *
- *   使用 pnpm 安装。
- *
- *   :::
- *
- * - `#package-manager` 是**稳定标识值**：同页多个选项卡组只要标识相同，
- *   选中状态即互相同步（不改变标签的可见标题）；
- * - `@tab:active` 指定该项初始激活（同组多个只取第一个）；
- * - `@tab` 后的标签支持行内 Markdown（`**加粗**` / `` `代码` `` 等）；
- * - 标签尾部的 `#锚点` 是该项的稳定 ID（用于跨组联动对齐），从可见标题中剥离。
- *
- * ## 解析前置
- *
- * 源语法含三重 remark-directive 冲突（`#` 容器名、`@tab` 非标准、`:` 被吃成
- * textDirective），且 remark-directive **不支持嵌套容器**。因此源码层的
- * `normalizeTabs`（src/lib/mdx.ts）已把语法改写为「容器 + 一个无序列表」：
- * 每个 `@tab` 变成列表项 `- <哨兵>active<分隔>标签`，正文缩进为该项续行。
- * 本插件因此只需处理与 `remarkCollapse` 同构的形态。
- * ==========================================================================*/
-
-/** 选项卡组标记哨兵（与 mdx.ts 的 TABS_MARK_SENTINEL 对应） */
-const TABS_MARK_SENT = '\uE003';
-/** 选项卡组标签行的字段分隔符（与 mdx.ts 的 TABS_FIELD_SEP 对应） */
-const TABS_FIELD_SEP_LOCAL = '\uE004';
-
-/**
- * 从选项卡列表项中拆出「标签节点」「激活态」「锚点」与「正文节点」。
- *
- * 源码层已把 `@tab[:active] 标签[#锚点]` 编码为列表项首行
- * `<哨兵>active<分隔>标签[#锚点]`，因此这里在首个文本节点里解出元信息。
- */
-function splitTabsItem(item: Node): {
-  labelNodes: Node[];
-  active: boolean;
-  anchor: string;
-  bodyNodes: Node[];
-} {
-  const children = ((item as DirectiveNode).children ?? []) as Node[];
-  const first = children[0];
-  if (!first || first.type !== 'paragraph') {
-    return { labelNodes: [], active: false, anchor: '', bodyNodes: children };
-  }
-
-  const paraChildren = ((first as Paragraph).children ?? []) as Node[];
-  const labelNodes: Node[] = [];
-  let active = false;
-  let anchor = '';
-
-  // 首个文本节点形如 `<S>active<分隔>锚点<分隔>标签原文(起始段)`
-  // ⚠️ 标签原文可能含行内 Markdown，被 micromark 拆到后续节点（甚至 strong/em 内部）；
-  //    因此这里**只吃掉前缀**（哨兵 + active 标记 + 锚点 + 紧随的分隔符），
-  //    余下文本与所有后续兄弟节点原样保留为标签内容。
-  let consumed = false;
-  for (const child of paraChildren) {
-    const c = child as Node & { value?: string };
-    if (!consumed && c.type === 'text' && typeof c.value === 'string') {
-      const idx = c.value.indexOf(TABS_MARK_SENT);
-      if (idx !== -1) {
-        const sep1 = c.value.indexOf(TABS_FIELD_SEP_LOCAL, idx);
-        if (sep1 !== -1) {
-          const flag = c.value.slice(idx + TABS_MARK_SENT.length, sep1);
-          active = flag === 'active';
-          const sep2 = c.value.indexOf(TABS_FIELD_SEP_LOCAL, sep1 + TABS_FIELD_SEP_LOCAL.length);
-          if (sep2 !== -1) {
-            anchor = c.value.slice(sep1 + TABS_FIELD_SEP_LOCAL.length, sep2);
-            const labelHead = c.value.slice(sep2 + TABS_FIELD_SEP_LOCAL.length);
-            if (labelHead !== '') labelNodes.push({ ...c, value: labelHead } as unknown as Node);
-          } else {
-            // 异常形态：只有一层分隔 → 分隔符后全当标签
-            const labelHead = c.value.slice(sep1 + TABS_FIELD_SEP_LOCAL.length);
-            if (labelHead !== '') labelNodes.push({ ...c, value: labelHead } as unknown as Node);
-          }
-          consumed = true;
-          continue;
-        }
-      }
-      // 首个文本节点没有哨兵 → 非本语法产出，原样保留
-      consumed = true;
-    }
-    labelNodes.push(child);
-  }
-
-  const bodyNodes = children.slice(1);
-  return { labelNodes, active, anchor, bodyNodes };
-}
-
-/**
- * remark 插件：把 `:::tabs` 容器转换为 `<Tabs>` JSX 节点。
- *
- * 每个分区产出为一个 `<Tab>` 子节点；标签（含富文本）作为
- * `data-tab-label` 标记段落置于首位，供组件抽进选项卡按钮。
- *
- * 非法形态（容器内没有无序列表 / 分区为空）→ **原样保留**，不吞用户内容。
- */
-export function remarkTabs() {
-  return (tree: Root) => {
-    const walk = (children: Node[]): void => {
-      for (let i = 0; i < children.length; i += 1) {
-        const node = children[i] as DirectiveNode;
-        if (node.type !== 'containerDirective' || node.name !== 'tabs') {
-          if (Array.isArray(node.children)) walk(node.children);
-          continue;
-        }
-
-        const attrs = (node.attributes ?? {}) as Record<string, string>;
-        // 稳定标识值来自源码层改写出的 `{#id}` 简写
-        // （remark-directive 不支持 `key="value"` 属性语法，详见 normalizeTabs 注释）
-        const stableId = attrs.id ?? '';
-
-        const inner = (node.children ?? []) as Node[];
-        const lists = inner.filter((c) => c.type === 'list');
-        const isOrdered = lists.some((l) => (l as unknown as { ordered?: boolean }).ordered === true);
-        if (lists.length !== 1 || isOrdered) {
-          walk(inner);
-          continue;
-        }
-
-        const list = lists[0] as DirectiveNode;
-        const items = ((list.children ?? []) as Node[]).filter((c) => c.type === 'listItem');
-        if (items.length < 2) {
-          // 少于 2 个分区：降级为普通 Markdown（源码层已判过一次，双保险）
-          walk(inner);
-          continue;
-        }
-
-        let activeAssigned = false;
-        const tabs: Node[] = items.map((item, idx) => {
-          const { labelNodes, active, anchor, bodyNodes } = splitTabsItem(item);
-          // 初始激活：同组只认第一个 `:active`，其余回落到索引 0
-          const isActive = active && !activeAssigned;
-          if (isActive) activeAssigned = true;
-
-          const tabChildren: Node[] = [];
-          if (labelNodes.length > 0) {
-            tabChildren.push({
-              type: 'mdxJsxFlowElement',
-              name: 'p',
-              attributes: [{ type: 'mdxJsxAttribute', name: 'data-tab-label', value: 'true' }],
-              children: labelNodes,
-            } as unknown as Node);
-          }
-          // ⚠️ 必须先递归处理正文再 push（walk 就地替换，见 remarkCallout 说明）
-          walk(bodyNodes);
-          tabChildren.push(...bodyNodes);
-
-          return {
-            type: 'mdxJsxFlowElement',
-            name: 'Tab',
-            attributes: [
-              { type: 'mdxJsxAttribute', name: 'active', value: isActive ? 'true' : 'false' },
-              ...(anchor ? [{ type: 'mdxJsxAttribute', name: 'anchor', value: anchor }] : []),
-            ],
-            children: tabChildren,
-          } as unknown as Node;
-        });
-
-        // 二次兜底：确保恰好有一项 active
-        const anyActive = tabs.some((t) => {
-          const a = (t as unknown as { attributes?: { name: string; value: string }[] }).attributes;
-          return a?.some((x) => x.name === 'active' && x.value === 'true');
-        });
-        if (!anyActive && tabs.length > 0) {
-          const a = (tabs[0] as unknown as { attributes: { name: string; value: string }[] })
-            .attributes;
-          const attr = a.find((x) => x.name === 'active');
-          if (attr) attr.value = 'true';
-        }
-
-        children[i] = {
-          type: 'mdxJsxFlowElement',
-          name: 'Tabs',
-          attributes: stableId ? [{ type: 'mdxJsxAttribute', name: 'stableId', value: stableId }] : [],
-          children: tabs,
-        } as unknown as RootContent;
-      }
-    };
-    walk(tree.children);
   };
 }
 
@@ -1321,19 +698,15 @@ export function remarkLegacyFootnotes() {
           while ((m = REF_RE.exec(value)) !== null) {
             matched = true;
             if (m.index > last) {
-              out.push({ type: 'text', value: value.slice(last, m.index) } as Node);
+              out.push(textNode(value.slice(last, m.index)));
             }
-            out.push({
-              type: 'footnoteReference',
-              identifier: m[1]!,
-              label: m[1]!,
-            } as unknown as Node);
+            out.push(footnoteRef(m[1]!));
             last = m.index + m[0].length;
           }
           if (!matched) {
             out.push(node);
           } else if (last < value.length) {
-            out.push({ type: 'text', value: value.slice(last) } as Node);
+            out.push(textNode(value.slice(last)));
           }
         } else {
           // 非文本节点（strong/em/行内代码/链接/图片）：不拆分其内部 [x]
@@ -1362,15 +735,10 @@ export function remarkLegacyFootnotes() {
               const rest: Node[] = [];
               const prefixLen = defMatch[0].length;
               if (firstText.length > prefixLen) {
-                rest.push({ type: 'text', value: firstText.slice(prefixLen) } as Node);
+                rest.push(textNode(firstText.slice(prefixLen)));
               }
               rest.push(...paraChildren.slice(1));
-              children[i] = {
-                type: 'footnoteDefinition',
-                identifier: id,
-                label: id,
-                children: [{ type: 'paragraph', children: rest }],
-              } as unknown as Node;
+              children[i] = footnoteDef(id, rest);
               continue;
             }
           }
@@ -1514,6 +882,8 @@ export const rehypePlugins = [
   [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
   // 表格 cell 内 remark-math 不激活 → 二次扫描 cell text 节点中 $…$ 段用 KaTeX 渲染
   rehypeTableMath,
+  // 超长代码块先摘掉 language 类，让下游 Prism 跳过（P3-4，须在 rehypePrismPlus 之前）
+  rehypeSkipHugeCode,
   [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
   rehypeBlockAnchors,
   // M3E 风格荧光高亮 `==文本==` → <mark>（须在 KaTeX 之后，跳过公式子树）

@@ -5,7 +5,7 @@
  * （点击左栏文章时 fetch 此接口，无需整页导航，避免转圈/不跳转问题）。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { json, missing, notFound } from '@/lib/api';
 import { getDocArticle } from '@/lib/docs';
 import { renderMdx } from '@/lib/mdx';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
@@ -14,10 +14,10 @@ export const prerender = false;
 
 export const GET: APIRoute = async ({ params }) => {
   const id = params.id;
-  if (!id) return json({ error: '缺少 id' }, 400);
+  if (!id) return missing('id');
   try {
     const article = await getDocArticle(id);
-    if (!article) return json({ error: '文章不存在' }, 404);
+    if (!article) return notFound('文章不存在');
     const { html: rawHtml, toc } = await renderMdx(article.content);
     // 正文图片注入原始宽高（DB 图片），消除懒加载宽度跳变
     const ids = collectImageIdsFromHtml(rawHtml);

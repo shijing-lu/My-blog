@@ -7,7 +7,7 @@
 import type { APIRoute } from 'astro';
 import { addEvent, listEvents } from '@/lib/calendar-data';
 import { nextOccurrence } from '@/lib/calendar';
-import { json, jsonCached } from '@/lib/api';
+import { badJson, badRequest, json, jsonCached, readJson } from '@/lib/api';
 
 export const prerender = false;
 
@@ -36,18 +36,8 @@ export const GET: APIRoute = async () => {
 
 /** POST：新增（管理员） */
 export const POST: APIRoute = async ({ request }) => {
-  let body: { title?: unknown; date?: unknown; repeat?: unknown; lunar?: unknown; lunarDate?: unknown };
-  try {
-    body = (await request.json()) as {
-      title?: unknown;
-      date?: unknown;
-      repeat?: unknown;
-      lunar?: unknown;
-      lunarDate?: unknown;
-    };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ title?: unknown; date?: unknown; repeat?: unknown; lunar?: unknown; lunarDate?: unknown }>(request);
+  if (!body) return badJson();
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   const date = typeof body.date === 'string' ? body.date : '';
   const repeat = body.repeat === true;
@@ -56,11 +46,11 @@ export const POST: APIRoute = async ({ request }) => {
   if (lunar) {
     lunarDate = typeof body.lunarDate === 'string' ? body.lunarDate.trim() : '';
     if (!/^-?\d{2}-\d{2}$/.test(lunarDate)) {
-      return json({ error: '农历日期格式需为 MM-DD（闰月 -MM-DD）' }, 400);
+      return badRequest('农历日期格式需为 MM-DD（闰月 -MM-DD）');
     }
   }
-  if (!title) return json({ error: '标题不能为空' }, 400);
-  if (!lunar && !DATE_RE.test(date)) return json({ error: '日期格式不合法' }, 400);
+  if (!title) return badRequest('标题不能为空');
+  if (!lunar && !DATE_RE.test(date)) return badRequest('日期格式不合法');
   const event = await addEvent(title.slice(0, 200), date, repeat, lunar, lunarDate);
   return json({ event });
 };

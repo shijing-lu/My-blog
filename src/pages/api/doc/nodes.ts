@@ -5,7 +5,7 @@
  */
 import type { APIRoute } from 'astro';
 import { createDocNode, getBundle } from '@/lib/docs';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, missing, notFound, readJson } from '@/lib/api';
 
 export const prerender = false;
 
@@ -13,23 +13,19 @@ const MAX_TITLE = 200;
 const MAX_CONTENT = 500000;
 
 export const POST: APIRoute = async ({ request }) => {
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return badJson();
   const bundleId = typeof body.bundleId === 'string' ? body.bundleId : '';
   const kind = body.kind === 'folder' ? 'folder' : body.kind === 'article' ? 'article' : null;
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, MAX_TITLE) : '';
   const content = typeof body.content === 'string' ? body.content.slice(0, MAX_CONTENT) : '';
   const parentId = typeof body.parentId === 'string' && body.parentId !== '' ? body.parentId : null;
 
-  if (!bundleId || !kind) return json({ error: '缺少 bundleId / kind' }, 400);
-  if (!title) return json({ error: '标题不能为空' }, 400);
-  if (kind === 'article' && content === '') return json({ error: '文章正文不能为空' }, 400);
+  if (!bundleId || !kind) return missing('bundleId / kind');
+  if (!title) return badRequest('标题不能为空');
+  if (kind === 'article' && content === '') return badRequest('文章正文不能为空');
   const bundle = await getBundle(bundleId);
-  if (!bundle) return json({ error: '文档不存在' }, 404);
+  if (!bundle) return notFound('文档不存在');
 
   try {
     // 新节点排在同级末尾

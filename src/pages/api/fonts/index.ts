@@ -5,8 +5,7 @@
  * POST: { familyName, mime, data(base64) } → 201 { font }
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, jsonCached, readJson } from '@/lib/api';
 import { addFont, listFontsMeta } from '@/lib/fonts';
 
 export const prerender = false;
@@ -18,8 +17,10 @@ const MAX_NAME = 100;
 /** GET：列表（公开元信息） */
 export const GET: APIRoute = async () => {
   try {
+    // P3-5：公开、与登录态无关、极少变动 → 走 CDN 短缓存（判定规则见 jsonCached 注释）
+    // 注意：上传/删除字体后列表最多陈旧 30s，属可接受范围；错误路径仍用 json() 不缓存。
     const fonts = await listFontsMeta();
-    return json({ fonts });
+    return jsonCached({ fonts });
   } catch (err) {
     console.error('[api/fonts]', err);
     return json({ error: '获取字体失败' }, 500);
@@ -28,21 +29,18 @@ export const GET: APIRoute = async () => {
 
 /** POST：上传（管理员） */
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
 
-  let body: { familyName?: unknown; mime?: unknown; data?: unknown };
-  try {
-    body = (await request.json()) as { familyName?: unknown; mime?: unknown; data?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ familyName?: unknown; mime?: unknown; data?: unknown }>(request);
+  if (!body) return badJson();
   const familyName = typeof body.familyName === 'string' ? body.familyName.trim().slice(0, MAX_NAME) : '';
-  if (!familyName) return json({ error: '请填写字体名称' }, 400);
+  if (!familyName) return badRequest('请填写字体名称');
   const mime = typeof body.mime === 'string' && /^font\/[\w.+-]+$/.test(body.mime) ? body.mime : 'font/woff2';
   const dataBase64 = typeof body.data === 'string' ? body.data : '';
-  if (!dataBase64) return json({ error: '缺少字体数据' }, 400);
+  if (!dataBase64) return badRequest('缺少字体数据');
   const byteLength = Buffer.from(dataBase64, 'base64').length;
-  if (byteLength === 0) return json({ error: '字体内容为空' }, 400);
+  if (byteLength === 0) return badRequest('字体内容为空');
   if (byteLength > MAX_FONT_BYTES) {
     return json({ error: '字体不能超过 3MB（Vercel 函数请求体硬上限 4.5MB；更大字体请用子集化 scripts/subset-font.mjs）' }, 413);
   }

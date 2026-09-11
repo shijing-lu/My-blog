@@ -142,6 +142,21 @@
   html {
     scroll-behavior: smooth;
   }
+  /* P2-15：全站键盘焦点兜底。
+     项目里多处写了 `outline: none`（Tailwind preflight 也会清掉默认轮廓），
+     结果键盘用户完全看不到焦点位置（WCAG 2.4.7 失败）。这里统一给
+     :focus-visible 一个高可见度环——只在键盘操作时出现，鼠标点击不显示，
+     低对比主题也能看见（ring 变量各主题已 ≥ 3:1）。 */
+  :focus-visible {
+    outline: 2px solid var(--color-ring, var(--color-primary));
+    outline-offset: 2px;
+  }
+  /* 尊重系统「减少动态效果」：把平滑滚动也一并关掉（滚动动画同样可能引发不适） */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
   /* 锚点跳转不被固定页头遮挡 */
   [id] {
     scroll-margin-top: 5.5rem;
@@ -166,6 +181,21 @@
     to {
       transform: scale(1);
       opacity: 0;
+    }
+  }
+  /* P2-20：prefers-reduced-motion 下停掉「纯装饰性」动效。
+     波纹/流星/烟花都是点缀，不影响任何功能；关掉可避免前庭敏感用户不适。
+     注意脚本侧也已做判断（BaseLayout 内 matchMedia 分支）——这里补的是
+     CSS 兜底层，保证即使脚本先行执行、或系统偏好在页面打开后才变化也能生效。 */
+  @media (prefers-reduced-motion: reduce) {
+    .ripple-wave,
+    .meteor,
+    .firework-particle {
+      animation: none !important;
+      opacity: 0 !important;
+    }
+    html.dark .stardust {
+      animation: none;
     }
   }
 
@@ -240,17 +270,22 @@
     }
   }
 
-  /* 顶部阅读进度条 */
+  /* 顶部阅读进度条。
+     P2-4：原先用 `width` 过渡 —— width 属布局属性，每帧都触发一次 layout + paint。
+     改用 `transform: scaleX()`（transform-origin: left）后整条动画走合成器线程，
+     滚动时不再与主线程的滚动处理抢帧。脚本侧改设 --progress 变量（见 BaseLayout）。 */
   .scroll-progress {
     position: fixed;
     top: 0;
     left: 0;
     height: 3px;
-    width: 0;
+    width: 100%;
     z-index: 60;
     background: linear-gradient(90deg, var(--color-primary), var(--color-chart-3));
     pointer-events: none;
-    transition: width 0.1s linear;
+    transform: scaleX(var(--progress, 0));
+    transform-origin: left center;
+    transition: transform 0.1s linear;
   }
 
   /* 卡片入场动画（脚本运行时添加 .reveal；无 JS 时内容正常显示） */
@@ -289,6 +324,15 @@
     }
     to {
       opacity: 1;
+    }
+  }
+  /* P2-20：View Transitions 的淡入淡出此前未受 prefers-reduced-motion 保护。
+     这里把转场动画整体停掉——页面直接切换，不做任何交叉淡化（对前庭敏感用户更友好）。
+     注意只关 root 的转场；常驻元素（header/footer/进度条）本就是 animation: none。 */
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none !important;
     }
   }
 
@@ -359,7 +403,11 @@
   }
 
   /* 全局页面切换加载指示：半透明遮罩 + 旋转圆环，覆盖 fetch 与 DOM 交换全过程，
-     交换完成后淡出——转圈作为过渡遮罩掩盖突兀的页面替换 */
+     交换完成后淡出——转圈作为过渡遮罩掩盖突兀的页面替换。
+     P2-7：全屏 `backdrop-filter: blur()` 是最贵的合成操作之一（每次显示都要把
+     整屏内容重新模糊一遍），而它每次都只在转场瞬间出现 0.2~1.2s。
+     策略：默认不加 blur，只在**支持且非弱机**的环境按需启用——用 @supports
+     保证老浏览器不误用；用 prefers-reduced-transparency 尊重系统「减少透明度」偏好。 */
   .nav-loader {
     position: fixed;
     inset: 0;
@@ -370,8 +418,16 @@
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.25s ease;
-    background: color-mix(in srgb, var(--color-background) 62%, transparent);
-    backdrop-filter: blur(5px);
+    /* 纯色半透明兜底（比 blur 便宜一个数量级），保证遮罩语义完整 */
+    background: color-mix(in srgb, var(--color-background) 78%, transparent);
+  }
+  @supports (backdrop-filter: blur(5px)) {
+    @media (prefers-reduced-transparency: no-preference) {
+      .nav-loader {
+        background: color-mix(in srgb, var(--color-background) 62%, transparent);
+        backdrop-filter: blur(5px);
+      }
+    }
   }
   .nav-loader.show {
     opacity: 1;
@@ -468,6 +524,22 @@
     @apply rounded-md bg-muted px-1 py-0.5 text-[0.875em];
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
     font-weight: 500;
+  }
+  /* P2-16：窄屏宽表格会把整个页面撑出横向滚动条（WCAG 1.4.10 回流失败）。
+     GFM 表格列多时（技术笔记常见 6–8 列）必然超宽，故把表格本体变成
+     可横向滚动的块级容器：只有表格自己能滚，页面整体不再左右晃。
+     代价是「表格不再随容器宽度自适应换行」——这正是宽表期望的行为。
+     `overscroll-behavior-x: contain` 防止滚到尽头时把滚动传给外层页面。
+     `display: block` 会让表格丢失 `width: 100%`，故补 `width: max-content; min-width: 100%`
+     保持窄表格仍然占满、宽表格按内容宽度滚动。 */
+  .prose :where(table):not(:where([class~='not-prose'] *)) {
+    display: block;
+    width: max-content;
+    min-width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Hero 残影光晕呼吸（记录 · 思考 · 光影） */
@@ -775,12 +847,18 @@
   color: var(--color-muted-foreground);
 }
 
-/* 活动热力图格子（首页） */
+/* 活动热力图格子（首页）。
+   P2-8：一年 365 天 × 多行 ≈ 371 个格子，一次性全部参与布局与绘制。
+   加 `content-visibility: auto` 让浏览器跳过视口外格子的渲染，
+   并给 `contain-intrinsic-size` 一个与真实尺寸一致的占位值（10×10），
+   避免跳过渲染后滚动条长度跳动。 */
   .heat-cell {
     display: inline-block;
     width: 10px;
     height: 10px;
     border-radius: 2px;
+    content-visibility: auto;
+    contain-intrinsic-size: 10px 10px;
   }
   .heat-0 {
     background: color-mix(in srgb, var(--color-muted) 85%, transparent);
@@ -798,16 +876,21 @@
     background: var(--color-primary);
   }
 
-  /* Hero 古诗词轮播：逐字闪烁出现 / 倒序还原（每字只闪一次，节奏慢） */
+  /* Hero 古诗词轮播：逐字闪烁出现 / 倒序还原（每字只闪一次，节奏慢）。
+     P2-6：原先常驻 `will-change: opacity` —— 每个字一个 span，一首诗 20+ 个字
+     就是 20+ 个常驻合成层，白白吃掉显存与内存。这里改为**动画期间才提升**：
+     由 .hero-char-in / .hero-char-out 两个动画类各自带上 will-change，
+     动画结束后浏览器自动释放（不需要 JS 干预）。 */
   .hero-char {
     display: inline-block;
     opacity: 0;
-    will-change: opacity;
   }
   .hero-char.hero-char-in {
+    will-change: opacity;
     animation: hero-char-in 0.9s ease-out forwards;
   }
   .hero-char.hero-char-out {
+    will-change: opacity;
     animation: hero-char-out 0.9s ease-in forwards;
   }
   @keyframes hero-char-in {
@@ -947,6 +1030,38 @@
     @apply inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary;
   }
 
+  /* ===== 触摸目标尺寸（P2-17 / WCAG 2.5.8） =====
+   * 小图标按钮视觉尺寸仅 16~20px，触屏上难以点中。
+   * 只在粗指针（触屏）设备放大命中区，桌面保持原有视觉密度。
+   * 用 min-width/min-height 而非 width/height：既能盖过 Tailwind 的 size-* 工具类
+   * （min-* 优先级天然高于 width/height），又不影响 flex 布局里的伸缩。
+   * 尺寸取舍：
+   * - .side-toolbar 是纵向孤立排列，直接做到 44×44（HIG/WCAG 2.5.5）；
+   * - .icon-btn-tap 是成组出现的小按钮（编辑/删除紧邻），只放大到 28px——
+   *   若也做到 44px，相邻命中区会互相重叠，反而更容易误触相邻按钮。
+   */
+  @media (pointer: coarse) {
+    .side-toolbar {
+      gap: 0;
+      padding: 0.25rem;
+    }
+    .side-toolbar a,
+    .side-toolbar button {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
+    .icon-btn-tap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.75rem;
+      min-height: 1.75rem;
+    }
+    .post-tag {
+      min-height: 1.5rem;
+    }
+  }
+
   /* 区域导航项（d-d 式：图标 + 主标签 + 英文小字标语） */
   .section-nav-item {
     @apply flex flex-col items-center gap-0.5 rounded-lg px-3 py-2 text-center text-[0.8rem] font-medium text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground;
@@ -1072,24 +1187,37 @@
   }
   .landing-hero-slides[data-animation='break'] .landing-hero-slide.is-breaking {
     animation: hero-break 0.75s ease forwards;
+    will-change: mask-position, transform, opacity;
   }
+  /* P2-5：原实现逐帧动画 `clip-path: inset(0 N% 0 0)`。clip-path 的 inset 变化
+     不属于可合成属性——浏览器只能**把整张 hero 大图重新光栅化**再裁剪，
+     1920px 图每帧一次，是典型的长帧来源。
+     改用 `mask-image: linear-gradient(90deg, #000 N%, transparent …)` 推移遮罩：
+     遮罩位移同样能用合成层处理，且 mask 走 GPU 的 tile 采样，成本远低于重新光栅化。
+     视觉上与原「从左往右被擦掉」的破碎效果一致。 */
   @keyframes hero-break {
     0% {
-      clip-path: inset(0 0 0 0);
+      -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 100%);
+      mask-image: linear-gradient(90deg, #000 0%, #000 100%);
+      -webkit-mask-position: 0% 0;
+      mask-position: 0% 0;
       transform: translateX(0);
       opacity: 1;
     }
     35% {
-      clip-path: inset(0 32% 0 0);
+      -webkit-mask-position: -68% 0;
+      mask-position: -68% 0;
       transform: translateX(-2%);
     }
     70% {
-      clip-path: inset(0 62% 0 0);
+      -webkit-mask-position: -124% 0;
+      mask-position: -124% 0;
       transform: translateX(-6%);
       opacity: 0.85;
     }
     100% {
-      clip-path: inset(0 100% 0 0);
+      -webkit-mask-position: -200% 0;
+      mask-position: -200% 0;
       transform: translateX(-14%);
       opacity: 0;
     }
@@ -1160,6 +1288,11 @@
     border-radius: 6px;
     /* hover：背景移除（透出小鹿点阵）+ 轻微缩放 + 细边框，均做平滑过渡 */
     transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    /* P2-8：一页 9 条虽不多，但首页/标签页叠加后仍是长列表。
+       `contain-intrinsic-size: auto <n>px` 中的 auto 关键字会让浏览器
+       **记住实际渲染尺寸**，只在首次估算时用 96px，后续滚动更精确、无跳动。 */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 96px;
   }
   .post-row:first-child {
     border-top: 1px solid var(--color-border);
@@ -1261,6 +1394,11 @@
     color: var(--color-muted-foreground);
     transition: color 0.2s ease, background-color 0.2s ease;
     border-radius: var(--radius-md);
+    /* P2-8：日记/文章时间轴可达数百条，跳过视口外条目的渲染。
+       占位高度取实测单行值（0.45rem 上下 padding + 约 1.5rem 行高 ≈ 40px），
+       给一个偏保守的 44px 以免滚动条长度明显跳动。 */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 44px;
   }
   .timeline-item:hover,
   .timeline-item.active {
@@ -2163,11 +2301,18 @@
   border-radius: var(--radius-md);
   background: var(--color-card);
   color: var(--color-foreground);
-  outline: none;
   transition: border-color 0.2s;
 }
+/* P2-15：原先 `outline: none` 后只改 border-color —— 边框变色对键盘用户辨识度太低，
+   且低对比主题下几乎看不出焦点。改为「去掉浏览器默认轮廓 + 用 box-shadow 画
+   2px 环」，键盘聚焦清晰可见，鼠标用户不受影响（:focus-visible）。 */
 .pagination-input:focus {
+  outline: none;
   border-color: var(--color-primary);
+}
+.pagination-input:focus-visible {
+  outline: 2px solid var(--color-ring, var(--color-primary));
+  outline-offset: 2px;
 }
 
 /* Note 布局：突出引用块与列表 */

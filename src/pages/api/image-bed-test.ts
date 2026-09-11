@@ -7,21 +7,17 @@
  * 返回 { ok, message }：ok=true 仓库可达（附仓库可见性与默认分支）。
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { guardManager, json, readJsonLoose } from '@/lib/api';
 import { getImageBedConfig } from '@/lib/image-bed';
 import { testGitHubConnection } from '@/lib/gh-image-bed';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { owner?: string; repo?: string; branch?: string; token?: string } = {};
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    body = {};
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  /* 参数全部可选（不传即沿用已保存配置），故宽容解析：非法/空 body 视作 {} */
+  const body = await readJsonLoose<{ owner?: string; repo?: string; branch?: string; token?: string }>(request);
   try {
     const saved = await getImageBedConfig();
     const owner = typeof body.owner === 'string' && body.owner.trim() !== '' ? body.owner.trim() : saved.owner;

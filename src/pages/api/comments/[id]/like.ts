@@ -5,7 +5,7 @@
  * 返回: { liked, likeCount }
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badRequest, json, notFound, readJsonLoose } from '@/lib/api';
 import { getCurrentUserId } from '@/lib/auth';
 import { getCommentById, toggleCommentLike } from '@/lib/comments';
 
@@ -14,7 +14,7 @@ export const prerender = false;
 export const POST: APIRoute = async ({ params, request, cookies }) => {
   const id = params.id ?? '';
   const comment = await getCommentById(id);
-  if (!comment) return json({ error: '评论不存在' }, 404);
+  if (!comment) return notFound('评论不存在');
 
   const githubUserId = getCurrentUserId(cookies);
   let userType: 'anonymous' | 'github';
@@ -23,14 +23,10 @@ export const POST: APIRoute = async ({ params, request, cookies }) => {
     userType = 'github';
     userIdent = githubUserId;
   } else {
-    let body: { fingerprint?: unknown };
-    try {
-      body = (await request.json()) as { fingerprint?: unknown };
-    } catch {
-      body = {};
-    }
+    /* 匿名点赞：仅需可选 fingerprint，宽容解析（空/非法 body 视作 {}） */
+    const body = await readJsonLoose<{ fingerprint?: unknown }>(request);
     const fingerprint = typeof body.fingerprint === 'string' ? body.fingerprint.trim() : '';
-    if (!fingerprint) return json({ error: '缺少身份标识' }, 400);
+    if (!fingerprint) return badRequest('缺少身份标识');
     userType = 'anonymous';
     userIdent = fingerprint;
   }

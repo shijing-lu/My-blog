@@ -8,7 +8,7 @@
  */
 import type { APIRoute } from 'astro';
 import { getSiteName, saveSiteName } from '@/lib/site-name';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, readJson } from '@/lib/api';
 
 export const prerender = false;
 
@@ -19,17 +19,13 @@ export const GET: APIRoute = async () => {
 
 /** PUT：保存（管理员） */
 export const PUT: APIRoute = async ({ request }) => {
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return badJson();
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return json({ error: '请求体不合法' }, 400);
+    return badRequest('请求体不合法');
   }
   if (typeof body.name !== 'string' || body.name.trim() === '') {
-    return json({ error: '名称不能为空' }, 400);
+    return badRequest('名称不能为空');
   }
   try {
     const name = await saveSiteName(body.name);

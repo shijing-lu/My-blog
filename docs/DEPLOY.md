@@ -1,6 +1,6 @@
 # Vercel 部署指南（My Blog）
 
-本指南覆盖：数据库（**主备双库**：Vercel/Neon 主库 + Supabase 从库）→ 环境变量 → Giscus 配置 → Vercel 导入与构建 → 验证。
+本指南覆盖：数据库（**主备双库**：Vercel/Neon 主库 + Supabase 从库）→ 环境变量 → 评论与 GitHub 登录 → Vercel 导入与构建 → 验证。
 
 ## 1. 数据库（主备双库）
 
@@ -19,20 +19,24 @@
 | `AUTH_SECRET` | 建议 | 会话签名密钥（随机 32+ 字符；缺省由口令派生） |
 | `PUBLIC_SITE_URL` | ✅ | 你的域名，如 `https://your-blog.vercel.app` |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `ADMIN_GITHUB_LOGIN` | 可选 | GitHub OAuth 登录（不配则隐藏按钮） |
-| `PUBLIC_GISCUS_REPO` / `PUBLIC_GISCUS_REPO_ID` / `PUBLIC_GISCUS_CATEGORY` / `PUBLIC_GISCUS_CATEGORY_ID` | 可选 | Giscus 评论（不配则评论区隐藏） |
-| `PUBLIC_GISCUS_MAPPING` / `PUBLIC_GISCUS_THEME` | 可选 | 默认 `title` / `preferred_color_scheme` |
+
+> 评论区**无需任何第三方配置**：本项目为自建评论（数据落在 `comments` / `likes` 表，
+> 由 `src/lib/comments.ts` 提供接口）。历史上曾用 Giscus，现已移除，
+> 上文不再需要 `PUBLIC_GISCUS_*` 系列变量。
 
 > **Supabase 必须用「连接池」串**：`postgresql://postgres.<ref>:密码@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require`
 > 不要用 `db.<ref>.supabase.co` 直连串——它只有 IPv6，Vercel Serverless（IPv4-only）会 `getaddrinfo ENOTFOUND`。
 > 主备一致性：应用只写当前活跃库，`settings`/`images` 等需在两库保持一致；图片字节在 R2，两库只存元数据。
 
-## 3. Giscus 配置（想用评论则做）
+## 3. 评论区与 GitHub 登录
 
-1. 仓库设为**公开**并开启 **Discussions**。
-2. 到 [giscus.app](https://giscus.app) 填入仓库 → 生成四项（repo / repoId / category / categoryId）→ 填进上面的环境变量。
-3. 建议到 GitHub → Settings → Developer settings → OAuth Apps 建一个 OAuth App（如需 GitHub 登录）：
-   - Homepage URL：`https://你的域名`
-   - Callback URL：`https://你的域名/api/auth/github/callback`
+**评论区（自建，开箱可用）**
+- 数据存 `comments` 表（含点赞 `likes`），接口见 `src/pages/api/comments/*`；
+- 匿名评论用浏览器指纹标识、GitHub 登录用户用 token 哈希标识（见 `src/lib/likes.ts`）；
+- 想启用 GitHub 登录以关联身份：到 GitHub → Settings → Developer settings → OAuth Apps 建一个 OAuth App：
+  - Homepage URL：`https://你的域名`
+  - Callback URL：`https://你的域名/api/auth/github/callback`
+  - 把 Client ID / Secret 填进上面两个环境变量即可。**不配也能评论**（走匿名通道）。
 
 ## 4. 导入并部署
 
@@ -54,7 +58,7 @@
 - [ ] `/blog/[slug]` 三布局正常（Tech 目录 / Note 简洁 / Photo 宽幅）
 - [ ] `/login` 口令登录 → `/edit/*` 写作台可用（新建/编辑/上传图片/防抖保存）
 - [ ] 图片 `/api/images/[id]` 可访问
-- [ ] Giscus 评论区出现（若配置）
+- [ ] 评论区可发布/点赞（匿名或 GitHub 登录）
 - [ ] `/rss.xml`、`/tags/[tag]` 正常
 - [ ] 换主题即时生效且刷新不闪白
 

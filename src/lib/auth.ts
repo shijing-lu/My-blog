@@ -58,16 +58,37 @@ export function signPayload(payload: Record<string, unknown>): string {
   return `${body}.${hmac(body)}`;
 }
 
+/**
+ * 恒定时间字符串比较（**所有签名校验必须走这里**）。
+ *
+ * ## 为什么必须恒定时间
+ *
+ * 普通 `a !== b` 会在第一个不同字符处短路返回，比较耗时随「前缀匹配长度」
+ * 线性变化 → 攻击者可逐字节爆破签名（时序侧信道）。
+ *
+ * ## 为什么不用 `crypto.timingSafeEqual` 直接比
+ *
+ * `timingSafeEqual` 在**长度不等时抛异常**，且长度本身泄漏在异常路径上。
+ * 本函数先做长度检查（长度是公开信息，不敏感），等长时再进 `timingSafeEqual`。
+ *
+ * @param a 待校验值
+ * @param b 期望值
+ * @returns 是否相等
+ */
+export function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  // 长度不等 → 直接 false。长度非机密（HMAC 摘要定长），无侧信道顾虑。
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
+
 /** 校验签名令牌（HMAC 恒定时间比较 + 过期检查；导出供扩展令牌复用） */
 export function verifySignedPayload(token: string | undefined | null): boolean {
   if (!token) return false;
   const [payload, sig] = token.split('.');
   if (!payload || !sig) return false;
-  const expected = hmac(payload);
-  const a = Buffer.from(sig, 'utf8');
-  const b = Buffer.from(expected, 'utf8');
-  if (a.length !== b.length) return false;
-  if (!timingSafeEqual(a, b)) return false;
+  if (!safeEqual(sig, hmac(payload))) return false;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { exp?: unknown };
     return typeof data.exp === 'number' && data.exp > Date.now();
@@ -119,7 +140,9 @@ export function verifyUserSessionToken(token: string | undefined | null): string
   if (!token) return null;
   const [payload, sig] = token.split('.');
   if (!payload || !sig) return null;
-  if (hmac(payload) !== sig) return null;
+  // ⚠️ 必须用 safeEqual（恒定时间）：`!==` 会在首个不同字符处短路，
+  //    泄漏「签名前缀匹配长度」→ 时序侧信道可逐字节爆破（P1-4）。
+  if (!safeEqual(sig, hmac(payload))) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
       uid?: unknown;
@@ -215,7 +238,8 @@ export function verifyOAuthState(state: string | undefined | null): boolean {
 export function getOAuthStateNext(state: string | undefined | null): string | null {
   if (!state) return null;
   const [payload, sig] = state.split('.');
-  if (!payload || !sig || hmac(payload) !== sig) return null;
+  // 恒定时间比较（P1-4）：同 `verifyUserSessionToken`，勿改回 `!==`。
+  if (!payload || !sig || !safeEqual(sig, hmac(payload))) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
       next?: unknown;

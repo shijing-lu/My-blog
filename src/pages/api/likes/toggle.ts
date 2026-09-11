@@ -6,7 +6,7 @@
  * 返回: { liked, count }
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
+import { badJson, badRequest, json, readJson } from '@/lib/api';
 import { getCurrentUserId } from '@/lib/auth';
 import { isLikeTargetType, toggleLike } from '@/lib/likes';
 
@@ -15,22 +15,12 @@ export const prerender = false;
 const MAX_LEN = 200;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  let body: { targetType?: unknown; targetId?: unknown; userType?: unknown; userIdent?: unknown; fingerprint?: unknown };
-  try {
-    body = (await request.json()) as {
-      targetType?: unknown;
-      targetId?: unknown;
-      userType?: unknown;
-      userIdent?: unknown;
-      fingerprint?: unknown;
-    };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const body = await readJson<{ targetType?: unknown; targetId?: unknown; userType?: unknown; userIdent?: unknown; fingerprint?: unknown }>(request);
+  if (!body) return badJson();
 
-  if (!isLikeTargetType(body.targetType)) return json({ error: '目标类型不合法' }, 400);
+  if (!isLikeTargetType(body.targetType)) return badRequest('目标类型不合法');
   const targetId = typeof body.targetId === 'string' ? body.targetId.trim() : '';
-  if (!targetId || targetId.length > MAX_LEN) return json({ error: '目标 ID 不合法' }, 400);
+  if (!targetId || targetId.length > MAX_LEN) return badRequest('目标 ID 不合法');
 
   // 身份：GitHub 登录（user_session）优先
   const githubUserId = getCurrentUserId(cookies);
@@ -47,7 +37,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         : typeof body.userIdent === 'string'
           ? body.userIdent.trim()
           : '';
-    if (!fingerprint || fingerprint.length > MAX_LEN) return json({ error: '缺少身份标识' }, 400);
+    if (!fingerprint || fingerprint.length > MAX_LEN) return badRequest('缺少身份标识');
     userType = 'anonymous';
     userIdent = fingerprint;
   }

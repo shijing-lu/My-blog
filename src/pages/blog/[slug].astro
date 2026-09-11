@@ -3,7 +3,7 @@
 /* （动态路由，无 Props） */
 
 /* ===== Imports ===== */
-import { getArticleBySlug, listArticleMeta } from '@/lib/articles';
+import { getArticleBySlug, getAdjacentArticles } from '@/lib/articles';
 import { renderMdx } from '@/lib/mdx';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 import TechLayout from '@/layouts/TechLayout.astro';
@@ -42,11 +42,9 @@ if (article.type !== 'photo') {
   }
 }
 
-// 上一篇 / 下一篇（按更新时间排序，仅取元信息）
-const all = await listArticleMeta();
-const idx = all.findIndex((a) => a.id === article.id);
-const next = idx > 0 ? all[idx - 1] : undefined;
-const prev = idx >= 0 && idx < all.length - 1 ? all[idx + 1] : undefined;
+// 上一篇 / 下一篇：两条定向查询（走 updatedAt 索引，limit 1），不再拉全表再 findIndex。
+// 旧实现 `listArticleMeta()` + `findIndex` 是 O(N)，文章变多后每次阅读都白扫全表。
+const { prev, next } = await getAdjacentArticles(article);
 
 // ★ 智能布局切换：按 article.type 映射到对应布局
 const layoutMap = {
@@ -76,7 +74,7 @@ const mapPanels = maps
 const blockMapJson = JSON.stringify(blockMap);
 ---
 <!-- ===== Template ===== -->
-<ContentLayout article={article} toc={toc} prev={prev} next={next}>
+<ContentLayout article={article} toc={toc} prev={prev ?? undefined} next={next ?? undefined}>
   {
     mapPanels.length > 0 && (
       <div>

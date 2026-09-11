@@ -9,8 +9,9 @@ import ActivityHeatmap from '@/components/ActivityHeatmap.astro';
 import DeerDots from '@/components/DeerDots.astro';
 import SearchBox from '@/components/SearchBox.astro';
 import Pagination from '@/components/Pagination.astro';
-import { listArticleMeta, listArticlePage, resolveCover } from '@/lib/articles';
+import { listArticleMeta, listArticlePageMeta } from '@/lib/articles';
 import { listArticleCategories } from '@/lib/article-categories';
+import { getSiteName } from '@/lib/site-name';
 import { cardCoverUrl } from '@/lib/images';
 import { getLandingHero } from '@/lib/landing';
 import { pageInfo } from '@/lib/pagination';
@@ -21,24 +22,45 @@ import type { ArticleType } from '../../db/types';
 /** 每页文章数（故事流为单列交替，仍按 9 篇分页） */
 const PAGE_SIZE = 9;
 
-/** 全部文章元信息（不含正文，用于标签统计、最近更新；总数直接由此推导，省一次 COUNT 查询） */
-const allMeta = await listArticleMeta();
+/* ---- 并行取数（P1-1）----
+ * 这三个请求彼此**完全独立**：全量元信息（列表/标签/统计 + 推导总数与分页）、
+ * 当日文章页（需先知道页码才能查）、落地页 Hero 配置、权限判定、自定义分类。
+ * 旧实现五连 `await` 串行，TTFB 是各段耗时之和；改 `Promise.all` 后取最大值。
+ *
+ * ⚠️ `listArticlePageMeta` 依赖 `info.page`，而 `info` 由 `allMeta.length` 推导，
+ *    因此这两步有**真实依赖**，不能一起并行——先并行取 allMeta + 其余独立项，
+ *    再单独取当页（下面第二段）。 */
+const [allMeta, landing, isAuthed, categories] = await Promise.all([
+  /** 全部文章元信息（不含正文，用于标签统计、最近更新；总数直接由此推导，省一次 COUNT 查询） */
+  listArticleMeta(),
+  /** 落地页 Hero：优先「已自定义头图列表」 */
+  getLandingHero(),
+  /** 是否管理者（articles 权限：站主或授权管理员，决定卡片编辑入口；勿用旧 verifyRequest——不认新会话通道） */
+  canManage(Astro.cookies, 'articles'),
+  /** 自定义分类（写作台维护；首页分类筛选项与它保持一致。表未迁移时为空 → 不渲染按钮行） */
+  listArticleCategories(),
+]);
+
+/** 站点名（首页 h1 的屏幕阅读器文本用，与页头 logo 同源 —— P1-6） */
+const siteTitle = await getSiteName();
+
 const total = allMeta.length;
 const rawPage = Number(Astro.url.searchParams.get('page') ?? '1');
 const info = pageInfo(rawPage, total, PAGE_SIZE);
-const articles = await listArticlePage(info.page, PAGE_SIZE);
 
-/** 是否管理者（articles 权限：站主或授权管理员，决定卡片编辑入口；勿用旧 verifyRequest——不认新会话通道） */
-const isAuthed = await canManage(Astro.cookies, 'articles');
-/** 文章 → 封面图（手动指定优先，否则取正文第一张图，无则用主题渐变占位） */
-const covers = new Map(articles.map((a) => [a.id, resolveCover(a)]));
+/* 当页文章（**不取正文**，只带 contentLength 聚合列 —— P1-2：
+ * 一页 9 篇 × 30KB 正文 = 270KB 无谓传输，而页面只用字数） */
+const articles = await listArticlePageMeta(info.page, PAGE_SIZE);
 
-/** 落地页 Hero：优先「已自定义头图列表」，否则取首页第一张非空封面（缩略 1920px WebP，首屏 LCP） */
-const landing = await getLandingHero();
+/** Hero 大图取值。
+ *  注意：当页文章查询只带 contentLength，**不取正文**（P1-2），因此没有首图可提取——
+ *  仅用手动封面一条路径（原 resolveCover 分支因缺 content 恒为 null，已删除）。 */
 const heroSlides = landing.images.map((u) => cardCoverUrl(u, 1920)).filter((u): u is string => !!u);
+/* 优先级：自定义头图 > 当页文章封面图 > null（模板回落主题渐变） */
 const heroRaw =
   heroSlides[0] ||
-  (articles.map((a) => covers.get(a.id)).find((c): c is string => !!c) ?? null);
+  articles.map((a) => a.cover).find((c): c is string => !!c) ||
+  null;
 const heroCover = cardCoverUrl(heroRaw, 1920);
 const heroSubtitle = landing.subtitle || '全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。';
 const heroType: ArticleType = articles[0]?.type ?? 'tech';
@@ -48,9 +70,6 @@ const uniqueTags = new Set(allMeta.flatMap((a) => a.tags)).size;
 /** 最近更新时间 */
 const lastUpdated = allMeta[0]?.updatedAt;
 
-/** 自定义分类（写作台维护；首页分类筛选项与它保持一致。表未迁移时为空 → 不渲染按钮行） */
-const categories = await listArticleCategories();
-
 /** 文章类型 → 封面大字字形（Hero 装饰；type 仅作内部元数据，分类体系用自定义分类） */
 const typeGlyph: Record<ArticleType, string> = {
   tech: '技',
@@ -58,9 +77,15 @@ const typeGlyph: Record<ArticleType, string> = {
   photo: '影',
 };
 
-/** 粗略字数（去除空白后的字符数），>1000 显示 x.xk */
-function countChars(markdown: string): string {
-  const n = markdown.replace(/\s+/g, '').length;
+/**
+ * 粗略字数展示（>1000 显示 x.xk）。
+ *
+ * 入参来自 SQL 的 `length(content)` 聚合（`listArticlePageMeta`），
+ * **不再需要取回正文**做 `replace(/\s+/g,'')`（P1-2）。
+ * 注：SQL `length()` 计的是含空白字符数，与旧实现略有差异，
+ * 但此处仅作「约 x 字」展示，差异可忽略。
+ */
+function countChars(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
@@ -87,7 +112,7 @@ function formatShort(date?: Date): string {
 }
 ---
 <!-- ===== Template ===== -->
-<BaseLayout title="首页" description="技术教程 · 学习笔记 · 随笔与摄影 —— My Blog">
+<BaseLayout title="首页" description="技术教程 · 学习笔记 · 随笔与摄影 —— My Blog" image={heroCover ?? undefined}>
   <!-- ===== 落地页 Hero：全屏大图 + 文字叠层 ===== -->
   <section class="landing-hero">
     {
@@ -115,7 +140,15 @@ function formatShort(date?: Date): string {
     }
     <div class="landing-hero-scrim" aria-hidden="true" />
     <div class="landing-hero-content relative z-[1] mx-auto w-full max-w-6xl px-4">
-      <p data-hero class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">Personal Knowledge Base</p>
+      {/* 页面唯一 h1（P1-6：此前首页全文无 h1，标题层级从 h2 起跳）。
+          视觉上是 Hero 主标题，语义上是首页的顶层标题——两条信息线合并，
+          对读屏与 SEO 都更正确；下方社交入口等保持原字号不变。 */}
+      <h1 class="contents">
+        <span class="sr-only">{siteTitle} —— 个人知识库</span>
+        <span data-hero class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary" aria-hidden="true">
+          Personal Knowledge Base
+        </span>
+      </h1>
       <HeroQuote />
       <p data-hero class="mt-3 max-w-2xl text-base text-white/85">{heroSubtitle}</p>
       <!-- 社交入口（GitHub / Bilibili / 微博 / 微信） -->
@@ -152,13 +185,17 @@ function formatShort(date?: Date): string {
   <div class="relative isolate">
     <DeerDots />
     <!-- ===== 数据条 + 文章故事流 ===== -->
-    <section class="mx-auto w-full max-w-6xl px-4 py-12">
+    <section class="mx-auto w-full max-w-6xl px-4 py-12" aria-labelledby="latest-heading">
       <!-- 文章活跃热力图 + 月度写作量 -->
       <ActivityHeatmap />
 
     <!-- 像素统计条 -->
     <div class="pixel-divider mt-8" />
-    <div class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 font-pixel text-xs text-muted-foreground">
+    <div
+      class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 font-pixel text-xs text-muted-foreground"
+      role="group"
+      aria-label="站点统计"
+    >
       <span>
         <span class="stat-count text-primary" data-num={total}>0</span> ARTICLES
       </span>
@@ -173,7 +210,7 @@ function formatShort(date?: Date): string {
     <!-- 最新文章 -->
     <div id="latest" class="mt-10 scroll-mt-24">
       <div class="flex items-center gap-2.5">
-        <h2 class="font-display text-2xl font-semibold">最新文章</h2>
+        <h2 id="latest-heading" class="font-display text-2xl font-semibold">最新文章</h2>
         <span class="pixel-chip rounded bg-muted px-2 py-1 text-muted-foreground">LATEST ARTICLES</span>
         {
           info.totalPages > 1 && (
@@ -266,7 +303,7 @@ function formatShort(date?: Date): string {
                 <div class="post-row-meta">
                   <span class="text-xs text-muted-foreground tabular-nums">{formatShort(article.updatedAt)}</span>
                   <span class="font-pixel text-xs text-primary tabular-nums">
-                    {article.encrypted ? '已加密' : `${countChars(article.content)}字`}
+                    {article.encrypted ? '已加密' : `${countChars(article.contentLength)}字`}
                   </span>
                 </div>
                 {
@@ -437,10 +474,37 @@ function formatShort(date?: Date): string {
     if (img.complete && img.naturalWidth === 0) img.onerror?.(new Event('error'));
   });
 
-  /** 落地页 Hero 轮播（多图；单图不轮播；View Transition 重入先清旧定时器） */
+  /**
+   * 落地页 Hero 轮播（多图；单图不轮播）
+   *
+   * P3-6：定时器改为脚本作用域变量 + `astro:before-swap` 钩子清理，
+   * 不再挂 window 全局。同时把切图动画的收尾 setTimeout 也纳入清理——
+   * 原先这些短定时器换页后仍会触发，操作已被替换掉的旧 DOM。
+   */
+  let carouselTimer = 0;
+  const carouselCleanups = new Set<number>();
+
+  /** 停止轮播：清掉周期定时器与全部收尾定时器 */
+  function stopCarousel(): void {
+    if (carouselTimer) {
+      window.clearInterval(carouselTimer);
+      carouselTimer = 0;
+    }
+    carouselCleanups.forEach((t) => window.clearTimeout(t));
+    carouselCleanups.clear();
+  }
+
+  /** 登记一个收尾定时器（动画结束后移除过渡 class） */
+  function scheduleCarouselCleanup(fn: () => void, ms: number): void {
+    const id = window.setTimeout(() => {
+      carouselCleanups.delete(id);
+      fn();
+    }, ms);
+    carouselCleanups.add(id);
+  }
+
   const heroCarousel = (): void => {
-    const w = window as unknown as { __heroCarouselTimer?: number };
-    if (w.__heroCarouselTimer) window.clearInterval(w.__heroCarouselTimer);
+    stopCarousel(); // 重入（View Transition / 重复调用）先清旧定时器
     const wrap = document.querySelector<HTMLElement>('.landing-hero-slides');
     if (!wrap) return;
     const slides = Array.from(wrap.querySelectorAll<HTMLElement>('.landing-hero-slide'));
@@ -449,23 +513,24 @@ function formatShort(date?: Date): string {
     const intervalMs = Number(wrap.dataset.interval ?? 6) * 1000;
     const anim = wrap.dataset.animation ?? 'slide';
     let cur = 0;
-    w.__heroCarouselTimer = window.setInterval(() => {
+    carouselTimer = window.setInterval(() => {
       const prev = slides[cur];
       const next = slides[(cur + 1) % n];
       if (!prev || !next) return;
       if (anim === 'break') {
         prev.classList.add('is-breaking');
         next.classList.add('is-active');
-        window.setTimeout(() => prev.classList.remove('is-breaking'), 800);
+        scheduleCarouselCleanup(() => prev.classList.remove('is-breaking'), 800);
       } else {
         prev.classList.remove('is-active');
         prev.classList.add('is-leaving');
         next.classList.add('is-active');
-        window.setTimeout(() => prev.classList.remove('is-leaving'), 950);
+        scheduleCarouselCleanup(() => prev.classList.remove('is-leaving'), 950);
       }
       cur = (cur + 1) % n;
     }, intervalMs);
   };
+  document.addEventListener('astro:before-swap', stopCarousel);
   document.addEventListener('astro:page-load', heroCarousel);
   heroCarousel();
 </script>

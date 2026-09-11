@@ -7,8 +7,7 @@
  * DELETE: { id } → { ok }
  */
 import type { APIRoute } from 'astro';
-import { json } from '@/lib/api';
-import { isManagerSession } from '@/lib/admin-auth';
+import { badJson, badRequest, guardManager, json, notFound, readJson } from '@/lib/api';
 import { createWebsite, deleteWebsite, getWebsite, subCategoryBelongsTo, updateWebsite } from '@/lib/nav';
 import { fetchSiteMeta } from '@/lib/nav-metadata';
 
@@ -20,8 +19,9 @@ const MAX_ICON = 500;
 const MAX_DESC = 200;
 
 export const POST: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: {
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{
     categoryId?: unknown;
     subCategoryId?: unknown;
     name?: unknown;
@@ -29,31 +29,19 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     icon?: unknown;
     desc?: unknown;
     sort?: unknown;
-  };
-  try {
-    body = (await request.json()) as {
-      categoryId?: unknown;
-      subCategoryId?: unknown;
-      name?: unknown;
-      url?: unknown;
-      icon?: unknown;
-      desc?: unknown;
-      sort?: unknown;
-    };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  }>(request);
+  if (!body) return badJson();
   const categoryId = typeof body.categoryId === 'string' && body.categoryId.trim() ? body.categoryId.trim() : '';
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
   const url = typeof body.url === 'string' ? body.url.trim().slice(0, MAX_URL) : '';
-  if (!categoryId) return json({ error: '请选择分类' }, 400);
-  if (!name) return json({ error: '请填写网站名' }, 400);
-  if (!url) return json({ error: '请填写网址' }, 400);
+  if (!categoryId) return badRequest('请选择分类');
+  if (!name) return badRequest('请填写网站名');
+  if (!url) return badRequest('请填写网址');
   // 子分类可空；若提供则必须属于该主分类，避免跨分类悬挂
   const subCategoryId =
     typeof body.subCategoryId === 'string' && body.subCategoryId.trim() ? body.subCategoryId.trim() : null;
   if (subCategoryId && !(await subCategoryBelongsTo(subCategoryId, categoryId))) {
-    return json({ error: '子分类不属于该分类' }, 400);
+    return badRequest('子分类不属于该分类');
   }
   let icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
   let desc = typeof body.desc === 'string' && body.desc.trim() ? body.desc.trim().slice(0, MAX_DESC) : null;
@@ -74,15 +62,12 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 };
 
 export const PUT: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : '';
-  if (!id) return json({ error: '缺少网站 ID' }, 400);
+  if (!id) return badRequest('缺少网站 ID');
   const patch: {
     categoryId?: string;
     subCategoryId?: string | null;
@@ -94,7 +79,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
   } = {};
   if (body.categoryId !== undefined) {
     const v = typeof body.categoryId === 'string' && body.categoryId.trim() ? body.categoryId.trim() : '';
-    if (!v) return json({ error: '请选择分类' }, 400);
+    if (!v) return badRequest('请选择分类');
     patch.categoryId = v;
   }
   // 目标主分类：优先取本次要改成的，否则沿用原站点的（用于校验子分类归属）
@@ -108,18 +93,18 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
         targetCategoryId = existing?.categoryId;
       }
       if (!targetCategoryId || !(await subCategoryBelongsTo(v, targetCategoryId))) {
-        return json({ error: '子分类不属于该分类' }, 400);
+        return badRequest('子分类不属于该分类');
       }
     }
   }
   if (body.name !== undefined) {
     const v = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-    if (!v) return json({ error: '网站名不能为空' }, 400);
+    if (!v) return badRequest('网站名不能为空');
     patch.name = v;
   }
   if (body.url !== undefined) {
     const v = typeof body.url === 'string' ? body.url.trim().slice(0, MAX_URL) : '';
-    if (!v) return json({ error: '网址不能为空' }, 400);
+    if (!v) return badRequest('网址不能为空');
     patch.url = v;
   }
   if (body.icon !== undefined) patch.icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim().slice(0, MAX_ICON) : null;
@@ -138,7 +123,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
   }
   try {
     const website = await updateWebsite(id, patch);
-    if (!website) return json({ error: '网站不存在' }, 404);
+    if (!website) return notFound('网站不存在');
     return json({ website });
   } catch (err) {
     console.error('[api/nav/sites]', err);
@@ -147,15 +132,12 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
 };
 
 export const DELETE: APIRoute = async ({ request, cookies }) => {
-  if (!(await isManagerSession(cookies))) return json({ error: 'unauthorized' }, 401);
-  let body: { id?: unknown };
-  try {
-    body = (await request.json()) as { id?: unknown };
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
+  const denied = await guardManager(cookies);
+  if (denied) return denied;
+  const body = await readJson<{ id?: unknown }>(request);
+  if (!body) return badJson();
   const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : '';
-  if (!id) return json({ error: '缺少网站 ID' }, 400);
+  if (!id) return badRequest('缺少网站 ID');
   try {
     await deleteWebsite(id);
     return json({ ok: true });

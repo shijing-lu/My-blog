@@ -475,11 +475,14 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
                   <span className="rounded bg-primary/10 px-1 py-px text-[0.6rem] text-primary">GitHub</span>
                 </div>
               ) : (
+                /* P2-18：无可见 <label>（设计上用 placeholder 占位），
+                   补 aria-label 保证屏幕阅读器能读出字段用途（WCAG 4.1.2 / 3.3.2） */
                 <input
                   value={authorName}
                   onChange={(e) => setAuthorName(e.target.value)}
                   maxLength={50}
                   placeholder="昵称"
+                  aria-label="昵称"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring"
                 />
               )}
@@ -489,6 +492,7 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
                 rows={3}
                 maxLength={2000}
                 placeholder="写下你的评论…"
+                aria-label="评论内容"
                 className="mt-2 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -528,7 +532,12 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
                   </button>
                 )}
               </div>
-              {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+              {/* role="alert" 让提交失败被屏幕阅读器即时播报（原先只是视觉红字，读屏用户无感知） */}
+              {error && (
+                <p role="alert" className="mt-2 text-xs text-destructive">
+                  {error}
+                </p>
+              )}
             </div>
           )}
 
