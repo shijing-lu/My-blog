@@ -2,7 +2,7 @@
  * MDX 渲染管线单元测试
  */
 import { describe, expect, it } from 'vitest';
-import { renderMdx, renderMarkdownHtml } from '../src/lib/mdx';
+import { renderMdx, renderMarkdownHtml, normalizeMathFences } from '../src/lib/mdx';
 import { buildTocTree, renderTocTreeHtml } from '../src/lib/toc-tree';
 
 describe('renderMdx', () => {
@@ -699,5 +699,67 @@ describe('选项卡组 :::tabs', () => {
       ':::tabs#pkg\n\n@tab npm\n\n甲\n\n@tab pnpm\n\n乙\n\n:::\n\n:::tabs#pkg\n\n@tab npm\n\n丙\n\n@tab pnpm\n\n丁\n\n:::\n',
     );
     expect(html.match(/data-tabs-stable-id="pkg"/g)?.length).toBe(2);
+  });
+});
+
+/**
+ * 裸 `<` 安全化：正文里的数学不等式（`<0.5`、`<25`）曾让 MDX JSX 解析器崩溃。
+ *
+ * 事故（2026-09-11）：文档正文写「多余位 <0.5 舍去」→ micromark-extension-mdx-jsx
+ * 抛 `Unexpected character '0' (U+0030) before name` → 整篇 evaluate 失败。
+ * 表格行由 tableLineToSafe 早有防护，普通段落 / 引用 / callout 内没有。
+ */
+describe('裸 `<` 安全化（escapeBareLt）', () => {
+  it('正文中的 `<0.5` 不再崩溃，且渲染为字面 `<0.5`', async () => {
+    const { html } = await renderMdx('多余位 <0.5 舍去。');
+    expect(html).toContain('&lt;0.5');
+    expect(html).toContain('舍去');
+  });
+
+  it('引用块 / Callout 内的 `<0.5` 同样安全', async () => {
+    const { html } = await renderMdx('> [!example] 舍入\n> 多余位 >0.5 进位、<0.5 舍去。');
+    expect(html).toContain('&lt;0.5');
+    expect(html).toContain('callout');
+  });
+
+  it('`<0`、`<25`、`<!` 等崩溃形态均被安全化', async () => {
+    for (const src of ['a <0 b', '阶差 <25 时吞尾数', 'a <! b', 'a <= b']) {
+      await expect(renderMdx(src)).resolves.toBeTruthy();
+    }
+    const { html } = await renderMdx('阶差 <25 时吞尾数');
+    expect(html).toContain('&lt;25');
+  });
+
+  it('合法 JSX 标签不被误伤（开 / 闭 / 自闭 / fragment）', async () => {
+    // Callout 是注册表内组件：能渲染出 aside.callout 即证明标签未被转义成文本
+    const a = await renderMdx('正文 <Callout type="note">内容</Callout> 结尾。');
+    expect(a.html).toContain('class="callout');
+    expect(a.html).not.toContain('&lt;Callout');
+    // 闭合标签的 `/` 不得被误转义（历史 bug：</Tex> 曾变成 <\</Tex>）
+    expect(a.html).not.toContain('<\\');
+  });
+
+  it('`<` 后跟空白保持原样（非标签形态，且渲染等价）', async () => {
+    const { html } = await renderMdx('若 a < b 则成立');
+    expect(html).toContain('a &lt; b');
+  });
+
+  it('归一化对 `<` + 空白/字母不做处理（留给 MDX 当标签解析）', () => {
+    // 设计取舍：`<x` 无法与真实 JSX 组件区分，故不转义；
+    // 数学表达式请写进 `$…$` 公式区（如 `$a<b$`），走 math 节点不经 JSX 解析。
+    expect(normalizeMathFences('a < b')).toBe('a < b');
+    expect(normalizeMathFences('a <x b')).toBe('a <x b');
+  });
+
+  it('归一化幂等：重复调用不叠加反斜杠', async () => {
+    const once = normalizeMathFences('多余位 <0.5 舍去');
+    const twice = normalizeMathFences(once);
+    expect(twice).toBe(once);
+    expect(once).toContain('\\<0.5');
+  });
+
+  it('代码区域不受影响（围栏 / 行内代码内的 `<0` 字面保留）', async () => {
+    const { html } = await renderMdx('```\na <0 b\n```');
+    expect(html).toContain('&lt;0');
   });
 });

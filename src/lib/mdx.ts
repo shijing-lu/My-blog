@@ -166,6 +166,8 @@ export function normalizeMathFences(source: string): string {
       continue;
     }
     // ① 非表格行：拆分行内所有非转义 `$$` 为独立行（每段一行，保持内容原样）
+    //    拆行前先把裸 `<` 安全化（escapeBareLt）：`<0`/`<!`/`<=` 这类形态会让
+    //    MDX JSX 解析器直接抛错、整篇 evaluate 失败（详见 escapeBareLt 注释）。
     const segs: string[] = [];
     let sawFence = false;
     let buf = '';
@@ -187,18 +189,18 @@ export function normalizeMathFences(source: string): string {
       i += 1;
     }
     if (buf.trim() !== '') segs.push(buf.replace(/^[ \t]+/, '').trimEnd());
-    // 行内没有 `$$` → **整行原样输出**（含缩进/尾空格）。
+    // 行内没有 `$$` → **整行原样输出**（含缩进/尾空格），仅对裸 `<` 做安全化。
     // ⚠️ 判定必须用 sawFence 而非 `segs.length === 0`：无 `$$` 时 buf 也会攒出一个
     //    分段（segs.length === 1），若走 else 分支会把前导缩进 `/^\s+/` 剥掉 ——
     //    这会破坏 markdown 结构（列表项续行段落退化为顶层段落，
     //    `:::collapse` 内「恰好一个列表」校验失败 → 整个折叠面板静默消失）。
     if (!sawFence) {
-      out.push(t);
+      out.push(escapeBareLt(t));
     } else if (segs.length === 1 && segs[0] === '$$' && /^\s*\$\$\s*$/.test(content)) {
       out.push(t); // 已是标准独立 fence 行：保持原样（含缩进/尾空格）
     } else {
       // 每段回添引用前缀（`$$` 段与文本段都要带，保持在同一 blockquote 内）
-      for (const s of segs) out.push(prefix + s);
+      for (const s of segs) out.push(prefix + escapeBareLt(s));
     }
   }
   return out.join('\n');
@@ -217,6 +219,98 @@ function splitQuotePrefix(line: string): { prefix: string; content: string } {
   const m = /^((?:[ \t]{0,3}>[ \t]?)*)(.*)$/.exec(line);
   if (!m || !m[1]) return { prefix: '', content: line };
   return { prefix: m[1], content: m[2] ?? '' };
+}
+
+/**
+ * 非表格行的裸 `<` 安全化（normalizeMathFences 的 ① 分支前置处理）。
+ *
+ * ## 背景（生产事故：2026-09-11 文档渲染 500）
+ *
+ * MDX 把 `<` 一律当 **JSX 标签起始**解析（micromark-extension-mdx-jsx）。当
+ * `<` 后面紧跟的字符**不是**标签名合法起始字符时，解析器直接抛错：
+ *
+ *   Unexpected character `0` (U+0030) before name, expected a character
+ *   that can start a name, such as a letter, `$`, or `_`
+ *
+ * 崩溃点：`micromark-extension-mdx-jsx/lib/factory-tag.js` 的 `nameBefore`。
+ *
+ * 典型触发源是**数学不等式写进普通正文**：`多余位 <0.5 舍去`、`a <0 b`、
+ * 阶差 `< 25` 写成 `<25`、`<3` 之类。表格行早已由 `tableLineToSafe` 保护，
+ * 但普通段落 / 列表 / 引用 / callout 内**完全没有防护** —— 于是同一句
+ * 「`<0.5`」写在表格里正常、写在正文里整篇 500，且本地 SQLite 无关、
+ * Obsidian 用 CommonMark 更不受影响，排查时极具迷惑性。
+ *
+ * ## 转义判据（保守白名单，勿放宽）
+ *
+ * 只保留这些**合法 JSX 起始形态**，其余 `<` 一律转义为 `\<`：
+ * - `<` + `[A-Za-z_$]`  —— 开标签 / 自定义组件（`<Tex>`、`<_Foo>`）
+ * - `</` + `[A-Za-z_$]` —— 闭合标签（`</Tex>`）
+ * - `<>` / `</>`        —— fragment
+ * - `<` + 空白 / 行尾   —— 非标签（本就不触发解析，但转义后渲染等价，顺手统一）
+ *
+ * 明确转义的崩溃形态：`<0`、`<1`、`<!`、`<=`、`<+`、`<.`、`<(`、`<` 等。
+ * 其中 `<!--` 在 MDX 里必然崩（不支持 HTML 注释），转义后至少能正常显示文本。
+ *
+ * ## 为什么不用裸 `<` 全转义
+ *
+ * `\<` 经 micromark 的 character-escape 还原为字面 `<`，语义与显示均不变；
+ * 但对**合法 JSX** 就完全不同了 —— 转义会让 `<Tex>` 变成可见文本 `<Tex>`，
+ * 组件彻底失效。因此必须用白名单精确区分，不能一刀切。
+ *
+ * ## 边界
+ *
+ * - 已转义序列（`\<`）原样保留（幂等，重复调用不叠加反斜杠）；
+ * - 行内代码（反引号）与围栏代码由调用方 `normalizeMathFences` 提前跳过
+ *   （含反引号的行整体透传），本函数不重复判断；
+ * - `$…$` 公式区内的 `<`（如 `$a < b$`）不受影响：公式走 math 节点，
+ *   不经 JSX 解析；且成对 `$` 内的 `<` 后通常跟空格或字母，多被白名单放过。
+ *   为实现简单与幂等，本函数不追踪 math 状态，仅按字符判据转义 —— 即便
+ *   公式内出现 `<0` 被转义，KaTeX 也会把 `\<` 渲染为 `<`（LaTeX 中 `\<`
+ *   是合法转义），视觉无差异。
+ */
+function escapeBareLt(line: string): string {
+  let out = '';
+  for (let i = 0; i < line.length; ) {
+    const ch = line[i];
+    // 已转义的 `\<` 原样保留（幂等：不会二次加反斜杠）
+    if (ch === '\\' && i + 1 < line.length) {
+      out += ch + line[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === '<') {
+      const next = line[i + 1] ?? '';
+      // 闭合标签 `</Name>` 与闭合 fragment `</>`：需看 `/` 之后的字符，
+      // 否则会把 `</Tex>` 的 `/` 误判为裸字符而转义成 `<\</Tex>`（破坏标签）。
+      if (next === '/') {
+        const afterSlash = line[i + 2] ?? '';
+        const isCloseTag = /[A-Za-z_$>]/.test(afterSlash);
+        if (isCloseTag) {
+          out += '</';
+        } else {
+          // `</` 后非法（如 `</ 0`）：整体转义 `<`，`/` 留在文本层无害
+          out += '\\</';
+        }
+        i += 2;
+        continue;
+      }
+      // 合法标签起始白名单：字母 / _ / $（开标签）、`>`（fragment `<>`）
+      const isTagStart = /[A-Za-z_$>]/.test(next);
+      // `<` 后跟空白或行尾：非标签，保留
+      const isNonTag = next === '' || next === ' ' || next === '\t';
+      if (isTagStart || isNonTag) {
+        out += ch;
+      } else {
+        // 裸 `<` 会让 MDX JSX 解析器崩溃：转义为字面 `<`
+        out += '\\<';
+      }
+      i += 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
 }
 
 /**

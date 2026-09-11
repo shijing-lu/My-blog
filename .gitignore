@@ -29,6 +29,9 @@ LXGWWenKaiScreen.ttf
 # 诊断截图（开发临时产物）
 scripts/_diag-*.png
 
+# AI 助手工作区（项目记忆/临时产物，不入库）
+.workbuddy/
+
 .vercel
 .env*
 .diag/
