@@ -168,8 +168,13 @@ export function normalizeMathFences(source: string): string {
     // ① 非表格行：拆分行内所有非转义 `$$` 为独立行（每段一行，保持内容原样）
     //    拆行前先把裸 `<` 安全化（escapeBareLt）：`<0`/`<!`/`<=` 这类形态会让
     //    MDX JSX 解析器直接抛错、整篇 evaluate 失败（详见 escapeBareLt 注释）。
-    const segs: string[] = [];
+    // `segs[i].isMath` 标记该段是否**处于 display 数学内**（两个 `$$` 之间的内容）。
+    // 拆行后段的 `$` 已消失，必须留下此标记：数学段内的花括号要原样保留给 KaTeX，
+    // 非数学段的花括号才需转义（否则 acorn 崩）。丢掉该信息就会把
+    // `\frac{n}{2}` 转义成 `\frac\{n\}\{2\}`，KaTeX 输出字面 `{n}{2}`（实测回归）。
+    const segs: Array<{ text: string; isMath: boolean }> = [];
     let sawFence = false;
+    let inMath = false; // 是否已进入 display 数学（`$$` 成对翻转）
     let buf = '';
     for (let i = 0; i < content.length; ) {
       if (content[i] === '\\' && content[i + 1] === '$') {
@@ -178,9 +183,11 @@ export function normalizeMathFences(source: string): string {
         continue;
       }
       if (content[i] === '$' && content[i + 1] === '$') {
-        if (buf.trim() !== '') segs.push(buf.replace(/^[ \t]+/, '').trimEnd());
-        segs.push('$$');
+        // 进入/离开数学区前，先把已攒的文本段落盘（标记其所属区域）
+        if (buf.trim() !== '') segs.push({ text: buf.replace(/^[ \t]+/, '').trimEnd(), isMath: inMath });
+        segs.push({ text: '$$', isMath: false });
         sawFence = true;
+        inMath = !inMath;
         buf = '';
         i += 2;
         continue;
@@ -188,19 +195,26 @@ export function normalizeMathFences(source: string): string {
       buf += content[i];
       i += 1;
     }
-    if (buf.trim() !== '') segs.push(buf.replace(/^[ \t]+/, '').trimEnd());
+    if (buf.trim() !== '') segs.push({ text: buf.replace(/^[ \t]+/, '').trimEnd(), isMath: inMath });
     // 行内没有 `$$` → **整行原样输出**（含缩进/尾空格），仅对裸 `<` 做安全化。
     // ⚠️ 判定必须用 sawFence 而非 `segs.length === 0`：无 `$$` 时 buf 也会攒出一个
     //    分段（segs.length === 1），若走 else 分支会把前导缩进 `/^\s+/` 剥掉 ——
     //    这会破坏 markdown 结构（列表项续行段落退化为顶层段落，
     //    `:::collapse` 内「恰好一个列表」校验失败 → 整个折叠面板静默消失）。
     if (!sawFence) {
-      out.push(escapeBareLt(t));
-    } else if (segs.length === 1 && segs[0] === '$$' && /^\s*\$\$\s*$/.test(content)) {
+      out.push(escapeBareBraces(escapeBareLt(t)));
+    } else if (segs.length === 1 && segs[0]?.text === '$$' && /^\s*\$\$\s*$/.test(content)) {
       out.push(t); // 已是标准独立 fence 行：保持原样（含缩进/尾空格）
     } else {
-      // 每段回添引用前缀（`$$` 段与文本段都要带，保持在同一 blockquote 内）
-      for (const s of segs) out.push(prefix + escapeBareLt(s));
+      // 每段回添引用前缀（`$$` 段与文本段都要带，保持在同一 blockquote 内）。
+      // ⚠️ 数学段（isMath）只做 `<` 安全化、**不转义花括号** —— 该段会成为
+      //    display 数学内容，`\frac{n}{2}` 的 `{` 是 KaTeX 的参数边界；
+      //    转义后 KaTeX 会输出字面 `{n}{2}`（实测回归）。
+      //    非数学段（isMath=false）的花括号落在数学区外 → 必须转义，
+      //    否则暴露给 MDX 表达式解析 → acorn「Could not parse expression」。
+      for (const s of segs) {
+        out.push(prefix + (s.isMath ? escapeBareLt(s.text) : escapeBareBraces(escapeBareLt(s.text))));
+      }
     }
   }
   return out.join('\n');
@@ -304,6 +318,79 @@ function escapeBareLt(line: string): string {
         // 裸 `<` 会让 MDX JSX 解析器崩溃：转义为字面 `<`
         out += '\\<';
       }
+      i += 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * 数学区外裸花括号安全化（normalizeMathFences 非表格分支的前置处理）。
+ *
+ * ## 背景（生产事故：2026-09-11 文档渲染 500 · acorn）
+ *
+ * MDX 把裸 `{` 一律当 **JS 表达式起始**（micromark-extension-mdx-expression），
+ * 交给 acorn 解析。当花括号内不是合法 JS 时，evaluate 直接抛：
+ *
+ *   Could not parse expression with acorn
+ *
+ * 最小复现：`{.tip}`、`{ .tip }`、`{2a}` 全部崩（`{1}` / `{x}` 合法故通过）。
+ *
+ * 触发源是**源码层已编码、但拆行后哨兵脱落**的场景：`> $$…$$` 这类
+ * 引用块内的 display 数学，被 `normalizeMathFences` 拆成独占行后，
+ * 行内 `$` 消失（fence 语义改由 `$$` 行承载），于是 `\frac{n}{2}` 的
+ * 花括号落在「数学区外」→ 暴露给 MDX 表达式解析 → 整篇 500。
+ *
+ * 现状与此前 `escapeBareLt` 的缺口同构：**表格行有 `tableLineToSafe` 保护，
+ * 非表格行只保护了 `<`，没保护 `{`** —— 这是本次事故的直接原因。
+ *
+ * ## 判据
+ *
+ * 只把「**不在行内 `$…$` 内**」的裸 `{` / `}` 转义为 `\{` / `\}`：
+ * - `\{` 经 micromark character-escape 还原为字面 `{`，显示不变；
+ * - `$…$` 内的花括号**必须原样保留** —— KaTeX 靠 `{…}` 作分式/上标参数边界，
+ *   转义会把 `\frac{1}{2}` 渲染成字面 `{1}{2}`（表格分支早已踩过同一坑）；
+ * - `$$` 连续双美元：`$` 在文本层无害，跳过并保持数学状态不翻转
+ *   （首个 `$` 与第二个 `$` 相互抵消，避免 `$$` 被误判为「开/闭」而翻转状态）；
+ * - 已转义序列 `\X` 原样保留（幂等，重复调用不叠加反斜杠）。
+ *
+ * ## 为什么不在源码层直接全量编码
+ *
+ * `encodeMarkSyntax` 已在源码层用 `SENT2` 保护花括号，但那只覆盖
+ * **`==…=={…}` 后缀**这一种形态；正文数学里的 `{` 依赖行内 `$…$`
+ * 天然隔离。一旦管道中途改变了 `$` 的分布（如这里的 `$$` 拆行），
+ * 隔离就失效。因此必须在**管线末端、evaluate 之前**补一道兜底。
+ */
+function escapeBareBraces(line: string): string {
+  let out = '';
+  let inMath = false;
+  for (let i = 0; i < line.length; ) {
+    const ch = line[i];
+    // 已转义序列（含 `\{` / `\}` / `\$`）原样保留 —— 幂等
+    if (ch === '\\' && i + 1 < line.length) {
+      out += ch + line[i + 1];
+      i += 2;
+      continue;
+    }
+    // `$$`：两侧 `$` 相互抵消，不翻转数学状态
+    if (ch === '$' && line[i + 1] === '$') {
+      out += '$$';
+      i += 2;
+      continue;
+    }
+    // 单个 `$`：切换行内数学状态
+    if (ch === '$') {
+      inMath = !inMath;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (!inMath && (ch === '{' || ch === '}')) {
+      // 数学区外的裸花括号 → 转义为字面（否则 acorn 崩）
+      out += '\\' + ch;
       i += 1;
       continue;
     }

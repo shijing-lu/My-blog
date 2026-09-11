@@ -763,3 +763,64 @@ describe('裸 `<` 安全化（escapeBareLt）', () => {
     expect(html).toContain('&lt;0');
   });
 });
+
+/**
+ * 数学区外裸花括号安全化：MDX 把裸 `{` 当 JS 表达式交给 acorn，
+ * `{.tip}` / `{2a}` 这类非合法 JS 会抛 `Could not parse expression with acorn`。
+ *
+ * 事故（2026-09-11）：文档在**引用块内写 display 数学**（`> $$…\frac{n}{2}…$$`），
+ * normalizeMathFences 为满足 remark-math 的 fence 语法把 `$$` 拆成独占行，
+ * 拆完该段的 `$` 消失 → `\frac{n}{2}` 的花括号落到「数学区外」→ 整篇 500。
+ * 表格行由 tableLineToSafe 早有防护，非表格行当时只保护了 `<`。
+ */
+describe('裸花括号安全化（escapeBareBraces）', () => {
+  it('数学区外的 `{.tip}` 不再崩溃，且渲染为字面 `{.tip}`', async () => {
+    const { html } = await renderMdx('a {.tip} b');
+    expect(html).toContain('{.tip}');
+  });
+
+  it('中文正文中的裸花括号安全', async () => {
+    const { html } = await renderMdx('中文 {.tip} 中文');
+    expect(html).toContain('{.tip}');
+  });
+
+  it('裸 `{2a}`（曾被 acorn 当数字+标识符）安全', async () => {
+    const { html } = await renderMdx('公式 {2a} 说明');
+    expect(html).toContain('{2a}');
+  });
+
+  it('引用块内 display 数学拆行后完整保留花括号（不转义，KaTeX 正常）', async () => {
+    const { html } = await renderMdx('> $$t = 1 + 2 + \\cdots + \\frac{n}{2} = n$$');
+    // KaTeX 正常渲染（无红字错误）
+    expect(html).toContain('katex');
+    expect(html).not.toContain('katex-error');
+    // 关键：TeX 源码里的 `\frac{n}{2}` 花括号必须原样，不能被转义成 `\frac\{n\}\{2\}`
+    const tex = [...html.matchAll(/<annotation encoding="application\/x-tex">([^<]*)<\/annotation>/g)]
+      .map((m) => m[1])
+      .join('\n');
+    expect(tex).toContain('\\frac{n}{2}');
+    expect(tex).not.toContain('\\frac\\{');
+  });
+
+  it('行内 `$…$` 的花括号保留（不误伤 KaTeX 参数边界）', async () => {
+    const { html } = await renderMdx('求和 $\\frac{n}{2}$ 即可');
+    expect(html).toContain('katex');
+    expect(html).not.toContain('katex-error');
+    const tex = [...html.matchAll(/<annotation encoding="application\/x-tex">([^<]*)<\/annotation>/g)]
+      .map((m) => m[1])
+      .join('\n');
+    expect(tex).toContain('\\frac{n}{2}');
+  });
+
+  it('归一化幂等：重复调用不叠加反斜杠', () => {
+    const once = normalizeMathFences('a {.tip} b');
+    const twice = normalizeMathFences(once);
+    expect(twice).toBe(once);
+    expect(once).toContain('\\{.tip\\}');
+  });
+
+  it('代码区域不受影响（围栏 / 行内代码内的 `{.tip}` 字面保留）', async () => {
+    const { html } = await renderMdx('```\na {.tip} b\n```');
+    expect(html).toContain('{.tip}');
+  });
+});
