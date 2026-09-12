@@ -45,9 +45,9 @@ const profileJson = JSON.stringify(profile);
 
   <!-- 查看模式 -->
   <div id="profile-view" class="pt-4 text-center">
+    <!-- P3-8：头像是装饰性的——下方 <h3> 已读出昵称，再给 alt 会让读屏重复一遍。
+         装饰图用 alt="" + aria-hidden 显式标记为可忽略。 -->
     {avatarSrc ? (
-      <!-- P3-8：头像是装饰性的——下方 <h3> 已读出昵称，再给 alt 会让读屏重复一遍。
-           装饰图用 alt="" + aria-hidden 显式标记为可忽略。 -->
       <img src={avatarSrc} alt="" aria-hidden="true" class="mx-auto size-24 rounded-full border-2 border-primary object-cover" />
     ) : (
       <span class="mx-auto inline-flex size-24 items-center justify-center rounded-full border-2 border-primary bg-muted font-display text-4xl font-semibold text-primary">
