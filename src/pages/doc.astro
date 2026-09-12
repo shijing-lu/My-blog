@@ -1,6 +1,7 @@
 ---
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import DocCategoryNav from '@/components/doc/DocCategoryNav.astro';
 import { canManage } from '@/lib/admin-auth';
 import { listDocTree } from '@/lib/docs';
 
@@ -11,6 +12,8 @@ const totalArticles = categories.reduce((n, c) => n + c.bundles.reduce((m, b) =>
 const isAuthed = await canManage(Astro.cookies, 'docs');
 /** 全量分类+文档数据（弹窗用，经隐藏 div 注入） */
 const treeJson = JSON.stringify(categories);
+/** 侧栏导航数据：分类 id/名称 + 册数（页面内出现两次，抽成组件渲染） */
+const navCats = categories.map((c) => ({ id: c.id, name: c.name, bundleCount: c.bundles.length }));
 
 /** HTML 转义 */
 function esc(s: string): string {
@@ -19,151 +22,189 @@ function esc(s: string): string {
 ---
 
 <BaseLayout title="文档" description="文档库 —— My Blog Documentation">
-  <section data-authed={isAuthed ? '1' : '0'}>
+  <section
+    data-doc-root
+    data-authed={isAuthed ? '1' : '0'}
+    data-managing="false"
+    data-active-cat="all"
+  >
     <main class="mx-auto w-full max-w-6xl px-4 py-10">
-      {/* Hero：居中 */}
-      <div data-hero class="text-center">
-        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">DOCS · 文档库</p>
-        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">文档</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          {categories.length} 个分类 · {totalBundles} 本文档 · {totalArticles} 篇文档
-        </p>
-      </div>
-      <div class="pixel-divider mt-5" />
-
-      {/* 搜索框 */}
-      <div class="relative mx-auto mt-6 max-w-xl">
-        <div class="flex items-center gap-2 border-b border-border px-1 py-2">
-          <span class="text-muted-foreground">🔍</span>
-          <input
-            id="doc-search"
-            type="text"
-            placeholder="搜索文档 / 文章标题或内容…"
-            class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          />
+      {/* 页头：压成一行 —— 左侧 h1 + 弱化统计，右侧搜索框（窄屏堆叠） */}
+      <div data-hero class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div class="min-w-0">
+          <h1 class="font-display text-3xl font-semibold tracking-tight">文档</h1>
+          <p class="mt-1 text-sm text-muted-foreground">
+            {categories.length} 个分类 · {totalBundles} 册 · {totalArticles} 篇
+          </p>
         </div>
-        {/* 搜索结果下拉 */}
-        <div id="doc-search-panel" class="absolute inset-x-0 top-full z-30 mt-2 hidden max-h-80 overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg"></div>
-      </div>
-
-      {/* 主体：按分类分组文档书架 */}
-      {categories.length === 0 ? (
-        <div class="mt-10 text-center">
-          <p class="text-sm text-muted-foreground">暂无文档 —— 管理员可在这里添加分类与文档。</p>
+        <div class="flex items-end gap-2 sm:shrink-0">
+          {/* 搜索框 */}
+          <div class="relative w-full sm:w-64">
+            <div class="flex items-center gap-2 border-b border-border px-1 py-2">
+              <span class="text-muted-foreground">🔍</span>
+              <input
+                id="doc-search"
+                type="text"
+                placeholder="搜索文档 / 文章…"
+                class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+            {/* 搜索结果下拉 */}
+            <div id="doc-search-panel" class="absolute inset-x-0 top-full z-30 mt-2 hidden max-h-80 overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg"></div>
+          </div>
+          {/* 管理开关：仅登录可见，默认关闭（aria-pressed 表达状态） */}
           {isAuthed && (
             <button
+              id="doc-manage-toggle"
               type="button"
-              data-doc-cat-add
-              class="mt-4 rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              aria-pressed="false"
+              title="管理分类与文档"
+              class="doc-manage-toggle shrink-0 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
             >
-              ＋ 添加分类
+              管理
             </button>
           )}
         </div>
-      ) : (
-        <div class="mt-6 space-y-8">
-          {isAuthed && (
-            <div class="flex justify-end">
-              <button
-                type="button"
-                data-doc-cat-add
-                class="rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-              >
-                ＋ 添加分类
-              </button>
-            </div>
-          )}
-          {categories.map((c) => (
-            <section class="group">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="flex items-center gap-2 text-lg font-semibold">
-                  <span class="pixel-chip text-muted-foreground">分类</span>
-                  {esc(c.name)}
-                  <span class="font-pixel text-[0.55rem] text-muted-foreground">{c.bundles.length} 册</span>
-                </h2>
-                {isAuthed && (
-                  /* 管理按钮常驻可见（P1-8）：触屏/键盘用户无 hover 状态，
-                     原先 opacity-0 group-hover:opacity-100 会让按钮彻底不可达。
-                     改为低透明度常显 + hover/聚焦加深，既不喧宾夺主又保可用性。 */
-                  <span class="flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    <button
-                      type="button"
-                      data-doc-cat-edit={c.id}
-                      title="编辑分类"
-                      aria-label={`编辑分类「${c.name}」`}
-                      class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
-                    >✎</button>
-                    <button
-                      type="button"
-                      data-doc-cat-del={c.id}
-                      data-doc-name={esc(c.name)}
-                      title="删除分类"
-                      aria-label={`删除分类「${c.name}」`}
-                      class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
-                    >×</button>
-                  </span>
-                )}
+      </div>
+
+      {/* 主体：左分类侧栏 + 右文档书架 */}
+      <div class="mt-8 grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
+        {/* 桌面侧栏（lg 断点 sticky） */}
+        {categories.length > 0 && (
+          <>
+            <aside class="hidden lg:sticky lg:top-20 lg:block lg:self-start">
+              <h2 class="filter-heading pixel-chip">分类 / CATEGORIES</h2>
+              <DocCategoryNav categories={navCats} total={totalBundles} />
+            </aside>
+            {/* 窄屏折叠：同一份按钮（脚本无需区分两处） */}
+            <details class="archive-filter-mobile lg:hidden">
+              <summary class="archive-filter-mobile-summary pixel-chip">分类 / CATEGORIES</summary>
+              <div class="mt-3">
+                <DocCategoryNav categories={navCats} total={totalBundles} />
               </div>
+            </details>
+          </>
+        )}
 
-              {c.bundles.length === 0 ? (
-                <p class="mt-2 text-sm text-muted-foreground">该分类暂无文档</p>
-              ) : (
-                <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {c.bundles.map((b) => (
-                    <a
-                      href={`/doc/${b.id}`}
-                      class="group relative block hairline p-3"
-                    >
-                      <div class="flex items-start gap-3">
-                        <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-lg">
-                          {b.icon ?? '📖'}
-                        </span>
-                        <div class="min-w-0">
-                          <p class="truncate font-medium">{esc(b.name)}</p>
-                          <p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                            {b.summary ? esc(b.summary) : '暂无简介'}
-                          </p>
-                        </div>
-                      </div>
-                      <p class="mt-2 text-[0.6rem] text-muted-foreground">{b.articleCount} 篇文章{b.folderCount > 0 ? ` · ${b.folderCount} 个目录` : ''}</p>
-                      {isAuthed && (
-                        /* 文档卡片管理按钮常驻可见（P1-8），理由同分类按钮 */
-                        <span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                          <button
-                            type="button"
-                            data-doc-bundle-edit={b.id}
-                            title="编辑文档"
-                            aria-label={`编辑文档「${b.name}」`}
-                            class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
-                          >✎</button>
-                          <button
-                            type="button"
-                            data-doc-bundle-del={b.id}
-                            data-doc-name={esc(b.name)}
-                            title="删除文档"
-                            aria-label={`删除文档「${b.name}」`}
-                            class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
-                          >×</button>
-                        </span>
-                      )}
-                    </a>
-                  ))}
-                </div>
-              )}
-
+        {/* 右：按分类分组文档书架 */}
+        <div class="min-w-0">
+          {categories.length === 0 ? (
+            <div class="text-center">
+              <p class="text-sm text-muted-foreground">暂无文档 —— 管理员可在这里添加分类与文档。</p>
               {isAuthed && (
                 <button
                   type="button"
-                  data-doc-bundle-add={c.id}
-                  class="mt-3 rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  data-doc-cat-add
+                  class="doc-manage-only mt-4 rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
                 >
-                  ＋ 添加文档
+                  ＋ 添加分类
                 </button>
               )}
-            </section>
-          ))}
+            </div>
+          ) : (
+            <div class="space-y-8">
+              {isAuthed && (
+                <div class="flex justify-end">
+                  <button
+                    type="button"
+                    data-doc-cat-add
+                    class="doc-manage-only rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  >
+                    ＋ 添加分类
+                  </button>
+                </div>
+              )}
+              {categories
+                .filter((c) => c.bundles.length > 0 || isAuthed)
+                .map((c) => (
+                  <section
+                    class={`group doc-cat-section${c.bundles.length === 0 ? ' doc-cat-empty' : ''}`}
+                    data-doc-section={c.id}
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <h2 class="flex items-center gap-2 text-lg font-semibold">
+                        <span class="pixel-chip text-muted-foreground">分类</span>
+                        {esc(c.name)}
+                        <span class="font-pixel text-[0.55rem] text-muted-foreground">{c.bundles.length} 册</span>
+                      </h2>
+                      {isAuthed && (
+                        /* 管理按钮：仅在管理态显示（显隐交给 CSS 的 data-managing） */
+                        <span class="doc-manage-only flex items-center gap-1">
+                          <button
+                            type="button"
+                            data-doc-cat-edit={c.id}
+                            title="编辑分类"
+                            aria-label={`编辑分类「${c.name}」`}
+                            class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
+                          >✎</button>
+                          <button
+                            type="button"
+                            data-doc-cat-del={c.id}
+                            data-doc-name={esc(c.name)}
+                            title="删除分类"
+                            aria-label={`删除分类「${c.name}」`}
+                            class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
+                          >×</button>
+                        </span>
+                      )}
+                    </div>
+
+                    {c.bundles.length === 0 ? (
+                      <p class="mt-2 text-sm text-muted-foreground">该分类暂无文档</p>
+                    ) : (
+                      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                        {c.bundles.map((b) => (
+                          /* 卡片外层：相对定位容器。管理按钮作为 <a> 的兄弟节点绝对定位
+                             在卡片内，避免 <a> 内嵌 <button> 的非法嵌套。 */
+                          <div class="relative">
+                            <a href={`/doc/${b.id}`} class="hairline doc-card block p-3">
+                              <p class="flex items-center gap-2 font-medium">
+                                <span class="shrink-0 text-base leading-none">{b.icon ?? '📖'}</span>
+                                <span class="min-w-0 truncate">{esc(b.name)}</span>
+                              </p>
+                              <p class="mt-1.5 text-[0.6rem] text-muted-foreground">
+                                {b.articleCount} 篇{b.folderCount > 0 ? ` · ${b.folderCount} 个目录` : ''}
+                              </p>
+                            </a>
+                            {isAuthed && (
+                              <span class="doc-manage-only absolute right-1.5 top-1.5 z-10 flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  data-doc-bundle-edit={b.id}
+                                  title="编辑文档"
+                                  aria-label={`编辑文档「${b.name}」`}
+                                  class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
+                                >✎</button>
+                                <button
+                                  type="button"
+                                  data-doc-bundle-del={b.id}
+                                  data-doc-name={esc(b.name)}
+                                  title="删除文档"
+                                  aria-label={`删除文档「${b.name}」`}
+                                  class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
+                                >×</button>
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {isAuthed && (
+                      <button
+                        type="button"
+                        data-doc-bundle-add={c.id}
+                        class="doc-manage-only mt-3 rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                      >
+                        ＋ 添加文档
+                      </button>
+                    )}
+                  </section>
+                ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </main>
   </section>
 
@@ -221,36 +262,112 @@ function esc(s: string): string {
   import { on } from '@/lib/dom';
   import { confirmDanger } from '@/lib/confirm';
 
-  const DATA = document.getElementById('doc-data');
-  const IS_AUTHED = DATA?.dataset.authed === '1';
-  const TREE = JSON.parse(DATA?.dataset.tree ?? '[]') as Array<{ id: string; name: string; bundles: Array<{ id: string; name: string; icon: string | null; summary: string | null; articles: unknown[] }> }>;
+  interface TreeArticle {
+    id: string;
+    title: string;
+    sort: number;
+  }
+  interface TreeBundle {
+    id: string;
+    name: string;
+    icon: string | null;
+    summary: string | null;
+    sort: number;
+    createdAt: string | Date;
+    articles: TreeArticle[];
+    articleCount: number;
+    folderCount: number;
+  }
+  interface TreeCategory {
+    id: string;
+    name: string;
+    bundles: TreeBundle[];
+  }
+
+  /* ================= 状态：全部从 DOM 求值 =================
+   * ⚠️ 本 <script> 是模块，只在首次进入站点时求值一次；View Transitions 换页后
+   * DOM 被替换但模块状态不会重跑。因此登录态/数据树都在每次 astro:page-load
+   * 时按 DOM 重新同步（见 syncData），管理态/筛选态则直接写在根容器 data-* 上、
+   * 由 SSR 输出复位 —— 从根上避免「换页后状态残留」。
+   */
+  let IS_AUTHED = false;
+  let TREE: TreeCategory[] = [];
 
   /** 实时查询元素（View Transition 后 DOM 被替换，必须每次重新取） */
   function el<T extends Element = HTMLElement>(id: string): T | null {
     return document.getElementById(id) as T | null;
   }
 
-  /* ================= 文档卡片内嵌按钮：捕获阶段拦截导航 ================= */
-  // 编辑/删除按钮嵌在 <a href="/doc/[id]"> 卡片链接内部。
-  // Astro ClientRouter 在 document 冒泡阶段监听链接点击并触发 SPA 导航，且先于本页
-  // 冒泡阶段的弹窗逻辑执行 —— 导致点按钮时弹窗刚打开页面就跳转到文章详情。
-  // 修复：在【捕获阶段】（先于任何冒泡 handler，含 ClientRouter）对这两个按钮立即
-  // preventDefault()，使 ClientRouter 检查 defaultPrevented=true 时跳过导航；
-  // 弹窗打开/删除确认仍在冒泡阶段正常处理。
+  /** 根容器（承载 data-managing / data-active-cat），每次重新查，规避 VT 后失效 */
+  function docRoot(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('[data-doc-root]');
+  }
+
+  /** 从 #doc-data 同步登录态与文档树（SPA 换页后 DOM 为新 SSR 输出，需重新解析） */
+  function syncData(): void {
+    const data = el<HTMLElement>('doc-data');
+    IS_AUTHED = data?.dataset.authed === '1';
+    try {
+      TREE = JSON.parse(data?.dataset.tree ?? '[]') as TreeCategory[];
+    } catch {
+      TREE = [];
+    }
+  }
+
+  /* ================= 管理态（仅登录） ================= */
+  /** 切换管理态：只改根容器 data-managing，按钮显隐交给 CSS（不逐节点 toggle） */
+  function setManaging(on: boolean): void {
+    const root = docRoot();
+    if (!root) return;
+    root.dataset.managing = on ? 'true' : 'false';
+    el('doc-manage-toggle')?.setAttribute('aria-pressed', String(on));
+  }
+
+  /* ================= 分类页内筛选 ================= */
+  /**
+   * 应用分类筛选：仅切换各分类 section 的 `hidden`，并同步侧栏按钮选中态。
+   * 不跳页、不改 URL；`all` 表示显示全部。
+   */
+  function applyCat(catId: string): void {
+    const root = docRoot();
+    if (!root) return;
+    root.dataset.activeCat = catId;
+    document.querySelectorAll<HTMLElement>('[data-doc-section]').forEach((sec) => {
+      const on = catId === 'all' || sec.dataset.docSection === catId;
+      sec.classList.toggle('hidden', !on);
+    });
+    document.querySelectorAll<HTMLElement>('[data-doc-cat-filter]').forEach((btn) => {
+      const on = (btn.dataset.docCatFilter ?? 'all') === catId;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+  }
+
+  /* ================= 管理按钮：捕获阶段拦截导航 =================
+   * 文档卡内的编辑/删除按钮已是卡片链接 <a> 的**兄弟节点**（修的正是 <a><button>
+   * 非法嵌套），本不再冒泡经 <a>；但为与历史行为一致、并防患于未然（Astro
+   * ClientRouter 在冒泡阶段监听 <a> 并触发 SPA 导航，先于本页弹窗逻辑执行），
+   * 仍在【捕获阶段】对全部管理按钮 preventDefault —— ClientRouter 检查
+   * defaultPrevented=true 时会跳过导航；弹窗/删除确认仍在冒泡阶段正常处理。
+   */
+  const MANAGE_BTN_SELECTOR = [
+    '[data-doc-cat-add]',
+    '[data-doc-cat-edit]',
+    '[data-doc-cat-del]',
+    '[data-doc-bundle-add]',
+    '[data-doc-bundle-edit]',
+    '[data-doc-bundle-del]',
+  ].join(', ');
   document.addEventListener(
     'click',
     (e) => {
       const t = e.target as HTMLElement | null;
-      if (t && t.closest('[data-doc-bundle-edit], [data-doc-bundle-del]')) {
-        e.preventDefault();
-      }
+      if (t && t.closest(MANAGE_BTN_SELECTOR)) e.preventDefault();
     },
     true,
   );
 
   /* ================= 搜索 ================= */
-  const searchInput = el<HTMLInputElement>('doc-search');
-  const searchPanel = el('doc-search-panel');
   let searchTimer = 0;
 
   function escHtml(s: string): string {
@@ -258,9 +375,10 @@ function esc(s: string): string {
   }
 
   async function doSearch(q: string): Promise<void> {
-    if (!searchPanel) return;
+    const panel = el('doc-search-panel');
+    if (!panel) return;
     if (!q.trim()) {
-      searchPanel.classList.add('hidden');
+      panel.classList.add('hidden');
       return;
     }
     try {
@@ -269,8 +387,8 @@ function esc(s: string): string {
       const bundles = d.bundles ?? [];
       const articles = d.articles ?? [];
       if (bundles.length === 0 && articles.length === 0) {
-        searchPanel.innerHTML = '<p class="px-3 py-3 text-xs text-muted-foreground">没有匹配结果</p>';
-        searchPanel.classList.remove('hidden');
+        panel.innerHTML = '<p class="px-3 py-3 text-xs text-muted-foreground">没有匹配结果</p>';
+        panel.classList.remove('hidden');
         return;
       }
       let html = '';
@@ -294,229 +412,243 @@ function esc(s: string): string {
           )
           .join('');
       }
-      searchPanel.innerHTML = html;
-      searchPanel.classList.remove('hidden');
+      panel.innerHTML = html;
+      panel.classList.remove('hidden');
     } catch {
-      searchPanel.innerHTML = '<p class="px-3 py-3 text-xs text-destructive">搜索失败，请重试</p>';
-      searchPanel.classList.remove('hidden');
+      panel.innerHTML = '<p class="px-3 py-3 text-xs text-destructive">搜索失败，请重试</p>';
+      panel.classList.remove('hidden');
     }
   }
 
   // 委托绑定（防 SPA 切换后失效）；输入框值按需重查
   on('doc-search', 'input', () => {
     window.clearTimeout(searchTimer);
-    const input = document.getElementById('doc-search') as HTMLInputElement | null;
+    const input = el<HTMLInputElement>('doc-search');
     searchTimer = window.setTimeout(() => void doSearch(input?.value ?? ''), 300);
   });
-  // 点击外部收起搜索结果
+  // 点击搜索框 / 结果面板之外：收起结果
   document.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
-    if (!t.closest('#doc-search')) searchPanel?.classList.add('hidden');
+    if (t.closest('#doc-search') || t.closest('#doc-search-panel')) return;
+    el('doc-search-panel')?.classList.add('hidden');
   });
+
+  /* ================= 分类筛选 & 管理开关（document 委托） ================= */
   document.addEventListener('click', (e) => {
+    if (!docRoot()) return;
     const t = e.target as HTMLElement;
-    if (t.closest('#doc-search-panel')) return;
+    const catBtn = t.closest<HTMLElement>('[data-doc-cat-filter]');
+    if (catBtn) {
+      applyCat(catBtn.dataset.docCatFilter ?? 'all');
+      return;
+    }
+    if (t.closest('#doc-manage-toggle')) {
+      setManaging(docRoot()?.dataset.managing !== 'true');
+    }
   });
 
   /* ================= 分类/文档 增删改（登录） ================= */
-  if (IS_AUTHED) {
-    let editingCatId: string | null = null;
-    let editingBundleId: string | null = null;
-    let bundleDialogCatId = '';
+  let editingCatId: string | null = null;
+  let editingBundleId: string | null = null;
+  let bundleDialogCatId = '';
 
-    // ------- 分类 -------
-    document.addEventListener('click', (e) => {
-      const t = e.target as HTMLElement;
-      const add = t.closest<HTMLElement>('[data-doc-cat-add]');
-      const edit = t.closest<HTMLElement>('[data-doc-cat-edit]');
-      const dlg = el<HTMLDialogElement>('doc-cat-dialog');
-      if (!dlg) return;
-      if (add) {
-        editingCatId = null;
-        if (el<HTMLInputElement>('doc-cat-name')) el<HTMLInputElement>('doc-cat-name')!.value = '';
-        el('doc-cat-status')?.classList.add('hidden');
-        el<HTMLHeadingElement>('doc-cat-dialog-title')!.textContent = '添加分类';
-        dlg.showModal();
-        el<HTMLInputElement>('doc-cat-name')?.focus();
-        return;
-      }
-      if (edit) {
-        const id = edit.dataset.docCatEdit;
-        const cat = TREE.find((c) => c.id === id);
-        if (!cat) return;
-        editingCatId = id ?? null;
-        const nameInp = el<HTMLInputElement>('doc-cat-name');
-        if (nameInp) nameInp.value = cat.name;
-        el('doc-cat-status')?.classList.add('hidden');
-        el<HTMLHeadingElement>('doc-cat-dialog-title')!.textContent = '编辑分类';
-        dlg.showModal();
-        nameInp?.focus();
-      }
-    });
-    document.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('#doc-cat-cancel')) el<HTMLDialogElement>('doc-cat-dialog')?.close();
-    });
-    document.addEventListener('click', async (e) => {
-      const t = e.target as HTMLElement;
-      if (!t.closest('#doc-cat-confirm')) return;
-      const name = (el<HTMLInputElement>('doc-cat-name')?.value ?? '').trim();
-      if (!name) {
-        const st = el('doc-cat-status');
-        if (st) { st.textContent = '请填写分类名'; st.classList.remove('hidden'); }
-        return;
-      }
-      const dlg = el<HTMLDialogElement>('doc-cat-dialog');
-      try {
-        const res = editingCatId
-          ? await fetch('/api/doc/categories', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: editingCatId, name }),
-            })
-          : await fetch('/api/doc/categories', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ name }),
-            });
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          const st = el('doc-cat-status');
-          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
-          return;
-        }
-        dlg?.close();
-        window.location.reload();
-      } catch {
-        const st = el('doc-cat-status');
-        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
-      }
-    });
-    document.addEventListener('click', async (e) => {
-      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-doc-cat-del]');
-      if (!del) return;
-      const name = del.dataset.docName ?? '';
-      const count = TREE.find((c) => c.id === del.dataset.docCatDel)?.bundles.length ?? 0;
-      const msg = count > 0 ? `删除分类「${name}」？其下 ${count} 本文档也会一并删除。` : `删除分类「${name}」？`;
-      if (!(await confirmDanger(msg))) return;
-      try {
-        const res = await fetch('/api/doc/categories', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: del.dataset.docCatDel }),
-        });
-        if (res.ok) window.location.reload();
-      } catch { /* 忽略 */ }
-    });
-
-    // ------- 文档 -------
-    // 填充分类下拉
-    function fillBundleCats(selected: string): void {
-      const sel = el<HTMLSelectElement>('doc-bundle-cat');
-      if (!sel) return;
-      sel.innerHTML = TREE.map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+  // ------- 分类 -------
+  document.addEventListener('click', (e) => {
+    if (!IS_AUTHED) return;
+    const t = e.target as HTMLElement;
+    const add = t.closest<HTMLElement>('[data-doc-cat-add]');
+    const edit = t.closest<HTMLElement>('[data-doc-cat-edit]');
+    const dlg = el<HTMLDialogElement>('doc-cat-dialog');
+    if (!dlg) return;
+    if (add) {
+      editingCatId = null;
+      if (el<HTMLInputElement>('doc-cat-name')) el<HTMLInputElement>('doc-cat-name')!.value = '';
+      el('doc-cat-status')?.classList.add('hidden');
+      el<HTMLHeadingElement>('doc-cat-dialog-title')!.textContent = '添加分类';
+      dlg.showModal();
+      el<HTMLInputElement>('doc-cat-name')?.focus();
+      return;
     }
-    document.addEventListener('click', (e) => {
-      const t = e.target as HTMLElement;
-      // 编辑/删除按钮嵌在 <a> 链接卡片内：阻止冒泡触发的卡片跳转
-      if (t.closest('[data-doc-bundle-edit], [data-doc-bundle-del]')) e.preventDefault();
-      const add = t.closest<HTMLElement>('[data-doc-bundle-add]');
-      const edit = t.closest<HTMLElement>('[data-doc-bundle-edit]');
-      const dlg = el<HTMLDialogElement>('doc-bundle-dialog');
-      if (!dlg) return;
-      if (add) {
-        editingBundleId = null;
-        bundleDialogCatId = add.dataset.docBundleAdd ?? '';
-        if (el<HTMLInputElement>('doc-bundle-name')) el<HTMLInputElement>('doc-bundle-name')!.value = '';
-        if (el<HTMLInputElement>('doc-bundle-icon')) el<HTMLInputElement>('doc-bundle-icon')!.value = '';
-        if (el<HTMLInputElement>('doc-bundle-summary')) el<HTMLInputElement>('doc-bundle-summary')!.value = '';
-        fillBundleCats(bundleDialogCatId);
-        el('doc-bundle-status')?.classList.add('hidden');
-        el<HTMLHeadingElement>('doc-bundle-dialog-title')!.textContent = '添加文档';
-        dlg.showModal();
-        el<HTMLInputElement>('doc-bundle-name')?.focus();
-        return;
-      }
-      if (edit) {
-        const id = edit.dataset.docBundleEdit;
-        let found: { b: (typeof TREE)[number]['bundles'][number]; catId: string } | null = null;
-        for (const c of TREE) {
-          const b = c.bundles.find((x) => x.id === id);
-          if (b) { found = { b, catId: c.id }; break; }
-        }
-        if (!found) return;
-        editingBundleId = id ?? null;
-        bundleDialogCatId = found.catId;
-        if (el<HTMLInputElement>('doc-bundle-name')) el<HTMLInputElement>('doc-bundle-name')!.value = found.b.name;
-        if (el<HTMLInputElement>('doc-bundle-icon')) el<HTMLInputElement>('doc-bundle-icon')!.value = found.b.icon ?? '';
-        if (el<HTMLInputElement>('doc-bundle-summary')) el<HTMLInputElement>('doc-bundle-summary')!.value = found.b.summary ?? '';
-        fillBundleCats(bundleDialogCatId);
-        el('doc-bundle-status')?.classList.add('hidden');
-        el<HTMLHeadingElement>('doc-bundle-dialog-title')!.textContent = '编辑文档';
-        dlg.showModal();
-        el<HTMLInputElement>('doc-bundle-name')?.focus();
-      }
-    });
-    document.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('#doc-bundle-cancel')) el<HTMLDialogElement>('doc-bundle-dialog')?.close();
-    });
-    document.addEventListener('click', async (e) => {
-      const t = e.target as HTMLElement;
-      if (!t.closest('#doc-bundle-confirm')) return;
-      const name = (el<HTMLInputElement>('doc-bundle-name')?.value ?? '').trim();
-      const icon = (el<HTMLInputElement>('doc-bundle-icon')?.value ?? '').trim() || null;
-      const summary = (el<HTMLInputElement>('doc-bundle-summary')?.value ?? '').trim() || null;
-      const categoryId = el<HTMLSelectElement>('doc-bundle-cat')?.value ?? '';
-      if (!name) {
-        const st = el('doc-bundle-status');
-        if (st) { st.textContent = '请填写文档名'; st.classList.remove('hidden'); }
-        return;
-      }
-      const dlg = el<HTMLDialogElement>('doc-bundle-dialog');
-      try {
-        const res = editingBundleId
-          ? await fetch('/api/doc/bundles', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: editingBundleId, name, icon, summary, categoryId }),
-            })
-          : await fetch('/api/doc/bundles', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ categoryId, name, icon, summary }),
-            });
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          const st = el('doc-bundle-status');
-          if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
-          return;
-        }
-        dlg?.close();
-        window.location.reload();
-      } catch {
-        const st = el('doc-bundle-status');
-        if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
-      }
-    });
-    document.addEventListener('click', async (e) => {
-      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-doc-bundle-del]');
-      if (!del) return;
-      // 阻止冒泡触发的卡片跳转
-      e.preventDefault();
-      const name = del.dataset.docName ?? '';
-      if (!(await confirmDanger(`删除文档「${name}」？其下文章也会一并删除。`))) return;
-      try {
-        const res = await fetch('/api/doc/bundles', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: del.dataset.docBundleDel }),
-        });
-        if (res.ok) window.location.reload();
-      } catch { /* 忽略 */ }
-    });
-  }
-
-  // View Transition 后确保分类悬停操作组可见
-  document.addEventListener('astro:page-load', () => {
-    /* 委托事件天然有效，此处理可空 */
+    if (edit) {
+      const id = edit.dataset.docCatEdit;
+      const cat = TREE.find((c) => c.id === id);
+      if (!cat) return;
+      editingCatId = id ?? null;
+      const nameInp = el<HTMLInputElement>('doc-cat-name');
+      if (nameInp) nameInp.value = cat.name;
+      el('doc-cat-status')?.classList.add('hidden');
+      el<HTMLHeadingElement>('doc-cat-dialog-title')!.textContent = '编辑分类';
+      dlg.showModal();
+      nameInp?.focus();
+    }
   });
+  document.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('#doc-cat-cancel')) el<HTMLDialogElement>('doc-cat-dialog')?.close();
+  });
+  document.addEventListener('click', async (e) => {
+    const t = e.target as HTMLElement;
+    if (!t.closest('#doc-cat-confirm')) return;
+    const name = (el<HTMLInputElement>('doc-cat-name')?.value ?? '').trim();
+    if (!name) {
+      const st = el('doc-cat-status');
+      if (st) { st.textContent = '请填写分类名'; st.classList.remove('hidden'); }
+      return;
+    }
+    const dlg = el<HTMLDialogElement>('doc-cat-dialog');
+    try {
+      const res = editingCatId
+        ? await fetch('/api/doc/categories', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: editingCatId, name }),
+          })
+        : await fetch('/api/doc/categories', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name }),
+          });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        const st = el('doc-cat-status');
+        if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
+        return;
+      }
+      dlg?.close();
+      window.location.reload();
+    } catch {
+      const st = el('doc-cat-status');
+      if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+    }
+  });
+  document.addEventListener('click', async (e) => {
+    const del = (e.target as HTMLElement).closest<HTMLElement>('[data-doc-cat-del]');
+    if (!del) return;
+    const name = del.dataset.docName ?? '';
+    const count = TREE.find((c) => c.id === del.dataset.docCatDel)?.bundles.length ?? 0;
+    const msg = count > 0 ? `删除分类「${name}」？其下 ${count} 本文档也会一并删除。` : `删除分类「${name}」？`;
+    if (!(await confirmDanger(msg))) return;
+    try {
+      const res = await fetch('/api/doc/categories', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: del.dataset.docCatDel }),
+      });
+      if (res.ok) window.location.reload();
+    } catch { /* 忽略 */ }
+  });
+
+  // ------- 文档 -------
+  // 填充分类下拉
+  function fillBundleCats(selected: string): void {
+    const sel = el<HTMLSelectElement>('doc-bundle-cat');
+    if (!sel) return;
+    sel.innerHTML = TREE.map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+  }
+  document.addEventListener('click', (e) => {
+    if (!IS_AUTHED) return;
+    const t = e.target as HTMLElement;
+    const add = t.closest<HTMLElement>('[data-doc-bundle-add]');
+    const edit = t.closest<HTMLElement>('[data-doc-bundle-edit]');
+    const dlg = el<HTMLDialogElement>('doc-bundle-dialog');
+    if (!dlg) return;
+    if (add) {
+      editingBundleId = null;
+      bundleDialogCatId = add.dataset.docBundleAdd ?? '';
+      if (el<HTMLInputElement>('doc-bundle-name')) el<HTMLInputElement>('doc-bundle-name')!.value = '';
+      if (el<HTMLInputElement>('doc-bundle-icon')) el<HTMLInputElement>('doc-bundle-icon')!.value = '';
+      if (el<HTMLInputElement>('doc-bundle-summary')) el<HTMLInputElement>('doc-bundle-summary')!.value = '';
+      fillBundleCats(bundleDialogCatId);
+      el('doc-bundle-status')?.classList.add('hidden');
+      el<HTMLHeadingElement>('doc-bundle-dialog-title')!.textContent = '添加文档';
+      dlg.showModal();
+      el<HTMLInputElement>('doc-bundle-name')?.focus();
+      return;
+    }
+    if (edit) {
+      const id = edit.dataset.docBundleEdit;
+      let found: { b: TreeBundle; catId: string } | null = null;
+      for (const c of TREE) {
+        const b = c.bundles.find((x) => x.id === id);
+        if (b) { found = { b, catId: c.id }; break; }
+      }
+      if (!found) return;
+      editingBundleId = id ?? null;
+      bundleDialogCatId = found.catId;
+      if (el<HTMLInputElement>('doc-bundle-name')) el<HTMLInputElement>('doc-bundle-name')!.value = found.b.name;
+      if (el<HTMLInputElement>('doc-bundle-icon')) el<HTMLInputElement>('doc-bundle-icon')!.value = found.b.icon ?? '';
+      if (el<HTMLInputElement>('doc-bundle-summary')) el<HTMLInputElement>('doc-bundle-summary')!.value = found.b.summary ?? '';
+      fillBundleCats(bundleDialogCatId);
+      el('doc-bundle-status')?.classList.add('hidden');
+      el<HTMLHeadingElement>('doc-bundle-dialog-title')!.textContent = '编辑文档';
+      dlg.showModal();
+      el<HTMLInputElement>('doc-bundle-name')?.focus();
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('#doc-bundle-cancel')) el<HTMLDialogElement>('doc-bundle-dialog')?.close();
+  });
+  document.addEventListener('click', async (e) => {
+    const t = e.target as HTMLElement;
+    if (!t.closest('#doc-bundle-confirm')) return;
+    const name = (el<HTMLInputElement>('doc-bundle-name')?.value ?? '').trim();
+    const icon = (el<HTMLInputElement>('doc-bundle-icon')?.value ?? '').trim() || null;
+    const summary = (el<HTMLInputElement>('doc-bundle-summary')?.value ?? '').trim() || null;
+    const categoryId = el<HTMLSelectElement>('doc-bundle-cat')?.value ?? '';
+    if (!name) {
+      const st = el('doc-bundle-status');
+      if (st) { st.textContent = '请填写文档名'; st.classList.remove('hidden'); }
+      return;
+    }
+    const dlg = el<HTMLDialogElement>('doc-bundle-dialog');
+    try {
+      const res = editingBundleId
+        ? await fetch('/api/doc/bundles', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: editingBundleId, name, icon, summary, categoryId }),
+          })
+        : await fetch('/api/doc/bundles', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ categoryId, name, icon, summary }),
+          });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        const st = el('doc-bundle-status');
+        if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
+        return;
+      }
+      dlg?.close();
+      window.location.reload();
+    } catch {
+      const st = el('doc-bundle-status');
+      if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
+    }
+  });
+  document.addEventListener('click', async (e) => {
+    const del = (e.target as HTMLElement).closest<HTMLElement>('[data-doc-bundle-del]');
+    if (!del) return;
+    const name = del.dataset.docName ?? '';
+    if (!(await confirmDanger(`删除文档「${name}」？其下文章也会一并删除。`))) return;
+    try {
+      const res = await fetch('/api/doc/bundles', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: del.dataset.docBundleDel }),
+      });
+      if (res.ok) window.location.reload();
+    } catch { /* 忽略 */ }
+  });
+
+  /* ================= 初始化 / SPA 换页复位 ================= */
+  // 首次执行 + 每次 SPA 导航后：从 DOM 重新同步数据，并把管理态/筛选态复位到
+  // SSR 默认（管理关、筛选「全部」）。即便换页回来的 DOM 已天然是默认态，这里也
+  // 幂等重设一次，杜绝「上页状态残留在本页」。
+  function initDoc(): void {
+    syncData();
+    setManaging(false);
+    applyCat('all');
+  }
+  document.addEventListener('astro:page-load', initDoc);
+  initDoc();
 </script>

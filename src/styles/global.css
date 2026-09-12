@@ -3070,3 +3070,29 @@ g.smm-node-highlight rect {
 .prose code:not(:where([class~='not-prose'] *))::after {
   content: none;
 }
+
+/* ==================== /doc 文档库：管理态显隐（必须 unlayered） ====================
+ * 管理态由根容器 [data-doc-root] 的 data-managing（'true' | 'false'）表达，管理入口
+ * （分类行 ✎/×、文档卡 ✎/×、「＋添加分类 / ＋添加文档」）与空分类 section 的显隐统一
+ * 交给 CSS，避免逐节点 toggle（SPA 换页后更稳）。非管理态为默认，「管理」开关置
+ * aria-pressed=true 时才显示。
+ *
+ * ⚠️ 这些规则必须写在 @layer 之外（文件末尾）：.doc-manage-only 的换行容器同时带
+ * Tailwind 的 `.flex` 工具类，而 utilities 层声明在 components 之后——写在
+ * @layer components 里的 display 覆盖必输给 `.flex`（表现为非管理态仍显示 ✎/×）。
+ * unlayered 规则优先于全部 layer，故放这里。（同 `.prose code` 覆盖反引号的先例） */
+[data-managing='false'] .doc-manage-only {
+  display: none;
+}
+[data-managing='false'] .doc-cat-empty {
+  display: none;
+}
+/* 管理态下给文档卡右侧留出按钮位，避免标题被绝对定位的操作按钮压住 */
+[data-managing='true'] .doc-card {
+  padding-right: 3.5rem;
+}
+/* 页头「管理」开关选中态：主色高亮（其余样式走工具类） */
+.doc-manage-toggle[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}

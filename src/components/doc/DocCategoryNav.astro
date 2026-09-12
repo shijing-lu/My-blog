@@ -1,0 +1,54 @@
+---
+/**
+ * DocCategoryNav.astro —— /doc 文档库分类侧栏导航
+ *
+ * 渲染「全部」+ 各分类的筛选按钮（`data-doc-cat-filter`），点击 = **当前页内即时
+ * 筛选**（无请求、无刷新、不改 URL）。样式复用归档页的 `.filter-category*`
+ * （见 global.css），交互逻辑在 doc.astro 的页面脚本里（document 委托 + 幂等）。
+ *
+ * 同一份列表在页面上出现两次（桌面侧栏 `hidden lg:block` + 窄屏 `<details>`），
+ * 故抽成组件避免重复；两处按钮的选中态由 `applyCat` 统一同步，始终一致。
+ */
+interface NavCategory {
+  id: string;
+  name: string;
+  /** 该分类下的文档（册）数量 */
+  bundleCount: number;
+}
+
+interface Props {
+  /** 分类列表（已由 listDocTree 排好序） */
+  categories: NavCategory[];
+  /** 「全部」项显示的文档（册）总数 */
+  total: number;
+}
+
+const { categories, total } = Astro.props;
+---
+
+<nav class="flex flex-col gap-1" aria-label="文档分类">
+  <button
+    type="button"
+    class="filter-category active"
+    data-doc-cat-filter="all"
+    aria-pressed="true"
+    title="显示全部分类"
+  >
+    <span class="filter-category-name">全部</span>
+    <span class="filter-category-count">{total}</span>
+  </button>
+  {
+    categories.map((c) => (
+      <button
+        type="button"
+        class="filter-category"
+        data-doc-cat-filter={c.id}
+        aria-pressed="false"
+        title={`只看「${c.name}」`}
+      >
+        <span class="filter-category-name">{c.name}</span>
+        <span class="filter-category-count">{c.bundleCount}</span>
+      </button>
+    ))
+  }
+</nav>
