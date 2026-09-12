@@ -1670,6 +1670,198 @@
     }
   }
 
+  /* ===== 归档侧边栏筛选面板（/archive）：标签药丸 + 分类卡片 =====
+     替代原先的年/月时间线导航。筛选是「当前页内即时生效」（见 archive.astro
+     脚本），故这里的元素都是 <button>，视觉上做成可点药丸/卡片。
+     全部走设计令牌，跟随主题换色。 */
+  .filter-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  /* 区块标题：左侧主色小方块 + 像素字（呼应 .pixel-divider 的方块语言） */
+  .filter-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.65rem;
+    color: var(--color-foreground);
+  }
+  .filter-heading::before {
+    content: '';
+    width: 0.42rem;
+    height: 0.42rem;
+    flex: 0 0 auto;
+    background: var(--color-primary);
+  }
+  /* 标签区：药丸自动换行排列 */
+  .filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .filter-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-muted-foreground);
+    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+  }
+  .filter-tag:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+    color: var(--color-foreground);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
+  /* 选中态：主色描边 + 淡主色底 + 主色字（与 .archive-chip 同一套色彩语言） */
+  .filter-tag.active {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+    color: var(--color-primary);
+  }
+  .filter-tag-count {
+    font-family: var(--font-sans-family);
+    font-size: 0.62rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-muted-foreground);
+  }
+  .filter-tag.active .filter-tag-count {
+    color: var(--color-primary);
+  }
+  /* 分类区：两列卡片（窄栏内两列已够密，再多会挤掉名称） */
+  .filter-categories {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+  .filter-category {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.3rem;
+    padding: 0.5rem 0.55rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-muted-foreground);
+    text-align: left;
+    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+  }
+  .filter-category:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+    color: var(--color-foreground);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
+  .filter-category.active {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+    color: var(--color-primary);
+  }
+  /* 计数为 0 的分类：保留在列表里（证明分类存在），但置灰且不可点 */
+  .filter-category:disabled {
+    cursor: not-allowed;
+    border-style: dashed;
+    opacity: 0.45;
+  }
+  .filter-category:disabled:hover {
+    border-color: var(--color-border);
+    background: transparent;
+    color: var(--color-muted-foreground);
+  }
+  /* 分类名允许两行；像素字在中文下偏窄，用可读字体更清楚 */
+  .filter-category-name {
+    min-width: 0;
+    font-family: var(--font-sans-family);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  .filter-category-count {
+    flex: 0 0 auto;
+    font-family: var(--font-sans-family);
+    font-size: 0.62rem;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-muted-foreground);
+  }
+  .filter-category.active .filter-category-count {
+    color: var(--color-primary);
+  }
+  /* 空态（无标签 / 无分类）：与 .timeline 空态同风格的弱化提示 */
+  .filter-empty {
+    font-size: 0.72rem;
+    color: var(--color-muted-foreground);
+  }
+  /* 已选筛选条件提示条：贴在时间线顶部，给出「当前在筛什么 + 一键清除」 */
+  .archive-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+    font-size: 0.72rem;
+  }
+  .archive-filter-label {
+    color: var(--color-primary);
+  }
+  .archive-filter-count {
+    color: var(--color-muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+  .archive-filter-clear {
+    margin-left: auto;
+    padding: 0.05rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-muted-foreground);
+    transition: border-color 0.2s ease, color 0.2s ease;
+  }
+  .archive-filter-clear:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+  /* 窄屏：筛选面板移出侧栏后置顶横向排列，分类保持两列 */
+  @media (max-width: 1023px) {
+    .filter-panel {
+      gap: 1.25rem;
+    }
+  }
+  /* 窄屏折叠筛选面板（<details>）：桌面端由 lg:hidden 隐藏，此处只管展开态外观 */
+  .archive-filter-mobile-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-muted-foreground);
+    cursor: pointer;
+    list-style: none;
+    transition: border-color 0.2s ease, color 0.2s ease;
+  }
+  .archive-filter-mobile-summary::-webkit-details-marker {
+    display: none;
+  }
+  /* 自绘三角（浏览器默认 marker 在各引擎样式不一，统一换成像素风方括号） */
+  .archive-filter-mobile-summary::after {
+    content: '[+]';
+    margin-left: auto;
+    color: var(--color-primary);
+  }
+  .archive-filter-mobile[open] > .archive-filter-mobile-summary::after {
+    content: '[-]';
+  }
+  .archive-filter-mobile-summary:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+    color: var(--color-foreground);
+  }
+
   /* ===== 极简行式列表（文章风：无盒、细线分隔、hover 左侧 accent 条） =====
      用于后台文章/导图/导航、文档分类、动态流等列表：容器加 .list-blend，
      行元素为直接子 li 或带 .list-blend-row 的 div。 */

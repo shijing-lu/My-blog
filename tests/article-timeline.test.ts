@@ -8,10 +8,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  aggregateCategories,
+  aggregateTags,
   bjDateParts,
   buildArticleTimeline,
   formatWordCount,
   monthAnchorId,
+  tagKeys,
   timelineNavItems,
   weekdayLabel,
   yearAnchorId,
@@ -33,6 +36,11 @@ function meta(id: string, createdAt: string, title = id): ArticleMeta & { conten
     updatedAt: new Date(createdAt),
     contentLength: 100,
   };
+}
+
+/** 构造一条带标签的文章（供聚合测试用；聚合只看 tags，故无需 id/标题） */
+function tagged(tags: string[]): Pick<ArticleMeta, 'tags'> {
+  return { tags };
 }
 
 describe('bjDateParts（北京时间）', () => {
@@ -147,5 +155,107 @@ describe('timelineNavItems', () => {
     const items = timelineNavItems(years);
     expect(items[0]).toMatchObject({ label: '2026 年', count: 2 });
     expect(items[1]).toMatchObject({ label: '9 月', count: 2 });
+  });
+});
+
+describe('aggregateTags（侧边栏标签聚合）', () => {
+  it('按篇数倒序，同篇数按名称升序', () => {
+    const facets = aggregateTags([
+      tagged(['CSS', 'JS']),
+      tagged(['CSS']),
+      tagged(['CSS', 'Astro']),
+      tagged(['Astro']),
+    ]);
+    // CSS=3, Astro=2, JS=1
+    expect(facets.map((f) => [f.label, f.count])).toEqual([
+      ['CSS', 3],
+      ['Astro', 2],
+      ['JS', 1],
+    ]);
+  });
+
+  it('同一篇内重复标签只计一次（防篇数虚高）', () => {
+    // 一篇文章写了 ['CSS','css','CSS']，归一后应只算 1 篇
+    const facets = aggregateTags([tagged(['CSS', 'css', 'CSS']), tagged(['CSS'])]);
+    expect(facets).toEqual([{ key: 'css', label: 'CSS', count: 2 }]);
+  });
+
+  it('大小写归一到小写 key，但展示名保留首次出现的原始写法', () => {
+    const facets = aggregateTags([tagged(['JavaScript']), tagged(['javascript'])]);
+    expect(facets).toHaveLength(1);
+    expect(facets[0]!.key).toBe('javascript');
+    expect(facets[0]!.label).toBe('JavaScript');
+  });
+
+  it('去除首尾空白并丢弃空标签', () => {
+    const facets = aggregateTags([tagged(['  JS  ', '', '   '])]);
+    expect(facets).toEqual([{ key: 'js', label: 'JS', count: 1 }]);
+  });
+
+  it('空输入返回空数组（页面走空态分支）', () => {
+    expect(aggregateTags([])).toEqual([]);
+    expect(aggregateTags([tagged([])])).toEqual([]);
+  });
+
+  it('中文标签按拼音序排列，不受码点序影响', () => {
+    // 码点序里「安」>「笔」，拼音序里 an < bi —— 断言走的是后者
+    const facets = aggregateTags([tagged(['笔记', '安全'])]);
+    expect(facets.map((f) => f.label)).toEqual(['安全', '笔记']);
+  });
+});
+
+describe('aggregateCategories（侧边栏分类聚合）', () => {
+  const cats = [
+    { id: 'c1', name: '建站手札' },
+    { id: 'c2', name: '项目分享' },
+    { id: 'c3', name: '空分类' },
+  ];
+
+  it('按篇数倒序；计数为 0 的分类保留（置灰而非隐藏）', () => {
+    const map = new Map([
+      ['a', 'c1'],
+      ['b', 'c1'],
+      ['c', 'c2'],
+    ]);
+    const facets = aggregateCategories(cats, map);
+    expect(facets.map((f) => [f.label, f.count])).toEqual([
+      ['建站手札', 2],
+      ['项目分享', 1],
+      ['空分类', 0],
+    ]);
+  });
+
+  it('无归属的文章不进任何分类（不虚构「未分类」项）', () => {
+    // 只有 a 有归属；b/c 不在 map 里
+    const map = new Map([['a', 'c1']]);
+    const facets = aggregateCategories(cats, map);
+    expect(facets.reduce((sum, f) => sum + f.count, 0)).toBe(1);
+    expect(facets.some((f) => f.label.includes('未分类'))).toBe(false);
+  });
+
+  it('空分类表返回空数组', () => {
+    expect(aggregateCategories([], new Map())).toEqual([]);
+  });
+
+  it('map 里指向已删除分类的孤儿 id 被忽略（不进结果）', () => {
+    const map = new Map([['a', 'ghost']]);
+    const facets = aggregateCategories(cats, map);
+    expect(facets.every((f) => f.count === 0)).toBe(true);
+  });
+});
+
+describe('tagKeys（data-tags 写入口径）', () => {
+  it('归一为小写去重，与 aggregateTags 的 key 口径一致', () => {
+    expect(tagKeys(['CSS', 'css', ' JS ']).sort()).toEqual(['css', 'js']);
+  });
+
+  it('与 aggregateTags 产出的 key 可直接互相比对（筛选匹配的前提）', () => {
+    const facets = aggregateTags([tagged(['JavaScript'])]);
+    expect(tagKeys(['javascript'])).toContain(facets[0]!.key);
+  });
+
+  it('空输入返回空数组', () => {
+    expect(tagKeys([])).toEqual([]);
+    expect(tagKeys(['', '  '])).toEqual([]);
   });
 });

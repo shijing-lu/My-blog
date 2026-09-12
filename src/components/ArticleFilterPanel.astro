@@ -1,0 +1,80 @@
+---
+/**
+ * ArticleFilterPanel.astro —— 归档页右侧筛选面板（标签 + 分类）
+ *
+ * 取代原先的年/月时间线导航：点击标签或分类 → **当前页内即时过滤**文章卡
+ * （无请求、无刷新），交互口径与首页的标签筛选一致（见 index.astro 脚本）。
+ *
+ * 组件只负责渲染可点元素与 `data-filter-*` 属性，过滤逻辑在页面脚本里
+ * （事件委托 + 幂等守卫，兼容 View Transitions）。样式在 global.css（.filter-*）。
+ *
+ * 分类计数为 0 时仍渲染，但 `disabled` —— 它是写作台里真实存在的分类，
+ * 直接隐藏会让人以为分类丢了；置灰更能说明「这个分类下还没有文章」。
+ */
+import type { FilterFacet } from '@/lib/article-timeline';
+
+interface Props {
+  /** 标签选项（已由 aggregateTags 排好序） */
+  tags: FilterFacet[];
+  /** 分类选项（已由 aggregateCategories 排好序） */
+  categories: FilterFacet[];
+}
+
+const { tags, categories } = Astro.props;
+---
+<aside class="filter-panel" aria-label="文章筛选">
+  <!-- ===== 标签 ===== -->
+  <section>
+    <h2 class="filter-heading pixel-chip">
+      标签 / TAGS
+    </h2>
+    {
+      tags.length === 0 ? (
+        <p class="filter-empty">暂无标签</p>
+      ) : (
+        <div class="filter-tags">
+          {tags.map((t) => (
+            <button
+              type="button"
+              class="filter-tag"
+              data-filter-tag={t.key}
+              aria-pressed="false"
+              title={`按「${t.label}」筛选`}
+            >
+              <span class="pixel-chip">{t.label}</span>
+              <span class="filter-tag-count">{t.count}</span>
+            </button>
+          ))}
+        </div>
+      )
+    }
+  </section>
+
+  <!-- ===== 分类 ===== -->
+  <section>
+    <h2 class="filter-heading pixel-chip">
+      分类 / CATEGORIES
+    </h2>
+    {
+      categories.length === 0 ? (
+        <p class="filter-empty">暂无分类</p>
+      ) : (
+        <div class="filter-categories">
+          {categories.map((c) => (
+            <button
+              type="button"
+              class="filter-category"
+              data-filter-category={c.key}
+              aria-pressed="false"
+              disabled={c.count === 0}
+              title={c.count === 0 ? `「${c.label}」下暂无文章` : `按「${c.label}」筛选`}
+            >
+              <span class="filter-category-name">{c.label}</span>
+              <span class="filter-category-count">{c.count}</span>
+            </button>
+          ))}
+        </div>
+      )
+    }
+  </section>
+</aside>

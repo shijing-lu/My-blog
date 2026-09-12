@@ -191,3 +191,106 @@ export function timelineNavItems(years: TimelineYear[]): TimelineNavItem[] {
 /** 锚点 id 生成（与 `timelineNavItems` 的 key 保持一致，避免两处手写漂移） */
 export const yearAnchorId = (year: number): string => `y-${year}`;
 export const monthAnchorId = (year: number, month: number): string => `m-${year}-${month}`;
+
+/* ===== 侧边栏筛选面板（标签 / 分类）聚合 ===== */
+
+/** 筛选面板中的一个可选项（标签或分类） */
+export interface FilterFacet {
+  /** 传给 DOM 的匹配键（标签为原始名、分类为分类 id），页面 `data-*` 用它比对 */
+  key: string;
+  /** 展示文案 */
+  label: string;
+  /** 篇数 */
+  count: number;
+}
+
+/**
+ * 稳定排序：篇数倒序，同篇数按名称升序。
+ *
+ * 名称比较用 `localeCompare('zh-Hans-CN')`：中文标签按拼音序排（「安全」在「笔记」前），
+ * 比 `Array#sort` 默认的 UTF-16 码点序更符合直觉；数字用大小写不敏感的 locale 比较，
+ * 保证「Java / JavaScript」这类前缀重复名的顺序稳定（不受运行环境 locale 影响）。
+ */
+function byCountThenName(a: FilterFacet, b: FilterFacet): number {
+  if (b.count !== a.count) return b.count - a.count;
+  return a.label.localeCompare(b.label, 'zh-Hans-CN');
+}
+
+/**
+ * 聚合标签 → 篇数（用于侧边栏「标签」区）。
+ *
+ * 标签计数为**去重后**的篇数：一篇文章重复写了同一个标签（如 `['CSS','css']`）
+ * 只计一次，否则会出现「3 篇文章却显示 5 次」的虚高。
+ * 大小写归一到小写后合并计数（与首页 `data-tags` 的小写匹配口径一致），
+ * 但**展示名取首次出现的原始大小写**（保留 `JavaScript` 而非 `javascript`）。
+ *
+ * @param metas 全部文章元信息（只需 `tags` 字段）
+ * @returns 按篇数倒序的标签选项
+ */
+export function aggregateTags(metas: Array<Pick<ArticleMeta, 'tags'>>): FilterFacet[] {
+  /** 归一 key（小写）→ 计数；用 Map 保证「展示名取首次出现」的确定性 */
+  const keyCount = new Map<string, number>();
+  /** 归一 key → 展示名（首次出现的原始写法） */
+  const keyLabel = new Map<string, string>();
+
+  for (const meta of metas) {
+    // 同一篇内先按归一 key 去重，再累加，避免重复标签把篇数放大
+    const seen = new Set<string>();
+    for (const raw of meta.tags) {
+      const label = raw.trim();
+      if (!label) continue;
+      const key = label.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      keyCount.set(key, (keyCount.get(key) ?? 0) + 1);
+      if (!keyLabel.has(key)) keyLabel.set(key, label);
+    }
+  }
+
+  return Array.from(keyCount, ([key, count]) => ({
+    key,
+    label: keyLabel.get(key) ?? key,
+    count,
+  })).sort(byCountThenName);
+}
+
+/**
+ * 聚合分类 → 篇数（用于侧边栏「分类」区）。
+ *
+ * 分类归属来自 `articleCategoryMap()`（`articleId → categoryId`，单分类语义）。
+ * **无归属的文章不进任何分类**（不虚构「未分类」项：侧边栏是筛选器而非统计报表，
+ * 多一个恒等项只会干扰选择）。计数为 0 的分类**照常展示**（灰色不可点），
+ * 因为它是写作台里真实存在的分类，隐藏反而让人以为分类丢了。
+ *
+ * @param categories 全部分类（`listArticleCategories()` 的结果，已按 sort 排序）
+ * @param catMap 文章 → 分类 id 映射（`articleCategoryMap()` 的结果）
+ * @returns 按篇数倒序的分类选项
+ */
+export function aggregateCategories(
+  categories: Array<{ id: string; name: string }>,
+  catMap: Map<string, string>,
+): FilterFacet[] {
+  const counts = new Map<string, number>();
+  for (const categoryId of catMap.values()) {
+    counts.set(categoryId, (counts.get(categoryId) ?? 0) + 1);
+  }
+  return categories
+    .map((c) => ({ key: c.id, label: c.name, count: counts.get(c.id) ?? 0 }))
+    .sort(byCountThenName);
+}
+
+/**
+ * 取文章的归一标签键列表（供页面写 `data-tags`，与 `aggregateTags` 的口径一致）。
+ *
+ * @param tags 文章标签
+ * @returns 小写去重后的标签键（已 trim、去空）
+ */
+export function tagKeys(tags: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of tags) {
+    const label = raw.trim();
+    if (label) out.add(label.toLowerCase());
+  }
+  return Array.from(out);
+}
+

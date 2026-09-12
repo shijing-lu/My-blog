@@ -4,18 +4,20 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import Timeline from '@/components/Timeline.astro';
+import ArticleFilterPanel from '@/components/ArticleFilterPanel.astro';
 import { listArticlePageMeta } from '@/lib/articles';
 import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
 import { countViewsByTargets } from '@/lib/article-views';
 import { cardCoverUrl } from '@/lib/images';
 import {
   buildArticleTimeline,
-  timelineNavItems,
   weekdayLabel,
   formatWordCount,
   yearAnchorId,
   monthAnchorId,
+  aggregateTags,
+  aggregateCategories,
+  tagKeys,
 } from '@/lib/article-timeline';
 
 /* ===== Logic =====
@@ -41,17 +43,20 @@ const viewMap = await countViewsByTargets(metas.map((m) => m.id));
 /** 年 → 月 → 文章 的三级倒序时间线（按 createdAt，见 article-timeline.ts 注释） */
 const years = buildArticleTimeline(metas);
 const total = metas.length;
-const navItems = timelineNavItems(years);
 
 /** 分类 id → 分类实体（渲染徽章用；无归属则不显示徽章） */
 const categoryOf = new Map(categories.map((c) => [c.id, c]));
+
+/** 侧边栏筛选面板数据：标签 / 分类两项统计（真实数据聚合，见 article-timeline.ts） */
+const tagFacets = aggregateTags(metas);
+const categoryFacets = aggregateCategories(categories, catMap);
 ---
 
 <!-- ===== Template ===== -->
 <BaseLayout title="归档" description="按时间线倒序浏览全部文章 —— My Blog Archive">
   <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <!-- 两栏：左正文时间线 | 右年/月跳转（与 /moments 同构） -->
-    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_170px]">
+    <!-- 两栏：左正文时间线 | 右标签/分类筛选（窄屏时筛选面板下移） -->
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_230px]">
       <!-- ===== 左：归档主体 ===== -->
       <div class="min-w-0">
         <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">ARCHIVE</p>
@@ -60,6 +65,25 @@ const categoryOf = new Map(categories.map((c) => [c.id, c]));
           以时间线倒序浏览 —— 共 <span class="text-primary">{total}</span> 篇。
         </p>
         <div class="pixel-divider mt-5" />
+
+        <!-- 筛选状态条：由脚本控制显隐（选中标签/分类后才出现） -->
+        <div id="archive-filter-bar" class="archive-filter-bar hidden" role="status" aria-live="polite">
+          <span class="pixel-chip archive-filter-label">筛选</span>
+          <span id="archive-filter-name" />
+          <span id="archive-filter-count" class="archive-filter-count" />
+          <button type="button" id="archive-filter-clear" class="archive-filter-clear pixel-chip">
+            清除
+          </button>
+        </div>
+
+        <!-- 窄屏筛选面板：桌面端侧栏在 lg 以下会隐藏，但「筛选」是功能而非导航，
+             窄屏也必须可达，故折叠为 <details> 放在正文流里（同一份按钮，脚本无需区分） -->
+        <details class="archive-filter-mobile mt-5 lg:hidden">
+          <summary class="archive-filter-mobile-summary pixel-chip">筛选 / FILTER</summary>
+          <div class="mt-3">
+            <ArticleFilterPanel tags={tagFacets} categories={categoryFacets} />
+          </div>
+        </details>
 
         {
           total === 0 ? (
@@ -92,7 +116,12 @@ const categoryOf = new Map(categories.map((c) => [c.id, c]));
                         const cover = cardCoverUrl(entry.meta.cover, 600);
                         const views = viewMap[entry.meta.id] ?? 0;
                         return (
-                          <article class="archive-item">
+                          <article
+                            class="archive-item"
+                            data-archive-item
+                            data-tags={tagKeys(entry.meta.tags).join('|')}
+                            data-category={catId ?? ''}
+                          >
                             {/* 轴上节点（纯装饰） */}
                             <span class="archive-node" aria-hidden="true" />
                             {/* 整卡可点：进入详情页。`.post-card` 带来 hover 上浮 + 入场动画 */}
@@ -138,13 +167,17 @@ const categoryOf = new Map(categories.map((c) => [c.id, c]));
             </div>
           )
         }
+
+        <!-- 筛选后无任何命中：由脚本切换显隐（初态隐藏） -->
+        <p id="archive-filter-empty" class="mt-8 hidden text-sm text-muted-foreground">
+          没有符合该条件的文章。
+        </p>
       </div>
 
-      <!-- ===== 右：年/月跳转（复用与影集/动态同一组件） ===== -->
+      <!-- ===== 右：标签 + 分类筛选 ===== -->
       <aside class="hidden lg:block">
         <div class="sticky top-20">
-          <p class="pixel-chip mb-2 text-muted-foreground">时间线 / TIMELINE</p>
-          <Timeline items={navItems} emptyText="暂无文章" />
+          <ArticleFilterPanel tags={tagFacets} categories={categoryFacets} />
         </div>
       </aside>
     </div>
@@ -153,75 +186,148 @@ const categoryOf = new Map(categories.map((c) => [c.id, c]));
 
 <script>
   /**
-   * 归档页时间线交互：点击年/月节点 → 平滑滚动定位 + 反向高亮。
+   * 归档页交互：点击标签/分类 → **当前页内即时过滤**（无请求、无刷新）。
    *
-   * 与 /gallery、/moments 的差异：那两页是「滚动定位到已加载分组」或「按日期过滤」，
-   * 本页是**纯锚点跳转 + 双向高亮**（数据一次性全量渲染，无需分页拉取）。
+   * 与首页 `applyTagFilter` 同一套约定（`data-*` 驱动 + `hidden` 切换），
+   * 保证全站交互一致；差异是这里还要**联动隐藏空的年/月分组**：
+   * 归档页是按年月分组的，若只隐藏文章卡，被筛空的分组会留下一个
+   * 「9 月 / 0」的孤零零标题，视觉上很破碎。
    *
-   * 用 document 委托而非直接绑按钮：View Transitions 换页后旧绑定失效，
-   * 委托绑定则始终有效（与 BaseLayout 的既有脚本同思路）。
-   * 幂等守卫保证监听只绑一次（本脚本在 SPA 下可能被执行多次）。
+   * 三条设计约束：
+   * 1. **标签与分类互斥**：点击标签会清掉已选分类，反之亦然。
+   *    两个维度同时生效会让「筛出 0 篇」的情况变得难以理解，
+   *    且侧边栏两组按钮同时高亮也不易读。
+   * 2. **再次点击同一项 = 取消筛选**（与首页标签行为一致）。
+   * 3. **事件委托 + 幂等守卫**：View Transitions 换页后旧绑定失效，
+   *    委托绑定始终有效；守卫保证监听只绑一次（SPA 下本脚本可能执行多次）。
    */
-  const archiveWindow = window as unknown as { __archiveTimelineBound?: boolean };
+  const archiveWindow = window as unknown as {
+    __archiveFilterBound?: boolean;
+  };
 
-  /** 清除全部高亮，只保留命中的那一个 */
-  function activateNav(active: HTMLElement | null): void {
-    document.querySelectorAll<HTMLElement>('.timeline-item').forEach((item) => {
-      item.classList.toggle('active', item === active);
+  /** 当前筛选状态：标签 key / 分类 key，二者互斥（最多一个非空） */
+  let activeTag = '';
+  let activeCategory = '';
+
+  /** 元素查询小助手（每次都重新查 DOM，规避 View Transitions 后的失效引用） */
+  function el<T extends HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
+  }
+
+  /**
+   * 应用/清除筛选。
+   *
+   * @param tag 标签 key（小写归一）；空串表示不按标签筛
+   * @param category 分类 id；空串表示不按分类筛
+   */
+  function applyFilter(tag: string, category: string): void {
+    activeTag = tag;
+    activeCategory = category;
+
+    const items = document.querySelectorAll<HTMLElement>('[data-archive-item]');
+    let shown = 0;
+
+    items.forEach((item) => {
+      let match = true;
+      if (tag) {
+        match = (item.dataset.tags ?? '').split('|').filter(Boolean).includes(tag);
+      } else if (category) {
+        match = (item.dataset.category ?? '') === category;
+      }
+      item.classList.toggle('hidden', !match);
+      if (match) shown += 1;
+    });
+
+    // 联动隐藏被筛空的年/月分组（月份先算，年再算：年内若有任一月份可见则年保留）
+    document.querySelectorAll<HTMLElement>('[data-archive-month]').forEach((month) => {
+      const visible = month.querySelector<HTMLElement>('[data-archive-item]:not(.hidden)');
+      month.classList.toggle('hidden', !visible);
+    });
+    document.querySelectorAll<HTMLElement>('[data-archive-year]').forEach((year) => {
+      const visible = year.querySelector<HTMLElement>('[data-archive-month]:not(.hidden)');
+      year.classList.toggle('hidden', !visible);
+    });
+
+    // 同步按钮选中态（两组都刷，保证互斥后另一组自动熄灭）
+    document.querySelectorAll<HTMLElement>('[data-filter-tag]').forEach((btn) => {
+      const on = !!tag && btn.dataset.filterTag === tag;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+    document.querySelectorAll<HTMLElement>('[data-filter-category]').forEach((btn) => {
+      const on = !!category && btn.dataset.filterCategory === category;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+
+    const bar = el<HTMLElement>('archive-filter-bar');
+    const emptyHint = el<HTMLElement>('archive-filter-empty');
+
+    if (!tag && !category) {
+      bar?.classList.add('hidden');
+      emptyHint?.classList.add('hidden');
+      return;
+    }
+
+    // 状态条：显示当前筛选条件 + 命中篇数
+    const nameEl = el<HTMLElement>('archive-filter-name');
+    const countEl = el<HTMLElement>('archive-filter-count');
+    if (nameEl) {
+      if (tag) {
+        // 标签展示名取侧边栏按钮上的原文（保留大小写），而非归一后的小写 key
+        const label = document.querySelector<HTMLElement>(`[data-filter-tag="${CSS.escape(tag)}"] .pixel-chip`)
+          ?.textContent?.trim();
+        nameEl.textContent = `#${label || tag}`;
+      } else {
+        const label = document.querySelector<HTMLElement>(
+          `[data-filter-category="${CSS.escape(category)}"] .filter-category-name`,
+        )?.textContent?.trim();
+        nameEl.textContent = label || '分类';
+      }
+    }
+    if (countEl) countEl.textContent = `${shown} 篇`;
+    bar?.classList.remove('hidden');
+    emptyHint?.classList.toggle('hidden', shown > 0);
+  }
+
+  function initArchiveFilter(): void {
+    // 非归档页（或空态无时间线）：不绑监听，也不重复绑
+    if (!document.querySelector('.archive-timeline')) return;
+    if (archiveWindow.__archiveFilterBound) {
+      // SPA 换页回到本页：DOM 是全新的 SSR 输出（未筛选态），
+      // 但模块级状态变量会残留（`<script>` 模块只求值一次，导航后不重跑）。
+      // 若不复位，「筛选 → 跳走 → 返回 → 再点同一标签」会被误判为取消、
+      // 表现为点了没反应。监听无需重绑，复位一次即可（此时是无害的空操作）。
+      applyFilter('', '');
+      return;
+    }
+    archiveWindow.__archiveFilterBound = true;
+
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      // 只在归档页生效：影集/动态页也可能有同名元素
+      if (!document.querySelector('.archive-timeline')) return;
+
+      const tagBtn = target.closest<HTMLElement>('[data-filter-tag]');
+      if (tagBtn) {
+        const tag = tagBtn.dataset.filterTag ?? '';
+        // 再点同一项 = 取消；否则切到新标签并清掉分类（互斥）
+        applyFilter(tag && tag === activeTag ? '' : tag, '');
+        return;
+      }
+
+      const catBtn = target.closest<HTMLElement>('[data-filter-category]');
+      if (catBtn) {
+        const category = catBtn.dataset.filterCategory ?? '';
+        applyFilter('', category && category === activeCategory ? '' : category);
+        return;
+      }
+
+      if (target.closest('#archive-filter-clear')) applyFilter('', '');
     });
   }
 
-  function initArchiveTimeline(): void {
-    const root = document.querySelector('.archive-timeline');
-    if (!root) return; // 非归档页：直接退出
-    const groups = Array.from(
-      document.querySelectorAll<HTMLElement>('[data-archive-year], [data-archive-month]'),
-    );
-    if (groups.length === 0) return;
-
-    // ---- 点击：委托绑定（只绑一次）----
-    if (!archiveWindow.__archiveTimelineBound) {
-      archiveWindow.__archiveTimelineBound = true;
-      document.addEventListener(
-        'click',
-        (e) => {
-          const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-timeline-date]');
-          if (!btn) return;
-          // 只在归档页生效：别的页面也可能渲染 .timeline（影集/动态），此处不越权
-          if (!document.querySelector('.archive-timeline')) return;
-          const key = btn.dataset.timelineDate ?? '';
-          const target = key ? document.getElementById(key) : null;
-          if (!target) return;
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          activateNav(btn);
-        },
-        true,
-      );
-    }
-
-    // ---- 反向高亮：滚到哪个分组就点亮哪个节点 ----
-    // rootMargin 收窄判定带：只把「接近顶部」的分组算作当前可见，
-    // 否则长列表里会有多个分组同时进入视口、高亮来回跳。
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const id = entry.target.id;
-          if (!id) continue;
-          const btn = document.querySelector<HTMLElement>(
-            `.timeline-item[data-timeline-date="${CSS.escape(id)}"]`,
-          );
-          if (btn) {
-            activateNav(btn);
-            break;
-          }
-        }
-      },
-      { rootMargin: '-10% 0px -80% 0px' },
-    );
-    groups.forEach((g) => observer.observe(g));
-  }
-
-  document.addEventListener('astro:page-load', initArchiveTimeline);
-  initArchiveTimeline();
+  // 首次执行 + 每次 SPA 导航后重置（换页后 DOM 是新的，筛选态自然归零）
+  document.addEventListener('astro:page-load', initArchiveFilter);
+  initArchiveFilter();
 </script>
