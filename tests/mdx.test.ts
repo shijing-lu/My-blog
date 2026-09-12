@@ -7,6 +7,7 @@ import {
   renderMarkdownHtml,
   normalizeMathFences,
   normalizeSource,
+  encodeMarkLeadVariant,
   invalidateRenderCache,
   clearRenderCache,
 } from '../src/lib/mdx';
@@ -846,6 +847,132 @@ describe('裸花括号安全化（escapeBareBraces）', () => {
     expect(html).not.toContain('class="token');
     // 内容一个字不少
     expect(html).toContain(long.slice(0, 200));
+  });
+});
+
+/**
+ * 花括号前缀标记 `=={.variant} 正文 ==`
+ *
+ * 2026-09-12 用户报障：点击网络层讲义时 /render 500，
+ * 日志 `Could not parse expression with acorn`。
+ *
+ * 根因：mark 语法原本只支持「后缀」`==正文=={.variant}` 与「冒号前缀」
+ * `==variant:正文==`，**花括号前缀从未被支持** —— `{.tip}` 的花括号落进
+ * MDX 表达式解析，且故障形态随该行是否含行内代码分叉：
+ * - 该行不含行内代码 → escapeBareBraces 兜底转义 → 不崩，但变体名丢失、
+ *   正文显出字面 `{.tip}`（静默降级，与崩溃同样属于缺陷）；
+ * - 该行含行内代码 → normalizeMathFences 因 `t.includes('`')` 整行跳过 →
+ *   花括号完全裸露 → acorn 崩 → 整篇 evaluate 失败。
+ *
+ * 修复：新增 encodeMarkLeadVariant，排在 normalizeSource 第 2 层
+ * （必须早于 normalizeMathFences —— 后者的 escapeBareBraces 一旦把 `{`
+ * 转义为 `\{`，前缀形态就再也认不出来）。
+ */
+describe('花括号前缀标记（=={.variant} 正文 ==）', () => {
+  /** 取第一个 mark 元素的内部文本 */
+  const markText = (html: string): string | undefined =>
+    /<mark[^>]*>([\s\S]*?)<\/mark>/.exec(html)?.[1];
+
+  it('前缀 `.tip` 正确识别变体（修复前静默降级为 primary + 字面 `{.tip}`）', async () => {
+    const { html } = await renderMdx('=={.tip} 这是重点 ==');
+    expect(html).toContain('mark-tip');
+    expect(html).not.toContain('{.tip}');
+    expect(markText(html)).toBe('这是重点 ');
+  });
+
+  it('前缀 `.error` 正确识别变体', async () => {
+    const { html } = await renderMdx('=={.error} 这是错误 ==');
+    expect(html).toContain('mark-error');
+  });
+
+  it('含行内代码的前缀不再崩 acorn（本次事故最小复现）', async () => {
+    const { html } = await renderMdx('=={.tip} 这是重点 `code` ==');
+    expect(html).toContain('mark-tip');
+    expect(html).toContain('<code>code</code>');
+  });
+
+  it('事故原行（第四章网络层，含行内代码 + 行内公式）', async () => {
+    const src =
+      '> =={.tip} 反推技巧：由子网掩码的点分十进制形式，可直接数出前缀长度。例如 `255.255.255.192` → $192 = 11000000_2$ → 前缀 /26。==';
+    const { html } = await renderMdx(src);
+    expect(html).toContain('mark-tip');
+    expect(html).toContain('<code>255.255.255.192</code>');
+    expect(html).not.toContain('katex-error');
+  });
+
+  it('后缀形态不被误伤（尾部 `=={.x}` 是闭合定界符，不是开标记）', async () => {
+    const { html } = await renderMdx('==这是重点=={.tip}');
+    expect(html).toContain('mark-tip');
+    // 内容必须完整；若尾部被误当初开标记，会残留字面 `==` 且 mark 消失
+    expect(markText(html)).toBe('这是重点');
+    expect(html).not.toContain('==');
+  });
+
+  it('引用块内的前缀形态', async () => {
+    const { html } = await renderMdx('> =={.error} 三个单位是失分点 ==');
+    expect(html).toContain('mark-error');
+  });
+
+  it('列表项内的前缀形态（`warning` 是 `error` 的语义别名）', async () => {
+    const { html } = await renderMdx('- =={.warning} 编号冲突 ==');
+    expect(html).toContain('mark-error');
+  });
+
+  it('白名单外的变体名原样保留为字面（不静默吞用户内容）', async () => {
+    const { html } = await renderMdx('=={.nope} 这是重点 ==');
+    expect(html).toContain('{.nope}');
+    expect(html).not.toContain('mark-tip');
+  });
+
+  it('行内代码里的示例写法不被改写', async () => {
+    const { html } = await renderMdx('写法是 `=={.tip} x ==`');
+    expect(html).toContain('=={.tip} x ==');
+    expect(html).not.toContain('mark-tip');
+  });
+
+  it('encodeMarkLeadVariant 直接单测：白名单命中编码、未命中原样、幂等', () => {
+    expect(encodeMarkLeadVariant('=={.tip} x ==')).toBe('=={.tip} x =='.replace('=={.tip} ', '\uE000=\uE000=tip\uE000'));
+    expect(encodeMarkLeadVariant('=={.nope} x ==')).toBe('=={.nope} x ==');
+    const once = encodeMarkLeadVariant('=={.tip} x ==');
+    expect(encodeMarkLeadVariant(once)).toBe(once);
+  });
+});
+
+/**
+ * 含行内代码的行：**代码区外**的裸 `<` / `{` 仍需安全化
+ *
+ * 2026-09-12 与上一组同源（同一函数、同一事故）：normalizeMathFences 原先对
+ * 「含反引号的行」整行透传，本意是保护行内代码里的字面 `$$`。副作用是
+ * 代码区**外**的裸 `<` / `{` 一并失去防护，例如「见 `code` 说明，误差 <0.5」
+ * 同样崩 acorn。修复：按行内代码边界分段，代码区原样、其余照常安全化。
+ */
+describe('含行内代码行的安全化（代码区隔离）', () => {
+  it('代码区外的裸 `<` 被安全化（原先整行跳过 → acorn 崩）', async () => {
+    const { html } = await renderMdx('见 `code` 说明，误差 <0.5 舍去');
+    expect(html).toContain('&lt;0.5');
+    expect(html).toContain('<code>code</code>');
+  });
+
+  it('代码区外的裸 `{2a}` 被安全化', async () => {
+    const { html } = await renderMdx('见 `code` 记作 {2a}');
+    expect(html).toContain('{2a}');
+  });
+
+  it('代码区内的危险字符原样保留（不能被转义成 `\\<`）', async () => {
+    const { html } = await renderMdx('参照 `<0.5` 与 `{2a}` 的写法');
+    expect(html).toContain('<code>&lt;0.5</code>');
+    expect(html).toContain('<code>{2a}</code>');
+    expect(html).not.toContain('\\<');
+  });
+
+  it('display 数学块内含反引号的行：公式花括号仍保留（跨行状态不被绕过）', async () => {
+    const src = '$$\n\\begin{aligned}\na_{1} &= b_{1}\\\\\n\\end{aligned}\n$$';
+    const { html } = await renderMdx(src);
+    const tex = [...html.matchAll(/<annotation encoding="application\/x-tex">([^<]*)<\/annotation>/g)]
+      .map((m) => m[1])
+      .join('\n');
+    expect(tex).toContain('a_{1}');
+    expect(tex).not.toContain('\\{');
   });
 });
 

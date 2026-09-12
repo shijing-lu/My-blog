@@ -170,8 +170,25 @@ export function normalizeMathFences(source: string): string {
       out.push(t);
       continue;
     }
-    if (inFence || t.includes('`')) {
+    if (inFence) {
       out.push(t);
+      continue;
+    }
+    // 含行内代码（反引号）的行：
+    // - 代码区**内**的 `$$` / `{` / `<` 是字面量——反引号 span 在 MDX 里优先级更高，
+    //   天生免疫表达式/JSX 解析，且拆分 `$$` 会改坏代码，故一律原样保留；
+    // - 代码区**外**的部分仍需安全化。此前整行透传会让这些字符完全失去防护：
+    //   「见 `code` 说明，误差 <0.5」这类正文同样崩 acorn（2026-09-12 第四章事故
+    //   即由 `=={.tip} … `255.255.255.192` … ==` 触发，`{` 裸露）。
+    // 因此按行内代码边界分段：代码区原样，非代码区走正常安全化。
+    // ⚠️ 仍不在此处拆 `$$`（保持原设计），但必须尊重跨行 display 数学状态：
+    //   处于公式块内的行只做 `<` 安全化，转义花括号会破坏 KaTeX 参数边界。
+    if (t.includes('`')) {
+      out.push(
+        mapOutsideInlineCode(t, (chunk) =>
+          inDisplayMath ? escapeBareLt(chunk) : escapeBareBraces(escapeBareLt(chunk)),
+        ),
+      );
       continue;
     }
     // 引用前缀剥离开销：拆分行内 `$$` 时逐段回添 `>` 前缀，
@@ -563,6 +580,24 @@ const SOURCE_MARK_SUFFIX_RE = /(?<!=)(==(?:(?!==)[^\n])*?==)\{([^}\n]*)\}/g;
  */
 const SOURCE_MARK_PREFIX_RE = /==([A-Za-z][\w-]*):/g;
 
+/**
+ * 源码层：**花括号前缀**写法 `=={.variant} 正文 ==` 的左标记。
+ *
+ * 与 SOURCE_MARK_PREFIX_RE（冒号式）等价，只是作者按 VuePress Plume 习惯
+ * 把变体写成花括号属性。两条前缀路径最终产出同一种编码，由插件侧同一分支消费。
+ *
+ * 尾随 `[ \t]*` 一并吃掉：原写法的 `=={.tip} 正文` 中，属性与正文之间的空格
+ * 属排版分隔（非正文内容），吃掉后与 `==tip:正文==` 完全对齐。
+ *
+ * ⚠️ 左边界必须收紧为「行首或空白」（`(?<![^\s])`），**不能**像后缀那样只排除 `=`：
+ * 后缀形态 `==正文=={.tip}` 的**尾部**也是 `==` 紧跟 `{`，若左边界只排除 `=`，
+ * 那里的 `=={.tip}` 会被本正则当成开标记改写，整行被破坏成
+ * `==正文«S»=«S»=tip«S»`（开标记无闭合 → mark 元素消失 + 字面 `==` 残留）。
+ * 收成「前一个字符不是非空白」后：开标记（行首/`> `/`- `/表格单元格等前置空白）
+ * 命中，后缀的尾部 `==`（紧邻正文非空白）自动排除 —— 实测两种形态可同时正确。
+ */
+const SOURCE_MARK_LEAD_BRACE_RE = /(?<![^\s])==\{\.?([A-Za-z][\w-]*)\}[ \t]*/g;
+
 /** 内置变体 + 别名白名单（须与 mdx-plugins.ts 的 MARK_VARIANT_ALIASES 保持一致） */
 const MARK_VARIANT_NAMES = new Set([
   'primary', 'main', 'default',
@@ -603,6 +638,126 @@ export function encodeMarkSyntax(source: string): string {
         MARK_VARIANT_NAMES.has(name.toLowerCase()) ? `${SENT}=${SENT}=${name}${SENT}` : m,
       ),
   );
+}
+
+/**
+ * 源码层：编码**花括号前缀**标记 `=={.variant} 正文 ==`。
+ *
+ * ## 背景（生产事故：2026-09-12 文档渲染 500 · acorn）
+ *
+ * mark 语法原本只认两种写法：
+ * - 后缀式 `==正文=={.variant}`（由 encodeMarkSyntax 的 SOURCE_MARK_SUFFIX_RE 编码）
+ * - 冒号前缀式 `==variant:正文==`（由 SOURCE_MARK_PREFIX_RE 编码）
+ *
+ * **花括号前缀式 `=={.variant} 正文 ==` 从未被支持**，作者却常按 VuePress
+ * Plume 习惯混用（实测两章网络层讲义里出现十余处）。于是 `{.variant}` 的花括号
+ * 落进 MDX 表达式解析，且故障形态随该行是否含行内代码而分叉：
+ *
+ * - 该行**不含**行内代码 → normalizeMathFences 的 escapeBareBraces 兜底把花括号
+ *   转义成 `\{`/`\}` → 不崩，但**变体名丢失**（降级为默认 primary 高亮）、
+ *   正文里显示出字面 `{.tip}`（静默降级，用户只看到格式不对）；
+ * - 该行**含**行内代码 → normalizeMathFences 因 `t.includes('`')` 把整行跳过，
+ *   花括号完全裸露 → micromark-extension-mdx-expression 交给 acorn →
+ *   `Could not parse expression with acorn` → 整篇 evaluate 失败（/render 500）。
+ *
+ * 崩溃行实例（第四章网络层，归一化后第 94 行）：
+ * ```
+ * > =={.tip} 反推技巧：… 例如 `255.255.255.192` → $192 = 11000000_2$ → 前缀 /26。==
+ * ```
+ *
+ * ## 为什么必须早于 normalizeMathFences 执行
+ *
+ * `escapeBareBraces` 一旦把 `{` 转义为 `\{`，本函数就再也认不出该前缀形态
+ * （只能退化为字面文本）。因此它排在 normalizeBackticks 之后、
+ * normalizeMathFences 之前 —— 见 normalizeSource 的顺序说明。
+ *
+ * ## 与既有链路的关系
+ *
+ * 改写产物 `${SENT}=${SENT}=variant${SENT}` 正是冒号前缀式的编码形态，
+ * 由 mdx-plugins.ts 的 MARK_OPEN_PREFIX_RE 消费 —— **复用已验证链路，
+ * 不新增插件分支**，避免两套前缀解析规则各说各话。
+ *
+ * ## 边界
+ *
+ * - 变体名不在白名单（如 `{.notavariant}`）→ 原样保留，交回 escapeBareBraces
+ *   转义为字面显示（不静默吞用户内容，与 encodeMarkSyntax ② 的策略一致）；
+ * - 行内代码与围栏代码内不处理（作者在那里写的是**讲解示例**）；
+ * - 无闭合 `==` 的孤立前缀也照常编码，由插件侧决定呈现，不额外抛错（实测安全）。
+ */
+export function encodeMarkLeadVariant(source: string): string {
+  return mapOutsideCode(source, (line) =>
+    mapOutsideInlineCode(line, (chunk) =>
+      chunk.replace(SOURCE_MARK_LEAD_BRACE_RE, (m, inner: string) => {
+        const name = inner.replace(/^\./, '').trim();
+        return MARK_VARIANT_NAMES.has(name.toLowerCase()) ? `${SENT}=${SENT}=${name}${SENT}` : m;
+      }),
+    ),
+  );
+}
+
+/**
+ * 按**行内代码（反引号 span）**切分一行，只对代码区外的片段调用 `fn`，代码区原样保留。
+ *
+ * ```
+ * mapOutsideInlineCode('见 `{2a}` 与 {3b}', fn)
+ * //                   └ 代码区原样 ┘   └─ fn 处理 ─┘
+ * ```
+ *
+ * ## 用途
+ *
+ * normalizeMathFences 对**含反引号的行**原先整行透传（不拆 `$$`、不做安全化），
+ * 本意是保护行内代码里的字面 `$$`。但副作用是**行内代码区外的裸 `<` / `{`
+ * 也一并失去防护** → 例如「见 `code` 说明，误差 <0.5」这种正文同样崩 acorn。
+ * 本函数把"透传"精确收敛到代码区本身，非代码区照常安全化。
+ *
+ * ## 匹配规则（对齐 CommonMark 反引号串）
+ *
+ * 长度为 n 的反引号串（n≥1）需由**同样长度**的后续反引号串闭合；
+ * 找不到闭合则视为字面反引号、不构成代码 span（此时其后内容按非代码区处理）。
+ * 不做"至多匹配"等宽容处理：与 micromark 的判定保持一致，避免两侧对代码
+ * span 的边界理解不同而把正文误当代码（或反之）。
+ */
+function mapOutsideInlineCode(line: string, fn: (chunk: string) => string): string {
+  if (!line.includes('`')) return fn(line);
+  let out = '';
+  let plain = 0;
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] !== '`') {
+      i += 1;
+      continue;
+    }
+    // 数出当前反引号串长度
+    let n = 0;
+    while (line[i + n] === '`') n += 1;
+    // 向后找**同长度**的闭合串
+    let j = i + n;
+    let close = -1;
+    while (j < line.length) {
+      if (line[j] === '`') {
+        let m = 0;
+        while (line[j + m] === '`') m += 1;
+        if (m === n) {
+          close = j;
+          break;
+        }
+        j += m;
+        continue;
+      }
+      j += 1;
+    }
+    if (close === -1) {
+      // 无同长度闭合：该串是字面反引号，继续向后扫（其后的反引号可能另成一对）
+      i += n;
+      continue;
+    }
+    out += fn(line.slice(plain, i));
+    out += line.slice(i, close + n); // 代码区：原样
+    i = close + n;
+    plain = i;
+  }
+  out += fn(line.slice(plain));
+  return out;
 }
 
 /**
@@ -1017,14 +1172,18 @@ export function collectBlockMapFromHtml(html: string): BlockAnchorMap {
 /**
  * 源码预处理的唯一入口
  *
- * 六层规范化，顺序不可调换（后者依赖前者的输出）：
+ * 七层规范化，顺序不可调换（后者依赖前者的输出）：
  * 1. normalizeBackticks  反引号变体 → ASCII（U+0060），修复行内代码渲染失败
- * 2. normalizeMathFences 「内容与 $$ 同行」→ 拆为独占行，修复 KaTeX 收到非法 TeX 的红字
- * 3. normalizeCollapseParams `:::collapse accordion` → `:::collapse{accordion}`
+ * 2. **encodeMarkLeadVariant** 花括号前缀 `=={.variant} 正文 ==` → 哨兵编码。
+ *    ⚠️ 必须排在第 3 层之前：normalizeMathFences 内嵌的 escapeBareBraces 会把
+ *    `{.variant}` 的 `{` 转义成 `\{`，一旦转义本形态即不可逆地退化为字面文本
+ *    （变体丢失 + 正文里显出 `{.tip}`），后续再也无法识别。
+ * 3. normalizeMathFences 「内容与 $$ 同行」→ 拆为独占行，修复 KaTeX 收到非法 TeX 的红字
+ * 4. normalizeCollapseParams `:::collapse accordion` → `:::collapse{accordion}`
  *    （remark-directive 只认花括号属性，空格参数会被整行降级为普通段落）
- * 4. normalizeTabs `:::tabs#id` + `@tab` → `:::tabs{stableId="id"}` + 无序列表
+ * 5. normalizeTabs `:::tabs#id` + `@tab` → `:::tabs{stableId="id"}` + 无序列表
  *    （`#` 容器名不被识别、`@tab` 非标准、`:` 被吃成 textDirective，且不支持嵌套容器）
- * 5. encodeCollapseMarkers / 6. encodeMarkSyntax
+ * 6. encodeCollapseMarkers / 7. encodeMarkSyntax
  *    字面量 `\=\=` 与后缀 `{…}` 在 MDX 解析前打上私有区哨兵，
  *    防 acorn 表达式崩溃 + 让插件能区分「字面量 / 真定界符 / 后缀」
  *
@@ -1034,7 +1193,11 @@ export function collectBlockMapFromHtml(html: string): BlockAnchorMap {
 export function normalizeSource(source: string): string {
   return encodeMarkSyntax(
     encodeCollapseMarkers(
-      normalizeTabs(normalizeCollapseParams(normalizeMathFences(normalizeBackticks(source)))),
+      normalizeTabs(
+        normalizeCollapseParams(
+          normalizeMathFences(encodeMarkLeadVariant(normalizeBackticks(source))),
+        ),
+      ),
     ),
   );
 }
