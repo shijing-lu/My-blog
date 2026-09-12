@@ -46,6 +46,7 @@ import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from
 import { getSiteName } from '@/lib/site-name';
 import { getHeroQuoteSettings } from '@/lib/quote-settings';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
+import SiteTextStyles from '@/components/SiteTextStyles.astro';
 
 /** 站点名称（管理员可在 /admin/settings 自定义，默认「白衣卿相」） */
 const siteTitle = await getSiteName();
@@ -201,6 +202,9 @@ const needsKatexFonts =
     {fontCss !== '' && <style set:html={fontCss} />}
     {/* 自定义 Markdown 样式（管理员上传，作用域限定 .prose；SSR 每页注入，ClientRouter 转场随新 head 存活） */}
     {mdCssScoped !== '' && <style id="md-custom-css" set:html={mdCssScoped} />}
+    {/* 全站文字样式：① 内置默认风格包（site-text 层，始终生效）② 管理员自定义（unlayered，覆盖 ①）。
+        两块都在 head 内、无「</style」风险（保存前已净化），ClientRouter 转场随新 head 存活 */}
+    <SiteTextStyles />
   </head>
   <body class="flex min-h-dvh flex-col">
     {/* 跳转到主内容（无障碍 P1-5）：默认视觉隐藏，键盘 Tab 聚焦时才显形。

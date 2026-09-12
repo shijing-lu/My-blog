@@ -1,0 +1,19 @@
+---
+/**
+ * SiteTextStyles.astro —— 全站文字样式注入（BaseLayout 与 AdminLayout 共用）
+ *
+ * 输出两块 <style>：
+ *   ① #site-text-default —— 内置「豪放 · 活泼」默认风格包，包在 @layer site-text 内
+ *      （层级顺序见 global.css 头部：utilities < site-text < unlayered）；
+ *   ② #site-custom-css —— 管理员自定义 CSS（unlayered，源序靠后，稳定覆盖 ①）。
+ * 设置页（/admin/settings/*）走 AdminLayout 也注入，保证"本页实时预览"与全站观感一致。
+ */
+import { getCustomSiteCss } from '@/lib/site-css';
+import { DEFAULT_SITE_TEXT_CSS } from '@/lib/site-css-defaults';
+
+const siteCustomCss = await getCustomSiteCss();
+const siteCustomCssActive = siteCustomCss.css.trim() !== '';
+---
+
+<style id="site-text-default" is:global set:html={`@layer site-text {\n${DEFAULT_SITE_TEXT_CSS}\n}`} />
+{siteCustomCssActive && <style id="site-custom-css" is:global set:html={siteCustomCss.css} />}

@@ -8,6 +8,11 @@
  * - Components: prose 微调、像素字体工具、像素分割线/角标、类型章、竖向图标工具栏、统计条
  */
 
+/* 层级顺序声明（必须先于 @import）：
+   site-text = 全站文字默认风格包（BaseLayout 注入，见 src/lib/site-css-defaults.ts）。
+   排在 utilities 之后 = 风格包压过组件默认与元素工具类，真正"应用于整个系统"；
+   「全站样式自定义」与「Markdown 样式」均为 unlayered，优先级高于一切 layer（含本包）。 */
+@layer theme, base, components, utilities, site-text;
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource/silkscreen/400.css";

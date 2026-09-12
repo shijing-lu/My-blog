@@ -10,6 +10,7 @@ const { title = '后台管理' } = Astro.props;
 /* ===== Imports ===== */
 import '../styles/global.css';
 import ThemeHead from '@/components/ThemeHead.astro';
+import SiteTextStyles from '@/components/SiteTextStyles.astro';
 import { isManagerSession } from '@/lib/admin-auth';
 import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
@@ -40,6 +41,8 @@ const siteTitle = await getSiteName();
     <ThemeHead />
     {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题） */}
     {fontCss !== '' && <style set:html={fontCss} />}
+    {/* 全站文字样式（内置默认包 + 自定义）：后台与前台共用同一套文字观感 */}
+    <SiteTextStyles />
   </head>
   <body class="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
     {/* 跳转到主内容（无障碍 P1-5）：与 BaseLayout 一致，键盘用户可直达后台内容区 */}
