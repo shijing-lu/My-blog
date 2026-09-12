@@ -271,6 +271,34 @@ export const likes = sqliteTable(
   ],
 );
 
+/**
+ * 文章阅读记录（归档页「x 阅读」的数据源）。
+ *
+ * **一次访问一行、不做任何去重** —— 这是与 `likes` 表的关键区别：
+ * 点赞需要「同一身份唯一」才能做幂等 toggle，而阅读量口径被明确设定为
+ * 「每次访问 +1」。因此这里**不加唯一约束**，写入路径最轻（纯 INSERT）。
+ *
+ * 代价是刷新/重复访问会累加、爬虫可能污染，故上报放在**客户端**
+ * （`/api/views`），避免 SSR / 预取被计入。
+ *
+ * 索引：`article_id` 单列索引服务于两类查询 ——
+ * ① 单篇 `count(*) where article_id = ?`；② 归档页 `inArray + groupBy` 批量聚合。
+ */
+export const articleViews = sqliteTable(
+  'article_views',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 文章 id（articles.id） */
+    articleId: text('article_id').notNull(),
+    /** 浏览时间 */
+    createdAt: timestampMs('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [index('article_views_article_idx').on(table.articleId)],
+);
+
 /** GitHub 登录用户（评论/点赞身份，信息缓存自 GitHub API） */
 export const githubUsers = sqliteTable('github_users', {
   /** UUID 主键 */

@@ -27,7 +27,15 @@
   - 500ms 防抖自动保存 `/api/save-draft`；Ctrl/Cmd-S 手动保存；`beforeunload` 提醒；401 提示重新登录。
   - `/admin` 仅作文章管理列表（编辑/删除入口），不再承载分栏编辑器。
 
-## 4. 既有约定（保持不变）
+## 4. 归档页采用时间线形态
+
+- **`/archive` 不另开页面、不做卡片列表**：归档页直接做成「时间线」形态（年 / 月大标题 → 左侧连续竖轴 + 节点圆点 → 右侧文章卡片），复刻既有时间线组件的视觉与交互，右栏复用 `Timeline.astro` 做年 / 月跳转。
+- **时间顺序按 `createdAt`（发布时间）倒序**，分组前先按发布时间重排，避免「后补旧文」导致组内乱序；年 / 月标题均按**北京时间**（`Asia/Shanghai`）切分，星期标签 `周日…周六` 由 `Intl.DateTimeFormat` 的 `en-US` short 名映射得到。
+- **封面条件渲染**：卡片封面可选 —— 有封面则显示右侧缩略图（`?w=600&f=webp`），无封面则整块省略（不占位、不留白）。
+- **阅读量统计（`article_views` 表）**：口径为「**每次访问 +1，不做去重**」（与 `likes` 的指纹去重不同），用于时间线卡片展示「N 阅读」。为避开 View Transitions 预取造成的误计数，采用**客户端上报**（`POST /api/views`，`keepalive`，同会话同文章去重），并加内存限流兜底。
+- **卡片入场动画继承**：时间线卡片带 `.post-card` 类，自动继承 `BaseLayout` 的 `observeReveals()` 入场动画，无需另写脚本。
+
+## 5. 既有约定（保持不变）
 
 - 技术栈：Astro 7（server）+ React 岛 + Tailwind v4 + shadcn + Drizzle（SQLite/PG）+ MDX evaluate + 自建评论（`comments`/`likes` 表，原 Giscus 已移除）。
 - 公开页零重 JS；微交互仅 CSS hover；View Transitions 用 `<ClientRouter />`。

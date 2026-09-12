@@ -1,0 +1,227 @@
+---
+/* ===== Props ===== */
+/* （归档页无 Props） */
+
+/* ===== Imports ===== */
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import Timeline from '@/components/Timeline.astro';
+import { listArticlePageMeta } from '@/lib/articles';
+import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
+import { countViewsByTargets } from '@/lib/article-views';
+import { cardCoverUrl } from '@/lib/images';
+import {
+  buildArticleTimeline,
+  timelineNavItems,
+  weekdayLabel,
+  formatWordCount,
+  yearAnchorId,
+  monthAnchorId,
+} from '@/lib/article-timeline';
+
+/* ===== Logic =====
+ * 取数分两段（存在真实依赖，不能全部并行）：
+ *   第一段：全量文章元信息 + 分类本体 + 文章→分类映射（三者互不依赖）。
+ *   第二段：阅读量批量聚合 —— 必须先拿到文章 id 列表，故只能等第一段。
+ * 与首页 P1-1 的分段并行思路一致（先取独立项，再取有依赖的项）。
+ *
+ * ⚠️ 用 `listArticlePageMeta(1, N)` 而非 `listArticleMeta()`：
+ *    前者带回 `contentLength`（SQL `length(content)` 聚合），才能在**不取正文**
+ *    的前提下显示字数。1e5 的上限只是「取全量」的写法，实际文章量远低于此。
+ */
+const ALL = 100_000;
+const [metas, categories, catMap] = await Promise.all([
+  listArticlePageMeta(1, ALL),
+  listArticleCategories(),
+  articleCategoryMap(),
+]);
+
+/** 阅读量：articleId → 次数（表未迁移 / 无记录时为空对象，页面显示 0） */
+const viewMap = await countViewsByTargets(metas.map((m) => m.id));
+
+/** 年 → 月 → 文章 的三级倒序时间线（按 createdAt，见 article-timeline.ts 注释） */
+const years = buildArticleTimeline(metas);
+const total = metas.length;
+const navItems = timelineNavItems(years);
+
+/** 分类 id → 分类实体（渲染徽章用；无归属则不显示徽章） */
+const categoryOf = new Map(categories.map((c) => [c.id, c]));
+---
+
+<!-- ===== Template ===== -->
+<BaseLayout title="归档" description="按时间线倒序浏览全部文章 —— My Blog Archive">
+  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <!-- 两栏：左正文时间线 | 右年/月跳转（与 /moments 同构） -->
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_170px]">
+      <!-- ===== 左：归档主体 ===== -->
+      <div class="min-w-0">
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">ARCHIVE</p>
+        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">归档</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          以时间线倒序浏览 —— 共 <span class="text-primary">{total}</span> 篇。
+        </p>
+        <div class="pixel-divider mt-5" />
+
+        {
+          total === 0 ? (
+            <p class="mt-8 text-sm text-muted-foreground">暂无文章。</p>
+          ) : (
+            <div class="archive-timeline mt-8">
+              {years.map((year) => (
+                <section class="archive-year" data-archive-year id={yearAnchorId(year.year)}>
+                  <h2 class="archive-year-heading">
+                    <span class="archive-year-dot" aria-hidden="true" />
+                    <span class="archive-year-num">{year.year}</span>
+                    <span class="archive-year-count">{year.count} 篇</span>
+                  </h2>
+
+                  {year.months.map((month) => (
+                    <section
+                      class="archive-month"
+                      data-archive-month={`${year.year}-${month.month}`}
+                      id={monthAnchorId(year.year, month.month)}
+                    >
+                      <div class="archive-month-heading">
+                        <span class="archive-month-label">{month.month} 月</span>
+                        <span class="archive-month-count">{month.count}</span>
+                      </div>
+
+                      {month.entries.map((entry) => {
+                        const catId = catMap.get(entry.meta.id);
+                        const cat = catId ? categoryOf.get(catId) : undefined;
+                        /* 封面仅在手动设置时显示；cardCoverUrl 会为本站图追加缩略图参数 */
+                        const cover = cardCoverUrl(entry.meta.cover, 600);
+                        const views = viewMap[entry.meta.id] ?? 0;
+                        return (
+                          <article class="archive-item">
+                            {/* 轴上节点（纯装饰） */}
+                            <span class="archive-node" aria-hidden="true" />
+                            {/* 整卡可点：进入详情页。`.post-card` 带来 hover 上浮 + 入场动画 */}
+                            <a
+                              href={`/blog/${entry.meta.slug}`}
+                              class="archive-card post-card"
+                              aria-label={`阅读《${entry.meta.title || '未命名'}》`}
+                            >
+                              {/* 左：日号 + 星期 */}
+                              <div class="archive-day">
+                                <span class="archive-day-num">{String(entry.day).padStart(2, '0')}</span>
+                                <span class="archive-day-week">{weekdayLabel(entry.weekday)}</span>
+                              </div>
+
+                              {/* 中：标题 + 元信息 + 摘要 */}
+                              <div class="archive-card-main">
+                                <h3 class="archive-card-title">{entry.meta.title || '未命名'}</h3>
+                                <div class="archive-chips">
+                                  {cat && <span class="pixel-chip archive-chip">{cat.name}</span>}
+                                  <span class="archive-chip-meta">{formatWordCount(entry.contentLength)} 字</span>
+                                  <span class="archive-chip-meta">{views} 阅读</span>
+                                  {entry.meta.encrypted && <span class="archive-chip-meta">已加密</span>}
+                                </div>
+                                {entry.meta.summary && (
+                                  <p class="archive-card-summary">{entry.meta.summary}</p>
+                                )}
+                              </div>
+
+                              {/* 右：封面（无封面时整块不渲染，主体自然铺满） */}
+                              {cover && (
+                                <div class="archive-card-cover">
+                                  <img src={cover} alt="" loading="lazy" decoding="async" />
+                                </div>
+                              )}
+                            </a>
+                          </article>
+                        );
+                      })}
+                    </section>
+                  ))}
+                </section>
+              ))}
+            </div>
+          )
+        }
+      </div>
+
+      <!-- ===== 右：年/月跳转（复用与影集/动态同一组件） ===== -->
+      <aside class="hidden lg:block">
+        <div class="sticky top-20">
+          <p class="pixel-chip mb-2 text-muted-foreground">时间线 / TIMELINE</p>
+          <Timeline items={navItems} emptyText="暂无文章" />
+        </div>
+      </aside>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  /**
+   * 归档页时间线交互：点击年/月节点 → 平滑滚动定位 + 反向高亮。
+   *
+   * 与 /gallery、/moments 的差异：那两页是「滚动定位到已加载分组」或「按日期过滤」，
+   * 本页是**纯锚点跳转 + 双向高亮**（数据一次性全量渲染，无需分页拉取）。
+   *
+   * 用 document 委托而非直接绑按钮：View Transitions 换页后旧绑定失效，
+   * 委托绑定则始终有效（与 BaseLayout 的既有脚本同思路）。
+   * 幂等守卫保证监听只绑一次（本脚本在 SPA 下可能被执行多次）。
+   */
+  const archiveWindow = window as unknown as { __archiveTimelineBound?: boolean };
+
+  /** 清除全部高亮，只保留命中的那一个 */
+  function activateNav(active: HTMLElement | null): void {
+    document.querySelectorAll<HTMLElement>('.timeline-item').forEach((item) => {
+      item.classList.toggle('active', item === active);
+    });
+  }
+
+  function initArchiveTimeline(): void {
+    const root = document.querySelector('.archive-timeline');
+    if (!root) return; // 非归档页：直接退出
+    const groups = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-archive-year], [data-archive-month]'),
+    );
+    if (groups.length === 0) return;
+
+    // ---- 点击：委托绑定（只绑一次）----
+    if (!archiveWindow.__archiveTimelineBound) {
+      archiveWindow.__archiveTimelineBound = true;
+      document.addEventListener(
+        'click',
+        (e) => {
+          const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-timeline-date]');
+          if (!btn) return;
+          // 只在归档页生效：别的页面也可能渲染 .timeline（影集/动态），此处不越权
+          if (!document.querySelector('.archive-timeline')) return;
+          const key = btn.dataset.timelineDate ?? '';
+          const target = key ? document.getElementById(key) : null;
+          if (!target) return;
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          activateNav(btn);
+        },
+        true,
+      );
+    }
+
+    // ---- 反向高亮：滚到哪个分组就点亮哪个节点 ----
+    // rootMargin 收窄判定带：只把「接近顶部」的分组算作当前可见，
+    // 否则长列表里会有多个分组同时进入视口、高亮来回跳。
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = entry.target.id;
+          if (!id) continue;
+          const btn = document.querySelector<HTMLElement>(
+            `.timeline-item[data-timeline-date="${CSS.escape(id)}"]`,
+          );
+          if (btn) {
+            activateNav(btn);
+            break;
+          }
+        }
+      },
+      { rootMargin: '-10% 0px -80% 0px' },
+    );
+    groups.forEach((g) => observer.observe(g));
+  }
+
+  document.addEventListener('astro:page-load', initArchiveTimeline);
+  initArchiveTimeline();
+</script>

@@ -225,6 +225,30 @@ export const likes = pgTable(
   ],
 );
 
+/**
+ * 文章阅读记录（归档页「x 阅读」的数据源）。
+ *
+ * **一次访问一行、不做任何去重** —— 这是与 `likes` 表的关键区别：
+ * 点赞需要「同一身份唯一」才能做幂等 toggle，而阅读量口径被明确设定为
+ * 「每次访问 +1」。因此这里**不加唯一约束**，写入路径最轻（纯 INSERT）。
+ *
+ * 索引：`article_id` 单列索引服务于单篇统计与归档页批量聚合。
+ */
+export const articleViews = pgTable(
+  'article_views',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 文章 id（articles.id） */
+    articleId: text('article_id').notNull(),
+    /** 浏览时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index('article_views_article_idx').on(table.articleId)],
+);
+
 /** GitHub 登录用户（评论/点赞身份，信息缓存自 GitHub API） */
 export const githubUsers = pgTable('github_users', {
   /** UUID 主键 */

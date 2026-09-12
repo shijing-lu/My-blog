@@ -75,6 +75,9 @@ const blockMapJson = JSON.stringify(blockMap);
 ---
 <!-- ===== Template ===== -->
 <ContentLayout article={article} toc={toc} prev={prev ?? undefined} next={next ?? undefined}>
+  {/* 阅读上报锚点：无论文章是否加密解锁，只要访问了详情页就算一次阅读，
+      故把它放在锁定/解锁分支**之外**（单一来源，避免两处维护）。 */}
+  <span data-article-id={article.id} hidden aria-hidden="true" />
   {
     mapPanels.length > 0 && (
       <div>
@@ -356,6 +359,34 @@ const blockMapJson = JSON.stringify(blockMap);
 </ContentLayout>
 
 <script>
+  /* ===== 阅读量上报（归档页「x 阅读」的数据源）=====
+   * 口径「每次访问 +1」（见 src/lib/article-views.ts），故此处只需打点一次。
+   *
+   * 三条设计约束：
+   * 1. **客户端而非 SSR 上报**：SSR 会把预取、爬虫、构建期访问一并计入；
+   * 2. **在 astro:page-load 时打点**：模块顶层直接执行会在 ClientRouter 转场
+   *    尚未替换 DOM 时跑，拿到的可能是上一篇的 id（且 SPA 下本脚本只初始化一次）；
+   * 3. **SPA 会话内按 id 去重**：View Transitions 下同一会话可能多次触发
+   *    page-load，去重保证「一次访问」语义，不被转场放大。
+   */
+  const VIEWED = new Set<string>();
+  function reportView(): void {
+    const el = document.querySelector<HTMLElement>('[data-article-id]');
+    const id = el?.dataset.articleId ?? '';
+    if (!id || VIEWED.has(id)) return;
+    VIEWED.add(id);
+    // keepalive：允许在用户快速离开/跳转时仍完成这次埋点
+    void fetch('/api/views', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ articleId: id }),
+      keepalive: true,
+      // 埋点失败一律静默：绝不能让统计影响阅读体验
+    }).catch(() => {});
+  }
+  document.addEventListener('astro:page-load', reportView);
+  reportView();
+
   /** 委托绑定（防 SPA 切换后直接绑定失效） */
   function on(id: string, event: string, handler: EventListener): void {
     document.addEventListener(event, (e) => {

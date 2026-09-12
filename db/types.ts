@@ -261,6 +261,19 @@ export interface NewLike {
   createdAt: Date;
 }
 
+/**
+ * 文章阅读记录（一次访问一行，聚合后得「x 阅读」）。
+ *
+ * 刻意不设身份字段与唯一约束 —— 口径为「每次访问 +1」（见 schema 注释），
+ * 无需区分访客，也就不需要指纹/GitHub 身份。
+ */
+export interface ArticleView {
+  id: string;
+  /** 文章 id（articles.id） */
+  articleId: string;
+  createdAt: Date;
+}
+
 /** GitHub 登录用户（评论/点赞身份） */
 export interface GithubUser {
   /** 本站 UUID */
