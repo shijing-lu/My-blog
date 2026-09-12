@@ -29,42 +29,24 @@ function esc(s: string): string {
     data-active-cat="all"
   >
     <main class="mx-auto w-full max-w-6xl px-4 py-10">
-      {/* 页头：压成一行 —— 左侧 h1 + 弱化统计，右侧搜索框（窄屏堆叠） */}
-      <div data-hero class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div class="min-w-0">
-          <h1 class="font-display text-3xl font-semibold tracking-tight">文档</h1>
-          <p class="mt-1 text-sm text-muted-foreground">
-            {categories.length} 个分类 · {totalBundles} 册 · {totalArticles} 篇
-          </p>
-        </div>
-        <div class="flex items-end gap-2 sm:shrink-0">
-          {/* 搜索框 */}
-          <div class="relative w-full sm:w-64">
-            <div class="flex items-center gap-2 border-b border-border px-1 py-2">
-              <span class="text-muted-foreground">🔍</span>
-              <input
-                id="doc-search"
-                type="text"
-                placeholder="搜索文档 / 文章…"
-                class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-            {/* 搜索结果下拉 */}
-            <div id="doc-search-panel" class="absolute inset-x-0 top-full z-30 mt-2 hidden max-h-80 overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg"></div>
-          </div>
-          {/* 管理开关：仅登录可见，默认关闭（aria-pressed 表达状态） */}
-          {isAuthed && (
-            <button
-              id="doc-manage-toggle"
-              type="button"
-              aria-pressed="false"
-              title="管理分类与文档"
-              class="doc-manage-toggle shrink-0 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-            >
-              管理
-            </button>
-          )}
-        </div>
+      {/* 页头：居中构图 —— 标题 + 统计（统计居中），管理开关悬于右上角 */}
+      <div data-hero class="relative text-center">
+        <h1 class="font-display text-3xl font-semibold tracking-tight">文档</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          {categories.length} 个分类 · {totalBundles} 册 · {totalArticles} 篇
+        </p>
+        {/* 管理开关：仅登录可见，默认关闭（aria-pressed 表达状态） */}
+        {isAuthed && (
+          <button
+            id="doc-manage-toggle"
+            type="button"
+            aria-pressed="false"
+            title="管理分类与文档"
+            class="doc-manage-toggle absolute top-1 right-0 shrink-0 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+          >
+            管理
+          </button>
+        )}
       </div>
 
       {/* 主体：左分类侧栏 + 右文档书架 */}
@@ -72,7 +54,7 @@ function esc(s: string): string {
         {/* 桌面侧栏（lg 断点 sticky） */}
         {categories.length > 0 && (
           <>
-            <aside class="hidden lg:sticky lg:top-20 lg:block lg:self-start">
+            <aside class="doc-side hidden lg:sticky lg:top-20 lg:block lg:self-start">
               <h2 class="filter-heading pixel-chip">分类 / CATEGORIES</h2>
               <DocCategoryNav categories={navCats} total={totalBundles} />
             </aside>
@@ -86,8 +68,8 @@ function esc(s: string): string {
           </>
         )}
 
-        {/* 右：按分类分组文档书架 */}
-        <div class="min-w-0">
+        {/* 右：按分类分组文档书架（左缘虚线与侧栏分隔，见 .doc-main-col） */}
+        <div class="doc-main-col min-w-0">
           {categories.length === 0 ? (
             <div class="text-center">
               <p class="text-sm text-muted-foreground">暂无文档 —— 管理员可在这里添加分类与文档。</p>
@@ -152,15 +134,14 @@ function esc(s: string): string {
                     {c.bundles.length === 0 ? (
                       <p class="mt-2 text-sm text-muted-foreground">该分类暂无文档</p>
                     ) : (
-                      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div class="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
                         {c.bundles.map((b) => (
                           /* 卡片外层：相对定位容器。管理按钮作为 <a> 的兄弟节点绝对定位
                              在卡片内，避免 <a> 内嵌 <button> 的非法嵌套。 */
                           <div class="relative">
-                            <a href={`/doc/${b.id}`} class="hairline doc-card block p-3">
+                            <a href={`/doc/${b.id}`} class="doc-card block">
                               <p class="flex items-center gap-2 font-medium">
-                                <span class="shrink-0 text-base leading-none">{b.icon ?? '📖'}</span>
-                                <span class="min-w-0 truncate">{esc(b.name)}</span>
+                                <span class="doc-card-name min-w-0 truncate">{esc(b.name)}</span>
                               </p>
                               <p class="mt-1.5 text-[0.6rem] text-muted-foreground">
                                 {b.articleCount} 篇{b.folderCount > 0 ? ` · ${b.folderCount} 个目录` : ''}
@@ -204,6 +185,21 @@ function esc(s: string): string {
             </div>
           )}
         </div>
+      </div>
+
+      {/* 搜索：置于文档列表下方居中（下拉面板仍向上方弹出定位于此容器） */}
+      <div class="relative mx-auto mt-10 w-full max-w-md">
+        <div class="flex items-center gap-2 border-b border-border px-1 py-2">
+          <span class="text-muted-foreground">🔍</span>
+          <input
+            id="doc-search"
+            type="text"
+            placeholder="搜索文档 / 文章…"
+            class="min-w-0 flex-1 bg-transparent text-center text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+        {/* 搜索结果下拉 */}
+        <div id="doc-search-panel" class="absolute inset-x-0 top-full z-30 mt-2 hidden max-h-80 overflow-y-auto rounded-lg border border-border bg-card p-2 text-left shadow-lg"></div>
       </div>
     </main>
   </section>

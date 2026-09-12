@@ -1705,20 +1705,18 @@
     align-items: center;
     gap: 0.3rem;
     padding: 0.2rem 0.45rem;
-    border: 1px solid var(--color-border);
+    border: none;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--color-muted-foreground);
-    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+    transition: color 0.2s ease, background-color 0.2s ease;
   }
   .filter-tag:hover {
-    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
     color: var(--color-foreground);
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
-  /* 选中态：主色描边 + 淡主色底 + 主色字（与 .archive-chip 同一套色彩语言） */
+  /* 选中态：淡主色底 + 主色字（与 .archive-chip 同一套色彩语言） */
   .filter-tag.active {
-    border-color: var(--color-primary);
     background: color-mix(in srgb, var(--color-primary) 16%, transparent);
     color: var(--color-primary);
   }
@@ -1744,31 +1742,27 @@
     justify-content: space-between;
     gap: 0.3rem;
     padding: 0.5rem 0.55rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border: none;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--color-muted-foreground);
     text-align: left;
-    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+    transition: color 0.2s ease, background-color 0.2s ease;
   }
   .filter-category:hover {
-    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
     color: var(--color-foreground);
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
   .filter-category.active {
-    border-color: var(--color-primary);
     background: color-mix(in srgb, var(--color-primary) 16%, transparent);
     color: var(--color-primary);
   }
   /* 计数为 0 的分类：保留在列表里（证明分类存在），但置灰且不可点 */
   .filter-category:disabled {
     cursor: not-allowed;
-    border-style: dashed;
     opacity: 0.45;
   }
   .filter-category:disabled:hover {
-    border-color: var(--color-border);
     background: transparent;
     color: var(--color-muted-foreground);
   }
@@ -3095,4 +3089,119 @@ g.smm-node-highlight rect {
 .doc-manage-toggle[aria-pressed='true'] {
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+
+/* ==================== /doc + /archive 版式精修（2026-09-12 用户需求，必须 unlayered） ====================
+ * 覆盖 @layer components 里的 .hairline / .post-card / .filter-* 基础样式。
+ * unlayered 优先于一切 layer——与上面 .doc-manage-only 的理由相同。 */
+
+/* ---------- /doc 文档卡：去边框，改条目下方实线分隔 ---------- */
+.doc-card {
+  display: block;
+  padding: 0.6rem 0.2rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  transition: border-color 0.2s ease;
+}
+.doc-card:hover {
+  background: transparent;
+  border-bottom-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+.doc-card:hover .doc-card-name {
+  color: var(--color-primary);
+}
+
+/* ---------- /doc 两栏：侧栏标题与右侧首行标题同一行框（光学顶对齐）+ 中缝虚线 ---------- */
+/* 两侧首元素行框高度一致（右侧分类标题 text-lg 行高 1.75rem），文字才在同一光学线上 */
+.doc-side .filter-heading {
+  min-height: 1.75rem;
+  margin-bottom: 0.25rem;
+}
+@media (min-width: 1024px) {
+  /* 侧栏与内容区之间的垂直虚线（画在内容列左缘，随断点出现） */
+  .doc-main-col {
+    border-left: 1px dashed color-mix(in srgb, var(--color-border) 88%, transparent);
+    padding-left: 1.75rem;
+  }
+}
+
+/* ---------- /archive 文章条目：去卡片感，改条目下方实线分隔 ---------- */
+/* .post-card 的圆角/底色/阴影/hover 上浮全部剥掉，保留其入场动画（observeReveals 依赖类名） */
+.archive-card.archive-card {
+  padding: 0.7rem 0.15rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  box-shadow: none;
+  transition: border-color 0.2s ease;
+}
+.archive-card.archive-card:hover {
+  transform: none;
+  background: transparent;
+  box-shadow: none;
+  border-bottom-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+.archive-card.archive-card:hover .archive-card-title {
+  color: var(--color-primary);
+}
+
+/* ---------- /archive 侧栏筛选面板：去边框、虚线分隔、字号调大 ---------- */
+/* 标签由「换行药丸」改为纵向列表（虚线分隔每项）；分类同步 */
+.filter-panel .filter-tags {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+.filter-panel .filter-tag {
+  width: 100%;
+  justify-content: space-between;
+  padding: 0.5rem 0.15rem;
+  border: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: 0;
+}
+.filter-panel .filter-tag:last-child {
+  border-bottom: none;
+}
+.filter-panel .filter-tag .pixel-chip {
+  font-size: 0.78rem;
+}
+.filter-panel .filter-tag-count {
+  font-size: 0.72rem;
+}
+.filter-panel .filter-categories {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.filter-panel .filter-category {
+  padding: 0.5rem 0.15rem;
+  border: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-border) 90%, transparent);
+  border-radius: 0;
+}
+.filter-panel .filter-category:last-child {
+  border-bottom: none;
+}
+.filter-panel .filter-category-name {
+  font-size: 0.85rem;
+}
+.filter-panel .filter-category-count {
+  font-size: 0.72rem;
+}
+/* 列表形态下底色块观感突兀：hover / 选中只变色（含计数），不再铺底 */
+.filter-panel .filter-tag:hover,
+.filter-panel .filter-category:hover,
+.filter-panel .filter-tag.active,
+.filter-panel .filter-category.active {
+  background: transparent;
+}
+.filter-panel .filter-category:disabled {
+  border-bottom-style: dashed;
+}
+/* 分区标题同步放大一档（与条目字号匹配） */
+.filter-panel .filter-heading {
+  font-size: 0.72rem;
 }

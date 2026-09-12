@@ -8,10 +8,8 @@ import ArticleFilterPanel from '@/components/ArticleFilterPanel.astro';
 import { listArticlePageMeta } from '@/lib/articles';
 import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
 import { countViewsByTargets } from '@/lib/article-views';
-import { cardCoverUrl } from '@/lib/images';
 import {
   buildArticleTimeline,
-  weekdayLabel,
   formatWordCount,
   yearAnchorId,
   monthAnchorId,
@@ -59,11 +57,13 @@ const categoryFacets = aggregateCategories(categories, catMap);
     <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_230px]">
       <!-- ===== 左：归档主体 ===== -->
       <div class="min-w-0">
-        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">ARCHIVE</p>
-        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">归档</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          以时间线倒序浏览 —— 共 <span class="text-primary">{total}</span> 篇。
-        </p>
+        <div class="text-center">
+          <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">ARCHIVE</p>
+          <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">归档</h1>
+          <p class="mt-1 text-sm text-muted-foreground">
+            以时间线倒序浏览 —— 共 <span class="text-primary">{total}</span> 篇。
+          </p>
+        </div>
         <div class="pixel-divider mt-5" />
 
         <!-- 筛选状态条：由脚本控制显隐（选中标签/分类后才出现） -->
@@ -112,8 +112,6 @@ const categoryFacets = aggregateCategories(categories, catMap);
                       {month.entries.map((entry) => {
                         const catId = catMap.get(entry.meta.id);
                         const cat = catId ? categoryOf.get(catId) : undefined;
-                        /* 封面仅在手动设置时显示；cardCoverUrl 会为本站图追加缩略图参数 */
-                        const cover = cardCoverUrl(entry.meta.cover, 600);
                         const views = viewMap[entry.meta.id] ?? 0;
                         return (
                           <article
@@ -124,19 +122,14 @@ const categoryFacets = aggregateCategories(categories, catMap);
                           >
                             {/* 轴上节点（纯装饰） */}
                             <span class="archive-node" aria-hidden="true" />
-                            {/* 整卡可点：进入详情页。`.post-card` 带来 hover 上浮 + 入场动画 */}
+                            {/* 整卡可点：进入详情页。保留 .post-card 以继承入场动画
+                                （卡片观感已由 global.css 剥离：无底色/圆角/阴影，仅条目下实线） */}
                             <a
                               href={`/blog/${entry.meta.slug}`}
                               class="archive-card post-card"
                               aria-label={`阅读《${entry.meta.title || '未命名'}》`}
                             >
-                              {/* 左：日号 + 星期 */}
-                              <div class="archive-day">
-                                <span class="archive-day-num">{String(entry.day).padStart(2, '0')}</span>
-                                <span class="archive-day-week">{weekdayLabel(entry.weekday)}</span>
-                              </div>
-
-                              {/* 中：标题 + 元信息 + 摘要 */}
+                              {/* 中：标题 + 元信息 + 摘要（版式精修：不展示日期/星期与封面） */}
                               <div class="archive-card-main">
                                 <h3 class="archive-card-title">{entry.meta.title || '未命名'}</h3>
                                 <div class="archive-chips">
@@ -149,13 +142,6 @@ const categoryFacets = aggregateCategories(categories, catMap);
                                   <p class="archive-card-summary">{entry.meta.summary}</p>
                                 )}
                               </div>
-
-                              {/* 右：封面（无封面时整块不渲染，主体自然铺满） */}
-                              {cover && (
-                                <div class="archive-card-cover">
-                                  <img src={cover} alt="" loading="lazy" decoding="async" />
-                                </div>
-                              )}
                             </a>
                           </article>
                         );
