@@ -15,5 +15,5 @@ const siteCustomCss = await getCustomSiteCss();
 const siteCustomCssActive = siteCustomCss.css.trim() !== '';
 ---
 
-<style id="site-text-default" is:global set:html={`@layer site-text {\n${DEFAULT_SITE_TEXT_CSS}\n}`} />
+<style id="site-text-default" is:global set:html={`@layer theme, base, components, utilities, site-text;\n@layer site-text {\n${DEFAULT_SITE_TEXT_CSS}\n}`} />
 {siteCustomCssActive && <style id="site-custom-css" is:global set:html={siteCustomCss.css} />}
