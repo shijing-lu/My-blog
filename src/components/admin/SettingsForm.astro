@@ -20,7 +20,7 @@ import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 import { getMdCssLibrary } from '@/lib/md-css-library';
 import { getCustomSiteCss } from '@/lib/site-css';
-import { DEFAULT_SITE_TEXT_CSS } from '@/lib/site-css-defaults';
+import { DEFAULT_SITE_TEXT_CSS, SITE_TEXT_PRESETS } from '@/lib/site-css-defaults';
 import { getAiConfig, serializeAiConfig } from '@/lib/ai-config';
 
 /* ===== Logic ===== */
@@ -762,6 +762,7 @@ const siteCssUpdatedAtText =
       class="border-t border-border pt-6"
       data-updated-at={siteCss.updatedAt != null ? String(siteCss.updatedAt) : ''}
       data-default-css={DEFAULT_SITE_TEXT_CSS}
+      data-presets={JSON.stringify(SITE_TEXT_PRESETS)}
     >
       <div class="flex items-center justify-between">
         <div>
@@ -772,7 +773,7 @@ const siteCssUpdatedAtText =
       <p class="mt-1 text-xs text-muted-foreground">
         自定义 CSS 覆盖<strong>全站所有出现文字的位置</strong>：各级标题、正文段落与列表、正文链接、按钮、导航链接、
         表单标签与输入控件、占位符、徽章像素字、文字选区等。编辑框为空时应用内置的
-        <strong>「豪放 · 活泼」默认风格包</strong>（点「填入默认样式」可查看/在其基础上修改）。
+        <strong>「豪放 · 活泼」默认风格包</strong>，或从下方内置风格中一键挑选。
       </p>
       <p class="mt-1 text-xs text-muted-foreground">
         生效优先级：<strong>本页自定义 CSS = Markdown 样式（unlayered）&gt; 内置默认包（site-text 层）&gt; 元素工具类</strong>。
@@ -785,6 +786,31 @@ const siteCssUpdatedAtText =
         <span id="sitecss-state" class="text-xs text-muted-foreground">
           {siteCssHasCustom ? `已自定义（${Math.max(1, Math.ceil(siteCss.css.length / 1024))}KB${siteCssUpdatedAtText ? `，更新于 ${siteCssUpdatedAtText}` : ''}）` : '当前使用内置默认风格包（豪放 · 活泼）'}
         </span>
+      </div>
+
+      <!-- 内置风格预设：一键填入编辑框（可改后保存） -->
+      <div class="mt-3 rounded-md border border-border bg-muted/30 px-3 py-3">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-medium text-muted-foreground">内置风格包（点击填入编辑框，可修改后「保存并应用」）</p>
+          <span class="text-xs text-muted-foreground">共 {SITE_TEXT_PRESETS.length} 套</span>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          {
+            SITE_TEXT_PRESETS.map((p) => (
+              <button
+                type="button"
+                data-sitecss-preset={p.id}
+                title={p.tagline}
+                class="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/60 hover:text-primary"
+              >
+                {p.name}
+              </button>
+            ))
+          }
+        </div>
+        <p class="mt-1.5 text-xs text-muted-foreground">
+          「清除自定义」= 回到「豪放 · 活泼」默认；保存的风格即 unlayered 自定义，优先级高于内置默认包。
+        </p>
       </div>
 
       <div class="mt-4 flex flex-wrap items-center gap-2">
@@ -1338,6 +1364,19 @@ const siteCssUpdatedAtText =
           scText.value = DEFAULT_CSS;
           applyScPreview(DEFAULT_CSS);
           setScErr('');
+        });
+
+        /* 内置风格预设：一键填入（可改后保存） */
+        const PRESETS: Array<{ id: string; name: string; css: string }> = JSON.parse(siteSection.dataset.presets ?? '[]');
+        siteSection.querySelectorAll<HTMLElement>('[data-sitecss-preset]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const preset = PRESETS.find((x) => x.id === btn.dataset.sitecssPreset);
+            if (!preset || !scText) return;
+            scText.value = preset.css;
+            applyScPreview(preset.css);
+            setScErr('');
+            flashScHint(`已填入「${preset.name}」，保存后全站生效`);
+          });
         });
 
         /* 保存并应用（unlayered，覆盖内置默认包与元素工具类；游客侧缓存最多延迟 ~60s） */
