@@ -3156,12 +3156,22 @@ g.smm-node-highlight rect {
 .filter-panel .filter-tag {
   max-width: 100%;
   white-space: nowrap;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.5rem 0.35rem;
   border: none;
-  border-radius: var(--radius-sm);
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 .filter-panel .filter-tag:last-child {
-  border-bottom: none;
+  border-bottom: 1px solid var(--color-border);
+}
+/* 每行内标签各自贴底：不让行内矮标签被 stretch 拉高导致下划线脱离文字 */
+.filter-panel .filter-tags {
+  align-items: flex-start;
+}
+/* 悬停 / 选中：下划线随文字一起转主色，与 /doc 条目分隔线同一语言 */
+.filter-panel .filter-tag:hover,
+.filter-panel .filter-tag.active {
+  border-bottom-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
 }
 .filter-panel .filter-tag .pixel-chip {
   font-size: 0.78rem;
