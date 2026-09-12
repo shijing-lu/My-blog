@@ -3148,26 +3148,26 @@ g.smm-node-highlight rect {
   color: var(--color-primary);
 }
 
-/* ---------- /archive 侧栏筛选面板：去边框、虚线分隔、字号调大 ---------- */
-/* 标签由「换行药丸」改为纵向列表（虚线分隔每项）；分类同步 */
+/* ---------- /archive 侧栏筛选面板：去边框、字号调大；标签流式换行 ---------- */
+/* 标签：流式布局（一行尽量多、放不下整颗换行），横向 + 换行纵向均有间距 */
 .filter-panel .filter-tags {
-  flex-direction: column;
-  flex-wrap: nowrap;
-  gap: 0;
+  gap: 0.5rem 0.45rem;
 }
 .filter-panel .filter-tag {
-  width: 100%;
-  justify-content: space-between;
-  padding: 0.5rem 0.15rem;
+  max-width: 100%;
+  white-space: nowrap;
+  padding: 0.3rem 0.5rem;
   border: none;
-  border-bottom: 1px dashed color-mix(in srgb, var(--color-border) 90%, transparent);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
 }
 .filter-panel .filter-tag:last-child {
   border-bottom: none;
 }
 .filter-panel .filter-tag .pixel-chip {
   font-size: 0.78rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .filter-panel .filter-tag-count {
   font-size: 0.72rem;

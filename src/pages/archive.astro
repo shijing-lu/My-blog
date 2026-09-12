@@ -53,19 +53,21 @@ const categoryFacets = aggregateCategories(categories, catMap);
 <!-- ===== Template ===== -->
 <BaseLayout title="归档" description="按时间线倒序浏览全部文章 —— My Blog Archive">
   <section class="mx-auto w-full max-w-6xl px-4 py-10">
+    <!-- 页头（居中）置于两栏之外：左右两栏因此从同一基线开始，
+         右侧标签/分类面板顶部即与时间轴顶部对齐 -->
+    <div class="text-center">
+      <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">ARCHIVE</p>
+      <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">归档</h1>
+      <p class="mt-1 text-sm text-muted-foreground">
+        以时间线倒序浏览 —— 共 <span class="text-primary">{total}</span> 篇。
+      </p>
+    </div>
+    <div class="pixel-divider mt-5" />
+
     <!-- 两栏：左正文时间线 | 右标签/分类筛选（窄屏时筛选面板下移） -->
-    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_230px]">
+    <div class="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_230px]">
       <!-- ===== 左：归档主体 ===== -->
       <div class="min-w-0">
-        <div class="text-center">
-          <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">ARCHIVE</p>
-          <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">归档</h1>
-          <p class="mt-1 text-sm text-muted-foreground">
-            以时间线倒序浏览 —— 共 <span class="text-primary">{total}</span> 篇。
-          </p>
-        </div>
-        <div class="pixel-divider mt-5" />
-
         <!-- 筛选状态条：由脚本控制显隐（选中标签/分类后才出现） -->
         <div id="archive-filter-bar" class="archive-filter-bar hidden" role="status" aria-live="polite">
           <span class="pixel-chip archive-filter-label">筛选</span>
@@ -89,7 +91,7 @@ const categoryFacets = aggregateCategories(categories, catMap);
           total === 0 ? (
             <p class="mt-8 text-sm text-muted-foreground">暂无文章。</p>
           ) : (
-            <div class="archive-timeline mt-8">
+            <div class="archive-timeline mt-5 lg:mt-0">
               {years.map((year) => (
                 <section class="archive-year" data-archive-year id={yearAnchorId(year.year)}>
                   <h2 class="archive-year-heading">
