@@ -849,6 +849,101 @@ describe('裸花括号安全化（escapeBareBraces）', () => {
   });
 });
 
+/**
+ * 跨行 display 数学（`$$` 拆行后公式内容勿被当成普通文本转义花括号）
+ *
+ * 2026-09-12 用户报障：文档文章界面里 n 阶行列式显示为红字源码。
+ * 根因是 normalizeMathFences 把 `$$ … $$` 拆成多行后，公式**中间的行既无 `$`
+ * 也无 `$$`**，而 escapeBareBraces 只在单行内靠 `$` 计数判断数学区 → 把
+ * `a_{11}` 转义成 `a_\{11\}`、`\end{vmatrix}` 转义成 `\end\{vmatrix\}`，
+ * KaTeX 抛 `Mismatch: \begin{vmatrix} matched by \end{\{}`。
+ * 修复：normalizeMathFences 跨行跟踪 display 数学状态（inDisplayMath）。
+ */
+describe('跨行 display 数学（全块花括号保留）', () => {
+  /** 抽取所有 KaTeX 的 TeX 源码（annotation 里的原文） */
+  async function texOf(src: string): Promise<string> {
+    const { html } = await renderMdx(src);
+    expect(html).not.toContain('katex-error');
+    return [...html.matchAll(/<annotation encoding="application\/x-tex">([^<]*)<\/annotation>/g)]
+      .map((m) => m[1])
+      .join('\n');
+  }
+
+  const VMATRIX = [
+    '$$D_n = \\begin{vmatrix}',
+    'a_{11} & a_{12} & \\cdots & a_{1n} \\\\',
+    'a_{21} & a_{22} & \\cdots & a_{2n} \\\\',
+    '\\vdots & \\vdots & \\ddots & \\vdots \\\\',
+    'a_{n1} & a_{n2} & \\cdots & a_{nn}',
+    '\\end{vmatrix}$$',
+  ].join('\n');
+
+  it('顶层多行 `vmatrix`：花括号原样、KaTeX 无错误、渲染出矩阵表', async () => {
+    const { html } = await renderMdx(VMATRIX);
+    expect(html).not.toContain('katex-error');
+    // MathML 层出现表格结构 = 真的按矩阵排出来了
+    expect(html).toContain('<mtable');
+    const tex = await texOf(VMATRIX);
+    expect(tex).toContain('\\begin{vmatrix}');
+    expect(tex).toContain('\\end{vmatrix}');
+    expect(tex).toContain('a_{11}');
+    // 不得出现被转义的花括号
+    expect(tex).not.toContain('\\{');
+    expect(tex).not.toContain('\\end\\{vmatrix\\}');
+  });
+
+  it('callout 容器内多行 display 数学同样正确（用户实际场景）', async () => {
+    const doc = [
+      ':::callout[定义 1.1（$n$ 阶行列式）]{type=info}',
+      '将 $n^2$ 个数排成一个 $n$ 行 $n$ 列的表格：',
+      '',
+      VMATRIX,
+      '',
+      '简记作 $D_n = \\det(a_{ij})$。',
+      ':::',
+    ].join('\n');
+    const { html } = await renderMdx(doc);
+    expect(html).not.toContain('katex-error');
+    expect(html).toContain('<mtable');
+    const tex = await texOf(doc);
+    expect(tex).toContain('\\end{vmatrix}');
+    expect(tex).not.toContain('\\{');
+    // 容器标题与正文的行内数学也不受影响
+    expect(tex).toContain('\\det(a_{ij})');
+  });
+
+  it('引用块内多行 display 数学：不会因拆行而转义花括号', async () => {
+    const src = ['> $$', '> \\frac{n}{2}', '> $$'].join('\n');
+    const tex = await texOf(src);
+    expect(tex).toContain('\\frac{n}{2}');
+    expect(tex).not.toContain('\\frac\\{');
+  });
+
+  it('数学块结束后，正文的裸花括号仍照常转义（acorn 防护不回退）', async () => {
+    const src = ['$$', '\\frac{n}{2}', '$$', '', '正文 {2a} 与 {.tip}'].join('\n');
+    const { html } = await renderMdx(src);
+    expect(html).not.toContain('katex-error');
+    // 文本层原样显示（说明已被安全化为字面量，而不是喂给 acorn）
+    expect(html).toContain('{2a}');
+    expect(html).toContain('{.tip}');
+  });
+
+  it('单行 `$$…$$` 的花括号同样保留', async () => {
+    const tex = await texOf('$$D_n = \\det(a_{ij})$$');
+    expect(tex).toContain('\\det(a_{ij})');
+    expect(tex).not.toContain('\\{');
+  });
+
+  it('公式内容里的裸 `{` 不再触发 acorn（跨行状态不破坏 MDX 解析）', async () => {
+    // 含 `\{` 之前的裸 `{x}` 在数学区内交给 KaTeX；此处确认整篇不 500
+    const src = ['$$', 'f(x) = \\begin{cases} 1 & x > 0 \\\\ 0 & x \\le 0 \\end{cases}', '$$'].join('\n');
+    const { html } = await renderMdx(src);
+    expect(html).not.toContain('katex-error');
+    expect(html).toContain('<mtable');
+  });
+});
+
+
 describe('渲染缓存（normalizeSource / invalidateRenderCache）', () => {
   it('normalizeSource 稳定：同输入必得同输出', () => {
     const src = ':::tabs#pkg\n\n@tab npm\n\n正文 ==高亮=={.tip}\n\n:::\n\n$$\\frac{n}{2}$$\n';

@@ -154,6 +154,14 @@ export function normalizeMathFences(source: string): string {
   const lines = source.split('\n');
   const out: string[] = [];
   let inFence = false;
+  // 跨行 display 数学状态（`$$` 成对翻转）。
+  // ⚠️ 必须有这个变量：本函数会把 `$$ … $$` 拆成多行，拆完**中间那些行既没有
+  //    `$` 也没有 `$$`**，而 `escapeBareBraces` 只在单行内靠 `$` 计数判断数学区。
+  //    没有它就会把公式内容当成普通文本转义花括号 → `a_{11}` 变 `a_\{11\}`、
+  //    `\end{vmatrix}` 变 `\end\{vmatrix\}` → KaTeX 抛
+  //    `Mismatch: \begin{vmatrix} matched by \end{\{}` → 整块公式退化为红字源码
+  //    （2026-09-12 用户报障：文档文章界面 n 阶行列式显示错误）。
+  let inDisplayMath = false;
   for (const raw of lines) {
     const t = raw;
     // 围栏状态机：``` 或 ~~~ 起止（整行匹配围栏标记，含语言说明）
@@ -187,7 +195,11 @@ export function normalizeMathFences(source: string): string {
     // `\frac{n}{2}` 转义成 `\frac\{n\}\{2\}`，KaTeX 输出字面 `{n}{2}`（实测回归）。
     const segs: Array<{ text: string; isMath: boolean }> = [];
     let sawFence = false;
-    let inMath = false; // 是否已进入 display 数学（`$$` 成对翻转）
+    // 起点承接上一行的 display 数学状态：本行若以公式内容开头（如 `\end{vmatrix}$$`
+    // 的 `\end{vmatrix}` 段），它同样属于数学区、花括号须原样保留。
+    // 显式标注 boolean：该变量与函数级的 inDisplayMath 互相赋值，
+    // 不标注会形成循环推断 → ts(7022) implicitly has type 'any'。
+    let inMath: boolean = inDisplayMath;
     let buf = '';
     for (let i = 0; i < content.length; ) {
       if (content[i] === '\\' && content[i + 1] === '$') {
@@ -215,7 +227,11 @@ export function normalizeMathFences(source: string): string {
     //    这会破坏 markdown 结构（列表项续行段落退化为顶层段落，
     //    `:::collapse` 内「恰好一个列表」校验失败 → 整个折叠面板静默消失）。
     if (!sawFence) {
-      out.push(escapeBareBraces(escapeBareLt(t)));
+      // 行内无 `$$`：先看是否正处于 display 数学块内 —— 是则本行是公式内容，
+      // 只做 `<` 安全化，**绝不能转义花括号**（`\frac{n}{2}` 的 `{` 是 KaTeX 参数边界，
+      // 转义后变字面 `{n}{2}` 甚至 `Mismatch` 报错）。
+      // 仅在数学区**外**才走 escapeBareBraces 转义裸花括号（防 acorn 崩）。
+      out.push(inDisplayMath ? escapeBareLt(t) : escapeBareBraces(escapeBareLt(t)));
     } else if (segs.length === 1 && segs[0]?.text === '$$' && /^\s*\$\$\s*$/.test(content)) {
       out.push(t); // 已是标准独立 fence 行：保持原样（含缩进/尾空格）
     } else {
@@ -229,6 +245,8 @@ export function normalizeMathFences(source: string): string {
         out.push(prefix + (s.isMath ? escapeBareLt(s.text) : escapeBareBraces(escapeBareLt(s.text))));
       }
     }
+    // 本行出现过 `$$` → 把行内扫描结果带到下一行（跨行 display 数学状态）。
+    if (sawFence) inDisplayMath = inMath;
   }
   return out.join('\n');
 }
