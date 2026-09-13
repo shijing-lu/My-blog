@@ -18,6 +18,7 @@ const boot = {
   ready,
   directReady,
   enabled: cfg.enabled,
+  baseUrl: cfg.baseUrl,
   initialPath: cfg.managePath,
   targetDir: cfg.targetDir,
   stagingDir: cfg.stagingDir,
@@ -321,6 +322,125 @@ const boot = {
     }
 
     /* ---------- 上传：按大小分流 ---------- */
+    /** 超过此大小走分片直传（Cloudflare 免费版单请求上限 100MB，留余量） */
+    const CHUNK_THRESHOLD = 90 * 1024 * 1024;
+    /** 每片大小（同样须 < CF 100MB） */
+    const CHUNK_SIZE = 90 * 1024 * 1024;
+
+    /** XHR 直传一个对象到中转层（带进度回调；校验 AList 响应体的业务码） */
+    function putDirect(path: string, body: Blob | string, token: string, label: string, onProgress?: (loaded: number, total: number) => void): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', boot.baseUrl + '/api/fs/put');
+        xhr.setRequestHeader('Authorization', token);
+        xhr.setRequestHeader('File-Path', encodeURIComponent(path));
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+        };
+        xhr.onload = () => {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            reject(new Error(`${label}失败（HTTP ${xhr.status}）`));
+            return;
+          }
+          // AList 出错时同样返回 HTTP 200，错误藏在响应体的 code/message 里——必须校验，否则会「假成功」
+          try {
+            const d = JSON.parse(xhr.responseText) as { code?: number; message?: string };
+            if (d.code !== 200) {
+              reject(new Error(d.message?.trim() || `${label}失败（code ${d.code}）`));
+              return;
+            }
+          } catch {
+            /* 响应体非 JSON（如代理拦截页），已按 HTTP 状态放行 */
+          }
+          resolve();
+        };
+        xhr.onerror = () => reject(new Error(`${label}失败（网络错误或中转服务不可达）`));
+        xhr.send(body);
+      });
+    }
+
+    interface UploadTicket {
+      ok?: boolean;
+      error?: string;
+      uploadUrl?: string;
+      token?: string;
+      filePath?: string;
+      stagingPath?: string;
+    }
+
+    /** 申请直传凭证（受限子账号 token，只可写暂存目录） */
+    async function getTicket(file: File): Promise<UploadTicket> {
+      const ticketRes = await fetch('/api/netdisk/upload-ticket', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: file.name, size: file.size }),
+      });
+      const ticket = (await ticketRes.json().catch(() => ({}))) as UploadTicket;
+      if (!ticketRes.ok || !ticket.ok || !ticket.uploadUrl || !ticket.token || !ticket.filePath) {
+        throw new Error(ticket.error ?? '大文件直传不可用（请在设置中配置受限子账号）');
+      }
+      return ticket;
+    }
+
+    /** 轮询合并任务状态（浏览器侧轮询——合并+转存可达数分钟，远超函数执行时长） */
+    async function pollChunkStatus(taskId: string, file: File): Promise<void> {
+      const deadline = Date.now() + 60 * 60 * 1000; // 上限 1 小时（10GB 级合并+转存也够用）
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 3000));
+        let d: { status?: string; message?: string; error?: string } = {};
+        try {
+          const res = await fetch(`/api/netdisk/chunk-status?task=${encodeURIComponent(taskId)}`);
+          d = (await res.json().catch(() => ({}))) as { status?: string; message?: string; error?: string };
+        } catch {
+          continue; // 单次查询失败（网络抖动）不中断，继续轮询
+        }
+        if (d.status === 'done') return;
+        if (d.status === 'error') throw new Error(`合并/转存失败：${d.message ?? '未知错误'}`);
+        if (d.status === 'merging') setStatus(`${file.name}：分片合并中…`);
+        else if (d.status === 'copying') setStatus(`${file.name}：转存到目标目录…`);
+        // pending：助手尚未开始（继续等）；超过 15 分钟仍 pending 大概率是助手未安装
+        if (d.status === 'pending' && Date.now() > deadline - 60 * 60 * 1000 + 15 * 60 * 1000) {
+          throw new Error('合并任务长时间未被处理：请确认本机合并助手已安装并在运行（C:\\alist\\netdisk-merge-agent）');
+        }
+      }
+      throw new Error('合并任务超时（1 小时未完成）');
+    }
+
+    /** 大文件分片直传：分片 → 下达合并任务 → 轮询至完成（全自动，无需人工合并） */
+    async function uploadChunked(file: File, dir: string, ticket: UploadTicket): Promise<void> {
+      const stagingDir = (ticket.stagingPath ?? ticket.filePath ?? '').replace(/\/[^/]+$/, '');
+      const token = ticket.token!;
+      const count = Math.ceil(file.size / CHUNK_SIZE);
+      const parts: Array<{ name: string; size: number }> = [];
+      let uploaded = 0;
+      for (let i = 0; i < count; i += 1) {
+        const partName = `${file.name}.part-${String(i + 1).padStart(3, '0')}`;
+        const blob = file.slice(i * CHUNK_SIZE, Math.min((i + 1) * CHUNK_SIZE, file.size));
+        await putDirect(
+          `${stagingDir}/${partName}`,
+          blob,
+          token,
+          `分片 ${i + 1}/${count}`,
+          (loaded) => setStatus(`直传 ${file.name}：分片 ${i + 1}/${count}（${Math.round(((uploaded + loaded) / file.size) * 100)}%）`),
+        );
+        uploaded += blob.size;
+        parts.push({ name: partName, size: blob.size });
+      }
+
+      // 下达合并任务（服务端校验分片完整性后写入任务文件，本机助手自动接力）
+      const taskId = (crypto.randomUUID?.() ?? `t-${Date.now()}-x`).replace(/[^a-zA-Z0-9-]/g, '').slice(0, 40);
+      const done = await fetch('/api/netdisk/chunk-complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ taskId, name: file.name, size: file.size, parts, targetDir: dir }),
+      });
+      const d = (await done.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!done.ok || !d.ok) throw new Error(d.error ?? '下达合并任务失败');
+      setStatus(`${file.name}：分片上传完成，等待合并与转存…`);
+      await pollChunkStatus(taskId, file);
+    }
+
     async function uploadOne(file: File, dir: string): Promise<void> {
       if (file.size > boot.maxFileBytes) {
         throw new Error(`${file.name}：${fmtSize(file.size)} 超过单文件上限 ${fmtSize(boot.maxFileBytes)}`);
@@ -338,53 +458,15 @@ const boot = {
         if (!res.ok || !d.ok) throw new Error(d.error ?? '上传失败');
         return;
       }
-      // 浏览器直传中转层（不经本站）
-      const ticketRes = await fetch('/api/netdisk/upload-ticket', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: file.name, size: file.size }),
-      });
-      const ticket = (await ticketRes.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        uploadUrl?: string;
-        token?: string;
-        filePath?: string;
-        stagingPath?: string;
-      };
-      if (!ticketRes.ok || !ticket.ok || !ticket.uploadUrl || !ticket.token || !ticket.filePath) {
-        throw new Error(ticket.error ?? '大文件直传不可用（请在设置中配置受限子账号）');
+      // 浏览器直传中转层（不经本站）：≤90MB 单发直传；更大走分片（绕开 Cloudflare 100MB 上限）
+      const ticket = await getTicket(file);
+      if (file.size > CHUNK_THRESHOLD) {
+        await uploadChunked(file, dir, ticket);
+        return;
       }
-      // XHR 才能拿到上传进度
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', ticket.uploadUrl!);
-        xhr.setRequestHeader('Authorization', ticket.token!);
-        xhr.setRequestHeader('File-Path', encodeURIComponent(ticket.filePath!));
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) setStatus(`直传 ${file.name}：${Math.round((e.loaded / e.total) * 100)}%`);
-        };
-        xhr.onload = () => {
-          if (xhr.status < 200 || xhr.status >= 300) {
-            reject(new Error(`直传失败（HTTP ${xhr.status}）`));
-            return;
-          }
-          // AList 出错时同样返回 HTTP 200，错误藏在响应体的 code/message 里——必须校验，否则会「假成功」
-          try {
-            const d = JSON.parse(xhr.responseText) as { code?: number; message?: string };
-            if (d.code !== 200) {
-              reject(new Error(d.message?.trim() || `直传失败（code ${d.code}）`));
-              return;
-            }
-          } catch {
-            /* 响应体非 JSON（如代理拦截页），已按 HTTP 状态放行 */
-          }
-          resolve();
-        };
-        xhr.onerror = () => reject(new Error('直传失败（网络错误或中转服务不可达）'));
-        xhr.send(file);
-      });
+      await putDirect(ticket.filePath!, file, ticket.token!, `直传 ${file.name}`, (loaded) =>
+        setStatus(`直传 ${file.name}：${Math.round((loaded / file.size) * 100)}%`),
+      );
       // 收尾：暂存 → 目标目录（服务端跨存储复制）
       const finishRes = await fetch('/api/netdisk/finish-upload', {
         method: 'POST',

@@ -48,7 +48,7 @@ export interface NetdiskConfig {
    * 仅当直传不可用（未配受限子账号）时才回落到函数转发。
    */
   smallFileMaxBytes: number;
-  /** 单文件上限（字节）。蓝奏云标准版 100MB，优享版 500MB */
+  /** 单文件上限（字节）。分片直传可绕开 Cloudflare 100MB，默认放宽到 10GB（受厂商单文件上限约束，如蓝奏云 100MB/500MB、123 盘 10G） */
   maxFileBytes: number;
 }
 
@@ -65,7 +65,7 @@ export const DEFAULT_NETDISK: NetdiskConfig = {
   stagingDir: '/local/_netdisk_staging',
   /** 0 = 全部走浏览器直传（绕开 Vercel 中转，见字段注释） */
   smallFileMaxBytes: 0,
-  maxFileBytes: 100 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024 * 1024,
 };
 
 /** 前端可见形态：两个密码换成 hasXxx 布尔 */
@@ -80,11 +80,11 @@ function cleanText(v: unknown, maxLen: number): string {
   return v.trim().slice(0, maxLen);
 }
 
-/** 字节数清洗：非法/越界回落原值，上限 1GB；下限默认 1KB（传 0 可允许「全部直传」语义） */
+/** 字节数清洗：非法/越界回落原值，上限 20GB（分片直传已可承载超大文件）；下限默认 1KB（传 0 可允许「全部直传」语义） */
 function cleanBytes(v: unknown, base: number, minBytes = 1024): number {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) return base;
-  return Math.min(Math.max(Math.floor(n), minBytes), 1024 * 1024 * 1024);
+  return Math.min(Math.max(Math.floor(n), minBytes), 20 * 1024 * 1024 * 1024);
 }
 
 /** AList 路径规范化：确保以 / 开头、无重复斜杠、去尾部斜杠（根除外） */
