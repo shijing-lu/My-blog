@@ -50,6 +50,7 @@ export const PERMISSION_KEYS = {
   comments: '评论管理',
   profile: '个人中心',
   settings: '站点设置',
+  netdisk: '网盘（蓝奏云等）',
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSION_KEYS;

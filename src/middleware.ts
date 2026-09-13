@@ -92,6 +92,11 @@ function requiredApiPermission(pathname: string, method: string): PermissionKey[
   }
   // 个人中心：写需 profile 权限
   if (pathname === '/api/profile' && method === 'PUT') return ['profile'];
+  // 网盘对接（含 /api/netdisk-settings 与 /api/netdisk-test 与 /api/netdisk/*）：
+  // 列目录/取直链也含网盘结构信息，统一按 netdisk 权限收紧
+  if (pathname === '/api/netdisk-settings' || pathname === '/api/netdisk-test' || pathname.startsWith('/api/netdisk/')) {
+    return ['netdisk'];
+  }
   // 授权管理类：默认仅顶级管理员（见 PUBLIC_ADMIN_AUTH 注释）
   if (pathname.startsWith('/api/admin-auth/')) {
     return isPublicAdminAuth(pathname, method) ? null : 'top';
@@ -107,6 +112,8 @@ function pagePermission(pathname: string): PermissionKey[] | null {
   if (pathname === '/admin/auth') return null;
   if (pathname === '/admin/settings') return ['settings'];
   if (pathname === '/admin/nav') return ['nav'];
+  // 网盘管理页（须在 /admin/* 兜底之前，否则会被要求 articles 权限）
+  if (pathname === '/admin/netdisk' || pathname.startsWith('/admin/netdisk/')) return ['netdisk'];
   if (pathname === '/admin/mindmaps' || pathname.startsWith('/admin/mindmaps/')) return ['articles'];
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return ['articles'];
   if (pathname === '/edit' || pathname.startsWith('/edit/')) return ['articles'];

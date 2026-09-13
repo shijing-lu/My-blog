@@ -8,7 +8,7 @@
  * - 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
  */
 interface Props {
-  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai';
+  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai' | 'netdisk';
 }
 const { section } = Astro.props;
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
@@ -22,6 +22,7 @@ import { getMdCssLibrary } from '@/lib/md-css-library';
 import { getCustomSiteCss } from '@/lib/site-css';
 import { DEFAULT_SITE_TEXT_CSS, SITE_TEXT_PRESETS } from '@/lib/site-css-defaults';
 import { getAiConfig, serializeAiConfig } from '@/lib/ai-config';
+import { getNetdiskConfig, serializeNetdiskConfig } from '@/lib/netdisk-config';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -44,12 +45,16 @@ const showImageBed = !section || section === 'image-bed';
 const showMdCss = !section || section === 'md-css';
 const showSiteCss = !section || section === 'site-css';
 const showAi = !section || section === 'ai';
+const showNetdisk = !section || section === 'netdisk';
 
 /** GitHub 图床配置（token 掩码：SSR 注入 hasToken，明文永不出库） */
 const imageBed = serializeImageBedConfig(await getImageBedConfig());
 
 /** AI 助手配置（apiKey 掩码：SSR 注入 hasApiKey，明文永不出库） */
 const aiConfig = serializeAiConfig(await getAiConfig());
+
+/** 网盘对接配置（两个密码掩码：SSR 注入 hasXxxPassword，明文永不出库） */
+const netdisk = serializeNetdiskConfig(await getNetdiskConfig());
 
 /** 自定义 Markdown 样式（CSS 原文进 textarea；作用域化后注入预览实时生效） */
 const mdCss = await getCustomMdCss();
@@ -553,6 +558,155 @@ const siteCssUpdatedAtText =
         <span id="ib-saved-hint" class="text-xs text-emerald-600"></span>
         <button
           id="ib-save"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          保存并应用
+        </button>
+      </div>
+    </section>
+    </>)}
+
+    <!-- 网盘对接分区（AList 中转层） -->
+    {showNetdisk && (<>
+    <section id="netdisk" data-settings-section="netdisk" class="border-t border-border pt-6" data-netdisk={JSON.stringify(netdisk)}>
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">CLOUD DRIVE</p>
+          <h2 class="mt-1 font-medium">网盘对接</h2>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        经自建 AList 中转层对接网盘（蓝奏云等）：本站只与 AList 通信，<strong>新增网盘只需在 AList 后台加驱动，本站无需改动</strong>。
+        大于阈值的文件由浏览器直传中转层，不占本站带宽、不受 4.5MB 限制。
+      </p>
+
+      <label class="mt-4 flex items-center gap-2 text-sm">
+        <input id="nd-enabled" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
+        启用网盘对接（管理页与上传接口生效）
+      </label>
+
+      <div class="mt-4 grid grid-cols-2 gap-3">
+        <label class="col-span-2 block text-xs font-medium text-muted-foreground">
+          中转服务地址（AList）
+          <input
+            id="nd-base-url"
+            type="text"
+            placeholder="https://alist.你的域名 或 http://127.0.0.1:5244"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          管理员账号（服务端调用用）
+          <input
+            id="nd-admin-user"
+            type="text"
+            placeholder="admin"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          管理员密码（仅存数据库，不回显）
+          <input
+            id="nd-admin-pass"
+            type="password"
+            placeholder="••••••"
+            autocomplete="new-password"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          直传子账号（大文件直传用，受限账号）
+          <input
+            id="nd-uploader-user"
+            type="text"
+            placeholder="blog-uploader"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          直传子账号密码（仅存数据库，不回显）
+          <input
+            id="nd-uploader-pass"
+            type="password"
+            placeholder="••••••"
+            autocomplete="new-password"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          管理页根目录
+          <input
+            id="nd-manage-path"
+            type="text"
+            placeholder="/"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          上传落点目录（厂商网盘内）
+          <input
+            id="nd-target-dir"
+            type="text"
+            placeholder="/蓝奏云/blog/uploads"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          大文件暂存目录（AList 本地驱动）
+          <input
+            id="nd-staging-dir"
+            type="text"
+            placeholder="/local/_netdisk_staging"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          分流阈值（MB，超过则浏览器直传）
+          <input
+            id="nd-small-mb"
+            type="number"
+            min="0.5"
+            step="0.5"
+            placeholder="4"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+        <label class="block text-xs font-medium text-muted-foreground">
+          单文件上限（MB）
+          <input
+            id="nd-max-mb"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="100"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
+          />
+        </label>
+      </div>
+      <p class="mt-2 text-xs text-muted-foreground">
+        蓝奏云标准版单文件上限 100MB、优享版 500MB；阈值建议 4MB（本站函数请求体上限 4.5MB）。
+        直传子账号须是 AList 里的<strong>受限账号</strong>（仅可写暂存目录），密码仅存数据库、留空表示不修改。
+      </p>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          id="nd-test"
+          type="button"
+          class="rounded-md border border-input bg-background px-4 py-1.5 text-sm transition-colors hover:bg-accent"
+        >
+          测试连接
+        </button>
+        <span id="nd-test-result" class="text-xs" role="status"></span>
+      </div>
+      <ul id="nd-test-steps" class="mt-2 hidden space-y-0.5 text-xs"></ul>
+
+      <p id="nd-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
+
+      <div class="mt-5 flex items-center justify-end gap-3">
+        <span id="nd-saved-hint" class="text-xs text-emerald-600"></span>
+        <button
+          id="nd-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
         >
@@ -1532,6 +1686,176 @@ const siteCssUpdatedAtText =
             }
           } catch (err) {
             setIbErr(err instanceof Error ? err.message : '保存失败，请重试');
+          }
+        });
+      }
+
+      /* ---------- 网盘对接（AList 中转层；两个密码留空 = 不修改） ---------- */
+      const ndSection = document.getElementById('netdisk');
+      if (ndSection) {
+        interface PublicNetdiskCfg {
+          enabled: boolean;
+          baseUrl: string;
+          adminUsername: string;
+          uploaderUsername: string;
+          managePath: string;
+          targetDir: string;
+          stagingDir: string;
+          smallFileMaxBytes: number;
+          maxFileBytes: number;
+          hasAdminPassword: boolean;
+          hasUploaderPassword: boolean;
+        }
+        const MB = 1024 * 1024;
+        let ndCfg: PublicNetdiskCfg = {
+          enabled: false,
+          baseUrl: '',
+          adminUsername: '',
+          uploaderUsername: '',
+          managePath: '/',
+          targetDir: '/',
+          stagingDir: '/local/_netdisk_staging',
+          smallFileMaxBytes: 4 * MB,
+          maxFileBytes: 100 * MB,
+          hasAdminPassword: false,
+          hasUploaderPassword: false,
+        };
+        try {
+          ndCfg = { ...ndCfg, ...(JSON.parse(ndSection.dataset.netdisk ?? '{}') as Partial<PublicNetdiskCfg>) };
+        } catch {
+          /* 解析失败用默认（关闭态） */
+        }
+
+        /** 实时取元素（泛型窄化） */
+        function ndGet<T extends HTMLElement>(id: string): T | null {
+          return document.getElementById(id) as T | null;
+        }
+        const ndEnabled = ndGet<HTMLInputElement>('nd-enabled');
+        const ndBaseUrl = ndGet<HTMLInputElement>('nd-base-url');
+        const ndAdminUser = ndGet<HTMLInputElement>('nd-admin-user');
+        const ndAdminPass = ndGet<HTMLInputElement>('nd-admin-pass');
+        const ndUploaderUser = ndGet<HTMLInputElement>('nd-uploader-user');
+        const ndUploaderPass = ndGet<HTMLInputElement>('nd-uploader-pass');
+        const ndManagePath = ndGet<HTMLInputElement>('nd-manage-path');
+        const ndTargetDir = ndGet<HTMLInputElement>('nd-target-dir');
+        const ndStagingDir = ndGet<HTMLInputElement>('nd-staging-dir');
+        const ndSmallMb = ndGet<HTMLInputElement>('nd-small-mb');
+        const ndMaxMb = ndGet<HTMLInputElement>('nd-max-mb');
+        const ndErr = document.getElementById('nd-err');
+        const ndHint = document.getElementById('nd-saved-hint');
+        const ndTestResult = document.getElementById('nd-test-result');
+        const ndTestSteps = document.getElementById('nd-test-steps');
+
+        /** 已存密码时不回显，placeholder 提示「留空表示不修改」 */
+        const applyNdPlaceholders = (): void => {
+          if (ndAdminPass) ndAdminPass.placeholder = ndCfg.hasAdminPassword ? '已保存，留空表示不修改' : '••••••';
+          if (ndUploaderPass) ndUploaderPass.placeholder = ndCfg.hasUploaderPassword ? '已保存，留空表示不修改' : '••••••';
+        };
+
+        if (ndEnabled) ndEnabled.checked = ndCfg.enabled;
+        if (ndBaseUrl) ndBaseUrl.value = ndCfg.baseUrl;
+        if (ndAdminUser) ndAdminUser.value = ndCfg.adminUsername;
+        if (ndUploaderUser) ndUploaderUser.value = ndCfg.uploaderUsername;
+        if (ndManagePath) ndManagePath.value = ndCfg.managePath;
+        if (ndTargetDir) ndTargetDir.value = ndCfg.targetDir;
+        if (ndStagingDir) ndStagingDir.value = ndCfg.stagingDir;
+        if (ndSmallMb) ndSmallMb.value = String(Math.round((ndCfg.smallFileMaxBytes / MB) * 10) / 10);
+        if (ndMaxMb) ndMaxMb.value = String(Math.round(ndCfg.maxFileBytes / MB));
+        applyNdPlaceholders();
+
+        const setNdErr = (msg: string): void => {
+          if (!ndErr) return;
+          ndErr.textContent = msg;
+          ndErr.classList.toggle('hidden', !msg);
+        };
+
+        /** 收集表单 → 请求体（MB → 字节；密码空串交给后端「保留原值」） */
+        const ndPayload = (): Record<string, unknown> => ({
+          enabled: ndEnabled?.checked ?? false,
+          baseUrl: ndBaseUrl?.value.trim() ?? '',
+          adminUsername: ndAdminUser?.value.trim() ?? '',
+          adminPassword: ndAdminPass?.value ?? '',
+          uploaderUsername: ndUploaderUser?.value.trim() ?? '',
+          uploaderPassword: ndUploaderPass?.value ?? '',
+          managePath: ndManagePath?.value.trim() || '/',
+          targetDir: ndTargetDir?.value.trim() || '/',
+          stagingDir: ndStagingDir?.value.trim() || '/local/_netdisk_staging',
+          smallFileMaxBytes: ndSmallMb && ndSmallMb.value ? Math.round(Number(ndSmallMb.value) * MB) : undefined,
+          maxFileBytes: ndMaxMb && ndMaxMb.value ? Math.round(Number(ndMaxMb.value) * MB) : undefined,
+        });
+
+        /* 测试连接：分步展示（登录 / 身份 / 管理目录 / 暂存目录 / 直传子账号） */
+        document.getElementById('nd-test')?.addEventListener('click', async () => {
+          if (!ndTestResult) return;
+          ndTestResult.textContent = '测试中…';
+          ndTestResult.className = 'text-xs text-muted-foreground';
+          if (ndTestSteps) {
+            ndTestSteps.innerHTML = '';
+            ndTestSteps.classList.add('hidden');
+          }
+          try {
+            const res = await fetch('/api/netdisk-test', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(ndPayload()),
+            });
+            const d = (await res.json().catch(() => ({}))) as {
+              ok?: boolean;
+              message?: string;
+              error?: string;
+              steps?: Array<{ name: string; ok: boolean; message: string }>;
+            };
+            if (!res.ok) throw new Error(d.error ?? '测试失败');
+            ndTestResult.textContent = d.message ?? (d.ok ? '连接成功' : '连接失败');
+            ndTestResult.className = `text-xs ${d.ok ? 'text-emerald-600' : 'text-destructive'}`;
+            if (ndTestSteps && d.steps && d.steps.length > 0) {
+              ndTestSteps.innerHTML = d.steps
+                .map(
+                  (s) =>
+                    `<li class="${s.ok ? 'text-emerald-600' : 'text-destructive'}">${s.ok ? '✓' : '✗'} ${s.name}：${s.message}</li>`,
+                )
+                .join('');
+              ndTestSteps.classList.remove('hidden');
+            }
+          } catch (err) {
+            ndTestResult.textContent = err instanceof Error ? err.message : '测试失败';
+            ndTestResult.className = 'text-xs text-destructive';
+          }
+        });
+
+        /* 保存：密码留空 = 后端保留原值 */
+        document.getElementById('nd-save')?.addEventListener('click', async () => {
+          try {
+            const res = await fetch('/api/netdisk-settings', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(ndPayload()),
+            });
+            const d = (await res.json().catch(() => ({}))) as {
+              error?: string;
+              hasAdminPassword?: boolean;
+              hasUploaderPassword?: boolean;
+              smallFileMaxBytes?: number;
+              maxFileBytes?: number;
+            };
+            if (!res.ok) throw new Error(d.error ?? '保存失败');
+            ndCfg = {
+              ...ndCfg,
+              adminUsername: ndAdminUser?.value.trim() ?? '',
+              uploaderUsername: ndUploaderUser?.value.trim() ?? '',
+              hasAdminPassword: d.hasAdminPassword ?? ndCfg.hasAdminPassword,
+              hasUploaderPassword: d.hasUploaderPassword ?? ndCfg.hasUploaderPassword,
+            };
+            setNdErr('');
+            if (ndAdminPass) ndAdminPass.value = '';
+            if (ndUploaderPass) ndUploaderPass.value = '';
+            applyNdPlaceholders();
+            if (ndHint) {
+              ndHint.textContent = '已保存并应用';
+              window.setTimeout(() => { ndHint.textContent = ''; }, 2000);
+            }
+          } catch (err) {
+            setNdErr(err instanceof Error ? err.message : '保存失败，请重试');
           }
         });
       }

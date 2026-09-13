@@ -1,0 +1,486 @@
+---
+/*
+ * admin/netdisk.astro —— 网盘管理页（经 AList 中转层）
+ *
+ * 功能：浏览目录（面包屑 + 分页）、上传（≤4MB 经函数 / >4MB 浏览器直传）、下载（直链 302）、删除、新建文件夹。
+ * 权限：middleware 已按 netdisk 权限保护本路径。
+ * 数据：SSR 只注入配置状态（是否就绪、阈值、初始路径），文件列表由前端按需拉取。
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { getNetdiskConfig, isNetdiskReady, isNetdiskDirectUploadReady } from '@/lib/netdisk-config';
+
+const cfg = await getNetdiskConfig();
+const ready = isNetdiskReady(cfg);
+const directReady = isNetdiskDirectUploadReady(cfg);
+
+/** 注入前端的运行参数（不含任何密码） */
+const boot = {
+  ready,
+  directReady,
+  enabled: cfg.enabled,
+  initialPath: cfg.managePath,
+  targetDir: cfg.targetDir,
+  stagingDir: cfg.stagingDir,
+  smallFileMaxBytes: cfg.smallFileMaxBytes,
+  maxFileBytes: cfg.maxFileBytes,
+};
+---
+
+<AdminLayout title="网盘">
+  <section class="mx-auto w-full max-w-5xl px-4 py-8" id="netdisk-page" data-boot={JSON.stringify(boot)}>
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="pixel-chip text-primary">CLOUD DRIVE</p>
+        <h1 class="mt-1 font-display text-2xl font-semibold">网盘</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          经自建 AList 中转层管理网盘文件（蓝奏云等）。新增网盘只需在 AList 后台加驱动。
+        </p>
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <a href="/admin/settings/netdisk" data-astro-reload class="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+          ⚙ 对接设置
+        </a>
+      </div>
+    </div>
+
+    {
+      !ready && (
+        <div class="mt-6 rounded-md border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+          <p class="font-medium text-amber-600">网盘对接尚未就绪</p>
+          <p class="mt-1 text-xs text-muted-foreground">
+            请先到「⚙ 对接设置」填写 AList 中转服务地址与管理员账号，并点「测试连接」确认可用。
+            {!cfg.enabled && ' 当前总开关为关闭状态。'}
+          </p>
+        </div>
+      )
+    }
+
+    {/* 工具栏 */}
+    <div class="mt-6 flex flex-wrap items-center gap-2">
+      <button type="button" id="nd-up" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-40" title="返回上级目录">
+        ↑ 上级
+      </button>
+      <button type="button" id="nd-refresh" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+        ⟳ 刷新
+      </button>
+      <button type="button" id="nd-mkdir" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+        ＋ 新建文件夹
+      </button>
+      <div class="ml-auto flex items-center gap-2">
+        <input id="nd-file" type="file" multiple class="hidden" />
+        <button type="button" id="nd-pick" class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90">
+          上传文件
+        </button>
+      </div>
+    </div>
+
+    {/* 面包屑 */}
+    <nav id="nd-crumbs" class="mt-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground" aria-label="路径"></nav>
+
+    {/* 上传队列 */}
+    <div id="nd-queue" class="mt-3 hidden space-y-1.5 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs"></div>
+
+    {/* 状态与错误 */}
+    <p id="nd-status" class="mt-3 text-xs text-muted-foreground" role="status"></p>
+    <p id="nd-error" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
+
+    {/* 文件列表 */}
+    <div class="mt-4 overflow-hidden rounded-md border border-border">
+      <table class="w-full text-sm">
+        <thead class="bg-muted/40 text-xs text-muted-foreground">
+          <tr>
+            <th class="px-3 py-2 text-left font-medium">名称</th>
+            <th class="w-24 px-3 py-2 text-right font-medium">大小</th>
+            <th class="w-40 px-3 py-2 text-right font-medium">修改时间</th>
+            <th class="w-24 px-3 py-2 text-right font-medium">操作</th>
+          </tr>
+        </thead>
+        <tbody id="nd-rows">
+          <tr><td colspan="4" class="px-3 py-6 text-center text-xs text-muted-foreground">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {/* 分页 */}
+    <div id="nd-pager" class="mt-4 hidden flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span id="nd-page-info"></span>
+      <div class="flex items-center gap-2">
+        <button type="button" id="nd-prev" class="rounded-md border border-border px-3 py-1 transition-colors hover:border-primary hover:text-primary disabled:opacity-40">上一页</button>
+        <button type="button" id="nd-next" class="rounded-md border border-border px-3 py-1 transition-colors hover:border-primary hover:text-primary disabled:opacity-40">下一页</button>
+      </div>
+    </div>
+
+    <details class="mt-6 rounded-md border border-border px-4 py-3 text-xs text-muted-foreground">
+      <summary class="cursor-pointer font-medium text-foreground">使用说明与限制</summary>
+      <ul class="mt-2 list-disc space-y-1 pl-4">
+        <li>小文件（≤ {Math.round((cfg.smallFileMaxBytes / 1024 / 1024) * 10) / 10}MB）经本站服务器上传；更大的文件由浏览器直传中转层，不占本站带宽。</li>
+        <li>单文件上限 {Math.round(cfg.maxFileBytes / 1024 / 1024)}MB（蓝奏云标准版 100MB / 优享版 500MB，可在设置中调整）。</li>
+        <li>下载走网盘直链（由 AList 提供），不经过本站服务器。</li>
+        <li>本功能依赖你本机的 AList 常驻运行；中转服务离线时此处会给出提示，不影响博客其他功能。</li>
+        <li>{directReady ? '大文件直传已就绪（已配置受限子账号）。' : '未配置受限子账号，大文件直传不可用（仅能上传小文件）。'}</li>
+      </ul>
+    </details>
+  </section>
+</AdminLayout>
+
+<script>
+  /** 网盘管理页交互：列目录 / 上传（大小分流）/ 下载 / 删除 / 新建文件夹
+   *  - 事件用 document 委托 + 每次解析元素，规避 View Transitions 后绑定失效；
+   *  - 分页为 AList 侧分页（page/per_page）；
+   *  - 上传按 smallFileMaxBytes 分流：小文件走本站函数，大文件走浏览器直传（P3）。 */
+  interface Boot {
+    ready: boolean;
+    directReady: boolean;
+    enabled: boolean;
+    initialPath: string;
+    targetDir: string;
+    stagingDir: string;
+    smallFileMaxBytes: number;
+    maxFileBytes: number;
+  }
+
+  const page = document.getElementById('netdisk-page');
+  if (page) {
+    let boot: Boot = {
+      ready: false,
+      directReady: false,
+      enabled: false,
+      initialPath: '/',
+      targetDir: '/',
+      stagingDir: '',
+      smallFileMaxBytes: 4 * 1024 * 1024,
+      maxFileBytes: 100 * 1024 * 1024,
+    };
+    try {
+      boot = { ...boot, ...(JSON.parse(page.dataset.boot ?? '{}') as Partial<Boot>) };
+    } catch {
+      /* 用默认 */
+    }
+
+    const el = <T extends HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
+    const rowsEl = el<HTMLTableSectionElement>('nd-rows');
+    const crumbsEl = el('nd-crumbs');
+    const statusEl = el('nd-status');
+    const errorEl = el('nd-error');
+    const queueEl = el('nd-queue');
+    const pagerEl = el('nd-pager');
+    const pageInfoEl = el('nd-page-info');
+    const fileInput = el<HTMLInputElement>('nd-file');
+
+    let curPath = boot.initialPath || '/';
+    let curPage = 1;
+    let curTotal = 0;
+    let loading = false;
+    const PER_PAGE = 100;
+
+    const fmtSize = (n: number): string => {
+      if (!Number.isFinite(n) || n <= 0) return '—';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0;
+      let v = n;
+      while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i += 1;
+      }
+      return `${i === 0 ? v : v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
+    };
+
+    const setError = (msg: string): void => {
+      if (!errorEl) return;
+      errorEl.textContent = msg;
+      errorEl.classList.toggle('hidden', !msg);
+    };
+    const setStatus = (msg: string): void => {
+      if (statusEl) statusEl.textContent = msg;
+    };
+    const esc = (s: string): string =>
+      s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+
+    /** 面包屑渲染 */
+    function renderCrumbs(path: string): void {
+      if (!crumbsEl) return;
+      const parts = path.split('/').filter(Boolean);
+      const items = [`<button type="button" data-nd-goto="/" class="rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-primary">根目录</button>`];
+      let acc = '';
+      parts.forEach((p) => {
+        acc += `/${p}`;
+        items.push(
+          `<span class="opacity-40">/</span><button type="button" data-nd-goto="${esc(acc)}" class="rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-primary">${esc(p)}</button>`,
+        );
+      });
+      crumbsEl.innerHTML = items.join('');
+    }
+
+    /** 列目录 */
+    async function load(path: string, p = 1, refresh = false): Promise<void> {
+      if (loading) return;
+      loading = true;
+      setError('');
+      setStatus('加载中…');
+      try {
+        const res = await fetch('/api/netdisk/list', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ path, page: p, perPage: PER_PAGE, refresh }),
+        });
+        const d = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          path?: string;
+          items?: Array<{ name: string; size: number; is_dir: boolean; modified: string }>;
+          total?: number;
+        };
+        if (!res.ok || !d.ok) throw new Error(d.error ?? '加载失败');
+        curPath = d.path ?? path;
+        curPage = p;
+        curTotal = d.total ?? 0;
+        renderCrumbs(curPath);
+        renderRows(d.items ?? []);
+        renderPager();
+        setStatus(`共 ${curTotal} 项`);
+      } catch (err) {
+        setStatus('');
+        setError(err instanceof Error ? err.message : '加载失败');
+        if (rowsEl) rowsEl.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-xs text-muted-foreground">无法加载目录</td></tr>`;
+      } finally {
+        loading = false;
+      }
+    }
+
+    function renderRows(items: Array<{ name: string; size: number; is_dir: boolean; modified: string }>): void {
+      if (!rowsEl) return;
+      if (items.length === 0) {
+        rowsEl.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-xs text-muted-foreground">空目录</td></tr>`;
+        return;
+      }
+      const sorted = [...items].sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name, 'zh') : a.is_dir ? -1 : 1));
+      rowsEl.innerHTML = sorted
+        .map((it) => {
+          const icon = it.is_dir ? '📁' : '📄';
+          const nameCell = it.is_dir
+            ? `<button type="button" data-nd-goto="${esc(curPath.replace(/\/$/, '') + '/' + it.name)}" class="truncate text-left transition-colors hover:text-primary">${icon} ${esc(it.name)}</button>`
+            : `<span class="truncate">${icon} ${esc(it.name)}</span>`;
+          const time = it.modified ? new Date(it.modified).toLocaleString('zh-CN', { hour12: false }) : '—';
+          const actions = it.is_dir
+            ? `<button type="button" data-nd-del="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10">删除</button>`
+            : `<button type="button" data-nd-dl="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-primary">下载</button>
+               <button type="button" data-nd-del="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10">删除</button>`;
+          return `<tr class="border-t border-border hover:bg-muted/20">
+            <td class="max-w-0 px-3 py-2">${nameCell}</td>
+            <td class="px-3 py-2 text-right text-xs tabular-nums text-muted-foreground">${it.is_dir ? '—' : fmtSize(it.size)}</td>
+            <td class="px-3 py-2 text-right text-xs tabular-nums text-muted-foreground">${time}</td>
+            <td class="whitespace-nowrap px-3 py-2 text-right">${actions}</td>
+          </tr>`;
+        })
+        .join('');
+    }
+
+    function renderPager(): void {
+      if (!pagerEl || !pageInfoEl) return;
+      const totalPages = Math.max(1, Math.ceil(curTotal / PER_PAGE));
+      pagerEl.classList.toggle('hidden', totalPages <= 1);
+      pagerEl.classList.toggle('flex', totalPages > 1);
+      pageInfoEl.textContent = `第 ${curPage} / ${totalPages} 页`;
+      (el<HTMLButtonElement>('nd-prev') as HTMLButtonElement | null)?.toggleAttribute('disabled', curPage <= 1);
+      (el<HTMLButtonElement>('nd-next') as HTMLButtonElement | null)?.toggleAttribute('disabled', curPage >= totalPages);
+    }
+
+    /* ---------- 上传：按大小分流 ---------- */
+    async function uploadOne(file: File): Promise<void> {
+      if (file.size > boot.maxFileBytes) {
+        throw new Error(`${file.name}：${fmtSize(file.size)} 超过单文件上限 ${fmtSize(boot.maxFileBytes)}`);
+      }
+      if (file.size <= boot.smallFileMaxBytes) {
+        // 小文件：经本站函数转发
+        const form = new FormData();
+        form.append('file', file);
+        if (boot.targetDir) form.append('dir', boot.targetDir);
+        const res = await fetch('/api/netdisk/upload', { method: 'POST', body: form });
+        const d = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string };
+        if (!res.ok || !d.ok) throw new Error(d.error ?? '上传失败');
+        return;
+      }
+      // 大文件：浏览器直传中转层（不经本站）
+      const ticketRes = await fetch('/api/netdisk/upload-ticket', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: file.name, size: file.size }),
+      });
+      const ticket = (await ticketRes.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        uploadUrl?: string;
+        token?: string;
+        filePath?: string;
+        stagingPath?: string;
+      };
+      if (!ticketRes.ok || !ticket.ok || !ticket.uploadUrl || !ticket.token || !ticket.filePath) {
+        throw new Error(ticket.error ?? '大文件直传不可用（请在设置中配置受限子账号）');
+      }
+      // XHR 才能拿到上传进度
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', ticket.uploadUrl!);
+        xhr.setRequestHeader('Authorization', ticket.token!);
+        xhr.setRequestHeader('File-Path', encodeURIComponent(ticket.filePath!));
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setStatus(`直传 ${file.name}：${Math.round((e.loaded / e.total) * 100)}%`);
+        };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`直传失败（HTTP ${xhr.status}）`)));
+        xhr.onerror = () => reject(new Error('直传失败（网络错误或中转服务不可达）'));
+        xhr.send(file);
+      });
+      // 收尾：暂存 → 目标目录（服务端跨存储复制）
+      const finishRes = await fetch('/api/netdisk/finish-upload', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ stagingPath: ticket.stagingPath ?? ticket.filePath, name: file.name }),
+      });
+      const fin = (await finishRes.json().catch(() => ({}))) as { ok?: boolean; error?: string; taskPending?: boolean };
+      if (!finishRes.ok || !fin.ok) throw new Error(fin.error ?? '转存失败（文件已上传到暂存区）');
+      if (fin.taskPending) setStatus(`${file.name} 已转存（复制任务后台进行中，暂存文件将在任务结束后清理）`);
+    }
+
+    async function uploadFiles(files: File[]): Promise<void> {
+      if (files.length === 0) return;
+      if (queueEl) {
+        queueEl.classList.remove('hidden');
+        queueEl.innerHTML = files
+          .map((f, i) => `<div data-nd-q="${i}" class="flex items-center gap-2"><span class="min-w-0 flex-1 truncate">${esc(f.name)}</span><span class="text-muted-foreground">等待</span></div>`)
+          .join('');
+      }
+      let okCount = 0;
+      for (let i = 0; i < files.length; i += 1) {
+        const f = files[i]!;
+        const row = queueEl?.querySelector(`[data-nd-q="${i}"]`) as HTMLElement | null;
+        const mark = (text: string, cls: string): void => {
+          if (!row) return;
+          const span = row.querySelector('span:last-child');
+          if (span) {
+            span.textContent = text;
+            span.className = cls;
+          }
+        };
+        mark('上传中…', 'text-amber-600');
+        try {
+          await uploadOne(f);
+          mark('完成', 'text-emerald-600');
+          okCount += 1;
+        } catch (err) {
+          mark(err instanceof Error ? err.message : '失败', 'text-destructive');
+        }
+      }
+      setStatus(`上传结束：成功 ${okCount} / ${files.length}`);
+      await load(curPath, curPage, true);
+      window.setTimeout(() => queueEl?.classList.add('hidden'), 4000);
+    }
+
+    /* ---------- 事件委托 ---------- */
+    document.addEventListener('click', async (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('#netdisk-page')) return;
+
+      const goto = t.closest<HTMLElement>('[data-nd-goto]');
+      if (goto) {
+        void load(goto.dataset.ndGoto ?? '/', 1);
+        return;
+      }
+      if (t.closest('#nd-up')) {
+        const parent = curPath === '/' ? '/' : curPath.slice(0, curPath.lastIndexOf('/')) || '/';
+        void load(parent, 1);
+        return;
+      }
+      if (t.closest('#nd-refresh')) {
+        void load(curPath, curPage, true);
+        return;
+      }
+      if (t.closest('#nd-prev')) {
+        void load(curPath, Math.max(1, curPage - 1));
+        return;
+      }
+      if (t.closest('#nd-next')) {
+        void load(curPath, curPage + 1);
+        return;
+      }
+      if (t.closest('#nd-pick')) {
+        fileInput?.click();
+        return;
+      }
+      if (t.closest('#nd-mkdir')) {
+        const name = window.prompt('新建文件夹名称');
+        if (!name || !name.trim()) return;
+        try {
+          const res = await fetch('/api/netdisk/mkdir', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path: `${curPath.replace(/\/$/, '')}/${name.trim()}` }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(d.error ?? '创建失败');
+          await load(curPath, curPage, true);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : '创建失败');
+        }
+        return;
+      }
+
+      const dl = t.closest<HTMLElement>('[data-nd-dl]');
+      if (dl) {
+        setError('');
+        setStatus('获取下载直链…');
+        try {
+          const name = dl.dataset.ndDl ?? '';
+          const res = await fetch('/api/netdisk/download', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path: `${curPath.replace(/\/$/, '')}/${name}` }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
+          if (!res.ok || !d.ok || !d.url) throw new Error(d.error ?? '获取直链失败');
+          window.open(d.url, '_blank', 'noopener');
+          setStatus('已打开下载链接');
+        } catch (err) {
+          setStatus('');
+          setError(err instanceof Error ? err.message : '获取直链失败');
+        }
+        return;
+      }
+
+      const del = t.closest<HTMLElement>('[data-nd-del]');
+      if (del) {
+        const name = del.dataset.ndDel ?? '';
+        const { confirmDanger } = await import('../../lib/confirm');
+        if (!(await confirmDanger(`确定删除「${name}」？目录内文件会一并删除。`))) return;
+        try {
+          const res = await fetch('/api/netdisk/remove', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ dir: curPath, names: [name] }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(d.error ?? '删除失败');
+          setStatus(`已删除 ${name}`);
+          await load(curPath, curPage, true);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : '删除失败');
+        }
+        return;
+      }
+    });
+
+    fileInput?.addEventListener('change', () => {
+      const files = Array.from(fileInput.files ?? []);
+      fileInput.value = '';
+      void uploadFiles(files);
+    });
+
+    /** 初始化 / View Transition 后重新加载 */
+    function init(): void {
+      if (!document.getElementById('netdisk-page')) return;
+      void load(curPath, 1);
+    }
+    document.addEventListener('astro:page-load', init);
+    init();
+  }
+</script>
