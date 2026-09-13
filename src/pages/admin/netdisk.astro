@@ -365,7 +365,23 @@ const boot = {
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) setStatus(`直传 ${file.name}：${Math.round((e.loaded / e.total) * 100)}%`);
         };
-        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`直传失败（HTTP ${xhr.status}）`)));
+        xhr.onload = () => {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            reject(new Error(`直传失败（HTTP ${xhr.status}）`));
+            return;
+          }
+          // AList 出错时同样返回 HTTP 200，错误藏在响应体的 code/message 里——必须校验，否则会「假成功」
+          try {
+            const d = JSON.parse(xhr.responseText) as { code?: number; message?: string };
+            if (d.code !== 200) {
+              reject(new Error(d.message?.trim() || `直传失败（code ${d.code}）`));
+              return;
+            }
+          } catch {
+            /* 响应体非 JSON（如代理拦截页），已按 HTTP 状态放行 */
+          }
+          resolve();
+        };
         xhr.onerror = () => reject(new Error('直传失败（网络错误或中转服务不可达）'));
         xhr.send(file);
       });
