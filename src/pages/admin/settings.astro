@@ -1,26 +1,14 @@
 ---
 /* ===== Imports ===== */
-import AdminLayout from '@/layouts/AdminLayout.astro';
-import SettingsForm from '@/components/admin/SettingsForm.astro';
+/*
+ * 设置首页：直接复用 SettingsLayout，保证分区导航与子页面「同一份清单」。
+ *
+ * ⚠️ 这里曾经写死过一份只有 4 项（站点名称/诗词轮播/落地页/外观）的 nav，
+ * 后续新增的分区（GitHub 图床 / Markdown 样式 / 全站样式 / AI 助手 / 网盘对接）
+ * 都只加在了 SettingsLayout 里，导致从「后台 → 设置」进入时看不到新增分区。
+ * 统一交给 SettingsLayout 渲染，避免再次出现两处清单不同步。
+ */
+import SettingsLayout from '@/layouts/SettingsLayout.astro';
 ---
 <!-- ===== Template ===== -->
-<AdminLayout title="设置">
-  <section class="mx-auto h-full w-full max-w-3xl overflow-y-auto px-4 py-8">
-    <div>
-      <p class="pixel-chip text-primary">SETTINGS</p>
-      <h1 class="mt-1 font-display text-2xl font-semibold">站点设置</h1>
-      <p class="mt-1 text-sm text-muted-foreground">集中管理站点可自定义项，保存后全站生效。</p>
-    </div>
-
-    <!-- 分区导航：每个设置项独立成页（点击切换到对应设置子页面） -->
-    <nav class="mt-5 flex flex-wrap gap-2" aria-label="设置分区">
-      <a href="/admin/settings/site-name" class="settings-tab active">站点名称</a>
-      <a href="/admin/settings/hero-quotes" class="settings-tab">诗词轮播</a>
-      <a href="/admin/settings/landing" class="settings-tab">落地页</a>
-      <a href="/admin/settings/appearance" class="settings-tab">外观</a>
-    </nav>
-
-    <!-- 站点名称分区 -->
-    <SettingsForm section="site-name" />
-  </section>
-</AdminLayout>
+<SettingsLayout section="site-name" />
