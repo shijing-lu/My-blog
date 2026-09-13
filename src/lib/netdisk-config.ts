@@ -8,8 +8,11 @@
  * - 存储：settings 表的 `netdisk` 键（JSON），与 image_bed / ai_config 同模式；
  * - 两类密码明文仅存 DB，读取接口只回掩码（hasXxxPassword 布尔），明文不回前端；
  * - 保存时密码留空 → 保留原值（表单「留空=不修改」语义）；
- * - 双账号设计：admin 账号供服务端调用（列目录/取直链/转存/删除），
- *   uploader 是 AList 侧建的**受限子账号**（只能写暂存目录），供浏览器直传大文件用。
+ * - **只读改造**：网盘页现仅保留「列目录 / 取直链 / 复制分享链接」，
+ *   上传/下载/新建/删除等写操作与配套的浏览器直传子账号已移除；
+ *   下述 uploaderUsername、uploaderPassword、targetDir、stagingDir、
+ *   smallFileMaxBytes、maxFileBytes 为历史遗留字段，仅为兼容旧 DB 记录而保留
+ *   （标 @deprecated），新逻辑一律不再读写。
  */
 import { eq } from 'drizzle-orm';
 import { settings } from '../../db/schema.sqlite';
@@ -28,27 +31,25 @@ export interface NetdiskConfig {
   adminUsername: string;
   /** AList 管理员密码（序列化时掩码，不回传明文） */
   adminPassword: string;
-  /** 受限子账号（浏览器直传用；只能写暂存目录） */
+  /**
+   * @deprecated 网盘页已改为**只读**模式（移除上传/下载/新建/删除全部写操作）。
+   * 该字段为历史遗留的浏览器直传受限子账号，保留仅为兼容旧 DB 记录，新配置不再写入。
+   */
   uploaderUsername: string;
-  /** 受限子账号密码（序列化时掩码） */
+  /** @deprecated 见 uploaderUsername（只读改造后不再使用） */
   uploaderPassword: string;
   /** 管理页根目录（AList 虚拟路径） */
   managePath: string;
-  /** 上传落点目录（厂商网盘内的目标目录） */
+  /** @deprecated 上传落点目录；网盘页改为只读后不再使用，保留仅兼容旧 DB 记录 */
   targetDir: string;
-  /** 大文件暂存目录（AList Local 驱动挂载点，先落本地再跨存储复制） */
+  /** @deprecated 大文件暂存目录；网盘页改为只读后不再使用，保留仅兼容旧 DB 记录 */
   stagingDir: string;
   /**
-   * 分流阈值（字节）：**0 = 全部走浏览器直传**；非 0 时 ≤ 阈值经本站函数转发，
-   * > 阈值走直传。
-   *
-   * 默认 0（全部直传）：本站部署在 Vercel（美区），经函数转发意味着文件正文要
-   * 两次横跨太平洋（浏览器→Vercel→Cloudflare 隧道→本机 AList），实测 2MB 需 72 秒；
-   * 而直传只需「浏览器→Cloudflare→本机 AList」，同一文件 1.3 秒。
-   * 仅当直传不可用（未配受限子账号）时才回落到函数转发。
+   * @deprecated 分流阈值（旧浏览器直传/函数转发分流用）；只读改造后不再使用。
+   * 保留字段仅为兼容旧 DB 记录，勿再写入或读取。
    */
   smallFileMaxBytes: number;
-  /** 单文件上限（字节）。分片直传可绕开 Cloudflare 100MB，默认放宽到 10GB（受厂商单文件上限约束，如蓝奏云 100MB/500MB、123 盘 10G） */
+  /** @deprecated 单文件上限（旧直传/分片用）；只读改造后不再使用，保留仅兼容旧 DB 记录 */
   maxFileBytes: number;
 }
 
@@ -58,6 +59,8 @@ export const DEFAULT_NETDISK: NetdiskConfig = {
   baseUrl: '',
   adminUsername: '',
   adminPassword: '',
+  // 历史遗留字段（@deprecated）：uploaderUsername/uploaderPassword/targetDir/stagingDir
+  // 与末尾的 smallFileMaxBytes/maxFileBytes，保留仅为兼容旧 DB 记录
   uploaderUsername: '',
   uploaderPassword: '',
   managePath: '/',
@@ -71,6 +74,7 @@ export const DEFAULT_NETDISK: NetdiskConfig = {
 /** 前端可见形态：两个密码换成 hasXxx 布尔 */
 export type PublicNetdiskConfig = Omit<NetdiskConfig, 'adminPassword' | 'uploaderPassword'> & {
   hasAdminPassword: boolean;
+  /** @deprecated 只读改造后不再有直传子账号；保留仅为兼容旧前端缓存 */
   hasUploaderPassword: boolean;
 };
 
@@ -166,7 +170,10 @@ export function isNetdiskReady(c: NetdiskConfig): boolean {
   return c.enabled && c.baseUrl.trim() !== '' && c.adminUsername.trim() !== '' && c.adminPassword.trim() !== '';
 }
 
-/** 是否具备浏览器直传能力（额外要求受限子账号齐全） */
+/**
+ * @deprecated 网盘页改为只读后不再有浏览器直传，此判断恒为「仅看管理员账号」。
+ * 保留函数仅为兼容旧调用点；新代码请直接用 isNetdiskReady。
+ */
 export function isNetdiskDirectUploadReady(c: NetdiskConfig): boolean {
   return isNetdiskReady(c) && c.uploaderUsername.trim() !== '' && c.uploaderPassword.trim() !== '';
 }

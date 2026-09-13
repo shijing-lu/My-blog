@@ -1,10 +1,11 @@
 /**
  * GET/PUT /api/netdisk-settings —— 网盘对接配置（管理员）
  *
- * GET → 掩码后的配置（含 hasAdminPassword / hasUploaderPassword，明文永不回传）
+ * GET → 掩码后的配置（含 hasAdminPassword，明文永不回传）
  * PUT → 保存配置；密码字段留空 = 保留原值（部分更新语义）
  *
  * 存储落 `settings` 表 `netdisk` 键，与 image_bed / ai_config 同模式，无需 DB 迁移。
+ * 网盘页改为只读后，不再有上传相关配置项（子账号/暂存目录/分流阈值等已废弃）。
  */
 import type { APIRoute } from 'astro';
 import { badJson, guardManager, json, readJson } from '@/lib/api';

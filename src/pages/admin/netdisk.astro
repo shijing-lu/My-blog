@@ -1,29 +1,24 @@
 ---
 /*
- * admin/netdisk.astro —— 网盘管理页（经 AList 中转层）
+ * admin/netdisk.astro —— 网盘浏览页（只读文件树，经 AList 中转层）
  *
- * 功能：浏览目录（面包屑 + 分页）、上传（≤4MB 经函数 / >4MB 浏览器直传）、下载（直链 302）、删除、新建文件夹。
+ * 能力：按需懒加载的目录树（根 = AList 根目录下的全部挂载点，动态获取）、
+ *       逐级展开到文件；每个节点右侧可一键复制直链（目录 = 递归收集其下所有文件）。
  * 权限：middleware 已按 netdisk 权限保护本路径。
- * 数据：SSR 只注入配置状态（是否就绪、阈值、初始路径），文件列表由前端按需拉取。
+ * 只读：本页不含任何写操作，后端也只保留 list / download / links 三个读接口。
+ * 数据：SSR 只注入「是否就绪」与初始路径，树的每一层都由前端按需拉取。
  */
 import AdminLayout from '@/layouts/AdminLayout.astro';
-import { getNetdiskConfig, isNetdiskReady, isNetdiskDirectUploadReady } from '@/lib/netdisk-config';
+import { getNetdiskConfig, isNetdiskReady } from '@/lib/netdisk-config';
 
 const cfg = await getNetdiskConfig();
 const ready = isNetdiskReady(cfg);
-const directReady = isNetdiskDirectUploadReady(cfg);
 
 /** 注入前端的运行参数（不含任何密码） */
 const boot = {
   ready,
-  directReady,
   enabled: cfg.enabled,
-  baseUrl: cfg.baseUrl,
-  initialPath: cfg.managePath,
-  targetDir: cfg.targetDir,
-  stagingDir: cfg.stagingDir,
-  smallFileMaxBytes: cfg.smallFileMaxBytes,
-  maxFileBytes: cfg.maxFileBytes,
+  initialPath: cfg.managePath || '/',
 };
 ---
 
@@ -34,7 +29,7 @@ const boot = {
         <p class="pixel-chip text-primary">CLOUD DRIVE</p>
         <h1 class="mt-1 font-display text-2xl font-semibold">网盘</h1>
         <p class="mt-1 text-sm text-muted-foreground">
-          经自建 AList 中转层管理网盘文件（蓝奏云等）。新增网盘只需在 AList 后台加驱动。
+          只读浏览 AList 中转层下的文件树。点节点右侧的复制图标可取分享直链（目录会递归收集其下全部文件的直链）。
         </p>
       </div>
       <div class="flex shrink-0 items-center gap-2">
@@ -58,144 +53,105 @@ const boot = {
 
     {/* 工具栏 */}
     <div class="mt-6 flex flex-wrap items-center gap-2">
-      <button type="button" id="nd-up" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-40" title="返回上级目录">
-        ↑ 上级
-      </button>
       <button type="button" id="nd-refresh" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
         ⟳ 刷新
       </button>
-      <button type="button" id="nd-mkdir" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
-        ＋ 新建文件夹
+      <button type="button" id="nd-collapse" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+        全部折叠
       </button>
-      <div class="ml-auto flex items-center gap-2">
-        <input id="nd-file" type="file" multiple class="hidden" />
-        <button type="button" id="nd-pick" title="上传到当前浏览的目录" class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90">
-          上传到当前目录
-        </button>
-      </div>
+      <p id="nd-status" class="ml-auto text-xs text-muted-foreground" role="status"></p>
     </div>
 
-    {/* 面包屑 */}
-    <nav id="nd-crumbs" class="mt-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground" aria-label="路径"></nav>
-
-    {/* 上传队列 */}
-    <div id="nd-queue" class="mt-3 hidden space-y-1.5 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs"></div>
-
-    {/* 下载直链展示（复制地址用） */}
-    <div id="nd-link" class="mt-3 hidden flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs">
-      <span class="shrink-0 text-muted-foreground">下载直链</span>
-      <input
-        id="nd-link-url"
-        readonly
-        class="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 font-mono text-xs"
-        aria-label="下载直链"
-      />
-      <span class="shrink-0 text-muted-foreground/70">直链有时效，过期请重新获取</span>
-      <button type="button" id="nd-link-copy" class="shrink-0 rounded-md border border-border px-2 py-1 transition-colors hover:border-primary hover:text-primary">
-        复制
-      </button>
-      <button type="button" id="nd-link-close" class="shrink-0 rounded px-1 text-muted-foreground transition-colors hover:text-foreground" aria-label="关闭">×</button>
-    </div>
-
-    {/* 状态与错误 */}
-    <p id="nd-status" class="mt-3 text-xs text-muted-foreground" role="status"></p>
     <p id="nd-error" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
 
-    {/* 文件列表 */}
-    <div class="mt-4 overflow-hidden rounded-md border border-border">
-      <table class="w-full text-sm">
-        <thead class="bg-muted/40 text-xs text-muted-foreground">
-          <tr>
-            <th class="px-3 py-2 text-left font-medium">名称</th>
-            <th class="w-24 px-3 py-2 text-right font-medium">大小</th>
-            <th class="w-40 px-3 py-2 text-right font-medium">修改时间</th>
-            <th class="w-24 px-3 py-2 text-right font-medium">操作</th>
-          </tr>
-        </thead>
-        <tbody id="nd-rows">
-          <tr><td colspan="4" class="px-3 py-6 text-center text-xs text-muted-foreground">加载中…</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    {/* 分页 */}
-    <div id="nd-pager" class="mt-4 hidden flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-      <span id="nd-page-info"></span>
-      <div class="flex items-center gap-2">
-        <button type="button" id="nd-prev" class="rounded-md border border-border px-3 py-1 transition-colors hover:border-primary hover:text-primary disabled:opacity-40">上一页</button>
-        <button type="button" id="nd-next" class="rounded-md border border-border px-3 py-1 transition-colors hover:border-primary hover:text-primary disabled:opacity-40">下一页</button>
-      </div>
+    {/* 文件树 */}
+    <div class="mt-3 overflow-hidden rounded-md border border-border">
+      <div id="nd-tree" class="py-1"></div>
     </div>
 
     <details class="mt-6 rounded-md border border-border px-4 py-3 text-xs text-muted-foreground">
       <summary class="cursor-pointer font-medium text-foreground">使用说明与限制</summary>
       <ul class="mt-2 list-disc space-y-1 pl-4">
-        <li>文件上传到<strong>当前浏览的目录</strong>——在哪个盘、哪个文件夹，就传到哪里。</li>
-        <li>
-          {cfg.smallFileMaxBytes > 0
-            ? `小文件（≤ ${Math.round((cfg.smallFileMaxBytes / 1024 / 1024) * 10) / 10}MB）经本站服务器上传，更大的文件由浏览器直传中转层。`
-            : '所有文件均由浏览器直传中转层，不经本站服务器（最快）。'}
-        </li>
-        <li>单文件上限 {Math.round(cfg.maxFileBytes / 1024 / 1024)}MB（蓝奏云标准版 100MB / 优享版 500MB，可在设置中调整）。</li>
-        <li>下载走网盘直链（由 AList 提供），不经过本站服务器。</li>
+        <li><strong>本页为只读</strong>：不含上传、下载、新建、删除等任何写操作。</li>
+        <li>根节点是 AList 根目录下的<strong>全部挂载点</strong>（有几个就显示几个），逐级展开时才按需请求，不会一次性拉全树。</li>
+        <li>复制出的链接是<strong>网盘直链</strong>（由 AList 提供，部分驱动会指向厂商 CDN），<strong>有时效</strong>，过期请重新复制。</li>
+        <li>目录的复制按钮会<strong>递归收集</strong>其下所有文件的直链；为控制耗时，单次最多 200 个文件、递归 6 层。</li>
+        <li>单个目录一层最多显示 200 项，超出部分会提示「还有 N 项未显示」。</li>
         <li>本功能依赖你本机的 AList 常驻运行；中转服务离线时此处会给出提示，不影响博客其他功能。</li>
-        <li>{directReady ? '浏览器直传已就绪（已配置受限子账号）。' : '未配置受限子账号，直传不可用——上传将回落到本站服务器转发（慢）。'}</li>
       </ul>
     </details>
   </section>
 </AdminLayout>
 
 <script>
-  /** 网盘管理页交互：列目录 / 上传（大小分流）/ 下载 / 删除 / 新建文件夹
+  /** 网盘浏览页交互：懒加载文件树 + 复制直链
    *  - 事件用 document 委托 + 每次解析元素，规避 View Transitions 后绑定失效；
-   *  - 分页为 AList 侧分页（page/per_page）；
-   *  - 上传按 smallFileMaxBytes 分流：小文件走本站函数，大文件走浏览器直传（P3）。 */
+   *  - 状态存在 TreeNode 里，任何变化都整树重渲染（懒加载下已展开节点有限，代价可接受）；
+   *  - 复制走 navigator.clipboard，失败时回落到 textarea + execCommand。 */
   interface Boot {
     ready: boolean;
-    directReady: boolean;
     enabled: boolean;
     initialPath: string;
-    targetDir: string;
-    stagingDir: string;
-    smallFileMaxBytes: number;
-    maxFileBytes: number;
   }
+
+  /** 树节点（children === null 表示尚未加载） */
+  interface TreeNode {
+    name: string;
+    path: string;
+    isDir: boolean;
+    size: number;
+    modified: string;
+    children: TreeNode[] | null;
+    expanded: boolean;
+    loading: boolean;
+    error: string;
+    /** 单层超过一页时未显示的条数 */
+    hidden: number;
+  }
+
+  interface ListItem {
+    name: string;
+    size: number;
+    is_dir: boolean;
+    modified: string;
+  }
+
+  const ICON_CHEVRON =
+    '<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>';
+  const ICON_FOLDER =
+    '<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+  const ICON_FILE =
+    '<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3v5h5"/><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/></svg>';
+  const ICON_COPY =
+    '<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+  const ICON_CHECK =
+    '<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 
   const page = document.getElementById('netdisk-page');
   if (page) {
-    let boot: Boot = {
-      ready: false,
-      directReady: false,
-      enabled: false,
-      initialPath: '/',
-      targetDir: '/',
-      stagingDir: '',
-      smallFileMaxBytes: 0,
-      maxFileBytes: 100 * 1024 * 1024,
-    };
+    let boot: Boot = { ready: false, enabled: false, initialPath: '/' };
     try {
       boot = { ...boot, ...(JSON.parse(page.dataset.boot ?? '{}') as Partial<Boot>) };
     } catch {
       /* 用默认 */
     }
 
-    const el = <T extends HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
-    const rowsEl = el<HTMLTableSectionElement>('nd-rows');
-    const crumbsEl = el('nd-crumbs');
+    function el<T extends HTMLElement>(id: string): T | null {
+      return document.getElementById(id) as T | null;
+    }
+    const treeEl = el<HTMLDivElement>('nd-tree');
     const statusEl = el('nd-status');
     const errorEl = el('nd-error');
-    const linkBox = el('nd-link');
-    const linkInput = el<HTMLInputElement>('nd-link-url');
-    const queueEl = el('nd-queue');
-    const pagerEl = el('nd-pager');
-    const pageInfoEl = el('nd-page-info');
-    const fileInput = el<HTMLInputElement>('nd-file');
 
-    let curPath = boot.initialPath || '/';
-    let curPage = 1;
-    let curTotal = 0;
-    let loading = false;
-    const PER_PAGE = 100;
+    let nodes: TreeNode[] = [];
+    let loadingRoot = false;
+    /** AList 单层一页的上限 */
+    const PER_PAGE = 200;
+
+    const esc = (s: string): string =>
+      s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+
+    const baseName = (p: string): string => p.slice(p.lastIndexOf('/') + 1) || p;
 
     const fmtSize = (n: number): string => {
       if (!Number.isFinite(n) || n <= 0) return '—';
@@ -217,448 +173,279 @@ const boot = {
     const setStatus = (msg: string): void => {
       if (statusEl) statusEl.textContent = msg;
     };
-    const esc = (s: string): string =>
-      s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 
-    /** 展示下载直链并尝试复制到剪贴板 */
-    function showLink(url: string): void {
-      if (!linkBox || !linkInput) return;
-      linkInput.value = url;
-      linkBox.classList.remove('hidden');
-      linkBox.classList.add('flex');
-      linkInput.focus();
-      linkInput.select();
-      void navigator.clipboard?.writeText(url).catch(() => {});
+    /** 复制到剪贴板：优先 Clipboard API，被拒时回落 textarea + execCommand */
+    async function copyText(text: string): Promise<boolean> {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch {
+        /* 走回落 */
+      }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
     }
 
-    /** 面包屑渲染 */
-    function renderCrumbs(path: string): void {
-      if (!crumbsEl) return;
-      const parts = path.split('/').filter(Boolean);
-      const items = [`<button type="button" data-nd-goto="/" class="rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-primary">根目录</button>`];
-      let acc = '';
-      parts.forEach((p) => {
-        acc += `/${p}`;
-        items.push(
-          `<span class="opacity-40">/</span><button type="button" data-nd-goto="${esc(acc)}" class="rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-primary">${esc(p)}</button>`,
-        );
+    /** 拉取某一层目录 → 排好序的节点数组 */
+    async function fetchLayer(path: string, refresh = false): Promise<{ items: TreeNode[]; total: number }> {
+      const res = await fetch('/api/netdisk/list', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path, page: 1, perPage: PER_PAGE, refresh }),
       });
-      crumbsEl.innerHTML = items.join('');
+      const d = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        items?: ListItem[];
+        total?: number;
+      };
+      if (!res.ok || !d.ok) throw new Error(d.error ?? '加载失败');
+      const raw = d.items ?? [];
+      // 目录在前，同类型按中文名排序
+      const sorted = [...raw].sort((a, b) =>
+        a.is_dir === b.is_dir ? a.name.localeCompare(b.name, 'zh') : a.is_dir ? -1 : 1,
+      );
+      const dir = path.replace(/\/+$/, '');
+      return {
+        items: sorted.map((it) => ({
+          name: it.name,
+          path: `${dir}/${it.name}`,
+          isDir: it.is_dir,
+          size: it.size ?? 0,
+          modified: it.modified ?? '',
+          children: null,
+          expanded: false,
+          loading: false,
+          error: '',
+          hidden: 0,
+        })),
+        total: d.total ?? raw.length,
+      };
     }
 
-    /** 列目录 */
-    async function load(path: string, p = 1, refresh = false): Promise<void> {
-      if (loading) return;
-      loading = true;
+    /** 展开/折叠一个目录节点 */
+    async function toggle(node: TreeNode): Promise<void> {
+      if (!node.isDir) return;
+      if (node.expanded) {
+        node.expanded = false;
+        renderTree();
+        return;
+      }
+      node.expanded = true;
+      if (node.children === null && !node.loading) {
+        node.loading = true;
+        node.error = '';
+        renderTree();
+        try {
+          const { items, total } = await fetchLayer(node.path);
+          node.children = items;
+          node.hidden = Math.max(0, total - items.length);
+        } catch (err) {
+          node.children = [];
+          node.error = err instanceof Error ? err.message : '加载失败';
+        } finally {
+          node.loading = false;
+        }
+      }
+      renderTree();
+    }
+
+    function findNode(path: string, list: TreeNode[] = nodes): TreeNode | null {
+      for (const n of list) {
+        if (n.path === path) return n;
+        if (n.children) {
+          const hit = findNode(path, n.children);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    }
+
+    /** 递归渲染一个节点（行 + 其已展开的子层） */
+    function renderNode(n: TreeNode, depth: number): string {
+      const pad = 10 + depth * 15;
+      const childPad = pad + 30;
+
+      const chevron = n.isDir
+        ? `<button type="button" data-nd-toggle="${esc(n.path)}" aria-expanded="${n.expanded}" aria-label="${n.expanded ? '折叠' : '展开'}" class="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-transform duration-150 hover:text-primary ${n.expanded ? 'rotate-90' : ''}">${ICON_CHEVRON}</button>`
+        : '<span class="size-4 shrink-0" aria-hidden="true"></span>';
+
+      const nameCell = n.isDir
+        ? `<button type="button" data-nd-toggle="${esc(n.path)}" title="${esc(n.name)}" class="min-w-0 flex-1 truncate text-left text-sm transition-colors hover:text-primary">${esc(n.name)}</button>`
+        : `<span class="min-w-0 flex-1 truncate text-sm" title="${esc(n.name)}">${esc(n.name)}</span>`;
+
+      const meta = n.isDir ? '' : `<span class="shrink-0 text-xs tabular-nums text-muted-foreground">${fmtSize(n.size)}</span>`;
+
+      const copyLabel = n.isDir ? '复制该文件夹下所有文件的直链' : '复制下载直链';
+      const copyBtn = `<button type="button" data-nd-copy="${esc(n.path)}" data-nd-dir="${n.isDir ? '1' : '0'}" title="${copyLabel}" aria-label="${copyLabel}" class="shrink-0 rounded p-1 text-muted-foreground opacity-40 transition-all hover:text-primary group-hover:opacity-100 focus-visible:opacity-100">${ICON_COPY}</button>`;
+
+      const row = `<div class="group flex items-center gap-1.5 py-1.5 pr-3 transition-colors hover:bg-accent/60" style="padding-left:${pad}px">
+        ${chevron}
+        <span class="shrink-0 text-muted-foreground">${n.isDir ? ICON_FOLDER : ICON_FILE}</span>
+        ${nameCell}
+        ${meta}
+        ${copyBtn}
+      </div>`;
+
+      if (!n.isDir || !n.expanded) return row;
+
+      let body = '';
+      if (n.loading) body = `<p class="py-1.5 text-xs text-muted-foreground" style="padding-left:${childPad}px">加载中…</p>`;
+      else if (n.error) body = `<p class="py-1.5 text-xs text-destructive" style="padding-left:${childPad}px">${esc(n.error)}</p>`;
+      else if (!n.children || n.children.length === 0)
+        body = `<p class="py-1.5 text-xs text-muted-foreground" style="padding-left:${childPad}px">空文件夹</p>`;
+      else {
+        body = n.children.map((c) => renderNode(c, depth + 1)).join('');
+        if (n.hidden > 0)
+          body += `<p class="py-1.5 text-xs text-muted-foreground" style="padding-left:${childPad}px">还有 ${n.hidden} 项未显示（超出单层上限）</p>`;
+      }
+      return row + body;
+    }
+
+    function renderTree(): void {
+      if (!treeEl) return;
+      if (nodes.length === 0) {
+        treeEl.innerHTML = `<p class="px-3 py-6 text-center text-xs text-muted-foreground">${loadingRoot ? '加载中…' : '没有可显示的挂载点'}</p>`;
+        return;
+      }
+      treeEl.innerHTML = nodes.map((n) => renderNode(n, 0)).join('');
+    }
+
+    /** 加载/刷新根层（= AList 根目录下的全部挂载点） */
+    async function loadRoot(refresh = false): Promise<void> {
+      loadingRoot = true;
       setError('');
       setStatus('加载中…');
+      renderTree();
       try {
-        const res = await fetch('/api/netdisk/list', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ path, page: p, perPage: PER_PAGE, refresh }),
-        });
-        const d = (await res.json().catch(() => ({}))) as {
-          ok?: boolean;
-          error?: string;
-          path?: string;
-          items?: Array<{ name: string; size: number; is_dir: boolean; modified: string }>;
-          total?: number;
-        };
-        if (!res.ok || !d.ok) throw new Error(d.error ?? '加载失败');
-        curPath = d.path ?? path;
-        curPage = p;
-        curTotal = d.total ?? 0;
-        renderCrumbs(curPath);
-        renderRows(d.items ?? []);
-        renderPager();
-        setStatus(`共 ${curTotal} 项`);
+        const { items } = await fetchLayer(boot.initialPath || '/', refresh);
+        nodes = items;
+        setStatus(`共 ${nodes.length} 个挂载点 · 点击展开`);
       } catch (err) {
+        nodes = [];
         setStatus('');
         setError(err instanceof Error ? err.message : '加载失败');
-        if (rowsEl) rowsEl.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-xs text-muted-foreground">无法加载目录</td></tr>`;
       } finally {
-        loading = false;
+        loadingRoot = false;
+        renderTree();
       }
     }
 
-    function renderRows(items: Array<{ name: string; size: number; is_dir: boolean; modified: string }>): void {
-      if (!rowsEl) return;
-      if (items.length === 0) {
-        rowsEl.innerHTML = `<tr><td colspan="4" class="px-3 py-6 text-center text-xs text-muted-foreground">空目录</td></tr>`;
-        return;
-      }
-      const sorted = [...items].sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name, 'zh') : a.is_dir ? -1 : 1));
-      rowsEl.innerHTML = sorted
-        .map((it) => {
-          const icon = it.is_dir ? '📁' : '📄';
-          const nameCell = it.is_dir
-            ? `<button type="button" data-nd-goto="${esc(curPath.replace(/\/$/, '') + '/' + it.name)}" class="truncate text-left transition-colors hover:text-primary">${icon} ${esc(it.name)}</button>`
-            : `<span class="truncate">${icon} ${esc(it.name)}</span>`;
-          const time = it.modified ? new Date(it.modified).toLocaleString('zh-CN', { hour12: false }) : '—';
-          const actions = it.is_dir
-            ? `<button type="button" data-nd-del="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10">删除</button>`
-            : `<button type="button" data-nd-dl="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-primary">下载</button>
-               <button type="button" data-nd-link="${esc(it.name)}" title="复制该文件的下载直链（有时效）" class="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-primary">复制地址</button>
-               <button type="button" data-nd-del="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10">删除</button>`;
-          return `<tr class="border-t border-border hover:bg-muted/20">
-            <td class="max-w-0 px-3 py-2">${nameCell}</td>
-            <td class="px-3 py-2 text-right text-xs tabular-nums text-muted-foreground">${it.is_dir ? '—' : fmtSize(it.size)}</td>
-            <td class="px-3 py-2 text-right text-xs tabular-nums text-muted-foreground">${time}</td>
-            <td class="whitespace-nowrap px-3 py-2 text-right">${actions}</td>
-          </tr>`;
-        })
-        .join('');
-    }
-
-    function renderPager(): void {
-      if (!pagerEl || !pageInfoEl) return;
-      const totalPages = Math.max(1, Math.ceil(curTotal / PER_PAGE));
-      pagerEl.classList.toggle('hidden', totalPages <= 1);
-      pagerEl.classList.toggle('flex', totalPages > 1);
-      pageInfoEl.textContent = `第 ${curPage} / ${totalPages} 页`;
-      (el<HTMLButtonElement>('nd-prev') as HTMLButtonElement | null)?.toggleAttribute('disabled', curPage <= 1);
-      (el<HTMLButtonElement>('nd-next') as HTMLButtonElement | null)?.toggleAttribute('disabled', curPage >= totalPages);
-    }
-
-    /* ---------- 上传：按大小分流 ---------- */
-    /** 超过此大小走分片直传（Cloudflare 免费版单请求上限 100MB，留余量） */
-    const CHUNK_THRESHOLD = 90 * 1024 * 1024;
-    /** 每片大小（同样须 < CF 100MB） */
-    const CHUNK_SIZE = 90 * 1024 * 1024;
-
-    /** XHR 直传一个对象到中转层（带进度回调；校验 AList 响应体的业务码） */
-    function putDirect(path: string, body: Blob | string, token: string, label: string, onProgress?: (loaded: number, total: number) => void): Promise<void> {
-      return new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', boot.baseUrl + '/api/fs/put');
-        xhr.setRequestHeader('Authorization', token);
-        xhr.setRequestHeader('File-Path', encodeURIComponent(path));
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
-        };
-        xhr.onload = () => {
-          if (xhr.status < 200 || xhr.status >= 300) {
-            reject(new Error(`${label}失败（HTTP ${xhr.status}）`));
+    /** 复制流程：目录递归收集直链，文件直接取单链 */
+    async function handleCopy(btn: HTMLElement): Promise<void> {
+      const path = btn.dataset.ndCopy ?? '';
+      const isDir = btn.dataset.ndDir === '1';
+      if (!path) return;
+      setError('');
+      btn.classList.add('pointer-events-none', 'opacity-40');
+      try {
+        if (isDir) {
+          setStatus(`正在收集「${baseName(path)}」下的文件直链…`);
+          const res = await fetch('/api/netdisk/links', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+          });
+          const d = (await res.json().catch(() => ({}))) as {
+            ok?: boolean;
+            error?: string;
+            count?: number;
+            truncated?: boolean;
+            text?: string;
+          };
+          if (!res.ok || !d.ok) throw new Error(d.error ?? '收集直链失败');
+          if (!d.count) {
+            setStatus('');
+            setError(`「${baseName(path)}」下没有可取直链的文件`);
             return;
           }
-          // AList 出错时同样返回 HTTP 200，错误藏在响应体的 code/message 里——必须校验，否则会「假成功」
-          try {
-            const d = JSON.parse(xhr.responseText) as { code?: number; message?: string };
-            if (d.code !== 200) {
-              reject(new Error(d.message?.trim() || `${label}失败（code ${d.code}）`));
-              return;
-            }
-          } catch {
-            /* 响应体非 JSON（如代理拦截页），已按 HTTP 状态放行 */
-          }
-          resolve();
-        };
-        xhr.onerror = () => reject(new Error(`${label}失败（网络错误或中转服务不可达）`));
-        xhr.send(body);
-      });
-    }
-
-    interface UploadTicket {
-      ok?: boolean;
-      error?: string;
-      uploadUrl?: string;
-      token?: string;
-      filePath?: string;
-      stagingPath?: string;
-    }
-
-    /** 申请直传凭证（受限子账号 token，只可写暂存目录） */
-    async function getTicket(file: File): Promise<UploadTicket> {
-      const ticketRes = await fetch('/api/netdisk/upload-ticket', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: file.name, size: file.size }),
-      });
-      const ticket = (await ticketRes.json().catch(() => ({}))) as UploadTicket;
-      if (!ticketRes.ok || !ticket.ok || !ticket.uploadUrl || !ticket.token || !ticket.filePath) {
-        throw new Error(ticket.error ?? '大文件直传不可用（请在设置中配置受限子账号）');
-      }
-      return ticket;
-    }
-
-    /** 轮询合并任务状态（浏览器侧轮询——合并+转存可达数分钟，远超函数执行时长） */
-    async function pollChunkStatus(taskId: string, file: File): Promise<void> {
-      const deadline = Date.now() + 60 * 60 * 1000; // 上限 1 小时（10GB 级合并+转存也够用）
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 3000));
-        let d: { status?: string; message?: string; error?: string } = {};
-        try {
-          const res = await fetch(`/api/netdisk/chunk-status?task=${encodeURIComponent(taskId)}`);
-          d = (await res.json().catch(() => ({}))) as { status?: string; message?: string; error?: string };
-        } catch {
-          continue; // 单次查询失败（网络抖动）不中断，继续轮询
+          if (!(await copyText(d.text ?? ''))) throw new Error('浏览器拒绝了剪贴板访问，请手动复制');
+          btn.innerHTML = ICON_CHECK;
+          window.setTimeout(() => {
+            btn.innerHTML = ICON_COPY;
+          }, 2000);
+          setStatus(
+            `已复制 ${d.count} 个链接${d.truncated ? '（目录过大，仅含前 200 个）' : ''} · 直链有时效，过期请重新复制`,
+          );
+        } else {
+          setStatus(`正在获取「${baseName(path)}」的直链…`);
+          const res = await fetch('/api/netdisk/download', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; url?: string };
+          if (!res.ok || !d.ok || !d.url) throw new Error(d.error ?? '获取直链失败');
+          if (!(await copyText(d.url))) throw new Error('浏览器拒绝了剪贴板访问，请手动复制');
+          btn.innerHTML = ICON_CHECK;
+          window.setTimeout(() => {
+            btn.innerHTML = ICON_COPY;
+          }, 2000);
+          setStatus(`已复制「${baseName(path)}」的直链 · 有时效，过期请重新复制`);
         }
-        if (d.status === 'done') return;
-        if (d.status === 'error') throw new Error(`合并/转存失败：${d.message ?? '未知错误'}`);
-        if (d.status === 'merging') setStatus(`${file.name}：分片合并中…`);
-        else if (d.status === 'copying') setStatus(`${file.name}：转存到目标目录…`);
-        // pending：助手尚未开始（继续等）；超过 15 分钟仍 pending 大概率是助手未安装
-        if (d.status === 'pending' && Date.now() > deadline - 60 * 60 * 1000 + 15 * 60 * 1000) {
-          throw new Error('合并任务长时间未被处理：请确认本机合并助手已安装并在运行（C:\\alist\\netdisk-merge-agent）');
-        }
+      } catch (err) {
+        setStatus('');
+        setError(err instanceof Error ? err.message : '复制失败');
+      } finally {
+        btn.classList.remove('pointer-events-none', 'opacity-40');
       }
-      throw new Error('合并任务超时（1 小时未完成）');
-    }
-
-    /** 大文件分片直传：分片 → 下达合并任务 → 轮询至完成（全自动，无需人工合并） */
-    async function uploadChunked(file: File, dir: string, ticket: UploadTicket): Promise<void> {
-      const stagingDir = (ticket.stagingPath ?? ticket.filePath ?? '').replace(/\/[^/]+$/, '');
-      const token = ticket.token!;
-      const count = Math.ceil(file.size / CHUNK_SIZE);
-      const parts: Array<{ name: string; size: number }> = [];
-      let uploaded = 0;
-      for (let i = 0; i < count; i += 1) {
-        const partName = `${file.name}.part-${String(i + 1).padStart(3, '0')}`;
-        const blob = file.slice(i * CHUNK_SIZE, Math.min((i + 1) * CHUNK_SIZE, file.size));
-        await putDirect(
-          `${stagingDir}/${partName}`,
-          blob,
-          token,
-          `分片 ${i + 1}/${count}`,
-          (loaded) => setStatus(`直传 ${file.name}：分片 ${i + 1}/${count}（${Math.round(((uploaded + loaded) / file.size) * 100)}%）`),
-        );
-        uploaded += blob.size;
-        parts.push({ name: partName, size: blob.size });
-      }
-
-      // 下达合并任务（服务端校验分片完整性后写入任务文件，本机助手自动接力）
-      const taskId = (crypto.randomUUID?.() ?? `t-${Date.now()}-x`).replace(/[^a-zA-Z0-9-]/g, '').slice(0, 40);
-      const done = await fetch('/api/netdisk/chunk-complete', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ taskId, name: file.name, size: file.size, parts, targetDir: dir }),
-      });
-      const d = (await done.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!done.ok || !d.ok) throw new Error(d.error ?? '下达合并任务失败');
-      setStatus(`${file.name}：分片上传完成，等待合并与转存…`);
-      await pollChunkStatus(taskId, file);
-    }
-
-    async function uploadOne(file: File, dir: string): Promise<void> {
-      if (file.size > boot.maxFileBytes) {
-        throw new Error(`${file.name}：${fmtSize(file.size)} 超过单文件上限 ${fmtSize(boot.maxFileBytes)}`);
-      }
-      // 分流：直传可用时优先直传（阈值 0 = 全部直传，绕开 Vercel 中转）；
-      // 仅当直传不可用（未配受限子账号）时才回落到本站函数转发。
-      const useDirect = boot.directReady && (boot.smallFileMaxBytes <= 0 || file.size > boot.smallFileMaxBytes);
-      if (!useDirect) {
-        // 本站函数转发（文件正文经 Vercel，跨太平洋，仅作兜底）
-        const form = new FormData();
-        form.append('file', file);
-        if (dir) form.append('dir', dir);
-        const res = await fetch('/api/netdisk/upload', { method: 'POST', body: form });
-        const d = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string };
-        if (!res.ok || !d.ok) throw new Error(d.error ?? '上传失败');
-        return;
-      }
-      // 浏览器直传中转层（不经本站）：≤90MB 单发直传；更大走分片（绕开 Cloudflare 100MB 上限）
-      const ticket = await getTicket(file);
-      if (file.size > CHUNK_THRESHOLD) {
-        await uploadChunked(file, dir, ticket);
-        return;
-      }
-      await putDirect(ticket.filePath!, file, ticket.token!, `直传 ${file.name}`, (loaded) =>
-        setStatus(`直传 ${file.name}：${Math.round((loaded / file.size) * 100)}%`),
-      );
-      // 收尾：暂存 → 目标目录（服务端跨存储复制）
-      const finishRes = await fetch('/api/netdisk/finish-upload', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ stagingPath: ticket.stagingPath ?? ticket.filePath, name: file.name, targetDir: dir }),
-      });
-      const fin = (await finishRes.json().catch(() => ({}))) as { ok?: boolean; error?: string; taskPending?: boolean };
-      if (!finishRes.ok || !fin.ok) throw new Error(fin.error ?? '转存失败（文件已上传到暂存区）');
-      if (fin.taskPending) setStatus(`${file.name} 已转存（复制任务后台进行中，暂存文件将在任务结束后清理）`);
-    }
-
-    async function uploadFiles(files: File[]): Promise<void> {
-      if (files.length === 0) return;
-      if (queueEl) {
-        queueEl.classList.remove('hidden');
-        queueEl.innerHTML = files
-          .map((f, i) => `<div data-nd-q="${i}" class="flex items-center gap-2"><span class="min-w-0 flex-1 truncate">${esc(f.name)}</span><span class="text-muted-foreground">等待</span></div>`)
-          .join('');
-      }
-      let okCount = 0;
-      for (let i = 0; i < files.length; i += 1) {
-        const f = files[i]!;
-        const row = queueEl?.querySelector(`[data-nd-q="${i}"]`) as HTMLElement | null;
-        const mark = (text: string, cls: string): void => {
-          if (!row) return;
-          const span = row.querySelector('span:last-child');
-          if (span) {
-            span.textContent = text;
-            span.className = cls;
-          }
-        };
-        mark('上传中…', 'text-amber-600');
-        try {
-          await uploadOne(f, curPath);
-          mark('完成', 'text-emerald-600');
-          okCount += 1;
-        } catch (err) {
-          mark(err instanceof Error ? err.message : '失败', 'text-destructive');
-        }
-      }
-      // 先刷新列表，再写汇总 —— 反过来的话 load() 会把结果覆盖成「共 N 项」
-      await load(curPath, curPage, true);
-      setStatus(`上传结束：成功 ${okCount} / ${files.length}`);
-      window.setTimeout(() => queueEl?.classList.add('hidden'), 4000);
     }
 
     /* ---------- 事件委托 ---------- */
-    document.addEventListener('click', async (e) => {
+    document.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (!t.closest('#netdisk-page')) return;
 
-      const goto = t.closest<HTMLElement>('[data-nd-goto]');
-      if (goto) {
-        void load(goto.dataset.ndGoto ?? '/', 1);
+      const copyBtn = t.closest<HTMLElement>('[data-nd-copy]');
+      if (copyBtn) {
+        void handleCopy(copyBtn);
         return;
       }
-      if (t.closest('#nd-up')) {
-        const parent = curPath === '/' ? '/' : curPath.slice(0, curPath.lastIndexOf('/')) || '/';
-        void load(parent, 1);
+
+      const toggleEl = t.closest<HTMLElement>('[data-nd-toggle]');
+      if (toggleEl) {
+        const node = findNode(toggleEl.dataset.ndToggle ?? '');
+        if (node) void toggle(node);
         return;
       }
+
       if (t.closest('#nd-refresh')) {
-        void load(curPath, curPage, true);
-        return;
-      }
-      if (t.closest('#nd-prev')) {
-        void load(curPath, Math.max(1, curPage - 1));
-        return;
-      }
-      if (t.closest('#nd-next')) {
-        void load(curPath, curPage + 1);
-        return;
-      }
-      if (t.closest('#nd-pick')) {
-        fileInput?.click();
-        return;
-      }
-      if (t.closest('#nd-mkdir')) {
-        const name = window.prompt('新建文件夹名称');
-        if (!name || !name.trim()) return;
-        try {
-          const res = await fetch('/api/netdisk/mkdir', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ path: `${curPath.replace(/\/$/, '')}/${name.trim()}` }),
-          });
-          const d = (await res.json().catch(() => ({}))) as { error?: string };
-          if (!res.ok) throw new Error(d.error ?? '创建失败');
-          await load(curPath, curPage, true);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : '创建失败');
-        }
+        nodes = [];
+        void loadRoot(true);
         return;
       }
 
-      const linkBtn = t.closest<HTMLElement>('[data-nd-link]');
-      if (linkBtn) {
-        setError('');
-        const name = linkBtn.dataset.ndLink ?? '';
-        setStatus('获取下载直链…');
-        try {
-          const res = await fetch('/api/netdisk/download', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ path: `${curPath.replace(/\/$/, '')}/${name}` }),
-          });
-          const d = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
-          if (!res.ok || !d.ok || !d.url) throw new Error(d.error ?? '获取直链失败');
-          showLink(d.url);
-          setStatus(`已获取 ${name} 的下载直链`);
-        } catch (err) {
-          setStatus('');
-          setError(err instanceof Error ? err.message : '获取直链失败');
-        }
+      if (t.closest('#nd-collapse')) {
+        const walk = (list: TreeNode[]): void => {
+          for (const n of list) {
+            n.expanded = false;
+            if (n.children) walk(n.children);
+          }
+        };
+        walk(nodes);
+        renderTree();
         return;
       }
-
-      if (t.closest('#nd-link-copy')) {
-        const input = el<HTMLInputElement>('nd-link-url');
-        const url = input?.value ?? '';
-        if (!url) return;
-        try {
-          await navigator.clipboard.writeText(url);
-          setStatus('直链已复制到剪贴板');
-        } catch {
-          input?.select();
-          setStatus('复制失败，已全选内容，请按 Ctrl+C');
-        }
-        return;
-      }
-
-      if (t.closest('#nd-link-close')) {
-        linkBox?.classList.add('hidden');
-        linkBox?.classList.remove('flex');
-        setStatus('');
-        return;
-      }
-
-      const dl = t.closest<HTMLElement>('[data-nd-dl]');
-      if (dl) {
-        setError('');
-        setStatus('获取下载直链…');
-        try {
-          const name = dl.dataset.ndDl ?? '';
-          const res = await fetch('/api/netdisk/download', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ path: `${curPath.replace(/\/$/, '')}/${name}` }),
-          });
-          const d = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
-          if (!res.ok || !d.ok || !d.url) throw new Error(d.error ?? '获取直链失败');
-          window.open(d.url, '_blank', 'noopener');
-          setStatus('已打开下载链接');
-        } catch (err) {
-          setStatus('');
-          setError(err instanceof Error ? err.message : '获取直链失败');
-        }
-        return;
-      }
-
-      const del = t.closest<HTMLElement>('[data-nd-del]');
-      if (del) {
-        const name = del.dataset.ndDel ?? '';
-        const { confirmDanger } = await import('../../lib/confirm');
-        if (!(await confirmDanger(`确定删除「${name}」？目录内文件会一并删除。`))) return;
-        try {
-          const res = await fetch('/api/netdisk/remove', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ dir: curPath, names: [name] }),
-          });
-          const d = (await res.json().catch(() => ({}))) as { error?: string };
-          if (!res.ok) throw new Error(d.error ?? '删除失败');
-          setStatus(`已删除 ${name}`);
-          await load(curPath, curPage, true);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : '删除失败');
-        }
-        return;
-      }
-    });
-
-    fileInput?.addEventListener('change', () => {
-      const files = Array.from(fileInput.files ?? []);
-      fileInput.value = '';
-      void uploadFiles(files);
     });
 
     /** 初始化 / View Transition 后重新加载 */
     function init(): void {
       if (!document.getElementById('netdisk-page')) return;
-      void load(curPath, 1);
+      void loadRoot();
     }
     document.addEventListener('astro:page-load', init);
     init();

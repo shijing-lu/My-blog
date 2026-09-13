@@ -156,17 +156,16 @@ export async function alistLogin(
 /**
  * 取（并缓存）管理员 token
  *
+ * 网盘页改为**只读**后，只保留管理员账号（服务端列目录 / 取直链用）；
+ * 原浏览器直传的受限子账号分支已移除。
+ *
  * @param cfg 网盘配置
- * @param kind 账号类型：admin（服务端调用）/ uploader（浏览器直传）
  */
-export async function getAlistToken(
-  cfg: NetdiskConfig,
-  kind: 'admin' | 'uploader' = 'admin',
-): Promise<AlistResult<{ token: string }>> {
-  const username = kind === 'admin' ? cfg.adminUsername : cfg.uploaderUsername;
-  const password = kind === 'admin' ? cfg.adminPassword : cfg.uploaderPassword;
+export async function getAlistToken(cfg: NetdiskConfig): Promise<AlistResult<{ token: string }>> {
+  const username = cfg.adminUsername;
+  const password = cfg.adminPassword;
   if (!cfg.baseUrl || !username || !password) {
-    return { ok: false, message: kind === 'admin' ? '未配置中转服务地址或管理员账号' : '未配置用于直传的受限子账号' };
+    return { ok: false, message: '未配置中转服务地址或管理员账号' };
   }
   const cacheKey = `${base(cfg.baseUrl)}|${username}`;
   const hit = tokenCache.get(cacheKey);
@@ -351,12 +350,14 @@ export interface AlistTestResult {
  * 连通性探活（「测试连接」按钮）
  *
  * 依次验证：管理员登录 → 身份确认 → 管理目录可列（**会真正触发存储驱动，
- * 因此能顺带暴露蓝奏云登录态失效**）→ 暂存目录可访问 → 子账号可用（可选）。
+ * 因此能顺带暴露蓝奏云登录态失效**）。
  * 每一步独立记录结果，便于精确定位是哪一环出问题。
+ *
+ * 网盘页改为只读后，原先的「暂存目录 / 直传子账号」两步已移除。
  */
 export async function testAlistConnection(
   cfg: NetdiskConfig,
-  overrides?: Partial<Pick<NetdiskConfig, 'baseUrl' | 'adminUsername' | 'adminPassword' | 'uploaderUsername' | 'uploaderPassword' | 'managePath' | 'stagingDir'>>,
+  overrides?: Partial<Pick<NetdiskConfig, 'baseUrl' | 'adminUsername' | 'adminPassword' | 'managePath'>>,
 ): Promise<AlistTestResult> {
   const c: NetdiskConfig = { ...cfg, ...overrides };
   const steps: AlistTestResult['steps'] = [];
@@ -389,25 +390,11 @@ export async function testAlistConnection(
     list.ok ? `目录「${c.managePath}」可访问（${list.data.total} 项）` : `目录「${c.managePath}」不可访问：${list.message}`,
   );
 
-  // 4. 暂存目录（大文件直传需要）
-  if (c.stagingDir) {
-    const staging = await alistList(c.baseUrl, token, c.stagingDir, 1, 1);
-    push('暂存目录', staging.ok, staging.ok ? `暂存目录「${c.stagingDir}」可用` : `暂存目录不可用：${staging.message}`);
-  }
-
-  // 5. 受限子账号（浏览器直传需要）
-  if (c.uploaderUsername && c.uploaderPassword) {
-    const up = await alistLogin(c.baseUrl, c.uploaderUsername, c.uploaderPassword);
-    push('直传子账号', up.ok, up.ok ? `子账号 ${c.uploaderUsername} 登录成功` : `子账号登录失败：${up.message}`);
-  } else {
-    push('直传子账号', false, '未配置受限子账号（大文件直传不可用，小文件仍可经服务器上传）');
-  }
-
   const failed = steps.filter((s) => !s.ok);
   const criticalFailed = steps.slice(0, 1).some((s) => !s.ok);
   if (criticalFailed) return { ok: false, message: '连接失败：无法登录中转服务', steps };
   if (failed.length > 0) {
     return { ok: true, message: `基本连通（${failed.length} 项待处理：${failed.map((f) => f.name).join('、')}）`, steps };
   }
-  return { ok: true, message: '全部检查通过：中转服务、管理目录、暂存目录、直传子账号均正常', steps };
+  return { ok: true, message: '全部检查通过：中转服务、管理目录均正常', steps };
 }

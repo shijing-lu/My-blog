@@ -578,12 +578,12 @@ const siteCssUpdatedAtText =
       </div>
       <p class="mt-1 text-xs text-muted-foreground">
         经自建 AList 中转层对接网盘（蓝奏云等）：本站只与 AList 通信，<strong>新增网盘只需在 AList 后台加驱动，本站无需改动</strong>。
-        大于阈值的文件由浏览器直传中转层，不占本站带宽、不受 4.5MB 限制。
+        网盘页仅供<strong>只读浏览</strong>与复制文件直链，不做任何写操作。
       </p>
 
       <label class="mt-4 flex items-center gap-2 text-sm">
         <input id="nd-enabled" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
-        启用网盘对接（管理页与上传接口生效）
+        启用网盘对接（管理页只读浏览生效）
       </label>
 
       <div class="mt-4 grid grid-cols-2 gap-3">
@@ -616,25 +616,6 @@ const siteCssUpdatedAtText =
           />
         </label>
         <label class="block text-xs font-medium text-muted-foreground">
-          直传子账号（大文件直传用，受限账号）
-          <input
-            id="nd-uploader-user"
-            type="text"
-            placeholder="blog-uploader"
-            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
-          />
-        </label>
-        <label class="block text-xs font-medium text-muted-foreground">
-          直传子账号密码（仅存数据库，不回显）
-          <input
-            id="nd-uploader-pass"
-            type="password"
-            placeholder="••••••"
-            autocomplete="new-password"
-            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
-          />
-        </label>
-        <label class="block text-xs font-medium text-muted-foreground">
           管理页根目录
           <input
             id="nd-manage-path"
@@ -643,51 +624,10 @@ const siteCssUpdatedAtText =
             class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
           />
         </label>
-        <label class="block text-xs font-medium text-muted-foreground">
-          上传落点目录（厂商网盘内）
-          <input
-            id="nd-target-dir"
-            type="text"
-            placeholder="/蓝奏云/blog/uploads"
-            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
-          />
-        </label>
-        <label class="block text-xs font-medium text-muted-foreground">
-          大文件暂存目录（AList 本地驱动）
-          <input
-            id="nd-staging-dir"
-            type="text"
-            placeholder="/local/_netdisk_staging"
-            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
-          />
-        </label>
-        <label class="block text-xs font-medium text-muted-foreground">
-          分流阈值（MB，<strong>0 = 全部直传</strong>，不经本站服务器）
-          <input
-            id="nd-small-mb"
-            type="number"
-            min="0"
-            step="0.1"
-            placeholder="0"
-            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
-          />
-        </label>
-        <label class="block text-xs font-medium text-muted-foreground">
-          单文件上限（MB）
-          <input
-            id="nd-max-mb"
-            type="number"
-            min="1"
-            step="1"
-            placeholder="100"
-            class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
-          />
-        </label>
       </div>
       <p class="mt-2 text-xs text-muted-foreground">
-        <strong>阈值填 0（默认）即全部走浏览器直传。</strong>本站部署在 Vercel（美区），经服务器转发会让文件正文两次横跨太平洋——实测同一 2MB 文件：直传 1.3 秒、经服务器 72 秒。
-        蓝奏云标准版单文件上限 100MB、优享版 500MB，且<strong>仅接受部分文件类型</strong>（zip/txt/pdf/图片/视频等；.md / .json 等代码类会被拒绝）。
-        直传子账号须是 AList 里的<strong>受限账号</strong>（仅可写暂存目录），密码仅存数据库、留空表示不修改。
+        网盘页（/admin/netdisk）现在是<strong>只读文件树</strong>，不提供上传 / 下载 / 新建 / 删除等写操作——如需写入文件，请在 AList 后台或网盘官方客户端操作。
+        此处只需填好 AList 地址与管理员账号，即可浏览各网盘并复制文件直链。
       </p>
 
       <div class="mt-4 flex flex-wrap items-center gap-3">
@@ -1698,28 +1638,15 @@ const siteCssUpdatedAtText =
           enabled: boolean;
           baseUrl: string;
           adminUsername: string;
-          uploaderUsername: string;
           managePath: string;
-          targetDir: string;
-          stagingDir: string;
-          smallFileMaxBytes: number;
-          maxFileBytes: number;
           hasAdminPassword: boolean;
-          hasUploaderPassword: boolean;
         }
-        const MB = 1024 * 1024;
         let ndCfg: PublicNetdiskCfg = {
           enabled: false,
           baseUrl: '',
           adminUsername: '',
-          uploaderUsername: '',
           managePath: '/',
-          targetDir: '/',
-          stagingDir: '/local/_netdisk_staging',
-          smallFileMaxBytes: 4 * MB,
-          maxFileBytes: 100 * MB,
           hasAdminPassword: false,
-          hasUploaderPassword: false,
         };
         try {
           ndCfg = { ...ndCfg, ...(JSON.parse(ndSection.dataset.netdisk ?? '{}') as Partial<PublicNetdiskCfg>) };
@@ -1735,13 +1662,7 @@ const siteCssUpdatedAtText =
         const ndBaseUrl = ndGet<HTMLInputElement>('nd-base-url');
         const ndAdminUser = ndGet<HTMLInputElement>('nd-admin-user');
         const ndAdminPass = ndGet<HTMLInputElement>('nd-admin-pass');
-        const ndUploaderUser = ndGet<HTMLInputElement>('nd-uploader-user');
-        const ndUploaderPass = ndGet<HTMLInputElement>('nd-uploader-pass');
         const ndManagePath = ndGet<HTMLInputElement>('nd-manage-path');
-        const ndTargetDir = ndGet<HTMLInputElement>('nd-target-dir');
-        const ndStagingDir = ndGet<HTMLInputElement>('nd-staging-dir');
-        const ndSmallMb = ndGet<HTMLInputElement>('nd-small-mb');
-        const ndMaxMb = ndGet<HTMLInputElement>('nd-max-mb');
         const ndErr = document.getElementById('nd-err');
         const ndHint = document.getElementById('nd-saved-hint');
         const ndTestResult = document.getElementById('nd-test-result');
@@ -1750,18 +1671,12 @@ const siteCssUpdatedAtText =
         /** 已存密码时不回显，placeholder 提示「留空表示不修改」 */
         const applyNdPlaceholders = (): void => {
           if (ndAdminPass) ndAdminPass.placeholder = ndCfg.hasAdminPassword ? '已保存，留空表示不修改' : '••••••';
-          if (ndUploaderPass) ndUploaderPass.placeholder = ndCfg.hasUploaderPassword ? '已保存，留空表示不修改' : '••••••';
         };
 
         if (ndEnabled) ndEnabled.checked = ndCfg.enabled;
         if (ndBaseUrl) ndBaseUrl.value = ndCfg.baseUrl;
         if (ndAdminUser) ndAdminUser.value = ndCfg.adminUsername;
-        if (ndUploaderUser) ndUploaderUser.value = ndCfg.uploaderUsername;
         if (ndManagePath) ndManagePath.value = ndCfg.managePath;
-        if (ndTargetDir) ndTargetDir.value = ndCfg.targetDir;
-        if (ndStagingDir) ndStagingDir.value = ndCfg.stagingDir;
-        if (ndSmallMb) ndSmallMb.value = String(Math.round((ndCfg.smallFileMaxBytes / MB) * 10) / 10);
-        if (ndMaxMb) ndMaxMb.value = String(Math.round(ndCfg.maxFileBytes / MB));
         applyNdPlaceholders();
 
         const setNdErr = (msg: string): void => {
@@ -1770,22 +1685,16 @@ const siteCssUpdatedAtText =
           ndErr.classList.toggle('hidden', !msg);
         };
 
-        /** 收集表单 → 请求体（MB → 字节；密码空串交给后端「保留原值」） */
+        /** 收集表单 → 请求体（密码空串交给后端「保留原值」） */
         const ndPayload = (): Record<string, unknown> => ({
           enabled: ndEnabled?.checked ?? false,
           baseUrl: ndBaseUrl?.value.trim() ?? '',
           adminUsername: ndAdminUser?.value.trim() ?? '',
           adminPassword: ndAdminPass?.value ?? '',
-          uploaderUsername: ndUploaderUser?.value.trim() ?? '',
-          uploaderPassword: ndUploaderPass?.value ?? '',
           managePath: ndManagePath?.value.trim() || '/',
-          targetDir: ndTargetDir?.value.trim() || '/',
-          stagingDir: ndStagingDir?.value.trim() || '/local/_netdisk_staging',
-          smallFileMaxBytes: ndSmallMb && ndSmallMb.value ? Math.round(Number(ndSmallMb.value) * MB) : undefined,
-          maxFileBytes: ndMaxMb && ndMaxMb.value ? Math.round(Number(ndMaxMb.value) * MB) : undefined,
         });
 
-        /* 测试连接：分步展示（登录 / 身份 / 管理目录 / 暂存目录 / 直传子账号） */
+        /* 测试连接：分步展示（登录 / 身份 / 管理目录） */
         document.getElementById('nd-test')?.addEventListener('click', async () => {
           if (!ndTestResult) return;
           ndTestResult.textContent = '测试中…';
@@ -1835,21 +1744,15 @@ const siteCssUpdatedAtText =
             const d = (await res.json().catch(() => ({}))) as {
               error?: string;
               hasAdminPassword?: boolean;
-              hasUploaderPassword?: boolean;
-              smallFileMaxBytes?: number;
-              maxFileBytes?: number;
             };
             if (!res.ok) throw new Error(d.error ?? '保存失败');
             ndCfg = {
               ...ndCfg,
               adminUsername: ndAdminUser?.value.trim() ?? '',
-              uploaderUsername: ndUploaderUser?.value.trim() ?? '',
               hasAdminPassword: d.hasAdminPassword ?? ndCfg.hasAdminPassword,
-              hasUploaderPassword: d.hasUploaderPassword ?? ndCfg.hasUploaderPassword,
             };
             setNdErr('');
             if (ndAdminPass) ndAdminPass.value = '';
-            if (ndUploaderPass) ndUploaderPass.value = '';
             applyNdPlaceholders();
             if (ndHint) {
               ndHint.textContent = '已保存并应用';
