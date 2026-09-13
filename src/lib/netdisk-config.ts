@@ -39,8 +39,13 @@ export interface NetdiskConfig {
   /** 大文件暂存目录（AList Local 驱动挂载点，先落本地再跨存储复制） */
   stagingDir: string;
   /**
-   * 分流阈值（字节）：≤ 阈值经本站 Vercel 函数转发，> 阈值走浏览器直传。
-   * 默认 4MB —— Vercel 请求体硬上限 4.5MB，留出 multipart 边界开销。
+   * 分流阈值（字节）：**0 = 全部走浏览器直传**；非 0 时 ≤ 阈值经本站函数转发，
+   * > 阈值走直传。
+   *
+   * 默认 0（全部直传）：本站部署在 Vercel（美区），经函数转发意味着文件正文要
+   * 两次横跨太平洋（浏览器→Vercel→Cloudflare 隧道→本机 AList），实测 2MB 需 72 秒；
+   * 而直传只需「浏览器→Cloudflare→本机 AList」，同一文件 1.3 秒。
+   * 仅当直传不可用（未配受限子账号）时才回落到函数转发。
    */
   smallFileMaxBytes: number;
   /** 单文件上限（字节）。蓝奏云标准版 100MB，优享版 500MB */
@@ -58,7 +63,8 @@ export const DEFAULT_NETDISK: NetdiskConfig = {
   managePath: '/',
   targetDir: '/',
   stagingDir: '/local/_netdisk_staging',
-  smallFileMaxBytes: 4 * 1024 * 1024,
+  /** 0 = 全部走浏览器直传（绕开 Vercel 中转，见字段注释） */
+  smallFileMaxBytes: 0,
   maxFileBytes: 100 * 1024 * 1024,
 };
 
@@ -74,11 +80,11 @@ function cleanText(v: unknown, maxLen: number): string {
   return v.trim().slice(0, maxLen);
 }
 
-/** 字节数清洗：非法/越界回落原值，下限 1KB、上限 1GB */
-function cleanBytes(v: unknown, base: number): number {
+/** 字节数清洗：非法/越界回落原值，上限 1GB；下限默认 1KB（传 0 可允许「全部直传」语义） */
+function cleanBytes(v: unknown, base: number, minBytes = 1024): number {
   const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) return base;
-  return Math.min(Math.max(Math.floor(n), 1024), 1024 * 1024 * 1024);
+  if (!Number.isFinite(n) || n < 0) return base;
+  return Math.min(Math.max(Math.floor(n), minBytes), 1024 * 1024 * 1024);
 }
 
 /** AList 路径规范化：确保以 / 开头、无重复斜杠、去尾部斜杠（根除外） */
@@ -109,7 +115,8 @@ function normalizeConfig(input: Partial<NetdiskConfig>, base: NetdiskConfig): Ne
     managePath: normalizeAlistPath(cleanText(input.managePath, 500) || base.managePath),
     targetDir: normalizeAlistPath(cleanText(input.targetDir, 500) || base.targetDir),
     stagingDir: normalizeAlistPath(cleanText(input.stagingDir, 500) || base.stagingDir),
-    smallFileMaxBytes: cleanBytes(input.smallFileMaxBytes, base.smallFileMaxBytes),
+    // 阈值下限允许 0（0 = 全部走浏览器直传，见 smallFileMaxBytes 注释）
+    smallFileMaxBytes: cleanBytes(input.smallFileMaxBytes, base.smallFileMaxBytes, 0),
     maxFileBytes: cleanBytes(input.maxFileBytes, base.maxFileBytes),
   };
 }

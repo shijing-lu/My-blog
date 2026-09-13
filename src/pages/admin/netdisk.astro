@@ -113,11 +113,15 @@ const boot = {
     <details class="mt-6 rounded-md border border-border px-4 py-3 text-xs text-muted-foreground">
       <summary class="cursor-pointer font-medium text-foreground">使用说明与限制</summary>
       <ul class="mt-2 list-disc space-y-1 pl-4">
-        <li>小文件（≤ {Math.round((cfg.smallFileMaxBytes / 1024 / 1024) * 10) / 10}MB）经本站服务器上传；更大的文件由浏览器直传中转层，不占本站带宽。</li>
+        <li>
+          {cfg.smallFileMaxBytes > 0
+            ? `小文件（≤ ${Math.round((cfg.smallFileMaxBytes / 1024 / 1024) * 10) / 10}MB）经本站服务器上传，更大的文件由浏览器直传中转层。`
+            : '所有文件均由浏览器直传中转层，不经本站服务器（最快）。'}
+        </li>
         <li>单文件上限 {Math.round(cfg.maxFileBytes / 1024 / 1024)}MB（蓝奏云标准版 100MB / 优享版 500MB，可在设置中调整）。</li>
         <li>下载走网盘直链（由 AList 提供），不经过本站服务器。</li>
         <li>本功能依赖你本机的 AList 常驻运行；中转服务离线时此处会给出提示，不影响博客其他功能。</li>
-        <li>{directReady ? '大文件直传已就绪（已配置受限子账号）。' : '未配置受限子账号，大文件直传不可用（仅能上传小文件）。'}</li>
+        <li>{directReady ? '浏览器直传已就绪（已配置受限子账号）。' : '未配置受限子账号，直传不可用——上传将回落到本站服务器转发（慢）。'}</li>
       </ul>
     </details>
   </section>
@@ -148,7 +152,7 @@ const boot = {
       initialPath: '/',
       targetDir: '/',
       stagingDir: '',
-      smallFileMaxBytes: 4 * 1024 * 1024,
+      smallFileMaxBytes: 0,
       maxFileBytes: 100 * 1024 * 1024,
     };
     try {
@@ -290,8 +294,11 @@ const boot = {
       if (file.size > boot.maxFileBytes) {
         throw new Error(`${file.name}：${fmtSize(file.size)} 超过单文件上限 ${fmtSize(boot.maxFileBytes)}`);
       }
-      if (file.size <= boot.smallFileMaxBytes) {
-        // 小文件：经本站函数转发
+      // 分流：直传可用时优先直传（阈值 0 = 全部直传，绕开 Vercel 中转）；
+      // 仅当直传不可用（未配受限子账号）时才回落到本站函数转发。
+      const useDirect = boot.directReady && (boot.smallFileMaxBytes <= 0 || file.size > boot.smallFileMaxBytes);
+      if (!useDirect) {
+        // 本站函数转发（文件正文经 Vercel，跨太平洋，仅作兜底）
         const form = new FormData();
         form.append('file', file);
         if (boot.targetDir) form.append('dir', boot.targetDir);
@@ -300,7 +307,7 @@ const boot = {
         if (!res.ok || !d.ok) throw new Error(d.error ?? '上传失败');
         return;
       }
-      // 大文件：浏览器直传中转层（不经本站）
+      // 浏览器直传中转层（不经本站）
       const ticketRes = await fetch('/api/netdisk/upload-ticket', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -371,8 +378,9 @@ const boot = {
           mark(err instanceof Error ? err.message : '失败', 'text-destructive');
         }
       }
-      setStatus(`上传结束：成功 ${okCount} / ${files.length}`);
+      // 先刷新列表，再写汇总 —— 反过来的话 load() 会把结果覆盖成「共 N 项」
       await load(curPath, curPage, true);
+      setStatus(`上传结束：成功 ${okCount} / ${files.length}`);
       window.setTimeout(() => queueEl?.classList.add('hidden'), 4000);
     }
 

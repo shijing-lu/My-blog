@@ -30,6 +30,28 @@ function safeName(input: string): string | null {
   return name.length > 200 ? null : name;
 }
 
+/**
+ * 清理暂存文件（带重试）
+ *
+ * 浏览器直传刚结束时文件可能尚未在 AList 侧完全落定，此时删除会失败
+ * （实测：直传后立刻删 → 失败；等几十秒再删 → 成功）。故失败时退避重试。
+ */
+async function removeStagingWithRetry(
+  url: string,
+  token: string,
+  dir: string,
+  name: string,
+  attempts = 5,
+  gapMs = 1200,
+): Promise<boolean> {
+  for (let i = 0; i < attempts; i += 1) {
+    const r = await alistRemove(url, token, dir, [name]);
+    if (r.ok) return true;
+    if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, gapMs));
+  }
+  return false;
+}
+
 export const POST: APIRoute = async ({ request, cookies }) => {
   const denied = await guardManager(cookies);
   if (denied) return denied;
@@ -75,11 +97,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const taskIds = (copied.data?.tasks ?? []).map((t) => t?.id).filter((id): id is string => typeof id === 'string' && id !== '');
   const taskDone = await waitForCopyTasks(cfg.baseUrl, token, taskIds);
 
-  // 清理暂存：任务未结束就不删（留给下次或手动清理），避免删到正在复制的源文件
+  // 清理暂存：任务未结束就不删（留给下次或手动清理），避免删到正在复制的源文件；
+  // 任务结束后仍需重试 —— 直传刚结束时文件可能尚未完全落定。
   let cleaned = false;
   if (taskDone) {
-    const removed = await alistRemove(cfg.baseUrl, token, stagingDir, [fileName]);
-    cleaned = removed.ok;
+    cleaned = await removeStagingWithRetry(cfg.baseUrl, token, stagingDir, fileName);
   }
 
   return json({ ok: true, dstDir: targetDir, name: fileName, cleaned, taskPending: !taskDone });
