@@ -1,7 +1,7 @@
 /**
  * POST /api/netdisk/finish-upload —— 大文件转存收尾（管理员）
  *
- * 请求体：{ stagingPath: string, name?: string }
+ * 请求体：{ stagingPath: string, name?: string, targetDir?: string }
  * 返回：{ ok: true, dstDir, name, cleaned }
  *
  * 流程（大文件直传的后半段）：
@@ -56,7 +56,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const denied = await guardManager(cookies);
   if (denied) return denied;
 
-  const body = await readJson<{ stagingPath?: string; name?: string }>(request);
+  const body = await readJson<{ stagingPath?: string; name?: string; targetDir?: string }>(request);
   if (!body || typeof body.stagingPath !== 'string') return badJson();
 
   const cfg = await getNetdiskConfig();
@@ -75,8 +75,14 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     return json({ error: `暂存文件必须位于暂存目录 ${stagingDir} 内` }, 400);
   }
 
-  const targetDir = normalizeAlistPath(cfg.targetDir);
-  if (targetDir === '/') return json({ error: '请先在设置中指定上传落点目录' }, 400);
+  // 目标目录：优先用请求指定的（= 上传时用户正在浏览的目录），缺省回落到配置的上传落点
+  const requestedDir =
+    typeof body.targetDir === 'string' && body.targetDir.trim() ? normalizeAlistPath(body.targetDir) : '';
+  const targetDir = requestedDir || normalizeAlistPath(cfg.targetDir);
+  if (targetDir === '/') return json({ error: '上传目标目录不能为根目录（请先进入具体文件夹再上传）' }, 400);
+  if (targetDir === stagingDir || targetDir.startsWith(`${stagingDir}/`)) {
+    return json({ error: '上传目标不能是暂存目录（暂存目录仅作大文件中转）' }, 400);
+  }
 
   const tokenRes = await getAlistToken(cfg);
   if (!tokenRes.ok) return json({ error: tokenRes.message }, 502);

@@ -68,8 +68,8 @@ const boot = {
       </button>
       <div class="ml-auto flex items-center gap-2">
         <input id="nd-file" type="file" multiple class="hidden" />
-        <button type="button" id="nd-pick" class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90">
-          上传文件
+        <button type="button" id="nd-pick" title="上传到当前浏览的目录" class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90">
+          上传到当前目录
         </button>
       </div>
     </div>
@@ -79,6 +79,22 @@ const boot = {
 
     {/* 上传队列 */}
     <div id="nd-queue" class="mt-3 hidden space-y-1.5 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs"></div>
+
+    {/* 下载直链展示（复制地址用） */}
+    <div id="nd-link" class="mt-3 hidden flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs">
+      <span class="shrink-0 text-muted-foreground">下载直链</span>
+      <input
+        id="nd-link-url"
+        readonly
+        class="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 font-mono text-xs"
+        aria-label="下载直链"
+      />
+      <span class="shrink-0 text-muted-foreground/70">直链有时效，过期请重新获取</span>
+      <button type="button" id="nd-link-copy" class="shrink-0 rounded-md border border-border px-2 py-1 transition-colors hover:border-primary hover:text-primary">
+        复制
+      </button>
+      <button type="button" id="nd-link-close" class="shrink-0 rounded px-1 text-muted-foreground transition-colors hover:text-foreground" aria-label="关闭">×</button>
+    </div>
 
     {/* 状态与错误 */}
     <p id="nd-status" class="mt-3 text-xs text-muted-foreground" role="status"></p>
@@ -113,6 +129,7 @@ const boot = {
     <details class="mt-6 rounded-md border border-border px-4 py-3 text-xs text-muted-foreground">
       <summary class="cursor-pointer font-medium text-foreground">使用说明与限制</summary>
       <ul class="mt-2 list-disc space-y-1 pl-4">
+        <li>文件上传到<strong>当前浏览的目录</strong>——在哪个盘、哪个文件夹，就传到哪里。</li>
         <li>
           {cfg.smallFileMaxBytes > 0
             ? `小文件（≤ ${Math.round((cfg.smallFileMaxBytes / 1024 / 1024) * 10) / 10}MB）经本站服务器上传，更大的文件由浏览器直传中转层。`
@@ -166,6 +183,8 @@ const boot = {
     const crumbsEl = el('nd-crumbs');
     const statusEl = el('nd-status');
     const errorEl = el('nd-error');
+    const linkBox = el('nd-link');
+    const linkInput = el<HTMLInputElement>('nd-link-url');
     const queueEl = el('nd-queue');
     const pagerEl = el('nd-pager');
     const pageInfoEl = el('nd-page-info');
@@ -199,6 +218,17 @@ const boot = {
     };
     const esc = (s: string): string =>
       s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+
+    /** 展示下载直链并尝试复制到剪贴板 */
+    function showLink(url: string): void {
+      if (!linkBox || !linkInput) return;
+      linkInput.value = url;
+      linkBox.classList.remove('hidden');
+      linkBox.classList.add('flex');
+      linkInput.focus();
+      linkInput.select();
+      void navigator.clipboard?.writeText(url).catch(() => {});
+    }
 
     /** 面包屑渲染 */
     function renderCrumbs(path: string): void {
@@ -268,6 +298,7 @@ const boot = {
           const actions = it.is_dir
             ? `<button type="button" data-nd-del="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10">删除</button>`
             : `<button type="button" data-nd-dl="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-primary">下载</button>
+               <button type="button" data-nd-link="${esc(it.name)}" title="复制该文件的下载直链（有时效）" class="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-primary">复制地址</button>
                <button type="button" data-nd-del="${esc(it.name)}" class="rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10">删除</button>`;
           return `<tr class="border-t border-border hover:bg-muted/20">
             <td class="max-w-0 px-3 py-2">${nameCell}</td>
@@ -290,7 +321,7 @@ const boot = {
     }
 
     /* ---------- 上传：按大小分流 ---------- */
-    async function uploadOne(file: File): Promise<void> {
+    async function uploadOne(file: File, dir: string): Promise<void> {
       if (file.size > boot.maxFileBytes) {
         throw new Error(`${file.name}：${fmtSize(file.size)} 超过单文件上限 ${fmtSize(boot.maxFileBytes)}`);
       }
@@ -301,7 +332,7 @@ const boot = {
         // 本站函数转发（文件正文经 Vercel，跨太平洋，仅作兜底）
         const form = new FormData();
         form.append('file', file);
-        if (boot.targetDir) form.append('dir', boot.targetDir);
+        if (dir) form.append('dir', dir);
         const res = await fetch('/api/netdisk/upload', { method: 'POST', body: form });
         const d = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string };
         if (!res.ok || !d.ok) throw new Error(d.error ?? '上传失败');
@@ -342,7 +373,7 @@ const boot = {
       const finishRes = await fetch('/api/netdisk/finish-upload', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ stagingPath: ticket.stagingPath ?? ticket.filePath, name: file.name }),
+        body: JSON.stringify({ stagingPath: ticket.stagingPath ?? ticket.filePath, name: file.name, targetDir: dir }),
       });
       const fin = (await finishRes.json().catch(() => ({}))) as { ok?: boolean; error?: string; taskPending?: boolean };
       if (!finishRes.ok || !fin.ok) throw new Error(fin.error ?? '转存失败（文件已上传到暂存区）');
@@ -371,7 +402,7 @@ const boot = {
         };
         mark('上传中…', 'text-amber-600');
         try {
-          await uploadOne(f);
+          await uploadOne(f, curPath);
           mark('完成', 'text-emerald-600');
           okCount += 1;
         } catch (err) {
@@ -430,6 +461,49 @@ const boot = {
         } catch (err) {
           setError(err instanceof Error ? err.message : '创建失败');
         }
+        return;
+      }
+
+      const linkBtn = t.closest<HTMLElement>('[data-nd-link]');
+      if (linkBtn) {
+        setError('');
+        const name = linkBtn.dataset.ndLink ?? '';
+        setStatus('获取下载直链…');
+        try {
+          const res = await fetch('/api/netdisk/download', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path: `${curPath.replace(/\/$/, '')}/${name}` }),
+          });
+          const d = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
+          if (!res.ok || !d.ok || !d.url) throw new Error(d.error ?? '获取直链失败');
+          showLink(d.url);
+          setStatus(`已获取 ${name} 的下载直链`);
+        } catch (err) {
+          setStatus('');
+          setError(err instanceof Error ? err.message : '获取直链失败');
+        }
+        return;
+      }
+
+      if (t.closest('#nd-link-copy')) {
+        const input = el<HTMLInputElement>('nd-link-url');
+        const url = input?.value ?? '';
+        if (!url) return;
+        try {
+          await navigator.clipboard.writeText(url);
+          setStatus('直链已复制到剪贴板');
+        } catch {
+          input?.select();
+          setStatus('复制失败，已全选内容，请按 Ctrl+C');
+        }
+        return;
+      }
+
+      if (t.closest('#nd-link-close')) {
+        linkBox?.classList.add('hidden');
+        linkBox?.classList.remove('flex');
+        setStatus('');
         return;
       }
 

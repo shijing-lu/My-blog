@@ -71,6 +71,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     typeof dirRaw === 'string' && dirRaw.trim() && !dirRaw.includes('..')
       ? normalizeAlistPath(dirRaw)
       : normalizeAlistPath(cfg.targetDir);
+  // 暂存目录只作大文件中转，不允许作为直接上传落点（否则文件会留在暂存区不被转存）
+  const stagingDir = normalizeAlistPath(cfg.stagingDir);
+  if (stagingDir !== '/' && (dir === stagingDir || dir.startsWith(`${stagingDir}/`))) {
+    return json({ error: '上传目标不能是暂存目录（暂存目录仅作大文件中转）' }, 400);
+  }
   const filename = sanitizeFileName(file.name);
 
   const tokenRes = await getAlistToken(cfg);
