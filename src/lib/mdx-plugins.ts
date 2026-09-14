@@ -868,10 +868,77 @@ export const remarkPlugins = [
 ];
 
 /**
- * rehype 插件数组：slug → autolink → katex（LaTeX 公式，纯 CSS 渲染无需客户端 JS）
+ * 数学区哨兵（须与 src/lib/mdx.ts 的 MATH_EQ 一致）：
+ * 源码层把数学内容里的 `=` 编码成它，使 `==` 不再被 mark 正则识别；
+ * 本文件在 `rehypeKatex` 之前还原为 `=`。
+ */
+const MATH_EQ = '\uE005';
+
+/** 还原数学区哨兵为 `=`（缺哨兵时零拷贝返回） */
+function decodeMathEq(value: string): string {
+  return value.includes(MATH_EQ) ? value.split(MATH_EQ).join('=') : value;
+}
+
+/**
+ * rehypeDecodeMathEq —— 在 `rehypeKatex` **之前**还原数学区哨兵。
+ *
+ * ## 背景
+ * 源码层 `normalizeMathFences`（src/lib/mdx.ts）把数学区内的 `=` 编成 MATH_EQ，
+ * 防止 `SOURCE_MARK_SUFFIX_RE` 把公式里的 `==…=={.tip}` 误当荧光高亮编码
+ * （2026-09-13 用户报障：公式被静默污染成 `==…==␀tip␀`）。本插件是这条链路的
+ * 对端：把哨兵换回 `=` 再交给 KaTeX，保证公式内容与作者原稿一致。
+ *
+ * ## 只下钻数学节点
+ * remark-math + remark-rehype 产出的数学元素 class 含 `math-inline` / `math-display`
+ * （与 `rehype-katex` 的识别口径一致，见其 index.js 的 class 判定），本插件只在这些
+ * 子树里还原哨兵——数学元素之外出现的哨兵不属于本机制，一律不动。
+ * 不复用 `decodeSentinel`：它把 SENT 还原为**空串**（mark 定界符语义），语义不同。
+ */
+export function rehypeDecodeMathEq() {
+  return (tree: HastRoot) => {
+    interface MathWalkNode {
+      type?: string;
+      value?: string;
+      tagName?: string;
+      properties?: Record<string, unknown>;
+      children?: ElementContent[];
+    }
+
+    /** 递归还原子树内所有文本节点的哨兵 */
+    const decodeSubtree = (node: MathWalkNode): void => {
+      if (!Array.isArray(node.children)) return;
+      for (const child of node.children) {
+        const c = child as unknown as MathWalkNode;
+        if (c.type === 'text') {
+          if (typeof c.value === 'string') c.value = decodeMathEq(c.value);
+          continue;
+        }
+        decodeSubtree(c);
+      }
+    };
+
+    const walk = (node: MathWalkNode): void => {
+      if (node.type === 'element') {
+        const cls = classListOf(node as unknown as Element);
+        if (cls.includes('math-inline') || cls.includes('math-display')) {
+          decodeSubtree(node);
+          return;
+        }
+      }
+      if (!Array.isArray(node.children)) return;
+      for (const child of node.children) walk(child as unknown as MathWalkNode);
+    };
+
+    walk(tree as unknown as MathWalkNode);
+  };
+}
+
+/**
+ * rehype 插件数组：slug → autolink → 数学哨兵还原 → katex（LaTeX 公式，纯 CSS 渲染无需客户端 JS）
  * → prism（行号）→ 荧光高亮 → 块锚点（思维导图引用）
  *
  * 顺序说明：
+ * - `rehypeDecodeMathEq` 在 `rehypeKatex` **之前**：KaTeX 依赖干净 TeX（哨兵必须已还原）；
  * - `rehypeMark` 在 `rehypeKatex` **之后**：KaTeX 已渲染完公式，插件跳过 `.katex` 子树；
  * - `rehypeMark` 在 `rehypeBlockAnchors` **之后**：块锚点先给块级元素挂 id，
  *   高亮只改行内内容，不影响块级结构（顺序其实无关，但保持「结构先定、内容后改」）。
@@ -879,6 +946,8 @@ export const remarkPlugins = [
 export const rehypePlugins = [
   rehypeSlug,
   rehypeAutolinkHeadings,
+  // 数学区哨兵 `=` 还原（必须紧邻 kaTeX 之前，见 rehypeDecodeMathEq 注释）
+  rehypeDecodeMathEq,
   [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
   // 表格 cell 内 remark-math 不激活 → 二次扫描 cell text 节点中 $…$ 段用 KaTeX 渲染
   rehypeTableMath,

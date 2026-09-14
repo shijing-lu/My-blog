@@ -1,0 +1,35 @@
+# electron-builder 配置（Windows NSIS）
+# 用法：pnpm exec electron-builder --win nsis --config desktop-builder.yml
+appId: online.byqx.blog.desktop
+productName: 白衣卿相
+copyright: © 2026 白衣卿相
+
+# v1 不用 asar：Astro Node standalone 产物（含原生模块路径解析）直接以平铺文件分发，最稳妥
+asar: false
+
+directories:
+  output: release
+  buildResources: build
+
+# 应用内容：Astro 双产物（client/server）+ 桌面壳 + 清单（node_modules 生产依赖由 builder 自动收集）
+files:
+  - dist/**
+  - desktop/**
+  - package.json
+
+# 本地库模板与托盘图标：安装到资源目录（与 main.mjs 的 resourcesPath 读取一致）
+extraResources:
+  - from: desktop/assets
+    to: desktop-assets
+
+win:
+  target:
+    - nsis
+  # v1 不签名：首次运行需在 SmartScreen 点「仍要运行」
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 白衣卿相

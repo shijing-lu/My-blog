@@ -38,6 +38,8 @@ const API = (cfg.api || 'http://127.0.0.1:5244').replace(/\/+$/, '');
 const STAGING = (cfg.stagingDir || '/local/_netdisk_staging').replace(/\/+$/, '');
 const TASKS_DIR = `${STAGING}/_merge`;
 const POLL_MS = cfg.pollMs ?? 3000;
+/** 结果文件保留时长：网站通常几分钟内就读走，留 1 小时足够 */
+const RESULT_TTL_MS = 60 * 60 * 1000;
 
 let token = null;
 let tokenAt = 0;
@@ -70,10 +72,15 @@ async function getToken() {
 
 const authJson = async (body) => ({ method: 'POST', headers: { 'content-type': 'application/json', authorization: await getToken() }, body: JSON.stringify(body) });
 
-/** 列目录 → name 列表 */
+/** 列目录 → 精简条目列表（`modified` 务必带上：结果文件的过期清理依赖它） */
 async function listNames(path) {
   const d = await api('/api/fs/list', await authJson({ path, page: 1, per_page: 0, refresh: true }));
-  return (d?.content ?? []).map((x) => ({ name: x.name, size: x.size, is_dir: x.is_dir }));
+  return (d?.content ?? []).map((x) => ({
+    name: x.name,
+    size: x.size,
+    is_dir: x.is_dir,
+    modified: x.modified,
+  }));
 }
 
 /** 读暂存区里的小文本文件（任务/进度） */
@@ -196,7 +203,11 @@ async function tick() {
     const items = await listNames(TASKS_DIR);
     // 垃圾清理：结果文件写入 1 小时后删除（网站通常几分钟内就读走了）
     for (const it of items) {
-      if (it.name.endsWith('.result.json') && Date.now() - new Date(it.modified).getTime() > 60 * 60 * 1000) {
+      if (!it.name.endsWith('.result.json')) continue;
+      const writtenAt = Date.parse(it.modified ?? '');
+      // 取不到时间戳时宁可不删：`new Date(undefined).getTime()` 是 NaN，
+      // 任何比较都返回 false，会让结果文件永久堆积
+      if (Number.isFinite(writtenAt) && Date.now() - writtenAt > RESULT_TTL_MS) {
         await removeNames(TASKS_DIR, [it.name]).catch(() => {});
       }
     }

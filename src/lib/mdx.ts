@@ -21,7 +21,7 @@ import rehypeSlug from 'rehype-slug';
 import rehypeKatex from 'rehype-katex';
 import rehypeStringify from 'rehype-stringify';
 import rehypeParse from 'rehype-parse';
-import { remarkFixGfmAutolink, remarkPlugins, rehypePlugins, rehypeTocCollector, type TocItem, type BlockAnchorMap, type BlockAnchorItem } from './mdx-plugins';
+import { remarkFixGfmAutolink, remarkPlugins, rehypePlugins, rehypeDecodeMathEq, rehypeTocCollector, type TocItem, type BlockAnchorMap, type BlockAnchorItem } from './mdx-plugins';
 import { mdxComponents, type MDXComponentMap } from '@/components/mdx/registry';
 
 /** 渲染选项 */
@@ -186,7 +186,9 @@ export function normalizeMathFences(source: string): string {
     if (t.includes('`')) {
       out.push(
         mapOutsideInlineCode(t, (chunk) =>
-          inDisplayMath ? escapeBareLt(chunk) : escapeBareBraces(escapeBareLt(chunk)),
+          inDisplayMath
+            ? encodeMathEq(escapeBareLt(chunk), true)
+            : encodeMathEq(escapeBareBraces(escapeBareLt(chunk))),
         ),
       );
       continue;
@@ -248,7 +250,13 @@ export function normalizeMathFences(source: string): string {
       // 只做 `<` 安全化，**绝不能转义花括号**（`\frac{n}{2}` 的 `{` 是 KaTeX 参数边界，
       // 转义后变字面 `{n}{2}` 甚至 `Mismatch` 报错）。
       // 仅在数学区**外**才走 escapeBareBraces 转义裸花括号（防 acorn 崩）。
-      out.push(inDisplayMath ? escapeBareLt(t) : escapeBareBraces(escapeBareLt(t)));
+      // 两条分支都追加 encodeMathEq：数学区内的 `=` 换成哨兵，使 `==` 不再被
+      // mark 正则识别（修复「公式里写荧光高亮 → 公式被静默污染」，见 MATH_EQ 注释）。
+      out.push(
+        inDisplayMath
+          ? encodeMathEq(escapeBareLt(t), true)
+          : encodeMathEq(escapeBareBraces(escapeBareLt(t))),
+      );
     } else if (segs.length === 1 && segs[0]?.text === '$$' && /^\s*\$\$\s*$/.test(content)) {
       out.push(t); // 已是标准独立 fence 行：保持原样（含缩进/尾空格）
     } else {
@@ -258,8 +266,14 @@ export function normalizeMathFences(source: string): string {
       //    转义后 KaTeX 会输出字面 `{n}{2}`（实测回归）。
       //    非数学段（isMath=false）的花括号落在数学区外 → 必须转义，
       //    否则暴露给 MDX 表达式解析 → acorn「Could not parse expression」。
+      //    两段都追加 encodeMathEq（数学段整段、非数学段按其内部 `$…$` 判定）。
       for (const s of segs) {
-        out.push(prefix + (s.isMath ? escapeBareLt(s.text) : escapeBareBraces(escapeBareLt(s.text))));
+        out.push(
+          prefix +
+            (s.isMath
+              ? encodeMathEq(escapeBareLt(s.text), true)
+              : encodeMathEq(escapeBareBraces(escapeBareLt(s.text)))),
+        );
       }
     }
     // 本行出现过 `$$` → 把行内扫描结果带到下一行（跨行 display 数学状态）。
@@ -443,6 +457,72 @@ function escapeBareBraces(line: string): string {
       continue;
     }
     out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * 数学区专用哨兵：把数学内容里的 `=` 换成它，阻止源码层误识别 mark（荧光）语法。
+ *
+ * ## 为什么需要（2026-09-13 用户报障：文档公式里写 `==…=={.tip}`）
+ *
+ * `encodeMarkSyntax` 的后缀正则 `SOURCE_MARK_SUFFIX_RE` 只跳过代码区、
+ * **不认数学区**。于是 `$$… = ==\frac{7}{15}=={.tip}$$` 里的 `==…=={.tip}` 被当高亮
+ * 编码成 `==…==␀tip␀`（花括号被吃掉、哨兵字符进入数学内容）：该内容随后被
+ * `remarkMath` 当公式解析，`rehypeKatex`（`throwOnError:false`）**不报错**地渲染出
+ * 字面 `.tip` 与不可见哨兵；而 `rehypeMark` 跳过 `.katex` 子树，哨兵永无机会还原
+ * → 公式被静默污染（不崩、不红字，但内容错）。
+ *
+ * ## 解法
+ *
+ * 在本文件 `normalizeMathFences`（项目里**唯一**的数学区识别器）中，把数学区内的
+ * `=` 全部替换为本哨兵 —— `==` 被打散，三条 mark 正则（后缀 / 冒号前缀 / 花括号前缀）
+ * 都不再命中；哨兵在 `rehypeKatex` **之前**由 `rehypeDecodeMathEq`
+ * （src/lib/mdx-plugins.ts）原样还原为 `=`，公式渲染不受影响。
+ *
+ * ⚠️ 码位：SENT(U+E000) / SENT2(U+E001) / 折叠哨兵(U+E002) / 选项卡哨兵(U+E003、U+E004)
+ * 已占用，本哨兵取 **U+E005**。
+ * ⚠️ 不能用 `decodeSentinel` 解码：它把 SENT 还原为**空串**（mark 定界符语义），
+ * 与本哨兵「还原为 `=`」的语义不同，必须单独处理。
+ * ⚠️ 花括号无需哨兵保护：数学区内的裸 `{` / `}` 本就安全（见 `escapeBareBraces` 注释：
+ * 它刻意只在数学区**外**转义），且 KaTeX 需要原样花括号作参数边界。
+ */
+const MATH_EQ = '\uE005';
+
+/**
+ * 行内/整行数学区：把 `=` 替换为 MATH_EQ（`normalizeMathFences` 的三条数学路径共用）。
+ *
+ * 扫描规则与 `escapeBareBraces` **逐条对齐**（两套扫描对「哪里是数学区」必须同源，
+ * 否则一处认为在数学内、另一处认为在数学外，就会出现半转义状态）：
+ * - `\X` 转义序列原样保留（含 `\$`，不翻转数学状态）；
+ * - `$$` 连续双美元相互抵消，不翻转状态（避免被误判为「开/闭」）；
+ * - 单个 `$` 翻转行内数学状态；
+ * - `inDisplayMath=true`（调用方已确认整行/整段处于 display 数学内，如 `$$` 拆行后的
+ *   公式内容行）时，从行首即视为数学区。
+ */
+function encodeMathEq(line: string, inDisplayMath = false): string {
+  let out = '';
+  let inMath = inDisplayMath;
+  for (let i = 0; i < line.length; ) {
+    const ch = line[i];
+    if (ch === '\\' && i + 1 < line.length) {
+      out += ch + line[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === '$' && line[i + 1] === '$') {
+      out += '$$';
+      i += 2;
+      continue;
+    }
+    if (ch === '$') {
+      inMath = !inMath;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    out += inMath && ch === '=' ? MATH_EQ : ch;
     i += 1;
   }
   return out;
@@ -1110,6 +1190,11 @@ export async function extractToc(source: string): Promise<TocItem[]> {
     .use(remarkMath)
     .use(remarkRehype)
     .use(rehypeSlug)
+    // ⚠️ 本管线拿到的 source 是**已归一化**的（renderMdx 传入 normalizeSource 结果，
+    //    见 extractToc(normalized)），因此数学区里的 `=` 已变成 MATH_EQ 哨兵——
+    //    必须与主插件链一样在 KaTeX 之前还原，否则标题里的公式会渲染成
+    //    `katex-error: Unexpected character`（2026-09-14 实测回归）。
+    .use(rehypeDecodeMathEq)
     .use(rehypeKatex)
     .use(rehypeTocCollector)
     .use(rehypeStringify)

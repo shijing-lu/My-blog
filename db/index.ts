@@ -14,8 +14,6 @@
  * - 断路器纯逻辑见 `./breaker.ts`（可单测）；本文件负责端点装配与 drizzle 包装。
  */
 
-import Database from 'better-sqlite3';
-import { drizzle as drizzleBetterSqlite } from 'drizzle-orm/better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import postgres from 'postgres';
 import { drizzle as drizzlePostgresJs } from 'drizzle-orm/postgres-js';
@@ -23,6 +21,22 @@ import * as sqliteSchema from './schema.sqlite';
 import * as pgSchema from './schema.pg';
 import { isPostgres, isPostgresUrl, readDatabaseUrl, readFallbackDatabaseUrl } from './dialect';
 import { createCircuitBreaker, guardSql, type CircuitBreaker } from './breaker';
+import { createRequire } from 'node:module';
+
+/**
+ * better-sqlite3（原生 .node 模块）**惰性 require**：
+ * - 旧写法是顶层静态 import —— 在 Electron 桌面端（PG 方言，永不触达 sqlite 分支）
+ *   里也会在模块加载时执行，导致 Node-ABI 原生模块被 Electron 拒载而整包启动失败；
+ * - 改为「sqlite 分支内按需同步 require」：语义与静态 import 完全一致（同步、单例加载），
+ *   但桌面端（PG）路径**永不加载**该模块；Vercel 生产（PG）同理。
+ * - ⚠️ 用变量间接引用（`req(SQLITE_PKG)`）而非字面量参数：避免打包器（Vite/Rollup）
+ *   静态分析后把原生模块内联进 bundle —— 原生 .node 必须保持运行时按路径加载。
+ * - ⚠️ 新增哨兵/原生模块处理时同步阅读 mdx-plugins.ts 的哨兵码位表，避免踩同类坑。
+ */
+const requireHere = createRequire(import.meta.url);
+const SQLITE_PKG = 'better-sqlite3';
+const SQLITE_DRIZZLE_PKG = 'drizzle-orm/better-sqlite3';
+let betterSqlite3Ctor: (typeof import('better-sqlite3'))['default'] | null = null;
 
 /** 对外统一数据库句柄类型（以 sqlite schema 为准，两方言形状一致） */
 export type BlogDb = BetterSQLite3Database<typeof sqliteSchema>;
@@ -66,9 +80,11 @@ function createDrizzle(ep: DbEndpoint, index: number): BlogDb {
     return drizzlePostgresJs(guarded, { schema: pgSchema }) as unknown as BlogDb;
   }
   const file = ep.url.startsWith('file:') ? ep.url.slice('file:'.length) : ep.url;
-  const client = new Database(file);
+  if (!betterSqlite3Ctor) betterSqlite3Ctor = requireHere(SQLITE_PKG);
+  const client = new betterSqlite3Ctor(file);
   client.pragma('journal_mode = WAL');
-  return drizzleBetterSqlite(client, { schema: sqliteSchema });
+  const { drizzle: drizzleBetterSqlite } = requireHere(SQLITE_DRIZZLE_PKG);
+  return drizzleBetterSqlite(client, { schema: sqliteSchema }) as unknown as BlogDb;
 }
 
 /** 获取当前健康端点的 drizzle 句柄（惰性创建；每次查询取用时动态选择端点） */

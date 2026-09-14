@@ -35,3 +35,7 @@ scripts/_diag-*.png
 .vercel
 .env*
 .diag/
+
+# 桌面端打包产物
+release/
+desktop/assets/template.db

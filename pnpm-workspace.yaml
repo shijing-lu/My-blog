@@ -4,12 +4,16 @@
 packages:
   - "."
 
-# 允许执行构建脚本的依赖（原生模块：better-sqlite3 需预编译二进制，esbuild 需平台二进制）
+# 允许执行构建脚本的依赖（原生模块：better-sqlite3 需预编译二进制，esbuild 需平台二进制；
+# electron 的 postinstall 负责下载平台二进制——桌面端打包依赖）
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
+  - electron
+  - electron-winstaller
 allowBuilds:
   better-sqlite3: true
+  electron-winstaller: set this to true or false
   esbuild: true
 
 # 强制所有包引用同一 version 的 unified（避免 11.0.0 / 11.0.5 两个副本导致类型不兼容）

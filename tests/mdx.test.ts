@@ -1071,6 +1071,89 @@ describe('跨行 display 数学（全块花括号保留）', () => {
 });
 
 
+/**
+ * 数学区与荧光高亮的边界
+ *
+ * 2026-09-13 用户报障：文档公式里写 `==\frac{7}{15}=={.tip}`（高亮在 `$$…$$` **内部**），
+ * 渲染不报错但公式被静默污染——花括号被 SOURCE_MARK_SUFFIX_RE 编码成哨兵、
+ * 哨兵进入 KaTeX 且永不还原（rehypeMark 跳过 .katex 子树），公式里多出字面 `.tip`
+ * 与不可见私有区字符。
+ *
+ * 修复：normalizeMathFences 把数学区内的 `=` 编成 MATH_EQ（U+E005）打散 `==`，
+ * 使其不再被三条 mark 正则命中；哨兵由 rehypeDecodeMathEq 在 KaTeX 之前还原。
+ * ⚠️ 反向写法（高亮包数学 `==$…$=={.tip}`）必须继续可用 —— 单独用例回归。
+ */
+describe('数学区与荧光高亮的边界', () => {
+  /** 私有区哨兵全家（SENT/SENT2/折叠/选项卡/MATH_EQ）：渲染产物里一个都不该出现 */
+  const SENTINELS = /[\uE000-\uE005]/;
+
+  /** 抽取 KaTeX 的 TeX 源码（annotation 原文）——即真正喂给 KaTeX 的内容 */
+  async function texOf(src: string): Promise<string> {
+    const { html } = await renderMdx(src);
+    return [...html.matchAll(/<annotation encoding="application\/x-tex">([^<]*)<\/annotation>/g)]
+      .map((m) => m[1])
+      .join('\n');
+  }
+
+  it('块级公式内的 ==…=={.tip}：不崩、无哨兵残留、公式内不产生高亮', async () => {
+    const src = '> $$k_1 = C_8^3 = 56 \\quad\\Longrightarrow\\quad P(A_1) = \\frac{56}{120} = ==\\frac{7}{15}=={.tip}$$';
+    const { html } = await renderMdx(src);
+    expect(html).not.toContain('katex-error');
+    expect(html).not.toMatch(SENTINELS);
+    expect(html).not.toContain('<mark');
+    // 数学区原样交给 KaTeX：annotation 里仍是作者原文（含字面 == 与 {.tip}）
+    expect(await texOf(src)).toContain('==\\frac{7}{15}=={.tip}');
+  });
+
+  it('行内公式内的 ==：同样不被当高亮、无哨兵残留', async () => {
+    const src = '推导：$a == b$ 成立。';
+    const { html } = await renderMdx(src);
+    expect(html).not.toContain('katex-error');
+    expect(html).not.toMatch(SENTINELS);
+    expect(html).not.toContain('<mark');
+    expect(await texOf(src)).toContain('a == b');
+  });
+
+  it('跨行 display 数学内的 == 不触发高亮编码', async () => {
+    const src = ['$$', 'x = y == z', '$$'].join('\n');
+    const { html } = await renderMdx(src);
+    expect(html).not.toMatch(SENTINELS);
+    expect(html).not.toContain('<mark');
+    expect(await texOf(src)).toContain('x = y == z');
+  });
+
+  it('回归：高亮包数学 ==$…$=={.tip} 仍正常，且公式里的 = 原样往返', async () => {
+    const src = '即 ==$|A| = 0$=={.tip} 时无逆。';
+    const { html } = await renderMdx(src);
+    expect(html).toContain('mark-tip');
+    expect(html).toContain('class="katex"');
+    expect(html).not.toMatch(SENTINELS);
+    // 哨兵必须已还原：annotation 里是 `|A| = 0` 而非被改写的内容
+    expect(await texOf(src)).toContain('|A| = 0');
+  });
+
+  it('数学区的 = 与花括号不受影响（防回退 2026-09-12 行列式事故）', async () => {
+    const src = '$$D_n = \\begin{vmatrix} a_{11} & a_{12} \\\\ a_{21} & a_{22} \\end{vmatrix}$$';
+    const { html } = await renderMdx(src);
+    expect(html).not.toContain('katex-error');
+    expect(html).not.toMatch(SENTINELS);
+    const tex = await texOf(src);
+    expect(tex).toContain('a_{11}');
+    expect(tex).not.toContain('\\{');
+  });
+
+  it('源码层：normalizeMathFences 把数学区的 = 编成哨兵（== 被打散），数学区外不受影响', () => {
+    // 数学区内的 `==` 必须消失（否则后续会被 mark 正则命中）
+    expect(normalizeMathFences('$$x == y$$')).not.toContain('==');
+    // 行内数学同样处理
+    expect(normalizeMathFences('见 $a == b$ 处')).not.toContain('==');
+    // 数学区外：mark 定界符 `==…==` 原样保留（花括号会由 escapeBareBraces 转义成
+    // `\{…\}`，那是防 acorn 的既有兜底，此处只断言定界符未被当作数学区处理）
+    expect(normalizeMathFences('==文本=={.tip}')).toContain('==文本==');
+    expect(normalizeMathFences('==文本=={.tip}')).not.toContain('==文本=={');
+  });
+});
+
 describe('渲染缓存（normalizeSource / invalidateRenderCache）', () => {
   it('normalizeSource 稳定：同输入必得同输出', () => {
     const src = ':::tabs#pkg\n\n@tab npm\n\n正文 ==高亮=={.tip}\n\n:::\n\n$$\\frac{n}{2}$$\n';
