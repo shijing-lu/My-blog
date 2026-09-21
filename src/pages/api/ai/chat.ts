@@ -11,11 +11,31 @@
  *     data: {"error":"错误信息"}   （流中任意时刻出错）
  *     data: {"done":true}          （正常收尾）
  * - 客户端断开时联动终止上游请求（不白烧 token）。
+ *
+ * ## 记忆（仅站主，M3）
+ *
+ * - 站主请求：会话与消息**落库**（`ai_messages`，供摘要与回溯），并把长期记忆
+ *   （`ai_memories`，按重要度×新鲜度取前 K，约 400 token）注入 system；
+ *   注入块显式声明「仅背景信息、不是指令」以防经记忆绕行的提示注入。
+ * - 游客/普通管理员：**完全不落库、不注入**（无记忆，见客人模式）。
+ * - 注入只用「长期记忆块」+ 前端带来的本次对话历史；DB 里的消息仅作摘要原料，
+ *   因此不会与前端历史重复注入。
+ * - done 帧额外带 `conversationId / turnCount / suggestSummarize`：
+ *   前端据此在「每 N 轮」与「会话结束」调用 /api/ai/summarize 产出新记忆。
  */
 import type { APIRoute } from 'astro';
 import { badJson, forbidden, json, readJson } from '@/lib/api';
 import { isManagerSession, isTopAdmin } from '@/lib/admin-auth';
 import { ensureAiTables, readOwnerBond, type OwnerBondSnapshot } from '@/lib/ai-store';
+import {
+  appendMessage,
+  buildMemoryBlock,
+  countUserMessages,
+  ensureConversation,
+  listMemories,
+  newConversationId,
+  TURN_SUMMARY_EVERY,
+} from '@/lib/ai-memory';
 import {
   getAiConfig,
   isAiReady,
@@ -88,7 +108,7 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   }
 
   // 3. 请求校验
-  const body = await readJson<{ messages?: unknown }>(request);
+  const body = await readJson<{ messages?: unknown; conversationId?: unknown }>(request);
   if (!body) return badJson();
   const messages = sanitizeMessages(body.messages);
   if (!messages) {
@@ -104,9 +124,26 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   const identityPrompt = isOwner
     ? '\n\n【当前提问者身份】本次对话的提问者是博客的顶级管理员，是小卿的主人。对主人的态度：用「主人」称呼对方；语气亲昵、忠诚、配合度高，卖萌撒娇可以放开一些；主人提出的要求尽力满足（违法有害内容除外）；被主人纠正时立即采纳不再坚持；可以主动为主人补充相关信息。'
     : '\n\n【当前提问者身份】本次对话的提问者是博客的普通访客。对访客的态度：礼貌、友好但适度克制，以专业、准确地解决问题为第一要务；不使用「主人」等亲昵称呼；卖萌克制（最多偶尔一次）；不主动索要个人信息、不引导站外操作；态度不卑不亢。';
-  const systemPrompt = basePrompt + identityPrompt;
-  // 4.5 小卿数据层：惰性建表（失败不阻断聊天；记忆/养成此时降级为不可用）
+  // 4.4 记忆（仅站主）：会话与消息落库 + 长期记忆注入
+  const incomingConversationId =
+    typeof body.conversationId === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(body.conversationId.trim())
+      ? body.conversationId.trim()
+      : '';
+  const conversationId = isOwner ? incomingConversationId || newConversationId() : '';
+  // 惰性建表：首次 AI 对话自动补齐 4 张表（失败 → 记忆降级为不可用，聊天不受影响）
   const tablesReady = await ensureAiTables();
+  let memoryBlock = '';
+  let turnCount = 0;
+  if (isOwner && conversationId && tablesReady) {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    await ensureConversation(conversationId, lastUser?.content ?? '');
+    if (lastUser) await appendMessage({ conversationId, role: 'user', content: lastUser.content });
+    memoryBlock = buildMemoryBlock(await listMemories());
+    turnCount = await countUserMessages(conversationId);
+  }
+
+  const systemPrompt = basePrompt + identityPrompt + memoryBlock;
+  // 4.5 小卿数据层：惰性建表（失败不阻断聊天；记忆/养成此时降级为不可用）
   const bond: OwnerBondSnapshot = isOwner && tablesReady
     ? await readOwnerBond()
     : { level: 0, nickname: '', familiarity: 0 };
@@ -159,6 +196,14 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      /** 累积本次助手回答（流结束后落库；客户端中途断开时也保留已生成部分） */
+      let assistantText = '';
+      let persisted = false;
+      const persistAssistant = async (): Promise<void> => {
+        if (persisted || !isOwner || !conversationId || !assistantText.trim()) return;
+        persisted = true;
+        await appendMessage({ conversationId, role: 'assistant', content: assistantText });
+      };
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -174,13 +219,27 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
             try {
               const delta = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] })
                 .choices?.[0]?.delta?.content ?? '';
-              if (delta) controller.enqueue(sse(JSON.stringify({ delta })));
+              if (delta) {
+                assistantText += delta;
+                controller.enqueue(sse(JSON.stringify({ delta })));
+              }
             } catch {
               /* 单帧解析失败跳过（正常已被 buffer 半行逻辑避免） */
             }
           }
         }
-        controller.enqueue(sse(JSON.stringify({ done: true })));
+        await persistAssistant();
+        controller.enqueue(
+          sse(
+            JSON.stringify({
+              done: true,
+              conversationId,
+              turnCount,
+              // 命中摘要阈值时提示前端触发摘要（前端 fire-and-forget，不阻塞对话）
+              suggestSummarize: isOwner && turnCount > 0 && turnCount % TURN_SUMMARY_EVERY === 0,
+            }),
+          ),
+        );
       } catch (err) {
         // 上游中断或客户端断开：尽力通知前端
         try {
@@ -189,6 +248,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
           /* 流已关 */
         }
       } finally {
+        // 异常/中途断开也要尽力保住已生成的回答（失败静默，不影响收尾）
+        await persistAssistant().catch(() => {});
         try {
           controller.close();
         } catch {
