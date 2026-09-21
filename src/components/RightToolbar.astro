@@ -8,6 +8,13 @@
  */
 import { permissionChecker } from '@/lib/admin-auth';
 
+/* ===== Props ===== */
+interface Props {
+  /** AI 是否已就绪（enabled + baseUrl/apiKey/model 齐全）；未就绪时不渲染图标 */
+  aiEnabled?: boolean;
+}
+const { aiEnabled = false } = Astro.props;
+
 /* ===== Logic ===== */
 /* 单次身份判定（勿用旧 verifyRequest：不认 top_admin_session/user_session 新通道） */
 const can = await permissionChecker(Astro.cookies);
@@ -55,6 +62,17 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
       </button>
     )
   }
+  <!-- 小卿 AI 助手（仅 AI 已就绪时出现；点击唤起右侧对话面板） -->
+  {
+    aiEnabled && (
+      <button id="rt-ai" type="button" aria-label="唤起小卿" title="小卿 · AI 助手">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
+          <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-5 4z" />
+          <path d="M12 8v4M10 10h4" />
+        </svg>
+      </button>
+    )
+  }
   <!-- 回到顶部 -->
   <button id="to-top" type="button" aria-label="回到顶部" title="回到顶部">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
@@ -65,6 +83,32 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
 </aside>
 
 <script>
+  /**
+   * 小卿入口：派发自定义事件，由 AiChatFloat 岛接收后打开「固定在右侧」的面板。
+   * 用事件而不是直接调用岛内方法：工具栏是静态 HTML，岛水合时机不确定（client:idle），
+   * 事件派发无需等待水合（岛挂载后监听，若点击过早则无监听者，属可接受的极小窗口）。
+   * 同时做一次「岛未水合」兜底：点击后 300ms 内未打开则提示重试。
+   */
+  document.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('#rt-ai')) return;
+    /**
+     * 水合竞态兜底：AiChatFloat 是 client:idle 岛，首屏可能尚未挂载监听。
+     * 岛挂载后会打上 `html[data-xq-ready="1"]` 标记；这里等标记出现再派发**一次**。
+     * ⚠️ 不能靠"面板是否存在"来重试：岛内是 toggle 语义，关闭后重试会把面板又打开。
+     * 最多等 ~4s，超时静默放弃（用户再点一次即可，不弹错误）。
+     */
+    let tries = 0;
+    const dispatchWhenReady = (): void => {
+      if (document.documentElement.dataset.xqReady === '1') {
+        window.dispatchEvent(new CustomEvent('xiaoqing:open'));
+        return;
+      }
+      tries += 1;
+      if (tries < 8) window.setTimeout(dispatchWhenReady, 500);
+    };
+    dispatchWhenReady();
+  });
+
   /** 回到顶部（平滑滚动）；document 委托，View Transitions 后无需重绑 */
   document.addEventListener('click', (e) => {
     if (!(e.target as HTMLElement).closest('#to-top')) return;

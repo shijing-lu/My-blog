@@ -25,8 +25,11 @@
  * DDL 全部为 `IF NOT EXISTS`，可重复执行、不丢数据。
  */
 import { createRequire } from 'node:module';
+import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { readDatabaseUrl, readFallbackDatabaseUrl, isPostgres, isPostgresUrl } from '../../db/dialect';
+import { db } from '../../db';
+import { aiBond } from '../../db/schema.sqlite';
 
 /** 4 张 AI 表的物理表名（顺序与 DDL 一致，供单测与巡检复用） */
 export const AI_TABLE_NAMES = [
@@ -165,22 +168,30 @@ async function ensurePostgres(url: string): Promise<void> {
 }
 
 /**
+ * 对**指定连接串**执行建表（按连接串前缀判方言）
+ *
+ * 刻意接收 url 而不是自己读 env：单测可以指向临时库而**不必污染 process.env**
+ * （vitest 同进程内改 env 会影响其他测试文件读到的库，2026-09-21 实证踩过）。
+ * 抛出错误由调用方决定如何处理。
+ */
+export async function applyAiDdl(url: string): Promise<void> {
+  if (isPostgresUrl(url)) await ensurePostgres(url);
+  else ensureSqlite(url);
+}
+
+/**
  * 幂等建表（AI 端点入口调用一次）
  *
  * 行为：成功一次后本进程内不再重复执行；失败时**不抛错**（记日志返回 false），
  * 由调用方决定是降级（聊天继续，只是记忆功能不可用）还是报错——聊天本身不应因此挂掉。
+ * 生产（PG）会把主库与备用库都建上（写操作是双写镜像，缺一侧会在镜像写时报错）。
  */
 export async function ensureAiTables(): Promise<boolean> {
   if (ensured) return true;
   try {
-    const primary = readDatabaseUrl();
-    if (isPostgres) {
-      await ensurePostgres(primary);
-      const fallback = readFallbackDatabaseUrl();
-      if (fallback && isPostgresUrl(fallback)) await ensurePostgres(fallback);
-    } else {
-      ensureSqlite(primary);
-    }
+    await applyAiDdl(readDatabaseUrl());
+    const fallback = readFallbackDatabaseUrl();
+    if (fallback && isPostgresUrl(fallback)) await applyAiDdl(fallback);
     ensured = true;
     return true;
   } catch (err) {
@@ -192,4 +203,44 @@ export async function ensureAiTables(): Promise<boolean> {
 /** 供单测使用：重置"已建表"标志（生产代码不要调用） */
 export function __resetEnsureFlagForTest(): void {
   ensured = false;
+}
+
+/** 熟悉度折算满分（bondPoints → familiarity 的分母；M4 定稿后可调） */
+export const BOND_POINTS_FULL = 1000;
+
+/** 站主养成度快照（下发给前端渲染昵称/等级/亲密度条） */
+export interface OwnerBondSnapshot {
+  /** 等级 0~7 */
+  level: number;
+  /** 站主锁定的称呼（空串 = 前端回落到默认名） */
+  nickname: string;
+  /** 亲密度 0~1 */
+  familiarity: number;
+}
+
+/**
+ * 读取站主养成度快照
+ *
+ * ⚠️ 绝不抛错：表可能尚未建好（首次调用）或读库抖动，此时一律按默认值降级——
+ * 聊天是主功能，养成信息只是装饰，不能因为读不到而让对话失败。
+ */
+export async function readOwnerBond(): Promise<OwnerBondSnapshot> {
+  const fallback: OwnerBondSnapshot = { level: 0, nickname: '', familiarity: 0 };
+  try {
+    const rows = await db
+      .select({ level: aiBond.level, nickname: aiBond.nickname, bondPoints: aiBond.bondPoints })
+      .from(aiBond)
+      .where(eq(aiBond.id, 'owner'))
+      .limit(1);
+    const r = rows[0];
+    if (!r) return fallback;
+    return {
+      level: r.level,
+      nickname: r.nickname,
+      familiarity: Math.min(1, Math.max(0, r.bondPoints / BOND_POINTS_FULL)),
+    };
+  } catch (err) {
+    console.error('[ai-store] readOwnerBond 失败（降级为默认值）:', (err as Error).message);
+    return fallback;
+  }
 }

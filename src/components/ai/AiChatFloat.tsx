@@ -35,6 +35,14 @@ interface ChatMessage {
   content: string;
 }
 
+/** 服务端在首帧下发的会话元信息（站主含等级/昵称/亲密度；访客仅身份） */
+interface ChatMeta {
+  isOwner: boolean;
+  level: number;
+  nickname: string;
+  familiarity: number;
+}
+
 /** 右键菜单状态 */
 interface MenuState {
   x: number;
@@ -179,6 +187,10 @@ export default function AiChatFloat({ enabled }: Props) {
   /* ---------- 状态 ---------- */
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [open, setOpen] = useState(false);
+  /** 是否「固定在右侧」模式（工具栏图标唤起）——false = F2 跟随鼠标的浮窗 */
+  const [docked, setDocked] = useState(false);
+  /** 服务端首帧下发的元信息（昵称/等级/是否主人） */
+  const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [pos, setPos] = useState<FloatPos>({ x: 0, y: 0 });
   const [size, setSize] = useState<{ w: number; h: number }>({ w: DEFAULT_W, h: DEFAULT_H });
   const [selectionCtx, setSelectionCtx] = useState<{ text: string; title: string } | null>(null);
@@ -219,6 +231,34 @@ export default function AiChatFloat({ enabled }: Props) {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+  /**
+   * 工具栏 AI 图标唤起：
+   * - 首次点击 → 切到「固定右侧」模式并清掉选区上下文（自由聊天）；
+   * - 再次点击 → 关闭（toggle 语义，符合图标按钮的通用预期）。
+   * 同时打上 `html[data-xq-ready]` 就绪标记：工具栏据此等岛水合后再派发事件。
+   */
+  const iconModeRef = useRef(false);
+  useEffect(() => {
+    document.documentElement.dataset.xqReady = '1';
+    const onOpen = (): void => {
+      setMenu(null);
+      if (iconModeRef.current) {
+        iconModeRef.current = false;
+        setOpen(false);
+        setDocked(false);
+        return;
+      }
+      iconModeRef.current = true;
+      setSelectionCtx(null);
+      setDocked(true);
+      setOpen(true);
+    };
+    window.addEventListener('xiaoqing:open', onOpen);
+    return () => {
+      window.removeEventListener('xiaoqing:open', onOpen);
+      delete document.documentElement.dataset.xqReady;
+    };
+  }, []);
 
   /** 当前浏览者是主人（顶级管理员）→ 浮窗显示徽标；仅 UI 展示，服务端独立判定不受此处影响 */
   const [isOwner, setIsOwner] = useState(false);
@@ -297,7 +337,13 @@ export default function AiChatFloat({ enabled }: Props) {
         const line = frame.trim();
         if (!line.startsWith('data:')) continue;
         try {
-          const payload = JSON.parse(line.slice(5).trim()) as { delta?: string; error?: string; done?: boolean };
+          const payload = JSON.parse(line.slice(5).trim()) as {
+            delta?: string;
+            error?: string;
+            done?: boolean;
+            meta?: ChatMeta;
+          };
+          if (payload.meta) setMeta(payload.meta);
           if (typeof payload.delta === 'string' && payload.delta !== '' && !controller.signal.aborted) appendDelta(payload.delta);
           if (payload.error) throw new Error(payload.error);
           // done 帧无需处理：随后 read() 自然 done
@@ -426,6 +472,7 @@ export default function AiChatFloat({ enabled }: Props) {
   const openFloat = useCallback(
     (m: MenuState) => {
       setMenu(null);
+      setDocked(false); // F2 浮窗模式（跟随鼠标），与图标唤起的右侧固定模式互斥
       restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       resetConversation();
       setSelectionCtx({ text: m.text, title: m.title });
@@ -566,6 +613,7 @@ export default function AiChatFloat({ enabled }: Props) {
   /* 关闭浮窗：视为结束本次对话，下次选词提问重新开始 */
   const closeFloat = useCallback(() => {
     setOpen(false);
+    iconModeRef.current = false; // 关闭后复位，下一次图标点击仍是"打开"
     resetConversation();
   }, [resetConversation]);
   closeRef.current = closeFloat;
@@ -636,19 +684,31 @@ export default function AiChatFloat({ enabled }: Props) {
           role="dialog"
           aria-modal={false}
           aria-labelledby="ai-chat-float-title"
-          className="fixed z-[80] flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
-          style={{ left: `${pos.x}px`, top: `${pos.y}px`, width: `${size.w}px`, height: `${size.h}px` }}
+          className={
+            docked
+              ? 'fixed right-16 top-20 bottom-4 z-[80] flex w-[380px] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl max-md:inset-x-2 max-md:top-auto max-md:bottom-2 max-md:h-[72vh] max-md:w-auto'
+              : 'fixed z-[80] flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl'
+          }
+          style={docked ? undefined : { left: `${pos.x}px`, top: `${pos.y}px`, width: `${size.w}px`, height: `${size.h}px` }}
         >
           {/* 头部（拖动移动） */}
           <div
-            className="flex cursor-move items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2 select-none"
-            onPointerDown={startDrag}
+            className={`flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2 select-none ${docked ? '' : 'cursor-move'}`}
+            onPointerDown={docked ? undefined : startDrag}
           >
             <div className="min-w-0 flex-1">
               <p id="ai-chat-float-title" className="flex items-center gap-1.5 text-sm font-medium">
                 <MessageCircle className="size-4 text-primary" />
-                小卿
-                {isOwner && <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">主人</span>}
+                {meta?.nickname?.trim() || '小卿'}
+                {isOwner ? (
+                  <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                    {meta ? `Lv.${meta.level} · 主人` : '主人'}
+                  </span>
+                ) : (
+                  <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    客人模式 · 不记忆
+                  </span>
+                )}
                 {selectionCtx && <span className="truncate text-xs font-normal text-muted-foreground">· {selectionCtx.title}</span>}
               </p>
             </div>

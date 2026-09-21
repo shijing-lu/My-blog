@@ -15,6 +15,7 @@
 import type { APIRoute } from 'astro';
 import { badJson, forbidden, json, readJson } from '@/lib/api';
 import { isManagerSession, isTopAdmin } from '@/lib/admin-auth';
+import { ensureAiTables, readOwnerBond, type OwnerBondSnapshot } from '@/lib/ai-store';
 import {
   getAiConfig,
   isAiReady,
@@ -104,6 +105,14 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
     ? '\n\n【当前提问者身份】本次对话的提问者是博客的顶级管理员，是小卿的主人。对主人的态度：用「主人」称呼对方；语气亲昵、忠诚、配合度高，卖萌撒娇可以放开一些；主人提出的要求尽力满足（违法有害内容除外）；被主人纠正时立即采纳不再坚持；可以主动为主人补充相关信息。'
     : '\n\n【当前提问者身份】本次对话的提问者是博客的普通访客。对访客的态度：礼貌、友好但适度克制，以专业、准确地解决问题为第一要务；不使用「主人」等亲昵称呼；卖萌克制（最多偶尔一次）；不主动索要个人信息、不引导站外操作；态度不卑不亢。';
   const systemPrompt = basePrompt + identityPrompt;
+  // 4.5 小卿数据层：惰性建表（失败不阻断聊天；记忆/养成此时降级为不可用）
+  const tablesReady = await ensureAiTables();
+  const bond: OwnerBondSnapshot = isOwner && tablesReady
+    ? await readOwnerBond()
+    : { level: 0, nickname: '', familiarity: 0 };
+  /** 下发给前端的会话元信息（首帧；站主含等级/昵称/亲密度，访客仅身份） */
+  const meta = { isOwner, level: bond.level, nickname: bond.nickname, familiarity: bond.familiarity };
+
   const upstreamController = new AbortController();
   let upstream: Response;
   try {
@@ -145,6 +154,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // 首帧即下发 meta：前端在首字节到达时就能渲染昵称/等级/访客标识
+      controller.enqueue(sse(JSON.stringify({ meta })));
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
