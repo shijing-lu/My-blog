@@ -21,7 +21,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { oneDark, oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 import { searchKeymap } from '@codemirror/search';
 import { livePreview } from './cm-live-preview';
-import { mdKeymap } from './md-keymap';
+import { buildMdKeymap, mdKeymap } from './md-keymap';
 import { compressImageForUpload } from '../../lib/client-image-upload';
 import { countChars } from '../../lib/reading';
 
@@ -42,6 +42,11 @@ export interface MarkdownEditorHandle {
   getHeadings(): { level: number; text: string }[];
   /** 立即触发一次视口标题回调（目录重建后恢复反向高亮用） */
   emitViewportHeading(): void;
+  /**
+   * 计算「视口顶部之上（含）最后一个标题」（不回调，直接返回；模式切换视口
+   * 同步用：编辑态退出时据此把阅读视口定位到同一小节）。
+   */
+  getViewHeading(): { level: number; text: string; nth: number } | null;
   /** 获取当前选中的文本（无选区返回空串；供「加入导图引用」用） */
   getSelectionText(): string;
   /** 聚焦编辑器（就地编辑进入时把光标交还给用户） */
@@ -75,6 +80,18 @@ interface MarkdownEditorProps {
    *   原位编辑使用。两种模式共用同一 CM 内核与 wysiwyg 装饰。
    */
   variant?: 'panel' | 'ghost';
+  /**
+   * 高度随内容自适应（仅 ghost 就地编辑使用）：短文形态编辑器高度 = 内容高，
+   * 无内部滚动条（与阅读正文完全一致，页面级滚动承载）；长文形态仍由宿主
+   * 固定视口高 + cm-scroller 内滚（CodeMirror 虚拟化保性能）。
+   */
+  autoHeight?: boolean;
+  /**
+   * 编辑器（CodeMirror）实例创建完成回调。
+   * 宿主据此撤下「加载中」骨架覆盖层 —— CM 只能在客户端创建，此前的空白窗口
+   * 曾被用户误判为「打开编辑栏是白板」（2026-09-21）。
+   */
+  onReady?: () => void;
   /**
    * 视口标题跟踪（可选，目录高亮联动用）：视口/几何变化时回调「视口顶部之上
    * 最后一个标题」（含同 level 序号 nth，与目录项序列对齐）。不传则不注册
@@ -122,22 +139,26 @@ const lightChrome = EditorView.theme(
   { dark: false },
 );
 
-/** ghost（就地编辑）：透明融入正文、内容宽度跟随宿主列、字号/行高对齐 prose */
+/**
+ * ghost（就地编辑）：透明融入正文、内容宽度跟随宿主列、字号/行高对齐 prose。
+ * ⚠️ 字号/行高必须与阅读正文（.prose 基础 1rem/1.75）一致——两种模式切换时
+ * 版面观感一致是硬需求（曾用 1.0625rem/1.9 导致编辑态文字明显偏大偏松）。
+ */
 const ghostChrome = EditorView.theme(
   {
     '&': {
       backgroundColor: 'transparent',
       color: 'var(--color-foreground)',
-      height: '100%',
-      fontSize: '15px',
+      // 高度（100% / auto）由 buildTheme 的 base theme 决定，勿在此设置
+      fontSize: '1rem',
     },
     '.cm-content': {
       fontFamily: 'var(--font-sans-family)',
       padding: '0.125rem 0.25rem 0.5rem',
       maxWidth: 'none',
       margin: '0',
-      fontSize: '1.0625rem',
-      lineHeight: '1.9',
+      fontSize: '1rem',
+      lineHeight: '1.75',
     },
     '&.cm-focused': { outline: 'none' },
     '.cm-line': { padding: '0' },
@@ -149,10 +170,23 @@ function editorIsDark(): boolean {
   return document.documentElement.classList.contains('dark');
 }
 
-function buildTheme(dark: boolean, ghost: boolean): Extension[] {
+function buildTheme(dark: boolean, ghost: boolean, autoHeight = false): Extension[] {
   if (ghost) {
-    // 就地编辑：透明背景（阅读正文同底）；暗色下只取语法高亮色板，不引入深色面板底
-    return [ghostChrome, syntaxHighlighting(dark ? oneDarkHighlightStyle : lightHighlight)];
+    // 就地编辑：透明背景（阅读正文同底）；暗色下只取语法高亮色板，不引入深色面板底。
+    // autoHeight：短文形态编辑器高度随内容撑开（无内部滚动条，与阅读正文行为一致）；
+    // 长文形态 height:100% 由宿主固定视口高 + cm-scroller 内滚（保虚拟化性能）。
+    const base = EditorView.theme(
+      {
+        '&': {
+          backgroundColor: 'transparent',
+          color: 'var(--color-foreground)',
+          height: autoHeight ? 'auto' : '100%',
+          fontSize: '1rem',
+        },
+      },
+      { dark: false },
+    );
+    return [base, ghostChrome, syntaxHighlighting(dark ? oneDarkHighlightStyle : lightHighlight)];
   }
   return dark ? [oneDark] : [lightChrome, syntaxHighlighting(lightHighlight)];
 }
@@ -182,7 +216,7 @@ function nameFromUrl(url: string): string {
  * 可复用所见即所得编辑器
  */
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { initialContent, onChange, onSave, className, wysiwyg = false, variant = 'panel', onViewportHeading },
+  { initialContent, onChange, onSave, className, wysiwyg = false, variant = 'panel', autoHeight = false, onViewportHeading, onReady },
   ref,
 ): ReactElement {
   const ghost = variant === 'ghost';
@@ -191,8 +225,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const themeCompartment = useRef(new Compartment());
   /** wysiwyg 装饰扩展的注入位：模块动态加载完成后 reconfigure（见初始化 effect） */
   const wysiwygCompartment = useRef(new Compartment());
+  /** 编辑器快捷键 compartment：挂载后拉取用户自定义绑定并热替换（失败保持默认） */
+  const shortcutsCompartment = useRef(new Compartment());
   const onChangeRef = useRef<(v: string) => void>(() => {});
   const onSaveRef = useRef<(() => void) | undefined>(undefined);
+  /** 就绪回调 ref（避免初始化 effect 捕获陈旧闭包） */
+  const onReadyRef = useRef<(() => void) | undefined>(undefined);
   const onPasteRef = useRef<(e: ClipboardEvent) => boolean>(() => false);
   const onDropRef = useRef<(e: DragEvent) => void>(() => {});
   const contentRef = useRef(initialContent);
@@ -205,6 +243,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   onChangeRef.current = (v) => onChange?.(v);
   onSaveRef.current = onSave;
+  onReadyRef.current = onReady;
 
   /** 写入状态栏（字数 / 行数 / 光标 行:列）；DOM 直写，不进 React 状态 */
   writeStatsRef.current = (state: EditorState): void => {
@@ -362,16 +401,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   onViewportHeadingRef.current = onViewportHeading;
   const vpRafRef = useRef(0);
 
-  /** 取「视口顶部之上（含）最后一个标题」并回调（当前所在小节） */
-  const emitViewportHeading = useCallback((): void => {
+  /** 视口小节计算的纯函数形态（getViewHeading 直接返回值，不走回调） */
+  const computeViewportHeading = useCallback((): { level: number; text: string; nth: number } | null => {
     const view = viewRef.current;
-    const cb = onViewportHeadingRef.current;
-    if (!view || !cb) return;
+    if (!view) return null;
     const hits = scanHeadings(view.state);
-    if (hits.length === 0) {
-      cb(null);
-      return;
-    }
+    if (hits.length === 0) return null;
     // 编辑器内部滚动偏移 ≈ 可视区顶部的文档坐标（短文形态不滚，恒为文档首）
     const topPos = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 2).from;
     const seen = new Map<number, number>();
@@ -382,7 +417,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       seen.set(h.level, nth + 1);
       cur = { level: h.level, text: h.text, nth };
     }
-    cb(cur);
+    return cur;
+  }, []);
+
+  /** 取「视口顶部之上（含）最后一个标题」并回调（当前所在小节） */
+  const emitViewportHeading = useCallback((): void => {
+    onViewportHeadingRef.current?.(computeViewportHeading());
   }, []);
 
   /** rAF 节流：滚动/几何变化高频触发，每帧最多 emit 一次 */
@@ -413,10 +453,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       jumpToHeading,
       getHeadings,
       emitViewportHeading: emitViewportHeading,
+      getViewHeading: computeViewportHeading,
       getSelectionText,
       focus: focusEditor,
     }),
-    [insertAtCursor, jumpToLine, jumpToHeading, getHeadings, emitViewportHeading, getSelectionText, focusEditor],
+    [insertAtCursor, jumpToLine, jumpToHeading, getHeadings, emitViewportHeading, computeViewportHeading, getSelectionText, focusEditor],
   );
 
   /** 上传图片并插入 Markdown */
@@ -525,6 +566,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       state: EditorState.create({
         doc: contentRef.current,
         extensions: [
+          // 自动换行（Obsidian 式）：长行折行显示，与阅读正文的换行行为一致，
+          // 同时消除编辑区底部的横向滚动条（此前长行只能横向滚动，布局与阅读态不一致）
+          EditorView.lineWrapping,
           // WYSIWYG 模式隐藏行号（所见即所得下行号是视觉噪音）
           ...(wysiwyg ? [] : [lineNumbers()]),
           drawSelection(),
@@ -542,7 +586,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               },
             },
           ]),
-          mdKeymap,
+          shortcutsCompartment.current.of(mdKeymap),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
             // 状态栏走 **DOM 直写**（不走 setState）：打字/移动光标时不触发 React 重渲染，
@@ -579,11 +623,28 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           // 装饰扩展互斥：wysiwyg 模块动态加载后注入（见下方 import('./cm-wysiwyg')），
           // 写作台等非 wysiwyg 场景零 katex 负担；livePreview 为写作台轻量版
           wysiwyg ? wysiwygCompartment.current.of([]) : livePreview(),
-          themeCompartment.current.of(buildTheme(editorIsDark(), ghostMode)),
+          themeCompartment.current.of(buildTheme(editorIsDark(), ghostMode, autoHeight && ghostMode)),
         ],
       }),
     });
     viewRef.current = view;
+    // 通知宿主编辑器已就绪（撤下加载骨架覆盖层）
+    onReadyRef.current?.();
+
+    // 编辑器快捷键：拉取用户自定义（设置页可改），热替换键位；失败保持 Obsidian 默认
+    void (async () => {
+      try {
+        const res = await fetch('/api/editor-shortcuts', { headers: { accept: 'application/json' } });
+        if (!res.ok) return;
+        const data = (await res.json()) as { bindings?: Record<string, string> };
+        if (!data.bindings) return;
+        viewRef.current?.dispatch({
+          effects: shortcutsCompartment.current.reconfigure(buildMdKeymap(data.bindings)),
+        });
+      } catch {
+        /* 离线/未登录：保持默认键位 */
+      }
+    })();
 
     // 视口跟踪启用时：布局稳定后先 emit 一次初始小节
     if (onViewportHeading) {
@@ -727,8 +788,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           </div>
         </div>
       )}
-      {/* 编辑器区：panel 模式给卡片底色 + 横向留白；ghost 透明、宽度跟随宿主（正文同宽） */}
-      <div className={ghost ? 'min-h-0 flex-1 overflow-auto' : 'min-h-0 flex-1 overflow-auto bg-background px-4 lg:px-10'}>
+      {/* 编辑器区：panel 模式给卡片底色 + 横向留白；ghost 透明、宽度跟随宿主（正文同宽）。
+          overflow-hidden：唯一滚动容器是 CM 的 .cm-scroller——外层再开 overflow-auto 会出现
+          第二条滚动条（右侧"多余的上下滑块"就是它）。autoHeight 时高度=内容，同样不滚。 */}
+      <div className={ghost ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto bg-background px-4 lg:px-10'}>
         <div ref={hostRef} className="h-full" />
       </div>
     </div>

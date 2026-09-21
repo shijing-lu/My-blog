@@ -44,6 +44,12 @@ declare global {
       /** 编辑态目录点击跳转：跳到第 nth 个（0 起）level 级标题；返回是否命中 */
       jumpToHeading?: (level: number, nth: number) => boolean;
     };
+    /**
+     * doc 页提供的稳定定位原语：按「正文内比例」（0~1，视口顶在正文中的深度）
+     * 定位阅读视口。内部会临时关闭 content-visibility 强制整篇布局后再滚动，
+     * 规避估算高度导致的首次偏移（渲染替换后的视口同步走这里）。
+     */
+    __docScrollToProgress?: (ratio: number) => void;
   }
 }
 
@@ -128,10 +134,15 @@ export default function DocInlineEditor(): ReactElement {
   /** 编辑器视口高度（px；打开时按正文高计算，超长文退化为可用屏高） */
   const [viewH, setViewH] = useState(0);
 
-  /** 进入编辑前记录的滚动位置 / 原文顶部文档坐标 / 阅读进度（供长文对齐） */
+  /** 进入编辑前记录的滚动位置 / 原文顶部文档坐标 / 原文渲染高 / 阅读进度（供长文对齐） */
   const savedScrollY = useRef(0);
   const savedArtTop = useRef(0);
+  const savedArtH = useRef(0);
   const savedProgress = useRef(0);
+  /** 短文形态（编辑器高度随内容、无内部滚动；退出时页面滚动从未变过） */
+  const fitRef = useRef(true);
+  /** 长文形态退出时的编辑器滚动比例（0~1，渲染替换后按比例回读位） */
+  const exitProgressRef = useRef<number | null>(null);
   /** 当前编辑的文章 id（ref：closeEditor 异步路径里取最新值） */
   const nodeIdRef = useRef('');
   /** 目录快照（openEditor 成功后采集，供编辑态目录点击跳转做序列对齐与文本校验） */
@@ -155,9 +166,10 @@ export default function DocInlineEditor(): ReactElement {
 
   /**
    * 后台补拉 /render 并就地替换正文与目录（关闭编辑器后调用，不阻塞 UI）。
-   * anchor 非空时（编辑期间用目录跳转过），替换完成后回到该标题的阅读位置。
+   * 定位优先级：anchor（编辑期间用目录跳转过 → 回到该标题）> progress（长文
+   * 按编辑器滚动比例回读位，由 doc 页的稳定定位原语执行）> 保持当前滚动位置。
    */
-  const refreshRendered = useCallback((id: string, anchor?: string | null) => {
+  const refreshRendered = useCallback((id: string, opts?: { anchor?: string | null; progress?: number | null }) => {
     void (async () => {
       try {
         // 不带 v → 绕过 CDN 缓存，强制回源重渲
@@ -166,14 +178,24 @@ export default function DocInlineEditor(): ReactElement {
         if (!rr.ok || typeof d.html !== 'string') return;
         const art = document.querySelector<HTMLElement>('main article.prose');
         if (art) art.innerHTML = d.html;
+        // 正文重写后重建黑幕开关（spoiler.ts 监听；幂等，无 :spoiler 语法时不注入）
+        document.dispatchEvent(new CustomEvent('spoiler:refresh'));
         const tocWrap = document.getElementById('doc-toc-list');
         if (tocWrap && Array.isArray(d.toc)) {
           tocWrap.innerHTML = d.toc.length ? renderTocTreeHtml(d.toc) : '<p class="text-xs text-muted-foreground">无目录</p>';
         }
-        // 回到最后跳转的标题（在正文/目录替换后执行，锚点元素已就位）
+        // 回到退出编辑时的阅读位置（正文/目录替换后执行，锚点元素已就位）
+        const anchor = opts?.anchor;
         if (anchor && anchor.startsWith('#') && anchor.length > 1) {
           const target = document.getElementById(decodeURIComponent(anchor.slice(1)));
-          if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
+          if (target) {
+            target.scrollIntoView({ behavior: 'auto', block: 'start' });
+            return;
+          }
+        }
+        const progress = opts?.progress;
+        if (progress != null && typeof window.__docScrollToProgress === 'function') {
+          window.__docScrollToProgress(progress);
         }
       } catch {
         /* 刷新失败：保留旧正文，下次进入或刷新页面自然更新 */
@@ -235,17 +257,33 @@ export default function DocInlineEditor(): ReactElement {
       setDirty(false);
       dirtyRef.current = false;
       setPhase('idle');
-      // 回到进入编辑前的位置（短文本就未动；长文把视口/文档高度还原后兜底恢复）
-      window.scrollTo({ top: savedScrollY.current, behavior: 'auto' });
+      // —— 模式切换视口同步（编辑 → 阅读，Obsidian 式不跳动）——
+      // 短文形态：页面滚动从未变过（编辑器高=正文高、页面级滚动承载），保持原位即可。
+      // 长文形态：页面此前被固定在正文起点、滚动发生在编辑器内部——按「编辑器滚动
+      // 比例」映射回阅读正文同一深度（顶部对顶部），而不是跳回进入编辑前的旧位置。
+      if (fitRef.current) {
+        window.scrollTo({ top: savedScrollY.current, behavior: 'auto' });
+        exitProgressRef.current = null;
+      } else {
+        const scroller = document.querySelector<HTMLElement>('.doc-ie-view .cm-scroller');
+        const sh = scroller?.scrollHeight ?? 0;
+        const ratio = scroller && sh > 0 ? scroller.scrollTop / sh : 0;
+        exitProgressRef.current = Math.min(1, Math.max(0, ratio));
+        const target = savedArtTop.current + exitProgressRef.current * savedArtH.current;
+        window.scrollTo({ top: Math.max(0, target), behavior: 'auto' });
+      }
       // 清除目录反向高亮
       activeTocElRef.current?.classList.remove('toc-active');
       activeTocElRef.current = null;
       // 本会话保存过 → 编辑期间正文已过时，后台补拉最新渲染（不阻塞关闭动作）
-      // 编辑期间跳转过目录 → 渲染完成后回到最后跳转的标题的阅读位置
+      // 定位优先级：最后目录跳转锚点 > 长文滚动比例（见 refreshRendered）
       const id = nodeIdRef.current;
       const anchor = lastAnchorRef.current;
       lastAnchorRef.current = null;
-      if (savedRef.current && id) refreshRendered(id, anchor);
+      if (savedRef.current && id) {
+        refreshRendered(id, { anchor, progress: anchor ? null : exitProgressRef.current });
+      }
+      exitProgressRef.current = null;
     },
     [refreshRendered],
   );
@@ -378,14 +416,19 @@ export default function DocInlineEditor(): ReactElement {
     const artTop = art ? art.getBoundingClientRect().top + window.scrollY : window.scrollY;
     savedScrollY.current = window.scrollY;
     savedArtTop.current = artTop;
-    // 正文渲染高（隐藏前量取）
+    // 正文渲染高（隐藏前量取；退出时按比例映射回阅读位置用）
     const artH = art ? art.getBoundingClientRect().height : 0;
+    savedArtH.current = artH;
     // 一屏可用编辑高：标题/面包屑约占顶部 220px，底部留 24px
     const avail = Math.max(320, window.innerHeight - 244);
+    // 短文形态：正文不高于一屏可用高 → 编辑器高度随内容撑开（无内部滚动，
+    // 页面级滚动承载——与阅读正文完全一致）；超长文 → 一屏高 + 编辑器内滚。
     const fit = artH > 0 && artH <= avail;
+    fitRef.current = fit;
+    // 阅读进度 = 视口顶在正文中的比例（顶部对顶部：与退出方向的映射公式互逆）
     savedProgress.current = fit
       ? 0
-      : Math.min(1, Math.max(0, (savedScrollY.current - artTop + window.innerHeight / 2) / Math.max(artH, 1)));
+      : Math.min(1, Math.max(0, (savedScrollY.current - savedArtTop.current) / Math.max(artH, 1)));
 
     setPhase('loading');
     setError(null);
@@ -400,8 +443,8 @@ export default function DocInlineEditor(): ReactElement {
       savedRef.current = false;
       setLastSavedAt('');
       if (art) art.style.display = 'none';
-      // 编辑视口高：短文贴合原正文高（页面不跳）；超长文取可用屏高（编辑器内滚动）
-      setViewH(fit ? Math.max(320, Math.round(artH)) : avail);
+      // 编辑视口高：短文 0 = 高度随内容（auto，无滚动条）；超长文取可用屏高（编辑器内滚动）
+      setViewH(fit ? 0 : avail);
       const grid = document.getElementById('doc-3col');
       if (grid) grid.setAttribute('data-editing', 'true');
       tocSnapshotRef.current = collectTocSnapshot();
@@ -410,30 +453,38 @@ export default function DocInlineEditor(): ReactElement {
       setPhase('idle');
 
       // 布局稳定后：短文无需动滚动（页面总高≈不变）；长文把视口滚到正文起点，
-      // 并将编辑器内部滚动同步到原阅读进度（精确行映射做不到，按像素比例近似）。
+      // 并将编辑器内部滚动同步到原阅读进度（按比例近似：KaTeX 等渲染密度差异
+      // 会被摊薄；渲染稳定后再校正两次，用户已手动滚动则放弃校正）。
       requestAnimationFrame(() => {
         if (!fit && savedArtTop.current > 0) {
           window.scrollTo({ top: savedArtTop.current - 140, behavior: 'auto' });
         }
+        if (fit) return;
         window.setTimeout(() => {
           // 进入即交还键盘（光标仍在文档首部，点击任意正文位置即可放置光标）
           editorRef.current?.focus();
-          const ed = document.querySelector('.doc-ie-view .cm-editor');
-          if (ed && savedProgress.current > 0) {
-            const scroller = ed.querySelector('.cm-scroller') as HTMLElement | null;
-            if (scroller) {
-              const target = scroller.scrollHeight * savedProgress.current - scroller.clientHeight / 2;
-              scroller.scrollTop = Math.max(0, target);
-            }
-          }
+          const scroller = document.querySelector<HTMLElement>('.doc-ie-view .cm-scroller');
+          if (!scroller) return;
+          let lastSet = -1;
+          const apply = (): void => {
+            const target = scroller.scrollHeight * savedProgress.current;
+            if (scroller.scrollTop !== lastSet && lastSet >= 0) return; // 用户已手动滚动
+            scroller.scrollTop = Math.max(0, target);
+            lastSet = scroller.scrollTop;
+          };
+          apply();
+          // KaTeX/代码块 widget 异步渲染会持续撑高 scrollHeight → 稳定后校正
+          window.setTimeout(apply, 320);
+          window.setTimeout(apply, 800);
         }, 60);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取正文失败');
-      // 错误也走「原位」语义：隐藏正文、编辑视口给可用高，错误行落在正文位置
+      // 错误也走「原位」语义：隐藏正文，错误行与空编辑器随内容撑开（autoHeight）
       const art = document.querySelector<HTMLElement>('main article.prose');
       if (art) art.style.display = 'none';
-      setViewH(360);
+      fitRef.current = true;
+      setViewH(0);
       setOpen(true);
       syncEntryButtons(true);
       setPhase('idle');
@@ -480,15 +531,15 @@ export default function DocInlineEditor(): ReactElement {
 
   const saving = phase === 'saving';
   const showSaveFail = Boolean(error) && phase === 'idle';
-  /** 错误态也需可用编辑视口高度（空内容编辑器也能落焦） */
-  const effectiveViewH = viewH || 360;
+  /** viewH = 0 → 高度随内容（短文形态，无内部滚动条）；> 0 → 固定视口高（长文内滚） */
+  const autoHeight = viewH === 0;
 
   return (
     <div ref={hostRef} className={open ? 'doc-ie-host' : 'hidden'}>
       {open && (
         <div className="doc-ie-inner relative">
           {/* 编辑器区：正文原位替换（无卡片/无边框/无工具条），高度按内容策略计算 */}
-          <div className="doc-ie-view" style={{ height: effectiveViewH }}>
+          <div className="doc-ie-view" style={{ height: autoHeight ? 'auto' : `${viewH}px` }}>
             {phase === 'loading' ? (
               <p className="px-1 py-6 text-sm text-muted-foreground">正在读取正文…</p>
             ) : (
@@ -499,6 +550,7 @@ export default function DocInlineEditor(): ReactElement {
                 onSave={() => handleSaveAndClose()}
                 wysiwyg
                 variant="ghost"
+                autoHeight={autoHeight}
                 className="h-full"
                 onViewportHeading={handleViewportHeading}
               />

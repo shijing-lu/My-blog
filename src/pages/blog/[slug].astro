@@ -10,6 +10,7 @@ import TechLayout from '@/layouts/TechLayout.astro';
 import NoteLayout from '@/layouts/NoteLayout.astro';
 import PhotoLayout from '@/layouts/PhotoLayout.astro';
 import MindMapViewer from '@/components/mindmap/MindMapViewer';
+import ExportMenu from '@/components/ExportMenu.astro';
 import { listMindmaps, parseMindmapData } from '@/lib/mindmaps';
 
 /* ===== Logic ===== */
@@ -78,6 +79,8 @@ const blockMapJson = JSON.stringify(blockMap);
   {/* 阅读上报锚点：无论文章是否加密解锁，只要访问了详情页就算一次阅读，
       故把它放在锁定/解锁分支**之外**（单一来源，避免两处维护）。 */}
   <span data-article-id={article.id} hidden aria-hidden="true" />
+  {/* 导出入口（MD/PDF）：加密文章未解锁时不渲染——端点同样会拦，这里避免展示必败按钮 */}
+  {!locked && <ExportMenu mdUrl={`/api/export/article/${article.slug}`} class="mb-4" />}
   {
     mapPanels.length > 0 && (
       <div>

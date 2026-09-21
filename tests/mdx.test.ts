@@ -141,9 +141,21 @@ describe('renderMdx', () => {
     expect(html.match(/class="callout /g)?.length).toBe(2);
     expect(html).toContain('data-callout="info"');
     expect(html).toContain('data-callout="tip"');
-    // 内层不应残留字面量 [!tip]
-    expect(html).not.toContain('[!tip]');
+    // 内层不应残留字面量 [!tip]（历史回归：嵌套处理顺序错误时标记漏成正文文本）。
+    // 复制按钮的 data-callout-source 属性合法持有原始源码（含标记），需先剥离再断言。
+    const htmlWithoutSourceAttr = html.replace(/ data-callout-source="[^"]*"/g, '');
+    expect(htmlWithoutSourceAttr).not.toContain('[!tip]');
     expect(html).toContain('内层内容。');
+  });
+
+  it('Callout 渲染右上角复制按钮（data-callout-source 携带原始 markdown 源码）', async () => {
+    const { html } = await renderMdx(
+      '> [!note]- 折叠块\n> 内容一行\n> ```js\n> const a = 1;\n> ```',
+    );
+    expect(html).toContain('data-callout-copy');
+    // 源码完整携带：折叠标记、`>` 前缀、内嵌代码块
+    expect(html).toContain('&gt; [!note]- 折叠块');
+    expect(html).toContain('&gt; const a = 1;');
   });
 
   it('callout 内保留普通引用块（只转 callout）', async () => {
@@ -219,6 +231,56 @@ describe('renderMdx', () => {
     // \not= 斜线覆盖层定位失效 → 不等号平铺成 "/="
     expect(html).toContain('katex-strut');
     expect(html).not.toMatch(/class="(base|strut|vbox|thinbox)"/);
+  });
+});
+
+describe('spoiler：:spoiler[] 行内黑幕', () => {
+  it('基础渲染：原生 button + aria-expanded + data-spoiler，源码标记不残留', async () => {
+    const { html } = await renderMdx('最终的答案是 :spoiler[42]。');
+    expect(html).toContain('<button');
+    expect(html).toContain('class="spoiler"');
+    expect(html).toContain('data-spoiler');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('<span class="spoiler-body">42</span>');
+    expect(html).not.toContain(':spoiler[');
+  });
+
+  it('label 内支持嵌套行内 Markdown（inlineCode / strong）', async () => {
+    const { html } = await renderMdx('黑幕内部支持 :spoiler[`行内代码` 以及 **加强调**] 的较长详情。');
+    expect(html).toContain('<code');
+    expect(html).toContain('<strong');
+    expect(html).toContain('行内代码');
+    expect(html).toContain('加强调');
+    expect(html).not.toContain(':spoiler[');
+  });
+
+  it('同段多个黑幕 + 普通文本混排（行内元素不破坏段落）', async () => {
+    const { html } = await renderMdx('答案是 :spoiler[42]，而 :spoiler[43] 是错的。');
+    expect((html.match(/class="spoiler"/g) ?? []).length).toBe(2);
+    expect(html).toContain('，而 ');
+  });
+
+  it('无 label 的 :spoiler 不产出空黑幕、也不让渲染崩溃', async () => {
+    const { html } = await renderMdx('这里是 :spoiler 没有方括号。');
+    expect(html).not.toContain('class="spoiler"');
+    expect(html).toContain('没有方括号');
+  });
+
+  it('块级 :::spoiler 不属于本语法（不产出黑幕、渲染不崩溃）', async () => {
+    const { html } = await renderMdx(':::spoiler\n内容\n:::');
+    expect(html).not.toContain('class="spoiler"');
+  });
+
+  it('引用块 / 列表内的黑幕同样被转换（容器内部递归）', async () => {
+    const { html } = await renderMdx('> 提示：:spoiler[引用内黑幕]\n\n- 列表：:spoiler[列表内黑幕]');
+    expect((html.match(/class="spoiler"/g) ?? []).length).toBe(2);
+  });
+
+  it('渲染结果可用于服务端探测（含语法 → data-spoiler；不含 → 无标记）', async () => {
+    const withSpoiler = await renderMdx('A :spoiler[x] B');
+    expect(withSpoiler.html.includes('data-spoiler')).toBe(true);
+    const plain = await renderMdx('A B C');
+    expect(plain.html.includes('data-spoiler')).toBe(false);
   });
 });
 

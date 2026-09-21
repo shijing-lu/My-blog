@@ -2,13 +2,15 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { canManage } from '@/lib/admin-auth';
-import { buildNodeTree, getBundle, getCategoryName, listBundleNodes } from '@/lib/docs';
+import { getBundle, getCategoryName, listBundleNodes } from '@/lib/docs';
+import { esc } from '@/lib/html-escape';
+import { buildDocTree, docFolderOptions, renderDocTree, type DocTreeItem } from '@/lib/doc-tree-render';
 import { renderMdx } from '@/lib/mdx';
 import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import type { TocItem } from '@/lib/mdx-plugins';
-import type { DocNodeView } from '../../../db/types';
 import DocInlineEditor from '@/components/doc/DocInlineEditor';
+import ExportMenu from '@/components/ExportMenu.astro';
 
 /* ===== Logic ===== */
 const { id } = Astro.params;
@@ -18,7 +20,18 @@ if (!bundle) return Astro.redirect('/doc');
 
 /** 全部节点（含正文，注入前端供即时切换） */
 const nodes = await listBundleNodes(bundle.id);
-const tree = buildNodeTree(nodes);
+/** 扁平节点（同构形状）：目录树与「移动到」下拉共用同一份数据 */
+const nodeItems: DocTreeItem[] = nodes.map((n) => ({
+  id: n.id,
+  parentId: n.parentId,
+  kind: n.kind as 'folder' | 'article',
+  title: n.title,
+  sort: n.sort,
+  createdAt: n.createdAt,
+  updatedAt: n.updatedAt,
+}));
+/** 嵌套树：与客户端共用 buildDocTree（同构模块，见 lib/doc-tree-render.ts） */
+const tree = buildDocTree(nodeItems);
 /** 文章节点（扁平，用于默认选中与前端切换） */
 const articleNodes = nodes.filter((n) => n.kind === 'article');
 
@@ -30,12 +43,27 @@ const requestedArticle = Astro.url.searchParams.get('article')?.trim() ?? '';
 const activeNode =
   articleNodes.find((n) => n.id === requestedArticle) ?? articleNodes[0] ?? null;
 
+/**
+ * 大文档 SSR 延迟渲染阈值（正文 Markdown 字符数）。
+ *
+ * ## 为什么需要（2026-09-16 实测定位「进入文档界面多次无响应」）
+ * 用户库中数学类长文（182KB markdown）经 KaTeX 渲染后膨胀到 **9.5MB HTML / 26.2 万 DOM 节点**，
+ * `renderMdx` 单次耗时 **24.6 秒**（node 单线程全程占满）。若 SSR 同步渲染它：
+ * ① 页面白屏等 20+ 秒；② 服务端被占满期间，同一页面的目录/图片/接口请求全部排队
+ * → 用户感知为"一连串无响应"。
+ * 超过阈值时 SSR 只输出界面骨架（标题/左栏/布局秒开），正文改由客户端拉取——
+ * 复用页内切换的统一加载流程（顶部进度条 + 客户端缓存 + 请求取消 + 失败提示）。
+ * 阈值取 96KB：实测 43KB 文档冷渲染 ~2s 可接受，182KB 级必须延迟。
+ */
+const DEFER_RENDER_THRESHOLD = 96 * 1024;
+const deferRender = Boolean(activeNode && (activeNode.content?.length ?? 0) > DEFER_RENDER_THRESHOLD);
+
 let html = '';
 let toc: TocItem[] = [];
-if (activeNode) {
+if (activeNode && !deferRender) {
   const r = await renderMdx(activeNode.content);
   let out = r.html;
-  // 正文图片注入原始宽高（DB 图片；文档正文无影集布局），消除懒加载宽度跳变
+  // 正文图片注入原始宽高（DB 图片），消除懒加载宽度跳变
   const ids = collectImageIdsFromHtml(out);
   if (ids.length > 0) {
     const sizes = await getImageSizes(ids);
@@ -43,6 +71,9 @@ if (activeNode) {
   }
   html = out;
   toc = r.toc;
+} else if (activeNode) {
+  // 延迟渲染：占位文案会被客户端拉取到的正文整体替换（见页内切换 handler 的延迟加载分支）
+  html = '<p class="text-sm text-muted-foreground">正在加载长文档…</p>';
 }
 /** 树形目录 HTML（SSR 初始渲染；客户端切换文章时由同一模块重建） */
 const tocTreeHtml = renderTocTreeHtml(toc);
@@ -54,73 +85,15 @@ const catName = await getCategoryName(bundle.categoryId);
 // 节点元数据注入：去掉 content(MDX 源码)——大文档首页 HTML 体积断崖下降。
 // 节点编辑/移动时按需走 /api/doc/nodes/${id} 取单节点详情（已有 PATCH/GET 接口）。
 // updatedAt 作为 /render 的版本号 v：编辑后它变化 → URL 变化 → CDN 旧缓存自动失效
-const nodesJson = JSON.stringify(
-  nodes.map((n) => ({ id: n.id, parentId: n.parentId, kind: n.kind, title: n.title, sort: n.sort, updatedAt: n.updatedAt })),
-);
+// 客户端就地增删改后要重建目录树，故需下发完整节点表（含 createdAt：同级排序依据）
+const nodesJson = JSON.stringify(nodeItems);
 const bundleJson = JSON.stringify({ id: bundle.id, name: bundle.name, icon: bundle.icon, summary: bundle.summary });
 const activeNodeId = activeNode?.id ?? '';
-/** 目录节点（供"移动到"下拉选择） */
-const folderOptions = nodes
-  .filter((n) => n.kind === 'folder')
-  .map((n) => ({ id: n.id, title: n.title }));
+/** 目录节点（供"移动到"下拉选择）—— 与客户端共用 docFolderOptions */
+const folderOptions = docFolderOptions(nodeItems);
 
-/** HTML 转义 */
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-/** 管理员行内操作按钮组 */
-function adminActions(n: DocNodeView, isAuthed: boolean): string {
-  if (!isAuthed) return '';
-  const add =
-    n.kind === 'folder'
-      ? `<button type="button" data-node-add-article="${n.id}" title="新增文章" aria-label="新增文章" class="text-[0.65rem] text-muted-foreground hover:text-primary">＋文</button>` +
-        `<button type="button" data-node-add-folder="${n.id}" title="新增子目录" aria-label="新增子目录" class="text-[0.65rem] text-muted-foreground hover:text-primary">＋目</button>`
-      : '';
-  return (
-    /* 管理按钮组（P1-8）：原先 group-hover:flex 在触屏/键盘下完全不可达。
-       改为常驻 flex + 低透明度，hover / 内部聚焦时提亮。 */
-    `<span class="ml-auto flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
-    add +
-    `<button type="button" data-node-move="${n.id}" title="移动" aria-label="移动" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-primary">⇄</button>` +
-    `<button type="button" data-node-edit="${n.id}" title="编辑" aria-label="编辑" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-primary">✎</button>` +
-    `<button type="button" data-node-del="${n.id}" data-node-name="${esc(n.title)}" title="删除" aria-label="删除" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-destructive">×</button>` +
-    `</span>`
-  );
-}
-
-  /** 递归渲染目录树（folder → details；article → 可切换链接）。
-   *  登录态下文章行 draggable（拖拽排序/跨目录移动，见 script 拖拽段）；
-   *  目录 summary 为「移入该目录末尾」落点；根级容器 data-doc-tree-root 兜底落点。 */
-  function renderTreeHtml(items: DocNodeView[], isAuthed: boolean, bundleId: string): string {
-    let out = '';
-    for (const n of items) {
-      if (n.kind === 'folder') {
-        const children = renderTreeHtml(n.children, isAuthed, bundleId);
-        out +=
-          `<details class="group doc-folder" open data-folder="${n.id}">` +
-          `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${isAuthed ? ` data-doc-folder-target="${n.id}"` : ''}>` +
-          `<span class="text-[0.7rem]">▸</span>` +
-          `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
-          adminActions(n, isAuthed) +
-          `</summary>` +
-          (children ? `<div class="ml-3 border-l border-border pl-2">${children}</div>` : '') +
-          `</details>`;
-      } else {
-        // href 为完整 URL：JS 正常时 preventDefault 走前端即时切换；新标签打开 / 无 JS 时直达正确文章
-        out +=
-          `<a href="/doc/${bundleId}?article=${encodeURIComponent(n.id)}" data-article-switch="${n.id}"${isAuthed ? ` draggable="true" data-doc-node-id="${n.id}"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
-          (n.id === activeNode?.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
-          `">` +
-          `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
-          adminActions(n, isAuthed) +
-          `</a>`;
-      }
-    }
-    return out;
-  }
-
-const treeHtml = renderTreeHtml(tree, isAuthed, bundle.id);
+/** 目录树 HTML（SSR 初始渲染；客户端增删改后就地重绘同一容器，走同一函数） */
+const treeHtml = renderDocTree(tree, { authed: isAuthed, bundleId: bundle.id, activeId: activeNodeId });
 const folderOptionsJson = JSON.stringify(folderOptions);
 ---
 
@@ -132,7 +105,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       {catName && <span class="mx-1">/</span>}
       {catName && <span>{esc(catName)}</span>}
       <span class="mx-1">/</span>
-      <span class="text-foreground">{esc(bundle.name)}</span>
+      <span id="doc-bundle-name" class="text-foreground">{esc(bundle.name)}</span>
       {isAuthed && (
         <button id="doc-edit-bundle" type="button" title="编辑文档" aria-label="编辑文档" class="icon-btn-tap ml-2 text-xs text-muted-foreground transition-colors hover:text-primary">✎</button>
       )}
@@ -160,11 +133,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
             </div>
             <div id="doc-ltoc-body" class="mt-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
               <nav class="space-y-0.5 text-base" aria-label="本册目录">
-                {treeHtml !== '' ? (
-                  <div class="space-y-0.5" data-doc-tree-root set:html={treeHtml} />
-                ) : (
-                  <p class="px-1 py-2 text-xs text-muted-foreground">暂无内容 —— 管理员可新建目录或文章。</p>
-                )}
+                {/* 容器恒存在（空态由 renderDocTree 输出）：客户端就地增删改后整体重绘此处 */}
+                <div class="space-y-0.5" data-doc-tree-root set:html={treeHtml} />
               </nav>
             </div>
           </div>
@@ -206,10 +176,16 @@ const folderOptionsJson = JSON.stringify(folderOptions);
                       </button>
                     )
                   }
+                  {/* 导出入口：MD 端点在点击时按当前 ?article= 节点 id 拼接（页内切换后仍正确） */}
+                  <ExportMenu mdBase="/api/export/doc/" mdParam="article" class="mt-1.5" />
                 </div>
                 <div class="pixel-divider mt-4" />
               </header>
-              <article class="prose mt-6 max-w-none break-words" set:html={html} />
+              <article
+                class="prose mt-6 max-w-none break-words"
+                data-defer-article={deferRender && activeNode ? activeNode.id : undefined}
+                set:html={html}
+              />
               {/* 正文原编辑岛：仅登录用户加载（client:idle 延后到空闲，不拖阅读首屏） */}
               {isAuthed && <DocInlineEditor client:idle />}
             </>
@@ -248,7 +224,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
             {toc.length > 0 ? (
               <div id="doc-toc-list" data-toc-label class="flex flex-col gap-1.5" set:html={tocTreeHtml} />
             ) : (
-              <p data-toc-label class="mt-2 text-xs text-muted-foreground">无目录</p>
+              <p data-toc-label class="mt-2 text-xs text-muted-foreground">{deferRender ? '正在加载目录…' : '无目录'}</p>
             )}
           </div>
         </div>
@@ -274,6 +250,10 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
   {/* 数据注入 */}
   <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-nodes={nodesJson} data-bundle={bundleJson} data-active-node={activeNodeId} data-folders={folderOptionsJson} class="hidden" aria-hidden="true" />
+  {/* 切换文章加载条：首渲染 1~3s 期间的即时反馈（否则页面静止会被当成卡死），见页内切换 handler */}
+  <div id="doc-switch-progress" class="hidden" role="progressbar" aria-label="正在加载文章">
+    <span></span>
+  </div>
 
   <!-- 节点编辑弹窗（目录 / 文章通用） -->
   <dialog id="doc-node-dialog" class="m-auto w-[min(92vw,52rem)] rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
@@ -455,6 +435,47 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   @media print {
     main article.prose > * { content-visibility: visible; }
   }
+  /* 目录跳转/模式切换定位专用的「强制渲染」态：
+     首次点击目录时视口外区块仍是估算高（120px），滚动途中逐渐真实化导致
+     首次定位偏移、后续点击才准。跳转前暂时整篇强制布局（contain-intrinsic-size
+     的 auto 前缀会记住真实高度，恢复后不再回跳），定位完即恢复。 */
+  main article.prose.toc-nav-rendering > * {
+    content-visibility: visible;
+  }
+
+  /* ===== 切换文章的加载反馈（见页内切换 handler 的性能说明） =====
+     每篇文章首次服务端渲染 1~3s；页内切换无浏览器原生加载指示，
+     必须给出即时反馈，否则用户会当成卡死并连点（连点让 node 单线程排队）。
+     正文降透明 + 顶部不确定进度条；同时禁 pointer-events，避免加载中误操作旧内容。 */
+  main article.prose.doc-article-loading {
+    opacity: 0.4;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+  #doc-switch-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 60;
+    height: 3px;
+    overflow: hidden;
+    background: color-mix(in oklab, var(--primary) 15%, transparent);
+  }
+  #doc-switch-progress > span {
+    display: block;
+    width: 35%;
+    height: 100%;
+    background: var(--primary);
+    animation: doc-switch-slide 1.1s ease-in-out infinite;
+  }
+  @keyframes doc-switch-slide {
+    0% { transform: translateX(-110%); }
+    100% { transform: translateX(330%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #doc-switch-progress > span { animation-duration: 2.4s; }
+  }
 
   /* ===== 就地编辑（Obsidian 式原位编辑） =====
      编辑器=ghost 变体：透明融入正文、无卡片无工具条；高度按正文高计算不跳变。
@@ -512,8 +533,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   }
   .doc-ie-view .cm-line:has(.cm-wy-math-display) .cm-wy-math-display {
     display: block;
-    text-align: center;
-    margin: 1em auto;
+    /* 左对齐（KaTeX .katex-display 默认居中，这里按需求改为与正文左缘对齐） */
+    text-align: left;
+    margin: 1em 0;
     color: var(--color-foreground);
     font-size: 1rem;
     line-height: 1.5;
@@ -524,6 +546,15 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   /** 文档详情页：目录树文章切换 + 节点 CRUD（目录/文章 增删改移动）+ 预览 */
   import { confirmDanger } from '@/lib/confirm';
   import { renderTocTreeHtml } from '@/lib/toc-tree';
+  import {
+    buildDocTree,
+    collectSubtreeIds,
+    docFolderOptions,
+    patchNodes,
+    removeSubtree,
+    renderDocTree,
+    type DocTreeItem,
+  } from '@/lib/doc-tree-render';
   import type { TocItem } from '@/lib/mdx-plugins';
 
   const DATA = document.getElementById('doc-detail-data');
@@ -540,6 +571,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     kind: 'folder' | 'article';
     title: string;
     sort: number;
+    /** ISO 串；同级排序依据（对齐服务端 ORDER BY sort, createdAt） */
+    createdAt?: string;
     updatedAt?: string;
   }
   function readNodes(): NodeMeta[] {
@@ -549,6 +582,51 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   function readFolders(): Array<{ id: string; title: string }> {
     const d = document.getElementById('doc-detail-data');
     return JSON.parse(d?.dataset.folders ?? '[]') as Array<{ id: string; title: string }>;
+  }
+  /** 内存节点表写回。就地增删改后必须回写，否则后续 readNodes 仍读到旧数据。 */
+  function writeNodes(list: NodeMeta[]): void {
+    const d = document.getElementById('doc-detail-data');
+    if (d) d.dataset.nodes = JSON.stringify(list);
+  }
+  /** 「移动到」下拉与树共用同一份扁平表（顺序由 docFolderOptions 统一决定） */
+  function writeFolders(list: NodeMeta[]): void {
+    const d = document.getElementById('doc-detail-data');
+    if (d) d.dataset.folders = JSON.stringify(docFolderOptions(list as DocTreeItem[]));
+  }
+
+  /* ================= 目录树就地重绘 =================
+     原先目录树增删改成功后一律 window.location.reload()，会丢掉：
+     手动折叠的目录（SSR 恒 `<details open>`，重载后全弹开）、左右栏滚动位置，
+     以及**编辑器里尚未保存的正文**（本页挂了 DocInlineEditor，这是真实数据丢失）。
+     现在改为：就地改内存表 → 重绘 [data-doc-tree-root]。
+
+     ⚠️ 折叠态必须快照回放，且要快照「**被折叠**的」而非「展开的」：
+        SSR 默认全开，快照展开集合会让**新建的目录**渲染成收起（反直觉）；
+        快照折叠集合则天然满足「新目录默认展开、用户收起的保持收起」。 */
+  function snapshotTreeCollapsed(): Set<string> {
+    const closed = new Set<string>();
+    document.querySelectorAll<HTMLDetailsElement>('[data-doc-tree-root] details[data-folder]').forEach((d) => {
+      if (!d.open) closed.add(d.dataset.folder ?? '');
+    });
+    return closed;
+  }
+  /** 用当前内存节点表重绘目录树（SSR 与客户端同一渲染函数，标记必然一致） */
+  function renderTree(): void {
+    const root = document.querySelector<HTMLElement>('[data-doc-tree-root]');
+    if (!root) return;
+    const closed = snapshotTreeCollapsed();
+    root.innerHTML = renderDocTree(buildDocTree(readNodes() as DocTreeItem[]), {
+      authed: IS_AUTHED === true,
+      bundleId: readBundle().id,
+      activeId: currentActiveId(),
+    });
+    for (const d of root.querySelectorAll<HTMLDetailsElement>('details[data-folder]')) {
+      if (closed.has(d.dataset.folder ?? '')) d.open = false;
+    }
+  }
+  /** 删除 / 新增目录后，刷新「移动到」下拉的选项（否则会选到已删目录） */
+  function refreshFolderOptions(): void {
+    writeFolders(readNodes());
   }
 
   function el<T extends Element = HTMLElement>(id: string): T | null {
@@ -582,7 +660,77 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   );
 
   /* ================= 左栏文章即时切换 ================= */
-  document.addEventListener('click', async (e) => {
+  // ⚠️ 必须挂捕获阶段（capture: true）：ClientRouter 的 click 委托（head 内脚本，先注册）
+  // 会在冒泡阶段先于本 handler 启动 VT 转场并做 DOM 快照——抢在本 handler preventDefault
+  // 之前，随后本文的 pushState + innerHTML 重写与转场竞态 → 每次页内切换抛
+  // 「InvalidStateError: Transition was aborted ... Snapshot capture failed」（未捕获，实测）。
+  // 捕获阶段先执行 preventDefault，ClientRouter 检查 defaultPrevented 即跳过，本 handler 独占生效。
+  //
+  // ⚠️ 性能前提（2026-09-16 实测）：每篇文章**首次**服务端渲染约 1~3s（43KB 文档 → 542KB HTML，
+  // 冷渲染 2.3s；二次请求命中服务端 LRU 仅 13ms）。页内切换没有浏览器原生加载指示，
+  // 若不做反馈，用户会把这 2~3s 的静止当成"卡死"并连点——连点又会让 node 单线程并发排队。
+  // 因此本 handler 必须：① 立即给加载反馈；② AbortController 取消上一次未完成的请求；
+  // ③ 客户端缓存渲染结果（回切瞬开，不再让服务端重复渲染）。
+  /** 客户端渲染结果缓存（key = id + updatedAt；LRU 上限 12 篇，约几 MB 字符串） */
+  const ARTICLE_HTML_CACHE = new Map<string, { html: string; toc: TocItem[]; title?: string }>();
+  const ARTICLE_CACHE_MAX = 12;
+  /** 当前切换请求控制器：连点时中止上一个，避免服务端并发排队（node 单线程） */
+  let switchCtrl: AbortController | null = null;
+
+  /** 把渲染结果落到页面（缓存命中与网络返回共用同一路径） */
+  function applyArticleHtml(id: string, d: { html: string; toc?: TocItem[]; title?: string }): void {
+    const h1 = document.querySelector('main h1');
+    if (h1 && d.title) h1.textContent = d.title;
+    const article = document.querySelector<HTMLElement>('main article.prose');
+    if (article) article.innerHTML = d.html;
+    // 正文重写后重建 / 清理黑幕开关（spoiler.ts 监听；幂等：新文章无 :spoiler 时自动移除旧按钮）
+    document.dispatchEvent(new CustomEvent('spoiler:refresh'));
+    // 重建树形目录（与 SSR 同一实现：层级折叠 + KaTeX 富文本）
+    // ⚠️ 容器 `#doc-toc-list` 仅在 SSR 的 toc 非空时渲染（见模板 `toc.length > 0` 分支）：
+    //   延迟渲染（SSR 不渲染正文故无 toc）或从无标题文章切到有标题文章时容器不存在，
+    //   必须就地创建并清掉「无目录」占位，否则目录一直缺失（2026-09-16 实测缺陷）。
+    const rail = document.getElementById('doc-toc-rail');
+    if (rail) {
+      let tocWrap = document.getElementById('doc-toc-list');
+      if (!tocWrap) {
+        rail.querySelectorAll('[data-toc-label]').forEach((el) => el.remove());
+        tocWrap = document.createElement('div');
+        tocWrap.id = 'doc-toc-list';
+        tocWrap.className = 'flex flex-col gap-1.5';
+        tocWrap.setAttribute('data-toc-label', '');
+        rail.appendChild(tocWrap);
+      }
+      tocWrap.innerHTML =
+        Array.isArray(d.toc) && d.toc.length > 0
+          ? renderTocTreeHtml(d.toc)
+          : '<p class="mt-2 text-xs text-muted-foreground">无目录</p>';
+      // 重写后回放标题目录折叠态（否则手动折叠全被重置为展开）
+      applyTocFoldState(tocWrap);
+    }
+    document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
+  }
+
+  /** 加载反馈：正文降透明 + 顶部进度条（大文档首渲染期间页面不得静止无反馈） */
+  function setArticleLoading(on: boolean): void {
+    document.querySelector<HTMLElement>('main article.prose')?.classList.toggle('doc-article-loading', on);
+    document.getElementById('doc-switch-progress')?.classList.toggle('hidden', !on);
+  }
+
+  /** 入历史 + 回顶部（缓存命中与网络返回共用） */
+  function pushArticleUrl(id: string): void {
+    // ⚠️ state 必须带 ClientRouter 的 {index, scrollX, scrollY} 结构（index 单调递增）：
+    //    onPopState 遇 state===null 的条目会直接 return 不转场 → URL 变了内容不变。
+    const u = new URL(window.location.href);
+    u.searchParams.set('article', id);
+    u.hash = '';
+    const curIndex = typeof history.state?.index === 'number' ? history.state.index : 0;
+    history.pushState({ index: curIndex + 1, scrollX: 0, scrollY: 0 }, '', u);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  document.addEventListener(
+    'click',
+    async (e) => {
     const t = e.target as HTMLElement;
     // 左栏管理按钮（编辑/删除/移动/新建）嵌在文章链接内：点击时不要顺带切换文章
     if (t.closest('[data-node-edit], [data-node-del], [data-node-move], [data-node-add-article], [data-node-add-folder]')) return;
@@ -598,38 +746,83 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
+
+    // 加载与应用（缓存命中瞬开；网络加载带反馈 + 取消）；失败兜底整页导航
+    const ok = await loadArticleById(id, 'navigate');
+    if (ok) pushArticleUrl(id);
+  }, true);
+
+  /**
+   * 加载并应用某篇文章（点击切换与「大文档延迟渲染」共用同一路径）。
+   * - 客户端缓存命中 → 立即应用（回切瞬开，不闪加载态）；
+   * - 网络加载 → 立即加载反馈 + AbortController 取消上一次（服务端只服务最后一次）；
+   * - 返回 true 表示已应用（调用方据此决定是否 pushState）；被取代/失败返回 false；
+   * - onError='navigate'：整页导航兜底（SSR 按 ?article= 渲染）；
+   *   onError='message'：就地显示错误（延迟渲染路径专用——大文档 SSR 同样延迟，导航会死循环）。
+   */
+  async function loadArticleById(id: string, onError: 'navigate' | 'message'): Promise<boolean> {
+    // 带版本号 v（= updatedAt）：编辑后 key 变化，避免命中过期缓存
+    const meta = readNodes().find((n) => n.id === id);
+    const v = meta?.updatedAt ? `?v=${encodeURIComponent(meta.updatedAt)}` : '';
+    const cacheKey = `${id}:${meta?.updatedAt ?? ''}`;
+
+    const cached = ARTICLE_HTML_CACHE.get(cacheKey);
+    if (cached) {
+      applyArticleHtml(id, cached);
+      return true;
+    }
+
+    switchCtrl?.abort();
+    const ctrl = new AbortController();
+    switchCtrl = ctrl;
+    setArticleLoading(true);
     try {
-      // 带版本号 v（= updatedAt）：命中 CDN 长缓存，大文章二次切换近乎瞬时；
-      // 无 updatedAt（数据缺失）时退化为不带 v，仍可用，只是每次回源重渲。
-      const meta = readNodes().find((n) => n.id === id);
-      const v = meta?.updatedAt ? `?v=${encodeURIComponent(meta.updatedAt)}` : '';
-      const res = await fetch(`/api/doc/nodes/${id}/render${v}`);
+      const res = await fetch(`/api/doc/nodes/${id}/render${v}`, { signal: ctrl.signal });
       const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: TocItem[]; error?: string };
       if (!res.ok || typeof d.html !== 'string') throw new Error(d.error ?? '加载失败');
-      const h1 = document.querySelector('main h1');
-      if (h1 && d.title) h1.textContent = d.title;
-      const article = document.querySelector<HTMLElement>('main article.prose');
-      if (article) article.innerHTML = d.html;
-      // 重建树形目录（与 SSR 同一实现：层级折叠 + KaTeX 富文本）
-      const tocWrap = document.getElementById('doc-toc-list');
-      if (tocWrap && Array.isArray(d.toc)) {
-        tocWrap.innerHTML = d.toc.length ? renderTocTreeHtml(d.toc) : '<p class="text-xs text-muted-foreground">无目录</p>';
+      const html = d.html; // 收窄为 string：对象本身仍保留可选 html，故渲染处需显式传值
+      if (ctrl.signal.aborted) return false; // 已被更新的一次点击取代：静默放弃
+      // LRU 写缓存
+      ARTICLE_HTML_CACHE.set(cacheKey, { html, toc: Array.isArray(d.toc) ? d.toc : [], title: d.title });
+      while (ARTICLE_HTML_CACHE.size > ARTICLE_CACHE_MAX) {
+        const oldest = ARTICLE_HTML_CACHE.keys().next().value;
+        if (oldest === undefined) break;
+        ARTICLE_HTML_CACHE.delete(oldest);
       }
-      document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
-      // pushState 入历史：后退/前进时 ClientRouter 转场加载对应 ?article= URL，SSR 直出正确文章；
-      // 刷新同样由 SSR 按 query 渲染。旧 heading 锚点随切换清除。
-      // ⚠️ state 必须带 ClientRouter 的 {index, scrollX, scrollY} 结构（index 单调递增）：
-      //    onPopState 遇 state===null 的条目会直接 return 不转场 → URL 变了内容不变。
-      const u = new URL(window.location.href);
-      u.searchParams.set('article', id);
-      u.hash = '';
-      const curIndex = typeof history.state?.index === 'number' ? history.state.index : 0;
-      history.pushState({ index: curIndex + 1, scrollX: 0, scrollY: 0 }, '', u);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch {
-      window.location.href = `/doc/${readBundle().id}?article=${encodeURIComponent(id)}`;
+      applyArticleHtml(id, { html, toc: d.toc, title: d.title });
+      return true;
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return false; // 被新点击取代：静默
+      if (onError === 'navigate') {
+        window.location.href = `/doc/${readBundle().id}?article=${encodeURIComponent(id)}`;
+      } else {
+        const article = document.querySelector<HTMLElement>('main article.prose');
+        if (article) {
+          article.innerHTML = `<p class="text-sm text-destructive">长文档加载失败：${escHtml((err as Error)?.message || '未知错误')}。可刷新页面重试。</p>`;
+        }
+      }
+      return false;
+    } finally {
+      // 仅当自己仍是当前请求时才收尾（被取代时由新请求接管加载态）
+      if (switchCtrl === ctrl) {
+        switchCtrl = null;
+        setArticleLoading(false);
+      }
     }
-  });
+  }
+
+  /** 大文档延迟渲染：SSR 只出骨架（秒开），正文由客户端按统一流程拉取。
+   *  幂等：取走 data-defer-article 后再进入本函数不会重复触发。 */
+  function loadDeferredArticle(): void {
+    const art = document.querySelector<HTMLElement>('main article.prose[data-defer-article]');
+    const id = art?.getAttribute('data-defer-article');
+    if (!art || !id) return;
+    art.removeAttribute('data-defer-article');
+    document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
+    void loadArticleById(id, 'message');
+  }
+  loadDeferredArticle(); // 直达 / 刷新
+  document.addEventListener('astro:page-load', loadDeferredArticle); // VT 转场后
 
   function setActiveArticle(id: string): void {
     document.querySelectorAll<HTMLElement>('[data-article-switch]').forEach((a) => {
@@ -695,7 +888,109 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     const folded = node.classList.toggle('folded');
     fold.setAttribute('aria-expanded', String(!folded));
     fold.setAttribute('aria-label', folded ? '展开子目录' : '折叠子目录');
+    persistTocFold(tocNodeId(node), folded);
   });
+
+  /* ================= 目录折叠状态持久化（localStorage） =================
+     两类目录原本都会"重置为全展开"：
+     ① 标题目录树（右栏悬浮面板）：页内切换文章时 innerHTML 整体重写 → 手动折叠全丢；
+     ② 左栏册内树：details SSR 恒 open，VT 转场 / 刷新 / 直开 ?article= 时重置。
+     方案：折叠态按 id 存 localStorage（只存「已折叠」集合——展开是常态），
+     渲染后回放；无 JS 时保持 SSR 默认全展开（渐进增强不受影响）。
+     标题目录以标题锚点 id（slug）为 key，全局一池——同名标题跨文章联动折叠；
+     册树以 folder id 为 key、按 bundle 分池。 */
+  const TOC_FOLDED_KEY = 'doc-toc-folded';
+  const FOLDER_FOLD_MAX = 500;
+
+  const folderFoldKey = (bundleId: string): string => `doc-folder-folded:${bundleId}`;
+
+  function readFoldedSet(key: string): Set<string> {
+    try {
+      const raw = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown;
+      return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  function writeFoldedSet(key: string, set: Set<string>): void {
+    try {
+      localStorage.setItem(key, JSON.stringify([...set].slice(0, FOLDER_FOLD_MAX)));
+    } catch {
+      /* 隐私模式等写失败：仅退化为不跨页保持，本页交互不受影响 */
+    }
+  }
+
+  /** 标题目录树节点 id（= 标题锚点 id，由 rehype-slug 生成，跨页稳定） */
+  function tocNodeId(node: HTMLElement): string {
+    const href = node.querySelector('a[data-doc-anchor]')?.getAttribute('href') ?? '';
+    return href.startsWith('#') ? href.slice(1) : '';
+  }
+
+  function persistTocFold(id: string, folded: boolean): void {
+    if (!id) return;
+    const set = readFoldedSet(TOC_FOLDED_KEY);
+    if (folded) set.add(id);
+    else set.delete(id);
+    writeFoldedSet(TOC_FOLDED_KEY, set);
+  }
+
+  /** 回放标题目录折叠态（页内切换重写 / VT 转场后调用） */
+  function applyTocFoldState(root: HTMLElement | null): void {
+    if (!root) return;
+    const folded = readFoldedSet(TOC_FOLDED_KEY);
+    if (folded.size === 0) return;
+    root.querySelectorAll<HTMLElement>('.toc-node').forEach((node) => {
+      const id = tocNodeId(node);
+      if (!id || !folded.has(id)) return;
+      node.classList.add('folded');
+      const fold = node.querySelector<HTMLElement>(':scope > .toc-row > .toc-fold');
+      if (fold) {
+        fold.setAttribute('aria-expanded', 'false');
+        fold.setAttribute('aria-label', '展开子目录');
+      }
+    });
+  }
+
+  const currentBundleId = (): string => /^\/doc\/([^/?#]+)/.exec(location.pathname)?.[1] ?? '';
+
+  /** 回放左栏册树折叠态（details SSR 恒 open；整页导航后按存储调整 open） */
+  function applyFolderFoldState(): void {
+    const bundleId = currentBundleId();
+    if (!bundleId) return;
+    const folded = readFoldedSet(folderFoldKey(bundleId));
+    document.querySelectorAll<HTMLDetailsElement>('details.doc-folder[data-folder]').forEach((d) => {
+      const id = d.getAttribute('data-folder') ?? '';
+      if (id) d.open = !folded.has(id);
+    });
+  }
+
+  // details 开合 → 持久化册树折叠态。⚠️ toggle 事件不冒泡，必须 capture 捕获；
+  // 回放时的程序化 d.open 赋值也会触发 toggle，写入值与回放值一致（幂等，无循环）。
+  document.addEventListener(
+    'toggle',
+    (e) => {
+      const d = e.target as HTMLDetailsElement;
+      if (!d || d.tagName !== 'DETAILS' || !d.classList.contains('doc-folder')) return;
+      const id = d.getAttribute('data-folder');
+      const bundleId = currentBundleId();
+      if (!id || !bundleId) return;
+      const key = folderFoldKey(bundleId);
+      const set = readFoldedSet(key);
+      if (d.open) set.delete(id);
+      else set.add(id);
+      writeFoldedSet(key, set);
+    },
+    true,
+  );
+
+  /** 全部回放入口：直达/刷新首次执行 + astro:page-load（VT 转场 / 前进后退） */
+  function applyAllFoldState(): void {
+    applyTocFoldState(document.getElementById('doc-toc-list'));
+    applyFolderFoldState();
+  }
+  applyAllFoldState();
+  document.addEventListener('astro:page-load', applyAllFoldState);
 
   /* ================= 本册目录树：文章拖拽排序 / 跨目录移动（登录） =================
      交互对齐导航模块（nav.astro）：HTML5 原生 DnD + document 级委托（ClientRouter
@@ -789,11 +1084,26 @@ const folderOptionsJson = JSON.stringify(folderOptions);
         ),
       );
       if (results.some((ok) => !ok)) throw new Error('排序保存失败');
+      // 服务端已落库 → 同步内存表（原实现此处整页 reload，现改为就地重绘）
+      writeNodes(
+        patchNodes(
+          readNodes(),
+          changed.map((n) => ({
+            id: n.id,
+            patch: n.id === nodeId ? { parentId: targetParentId, sort: n.sort } : { sort: n.sort },
+          })),
+        ),
+      );
     } else {
       const node = readNodes().find((n) => n.id === nodeId);
       const sameParent = (node?.parentId ?? null) === targetParentId;
       const ok = await patch(nodeId, sameParent ? { sort } : { parentId: targetParentId, sort });
       if (!ok) throw new Error('移动失败');
+      writeNodes(
+        patchNodes(readNodes(), [
+          { id: nodeId, patch: sameParent ? { sort } : { parentId: targetParentId, sort } },
+        ]),
+      );
     }
   }
 
@@ -869,7 +1179,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
         if ((dragged?.parentId ?? null) === null) return; // 已是根级
         await commitDocNodeMove(nodeId, null, Number.MAX_SAFE_INTEGER);
       }
-      window.location.reload();
+      // 就地重绘（原实现整页 reload）：保住折叠态、滚动位置与编辑器未保存内容
+      renderTree();
+      refreshFolderOptions();
     } catch {
       /* 失败保持原状（与导航一致：不做 toast，用户重试） */
     }
@@ -997,11 +1309,57 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   setupDocRails();
   document.addEventListener('astro:page-load', setupDocRails);
 
-  /* ================= 编辑态目录点击 → 编辑器内跳转 =================
-     编辑模式正文被 CodeMirror 编辑器原位替换（渲染锚点 #slug 已随正文隐藏），
-     目录链接不能走原生 hash 滚动。必须在【捕获阶段】preventDefault——ClientRouter
-     在 document 冒泡阶段监听 <a> 点击且先于本脚本执行（项目既定约定）。
-     阅读态（data-editing ≠ 'true'）完全不接管，保持原生锚点行为。 */
+  /* ================= 目录定位原语（阅读态跳转 + 编辑态退出回读位共用） =================
+     content-visibility:auto 的估算高度问题：视口外区块高度是 contain-intrinsic-size
+     的估算值（120px），锚点跳转按估算高度计算落点 → 首次定位偏移；沿途区块被
+     滚动渲染后高度变真实 → 后续点击才准（用户实测报障）。
+     stableScrollTo 在跳转前把整篇临时强制布局（.toc-nav-rendering，跳转后恢复，
+     auto 前缀记住真实高度不回跳），再做多帧校正（图片陆续加载的漂移一并收敛）；
+     用户一旦手动滚动（wheel/touch）立即停止校正，绝不和用户抢视口。 */
+  function stableScrollTo(target: Element): void {
+    const art = document.querySelector<HTMLElement>('main article.prose');
+    art?.classList.add('toc-nav-rendering');
+    // 强制同步 layout：估算高 → 真实高
+    void (art ?? document.body).offsetHeight;
+    target.scrollIntoView({ behavior: 'auto', block: 'start' });
+    let cancelled = false;
+    const cancel = (): void => {
+      cancelled = true;
+    };
+    window.addEventListener('wheel', cancel, { once: true, passive: true });
+    window.addEventListener('touchmove', cancel, { once: true, passive: true });
+    const align = (): void => {
+      if (!cancelled) target.scrollIntoView({ behavior: 'auto', block: 'start' });
+    };
+    requestAnimationFrame(() => {
+      art?.classList.remove('toc-nav-rendering');
+      align();
+    });
+    window.setTimeout(align, 350);
+    window.setTimeout(align, 900);
+  }
+
+  /** 按「正文内比例」（0~1，视口顶在正文中的深度）定位阅读视口（编辑态退出回读位用） */
+  function scrollToProgress(ratio: number): void {
+    const art = document.querySelector<HTMLElement>('main article.prose');
+    if (!art) return;
+    art.classList.add('toc-nav-rendering');
+    void art.offsetHeight;
+    const rect = art.getBoundingClientRect();
+    const clamped = Math.min(1, Math.max(0, ratio));
+    window.scrollTo({
+      top: Math.max(0, rect.top + window.scrollY + clamped * Math.max(0, rect.height)),
+      behavior: 'auto',
+    });
+    requestAnimationFrame(() => art.classList.remove('toc-nav-rendering'));
+  }
+  window.__docScrollToProgress = scrollToProgress;
+
+  /* ================= 目录点击 → 跳转（阅读态稳定定位 / 编辑态编辑器内跳转） =================
+     捕获阶段 preventDefault（先于 ClientRouter 的 document 冒泡监听，项目既定约定）：
+     - 编辑态：正文已被 CodeMirror 编辑器原位替换（渲染锚点 #slug 随正文隐藏），
+       按序列对齐跳到源码第 nth 个该级标题；
+     - 阅读态：此前走原生锚点（首次定位受估算高度影响不准），改走 stableScrollTo。 */
   const tocJumpList = document.getElementById('doc-toc-list');
   if (tocJumpList) {
     tocJumpList.addEventListener(
@@ -1009,13 +1367,26 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       (e) => {
         const a = (e.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a[data-doc-anchor]');
         if (!a) return;
-        if (document.getElementById('doc-3col')?.getAttribute('data-editing') !== 'true') return;
         e.preventDefault();
-        const level = Number(a.className.match(/toc-l(\d)/)?.[1] ?? 2);
-        // 序列对齐主键：目录里同 level 的第 nth 项 ↔ 源码里第 nth 个该级标题（免 slug 匹配）
-        const same = tocJumpList.querySelectorAll(`a.toc-l${level}`);
-        const nth = Array.prototype.indexOf.call(same, a);
-        if (nth >= 0) window.__docInlineEditor?.jumpToHeading?.(level, nth);
+        const href = a.getAttribute('href') ?? '';
+        if (document.getElementById('doc-3col')?.getAttribute('data-editing') === 'true') {
+          const level = Number(a.className.match(/toc-l(\d)/)?.[1] ?? 2);
+          // 序列对齐主键：目录里同 level 的第 nth 项 ↔ 源码里第 nth 个该级标题（免 slug 匹配）
+          const same = tocJumpList.querySelectorAll(`a.toc-l${level}`);
+          const nth = Array.prototype.indexOf.call(same, a);
+          if (nth >= 0) window.__docInlineEditor?.jumpToHeading?.(level, nth);
+          return;
+        }
+        // 阅读态：稳定定位到锚点标题 + 更新地址栏 hash（pushState 不触发二次滚动）
+        const slug = decodeURIComponent(href.replace(/^#/, ''));
+        const target = slug ? document.getElementById(slug) : null;
+        if (!target) return;
+        stableScrollTo(target);
+        try {
+          window.history.pushState(null, '', href);
+        } catch {
+          /* 特殊环境（沙箱预览等）下忽略地址栏更新 */
+        }
       },
       true,
     );
@@ -1158,6 +1529,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
         return;
       }
       try {
+        let saved: NodeMeta | null = null;
         if (editingId) {
           const res = await fetch(`/api/doc/nodes/${editingId}`, {
             method: 'PATCH',
@@ -1165,6 +1537,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
             body: JSON.stringify({ title, content, parentId: parentId || null }),
           });
           if (!res.ok) throw new Error('保存失败');
+          saved = ((await res.json().catch(() => ({}))) as { node?: NodeMeta }).node ?? null;
         } else {
           const res = await fetch('/api/doc/nodes', {
             method: 'POST',
@@ -1172,8 +1545,38 @@ const folderOptionsJson = JSON.stringify(folderOptions);
             body: JSON.stringify({ bundleId: readBundle().id, parentId: parentId || null, kind, title, content }),
           });
           if (!res.ok) throw new Error('创建失败');
+          saved = ((await res.json().catch(() => ({}))) as { node?: NodeMeta }).node ?? null;
         }
-        window.location.reload();
+        if (saved) {
+          const node = saved;
+          const list = readNodes();
+          writeNodes(
+            list.some((n) => n.id === node.id)
+              ? patchNodes(list, [
+                  {
+                    id: node.id,
+                    patch: { title: node.title, parentId: node.parentId, sort: node.sort, updatedAt: node.updatedAt },
+                  },
+                ])
+              : [...list, node],
+          );
+          if (node.kind === 'article') {
+            // 正文/标题已变：清掉该文章的渲染缓存；若正是当前文章，标题同步到 H1
+            for (const k of [...ARTICLE_HTML_CACHE.keys()]) if (k.startsWith(`${node.id}:`)) ARTICLE_HTML_CACHE.delete(k);
+            if (node.id === currentActiveId()) {
+              const h1 = document.querySelector('main h1');
+              if (h1) h1.textContent = node.title;
+            }
+          }
+        }
+        renderTree();
+        refreshFolderOptions();
+        el<HTMLDialogElement>('doc-node-dialog')?.close();
+        // 原先没有任何文章、且刚新建的是文章 → 补上首篇
+        // （原 reload 后 SSR 会默认选中第一篇，就地更新必须显式补这一步）
+        if (!editingId && saved?.kind === 'article' && !currentActiveId()) {
+          await loadArticleById(saved.id, 'message');
+        }
       } catch (err) {
         if (status) { status.textContent = err instanceof Error ? err.message : '操作失败'; status.classList.remove('hidden'); }
       }
@@ -1184,9 +1587,26 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       const del = (e.target as HTMLElement).closest<HTMLElement>('[data-node-del]');
       if (!del) return;
       const name = del.dataset.nodeName ?? '';
+      const delId = del.dataset.nodeDel ?? '';
+      if (!delId) return;
       if (!(await confirmDanger(`确定删除「${name}」？其下所有子目录与文章将一并删除。`))) return;
-      await fetch(`/api/doc/nodes/${del.dataset.nodeDel}`, { method: 'DELETE' });
-      window.location.reload();
+      const res = await fetch(`/api/doc/nodes/${delId}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      // 就地移除（含全部子孙 —— 与服务端级联删除一致），并清掉被删文章的渲染缓存
+      const doomed = collectSubtreeIds(readNodes(), delId);
+      writeNodes(removeSubtree(readNodes(), delId));
+      for (const k of [...ARTICLE_HTML_CACHE.keys()]) {
+        if (doomed.includes(k.slice(0, k.indexOf(':')))) ARTICLE_HTML_CACHE.delete(k);
+      }
+      renderTree();
+      refreshFolderOptions();
+      // 当前文章被删 → 切到剩余第一篇（原 reload 后 SSR 同样回退到第一篇）
+      if (doomed.includes(currentActiveId())) {
+        const next = readNodes().find((n) => n.kind === 'article');
+        // 整册已空：没有可保留的上下文，整页导航到 SSR 的「暂无文章」形态
+        if (next) await loadArticleById(next.id, 'message');
+        else window.location.href = `/doc/${readBundle().id}`;
+      }
     });
 
     // 文档编辑（沿用旧接口）
@@ -1225,7 +1645,17 @@ const folderOptionsJson = JSON.stringify(folderOptions);
           body: JSON.stringify({ id: readBundle().id, name, icon, summary }),
         });
         if (!res.ok) throw new Error('保存失败');
-        window.location.reload();
+        // 就地更新（原实现整页 reload）：面包屑 + 标签页标题 + 注入的 bundle 数据
+        const oldName = readBundle().name;
+        const d = document.getElementById('doc-detail-data');
+        if (d) d.dataset.bundle = JSON.stringify({ ...readBundle(), name, icon, summary });
+        const crumb = document.getElementById('doc-bundle-name');
+        if (crumb) crumb.textContent = name;
+        // 只替换前缀，保留 BaseLayout 追加的站点后缀（不同页面后缀可能不同）
+        if (document.title.startsWith(oldName)) {
+          document.title = name + document.title.slice(oldName.length);
+        }
+        el<HTMLDialogElement>('doc-edit-bundle-dialog')?.close();
       } catch (err) {
         if (status) { status.textContent = err instanceof Error ? err.message : '保存失败'; status.classList.remove('hidden'); }
       }

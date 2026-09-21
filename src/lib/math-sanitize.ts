@@ -23,6 +23,13 @@ import katex from 'katex';
  * - `output: 'htmlAndMathml'`：同时输出视觉层（.katex-html）与原生层（.katex-mathml）。
  *   后者由浏览器排版引擎直接渲染、不依赖任何 web 字体 —— 这是 BaseLayout 里
  *   KaTeX 字体韧性方案（加载失败切 .katex-font-fallback）能生效的前提。
+ *
+ * ⚠️ 2026-09-16 实测记录（改 'html' 的收益与代价，勿轻率切换）：
+ *   收益：182KB 数学文档 renderMdx 24.6s → 16.5s（-33%）、HTML 9.8MB → 8.1MB（-17%）、
+ *        DOM 26.2 万 → 18.7 万（-28%）；
+ *   代价：**字体兜底失效**（字体加载失败时公式不可读）+ 读屏（MathML）退化。
+ *   结论：收益不足以抵消损失，保持 htmlAndMathml；超大文档的「无响应」问题已由
+ *   doc 页的 SSR 延迟渲染（DEFER_RENDER_THRESHOLD）+ 加载反馈解决。
  */
 export const KATEX_RENDER_OPTIONS: Omit<katex.KatexOptions, 'displayMode'> = {
   throwOnError: false,

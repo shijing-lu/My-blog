@@ -6,22 +6,20 @@
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import { listPhotosAlive } from '@/lib/photos';
 import { photoStorageEnabled } from '@/lib/photo-storage';
+/* 管理卡片标记与「客户端取回单张卡」的接口共用同一实现（见 lib/photo-card-render.ts
+   顶部注释）：URL 导入成功后客户端向 /gallery/manage-cards 取回 HTML 就地插入，
+   标记必须与首屏完全一致，故这里不再手写一遍卡片模板。 */
+import { photoDateKey, renderManageCards } from '@/lib/photo-card-render';
 
 /* ===== Logic ===== */
 /** 管理列表最多展示数 */
 const MANAGE_LIMIT = 200;
 // 治本：过滤"DB 行存在但 R2 文件已删"的孤儿（详见 lib/photos.ts listPhotosAlive 注释）
 const photos = await listPhotosAlive(MANAGE_LIMIT, 0);
-const today = new Date();
-
-/** 日期 → 本地时区 YYYY-MM-DD */
-function dateKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-const todayStr = dateKey(today);
+const isEmpty = photos.length === 0;
+/** 首屏卡片 HTML（与客户端片段 manage-cards.astro 同源） */
+const manageCardsHtml = renderManageCards(photos);
+const todayStr = photoDateKey(new Date());
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="影集上传">
@@ -172,133 +170,72 @@ const todayStr = dateKey(today);
           已有照片 / <span id="manage-photo-count" data-initial={photos.length}>{photos.length}</span>
         </p>
       </div>
-      {
-        photos.length === 0 ? (
-          <p class="mt-4 text-sm text-muted-foreground">影集还是空的，上传第一张吧。</p>
-        ) : (
-          <>
-            <!-- ===== 批量标签工具条 ===== -->
-            <div
-              id="batch-bar"
-              data-manage-area
-              class="mt-4 flex flex-wrap items-end gap-3 rounded-md border border-border/70 bg-card/40 px-3 py-3"
-            >
-              <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <input
-                  id="check-all"
-                  type="checkbox"
-                  class="size-3.5 accent-[var(--color-primary)]"
-                  aria-label="全选/取消全选照片"
-                />
-                全选
-              </label>
-              <span id="checked-count" class="text-xs text-muted-foreground">已选 0 张</span>
-              <label class="block text-xs font-medium text-muted-foreground">
-                批量操作
-                <select
-                  id="batch-op"
-                  class="mt-1 block rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
-                >
-                  <option value="set">覆盖为</option>
-                  <option value="add">追加</option>
-                  <option value="remove">移除</option>
-                </select>
-              </label>
-              <label class="block min-w-48 flex-1 text-xs font-medium text-muted-foreground">
-                标签（逗号分隔）
-                <input
-                  id="batch-tags"
-                  type="text"
-                  maxlength="200"
-                  placeholder="风景,旅行,2024"
-                  class="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
-                />
-              </label>
-              <button
-                id="batch-apply"
-                type="button"
-                disabled
-                class="rounded-md bg-primary px-4 py-1.5 text-xs text-primary-foreground transition-opacity duration-200 hover:opacity-90 disabled:opacity-40"
-              >
-                应用
-              </button>
-              <span id="batch-status" class="text-xs text-muted-foreground"></span>
-            </div>
+      <!-- 空态：SSR 与客户端共用（导入首张 / 删空最后一张都就地切换，不整页刷新） -->
+      <p id="manage-empty" class:list={['mt-4 text-sm text-muted-foreground', !isEmpty && 'hidden']}>
+        影集还是空的，上传第一张吧。
+      </p>
 
-            <div id="manage-grid" data-manage-area class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-              {
-                photos.map((p) => (
-                  <div class="manage-card p-1" data-photo-id={p.id}>
-                    <div class="relative">
-                      <img
-                        src={p.thumbUrl ?? p.url}
-                        alt={p.title || '照片'}
-                        class="aspect-video w-full rounded object-cover"
-                        loading="lazy"
-                        data-broken-photo={p.id}
-                        onerror="var c=this.closest('.manage-card');if(!c||c.dataset.fallback)return;c.dataset.fallback='1';c.remove();var n=document.getElementById('manage-photo-count');if(n)n.textContent=String(document.querySelectorAll('.manage-card').length);var e=document.getElementById('manage-empty'),r=document.querySelectorAll('.manage-card').length;r===0?(document.querySelectorAll('[data-manage-area]').forEach(function(a){a.classList.add('hidden')}),e&&e.classList.remove('hidden')):e&&e.classList.add('hidden')"
-                      />
-                      <input
-                        type="checkbox"
-                        value={p.id}
-                        data-photo-check
-                        class="absolute left-1.5 top-1.5 size-4 cursor-pointer accent-[var(--color-primary)]"
-                        aria-label="选择这张照片"
-                      />
-                    </div>
-                    <input
-                      type="date"
-                      value={dateKey(p.takenAt)}
-                      data-manage-date
-                      class="mt-2 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
-                      aria-label="照片日期"
-                    />
-                    <input
-                      type="text"
-                      value={p.title}
-                      data-manage-title
-                      maxlength="200"
-                      placeholder="标题"
-                      class="mt-1 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
-                      aria-label="照片标题"
-                    />
-                    <input
-                      type="text"
-                      value={p.tags.join(',')}
-                      data-manage-tags
-                      maxlength="200"
-                      placeholder="标签（逗号分隔）"
-                      class="mt-1 w-full rounded border border-input bg-background px-1.5 py-1 text-xs outline-none focus-visible:border-ring"
-                      aria-label="照片标签"
-                    />
-                    <div class="mt-2 flex gap-2">
-                      <button
-                        type="button"
-                        data-save-photo={p.id}
-                        class="flex-1 rounded border border-border px-2 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
-                      >
-                        保存
-                      </button>
-                      <button
-                        type="button"
-                        data-delete-photo={p.id}
-                        class="flex-1 rounded border border-destructive/40 px-2 py-1 text-xs text-destructive transition-colors duration-200 hover:bg-destructive/10"
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </div>
-                ))
-              }
-            </div>
+      <!-- ===== 批量标签工具条（无照片时整体隐藏；导入首张后由客户端就地放开） ===== -->
+      <div
+        id="batch-bar"
+        data-manage-area
+        class:list={[
+          'mt-4 flex flex-wrap items-end gap-3 rounded-md border border-border/70 bg-card/40 px-3 py-3',
+          isEmpty && 'hidden',
+        ]}
+      >
+        <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            id="check-all"
+            type="checkbox"
+            class="size-3.5 accent-[var(--color-primary)]"
+            aria-label="全选/取消全选照片"
+          />
+          全选
+        </label>
+        <span id="checked-count" class="text-xs text-muted-foreground">已选 0 张</span>
+        <label class="block text-xs font-medium text-muted-foreground">
+          批量操作
+          <select
+            id="batch-op"
+            class="mt-1 block rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
+          >
+            <option value="set">覆盖为</option>
+            <option value="add">追加</option>
+            <option value="remove">移除</option>
+          </select>
+        </label>
+        <label class="block min-w-48 flex-1 text-xs font-medium text-muted-foreground">
+          标签（逗号分隔）
+          <input
+            id="batch-tags"
+            type="text"
+            maxlength="200"
+            placeholder="风景,旅行,2024"
+            class="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus-visible:border-ring"
+          />
+        </label>
+        <button
+          id="batch-apply"
+          type="button"
+          disabled
+          class="rounded-md bg-primary px-4 py-1.5 text-xs text-primary-foreground transition-opacity duration-200 hover:opacity-90 disabled:opacity-40"
+        >
+          应用
+        </button>
+        <span id="batch-status" class="text-xs text-muted-foreground"></span>
+      </div>
 
-            <!-- 客户端把最后一张也删掉时的空态（平时隐藏；配合 data-manage-area 切换） -->
-            <p id="manage-empty" class="mt-4 hidden text-sm text-muted-foreground">
-              影集还是空的，上传第一张吧。
-            </p>
-          </>
-        )
-      }
+      <!-- 管理网格：卡片 HTML 由 lib/photo-card-render.ts 生成（与客户端片段同源） -->
+      <div
+        id="manage-grid"
+        data-manage-area
+        class:list={[
+          'mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5',
+          isEmpty && 'hidden',
+        ]}
+        set:html={manageCardsHtml}
+      />
     </div>
   </section>
 </AdminLayout>
@@ -308,6 +245,11 @@ const todayStr = dateKey(today);
    *  多文件队列 → canvas 压缩原图+缩略图 → 逐张 POST /api/photos；
    *  URL 导入（PicGo 工作流）；管理列表 保存(PATCH) / 删除(DELETE)。 */
   import { confirmDanger } from '@/lib/confirm';
+  /* 标签工具与服务端 `@/lib/photos` 共用同一实现（同构纯函数模块），
+     避免两边各抄一份导致「移除 >10 个标签时界面少移除」这类语义漂移。
+     注意：不能直接 import `@/lib/photos` —— 它引 drizzle/db，客户端打包会炸。 */
+  import { combineTags, normalizeTags, parseTagsInput } from '@/lib/photo-tags';
+  import type { TagOp } from '@/lib/photo-tags';
 
   const todayStr = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
   const MAX_ORIGINAL_BYTES = 3 * 1024 * 1024;
@@ -323,11 +265,7 @@ const todayStr = dateKey(today);
     });
   }
 
-  /** 「风景,旅行,2024」→ ['风景','旅行','2024']（中英文逗号均可，去重去空） */
-  function parseTagInput(value: string): string[] {
-    return [...new Set(value.split(/[,，]/).map((t) => t.trim()).filter(Boolean))];
-  }
-
+  /** 标签规范化：与服务端 `serializeTags` 的净化部分同源（见 `@/lib/photo-tags`） */
   // ---------- 图片压缩 ----------
   function loadImage(file: File): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
@@ -470,7 +408,7 @@ const todayStr = dateKey(today);
   async function startUpload(): Promise<void> {
     const date = (el<HTMLInputElement>('upload-date')?.value ?? todayStr).trim();
     const title = (el<HTMLInputElement>('upload-title')?.value ?? '').trim();
-    const tags = parseTagInput(el<HTMLInputElement>('upload-tags')?.value ?? '');
+    const tags = parseTagsInput(el<HTMLInputElement>('upload-tags')?.value ?? '');
     const status = el('upload-status');
     const btn = el<HTMLButtonElement>('upload-btn');
     if (!btn || queue.length === 0) return;
@@ -580,7 +518,7 @@ const todayStr = dateKey(today);
     height = dims.h;
     status.textContent = width && height ? '导入中…' : '直链无法预加载宽高（跨域/防盗链），将按 4:3 占位导入…';
     try {
-      const importTags = parseTagInput(el<HTMLInputElement>('url-tags')?.value ?? '');
+      const importTags = parseTagsInput(el<HTMLInputElement>('url-tags')?.value ?? '');
       const res = await fetch('/api/photos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -593,13 +531,17 @@ const todayStr = dateKey(today);
           tags: importTags,
         }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; photo?: { id?: string } };
       if (!res.ok) throw new Error(data.error ?? '导入失败');
+      // 就地插入新卡：不再整页刷新。原先的 reload 会把「标签保留」的意图一起抹掉
+      // （url-tags 输入框被重置），并让刚写好的「✓ 导入成功」一闪即逝。
+      const newId = data.photo?.id ?? '';
+      if (newId) await appendManageCard(newId, date);
       status.textContent = '✓ 导入成功';
       urlInput.value = '';
-      el<HTMLInputElement>('url-title')!.value = '';
-      // 标签保留（批量导入常沿用同一批标签），其余清空
-      window.location.reload(); // 刷新管理列表
+      const urlTitleInput = el<HTMLInputElement>('url-title');
+      if (urlTitleInput) urlTitleInput.value = '';
+      // url-tags 故意不清空：批量导入常沿用同一批标签
     } catch (err) {
       status.textContent = err instanceof Error ? err.message : '导入失败';
     }
@@ -615,7 +557,7 @@ const todayStr = dateKey(today);
       if (!card || !id) return;
       const date = (card.querySelector<HTMLInputElement>('[data-manage-date]')?.value ?? '').trim();
       const title = (card.querySelector<HTMLInputElement>('[data-manage-title]')?.value ?? '').trim();
-      const tags = parseTagInput(card.querySelector<HTMLInputElement>('[data-manage-tags]')?.value ?? '');
+      const tags = parseTagsInput(card.querySelector<HTMLInputElement>('[data-manage-tags]')?.value ?? '');
       if (!date) {
         window.alert('请选择日期');
         return;
@@ -651,6 +593,9 @@ const todayStr = dateKey(today);
       // 乐观移除：DELETE 涉及 R2 删除 + 主备双库双写，耗时可达数秒，
       // 若等响应再移除，卡片会长时间占着网格位置（用户会以为删除没生效）。
       const card = delBtn.closest<HTMLElement>('.manage-card');
+      // 记住原位，失败时按原索引回插（比整页刷新更轻，且不丢其它卡上未保存的编辑）
+      const grid = card?.parentElement ?? null;
+      const index = card && grid ? [...grid.children].indexOf(card) : -1;
       removeManageCard(id, card); // 释放 DOM 插槽 + 同步计数/空态/批量勾选（见 helper）
       try {
         const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });
@@ -659,9 +604,12 @@ const todayStr = dateKey(today);
           throw new Error(data.error ?? '删除失败');
         }
       } catch (err) {
-        // 删除失败 → 数据仍在，刷新页面以服务端状态回滚 UI
+        // 删除失败 → 数据仍在，把卡片按原位置放回去（排序与其它卡的未保存编辑都保住）
+        if (card && grid) {
+          grid.insertBefore(card, grid.children[index] ?? null);
+          syncManageState();
+        }
         window.alert(err instanceof Error ? err.message : '删除失败');
-        window.location.reload();
       }
     }
   });
@@ -674,25 +622,13 @@ const todayStr = dateKey(today);
   const batchStatus = el('batch-status');
 
   /**
-   * 从管理网格移除一张照片卡片，并同步派生状态，彻底释放其占用的位置/空间。
+   * 以「当前 DOM 里实际存在的卡片数」为准，同步全部派生状态。
    *
-   * 这是全页唯一的「删除后释放展示插槽」入口：
-   * 1. 移除 `.manage-card` DOM 节点（CSS grid 自动回流，不留空洞）；
-   * 2. 递减头部「已有照片 / N」实时计数；
-   * 3. 若网格删空，隐藏批量工具条与网格、展示空态文案（避免陈旧框架继续占位）；
-   * 4. 刷新批量勾选态（被删卡片的勾选随之消失）。
-   * 无论单张删除、未来新增的批量删除/清空回收站，都应复用本函数，避免各自手写移除导致残留。
-   *
-   * @param id    照片 id（供日志/去重）
-   * @param card  可选：已定位的 `.manage-card`；缺省时按 data-photo-id 查找
-   * @returns 是否确实移除了一张卡片
+   * 全页唯一的同步入口：计数徽标 / 空态文案 / 管理区（批量工具条 + 网格）显隐 /
+   * 批量勾选态。删除与「导入后就地插卡」都必须走这里 —— 两处各写一份迟早漏改
+   * （典型症状：导入首张后网格还挂着 `hidden`，用户以为导入失败）。
    */
-  function removeManageCard(id: string, card?: HTMLElement | null): boolean {
-    const target = card && card.isConnected ? card : document.querySelector<HTMLElement>(`.manage-card[data-photo-id="${CSS.escape(id)}"]`);
-    if (!target || !target.isConnected) return false;
-    target.remove();
-
-    // 删除后：实时计数与空态都以「当前仍在 DOM 的卡片数」为准，确保不留陈旧计数/占位
+  function syncManageState(): void {
     const remaining = document.querySelectorAll<HTMLElement>('.manage-card').length;
     const countNode = el('manage-photo-count');
     if (countNode) {
@@ -700,17 +636,85 @@ const todayStr = dateKey(today);
       countNode.textContent = String(remaining);
     }
 
-    // 网格已删空 → 释放整片管理区（隐藏批量工具条/网格），展示空态文案
     const emptyNode = el('manage-empty');
+    const areas = document.querySelectorAll<HTMLElement>('[data-manage-area]');
     if (remaining === 0) {
-      document.querySelectorAll<HTMLElement>('[data-manage-area]').forEach((area) => area.classList.add('hidden'));
+      // 网格已空 → 释放整片管理区，展示空态文案（避免陈旧框架继续占位）
+      areas.forEach((area) => area.classList.add('hidden'));
       emptyNode?.classList.remove('hidden');
     } else {
+      areas.forEach((area) => area.classList.remove('hidden'));
       emptyNode?.classList.add('hidden');
     }
 
     syncBatchState();
+  }
+
+  /**
+   * 从管理网格移除一张照片卡片，并同步派生状态，彻底释放其占用的位置/空间。
+   *
+   * 这是全页唯一的「删除后释放展示插槽」入口：移除 `.manage-card` DOM 节点
+   * （CSS grid 自动回流，不留空洞）后交给 `syncManageState()` 统一同步计数/空态/勾选。
+   * 无论单张删除、批量删除、图片加载失败的孤儿兜底，都应复用本函数。
+   *
+   * @param id    照片 id（供查找）
+   * @param card  可选：已定位的 `.manage-card`；缺省时按 data-photo-id 查找
+   * @returns 是否确实移除了一张卡片
+   */
+  function removeManageCard(id: string, card?: HTMLElement | null): boolean {
+    const target = card && card.isConnected ? card : document.querySelector<HTMLElement>(`.manage-card[data-photo-id="${CSS.escape(id)}"]`);
+    if (!target || !target.isConnected) return false;
+    target.remove();
+    syncManageState();
     return true;
+  }
+
+  /**
+   * 向服务端取回**单张**管理卡的 HTML。
+   *
+   * 为什么不在这里拼 HTML：卡片标记（含图片加载失败的内联 onerror、各 data-* 契约）
+   * 必须与首屏 SSR 完全一致，否则「刷新前 / 刷新后」两张卡会长得不一样。所以两边共用
+   * `lib/photo-card-render.ts`，客户端只负责取回并插入。
+   *
+   * @returns 已解析出的 `.manage-card` 元素（未插入文档）；取不到时返回 null
+   */
+  async function fetchManageCard(id: string): Promise<HTMLElement | null> {
+    const res = await fetch(`/gallery/manage-cards?id=${encodeURIComponent(id)}`);
+    if (!res.ok) return null;
+    const html = (await res.text()).trim();
+    if (!html) return null;
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    // 注：图片若在挂载前就已加载失败，内联 onerror 会把卡片从 holder 里摘掉 —— 此时
+    // 返回 null，等价于「这张破图不展示」，与刷新后的表现一致。
+    return holder.querySelector<HTMLElement>('.manage-card');
+  }
+
+  /**
+   * 按服务端排序规则把新卡插到正确位置。
+   *
+   * 服务端是 `ORDER BY takenAt DESC, createdAt DESC`。新导入照片的 `createdAt` 必然最新，
+   * 所以「同一展示日期的卡片」里它排最前 —— 定位到第一张 `date <= 新日期` 的卡之前插入即可
+   * （`YYYY-MM-DD` 的字典序等于时间序）。若图省事直接 append 到末尾，下次刷新就会看到它跳位。
+   */
+  function insertManageCard(card: HTMLElement, date: string): void {
+    const grid = el('manage-grid');
+    if (!grid) return;
+    const anchor = [...grid.querySelectorAll<HTMLElement>('.manage-card')].find((c) => {
+      const d = c.querySelector<HTMLInputElement>('[data-manage-date]')?.value ?? '';
+      return d <= date;
+    });
+    grid.insertBefore(card, anchor ?? null);
+  }
+
+  /** 导入成功后：取回单张卡 → 按服务端顺序插入 → 同步计数/空态/管理区显隐 */
+  async function appendManageCard(id: string, date: string): Promise<void> {
+    const card = await fetchManageCard(id);
+    if (!card) return;
+    insertManageCard(card, date);
+    syncManageState();
+    // 新卡也享受孤儿图兜底（幂等，不会重复绑老卡）
+    setupBrokenPhotoFallback();
   }
 
   /** 孤儿兜底：图片加载失败时复用 removeManageCard 释放网格槽位与计数
@@ -724,15 +728,22 @@ const todayStr = dateKey(today);
    *  `removeManageCard(id, card)`，复用统一的释放入口（删 DOM + 同步计数 + 空态
    *  切换 + 刷新批量勾选）。listener 一次性 `{ once: true }` 避免重复触发。
    *
+   * 幂等：本函数会重复调用（导入后就地插卡时再跑一次），靠一个 WeakSet 记录已绑过的
+   * `<img>`。**故意不用 `data-*` 属性做标记** —— 那会往 DOM 里写多余属性，使就地插入的卡
+   * 与服务端片段不再逐字节相同（E2E 会因此误报），也污染 `outerHTML` 快照类断言。
+   *
    * 注：此为治标——释放 UI 槽位让用户视觉上不再看到破图占位；治本是 DB 中物理删除
    * 孤儿行（需 R2 SDK 探测，另作管理 API；本次不在范围内）。
    */
+  const brokenPhotoBound = new WeakSet<HTMLImageElement>();
+
   function setupBrokenPhotoFallback(): void {
     document.querySelectorAll<HTMLImageElement>('#manage-grid img[data-broken-photo]').forEach((img) => {
       // 浏览器缓存命中且已成功加载的图片直接跳过
       if (img.complete && img.naturalWidth > 0) return;
-      // 已触发过 error 的 `<img>` 标记一下，避免与 onerror 重复移除
-      if ((img as HTMLImageElement & { dataset?: { handled?: string } }).dataset?.handled) return;
+      // 已绑过监听的 `<img>` 跳过，避免重复移除
+      if (brokenPhotoBound.has(img)) return;
+      brokenPhotoBound.add(img);
       img.addEventListener('error', () => {
         const card = img.closest<HTMLElement>('.manage-card');
         if (!card) return;
@@ -762,6 +773,26 @@ const todayStr = dateKey(today);
     }
   }
 
+  /**
+   * 把批量标签操作的结果**就地**写回受影响卡片的标签输入框。
+   *
+   * 语义与服务端 `batchUpdateTags` 完全一致 —— 两边共用 `@/lib/photo-tags` 的
+   * `combineTags`（集合运算）与 `normalizeTags`（写库前的去重限个），因此界面显示的
+   * 就是服务端实际存下的内容，无需整页刷新。原先的 reload 会把用户刚勾好的
+   * **批量选择集**和其它卡片上未保存的编辑一起丢掉。
+   */
+  function applyTagsLocally(ids: string[], op: TagOp, tags: string[]): void {
+    const targets = new Set(ids);
+    document.querySelectorAll<HTMLElement>('.manage-card').forEach((card) => {
+      const pid = card.dataset.photoId ?? '';
+      if (!targets.has(pid)) return;
+      const input = card.querySelector<HTMLInputElement>('[data-manage-tags]');
+      if (!input) return;
+      const current = parseTagsInput(input.value);
+      input.value = normalizeTags(combineTags(current, op, tags)).join(',');
+    });
+  }
+
   if (batchBar) {
     checkAll?.addEventListener('change', () => {
       const on = checkAll.checked;
@@ -780,7 +811,7 @@ const todayStr = dateKey(today);
     batchApply?.addEventListener('click', async () => {
       const ids = checkedIds();
       const op = (el<HTMLSelectElement>('batch-op')?.value ?? 'set') as 'set' | 'add' | 'remove';
-      const tags = parseTagInput(el<HTMLInputElement>('batch-tags')?.value ?? '');
+      const tags = parseTagsInput(el<HTMLInputElement>('batch-tags')?.value ?? '');
       if (ids.length === 0 || !batchApply) return;
       if (tags.length === 0) {
         // 仅「覆盖为 + 留空」是有意义的清空操作，其余必须填标签
@@ -802,7 +833,12 @@ const todayStr = dateKey(today);
         });
         const data = (await res.json()) as { error?: string; updated?: number };
         if (!res.ok) throw new Error(data.error ?? '操作失败');
-        window.location.reload(); // 刷新卡片上的标签显示
+        // 就地刷新卡片上的标签显示（不整页刷新，保住批量勾选与其它卡未保存的编辑）
+        applyTagsLocally(ids, op, tags);
+        if (batchStatus) batchStatus.textContent = `已更新 ${data.updated ?? ids.length} 张`;
+        batchApply.textContent = original ?? '应用';
+        batchApply.disabled = false;
+        syncBatchState();
       } catch (err) {
         if (batchStatus) batchStatus.textContent = err instanceof Error ? err.message : '操作失败';
         batchApply.textContent = original ?? '应用';
@@ -813,8 +849,9 @@ const todayStr = dateKey(today);
     syncBatchState();
   }
 
-  // 孤儿兜底：DOM 就绪后给所有管理卡片图绑一次性 error 监听；DOMContentLoaded
-  // 之后节点也可能由其它代码插入，但本页无运行时插入卡片，故无需 observer
+  // 孤儿兜底：DOM 就绪后给所有管理卡片图绑一次性 error 监听。
+  // 之后运行时插入的卡（URL 导入就地插卡）由 appendManageCard 再调一次本函数覆盖 ——
+  // 靠 `brokenPhotoBound` WeakSet 保证幂等，不会给老卡重复绑监听。
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', setupBrokenPhotoFallback, { once: true });
   } else {

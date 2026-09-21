@@ -19,6 +19,11 @@ allowBuilds:
 # 强制所有包引用同一 version 的 unified（避免 11.0.0 / 11.0.5 两个副本导致类型不兼容）
 overrides:
   unified: 11.0.5
+  # electron-builder 26.15.3 的代码使用 @electron/get@5 的 API（ElectronDownloadCacheMode）
+  # 却未声明该依赖，pnpm 会把 @electron/rebuild 依赖的 3.0.0 提升给它 → 打包崩溃
+  # （Cannot read properties of undefined (reading 'ReadWrite')）。强制统一到 5.1.0；
+  # @electron/rebuild 的重编步骤已被 npmRebuild:false 跳过，不受影响。
+  "@electron/get": 5.1.0
   # hast-util-to-estree（MDX evaluate 路径）依赖 style-to-js；
   # 1.0.0 为纯 CJS 且用 exports["default"] 括号赋值，Vite interop 识别失败
   # （报 styleToJs is not a function）。KaTeX 输出带 style 属性时触发，升级到 1.1.x（双 ESM/CJS）。
@@ -29,3 +34,5 @@ overrides:
   # 页面却加载 0.18.5 CSS，覆盖定位（如 \neq 的 \not= 斜线叠加层 rlap/inner）全部失效，
   # 不等号平铺渲染成 "/="（编辑器直用根依赖 0.18.5 故正常——「编辑正常、阅读 /=」根因）。
   katex: 0.18.5
+
+verifyDepsBeforeRun: false

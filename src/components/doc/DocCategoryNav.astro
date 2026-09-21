@@ -8,7 +8,13 @@
  *
  * 同一份列表在页面上出现两次（桌面侧栏 `hidden lg:block` + 窄屏 `<details>`），
  * 故抽成组件避免重复；两处按钮的选中态由 `applyCat` 统一同步，始终一致。
+ *
+ * 标记本身由 `@/lib/doc-render` 的 `docCategoryNav` 生成（同构纯函数），
+ * 这样客户端在分类增删改后能就地重建两处列表，无需整页刷新。
+ * `data-doc-nav` 是客户端定位这两个实例的钩子。
  */
+import { docCategoryNav } from '@/lib/doc-render';
+
 interface NavCategory {
   id: string;
   name: string;
@@ -26,29 +32,4 @@ interface Props {
 const { categories, total } = Astro.props;
 ---
 
-<nav class="flex flex-col gap-1" aria-label="文档分类">
-  <button
-    type="button"
-    class="filter-category active"
-    data-doc-cat-filter="all"
-    aria-pressed="true"
-    title="显示全部分类"
-  >
-    <span class="filter-category-name">全部</span>
-    <span class="filter-category-count">{total}</span>
-  </button>
-  {
-    categories.map((c) => (
-      <button
-        type="button"
-        class="filter-category"
-        data-doc-cat-filter={c.id}
-        aria-pressed="false"
-        title={`只看「${c.name}」`}
-      >
-        <span class="filter-category-name">{c.name}</span>
-        <span class="filter-category-count">{c.bundleCount}</span>
-      </button>
-    ))
-  }
-</nav>
+<nav class="flex flex-col gap-1" aria-label="文档分类" data-doc-nav set:html={docCategoryNav(categories, total)} />

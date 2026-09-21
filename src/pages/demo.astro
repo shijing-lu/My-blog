@@ -63,6 +63,14 @@ console.log(add(1, 2));
 **危险**（danger）块示例。
 :::
 
+## 黑幕（spoiler 行内隐藏）
+
+最终的答案是 :spoiler[42]，周围的句子保持为正常的 Markdown 文本。
+
+黑幕内部支持 :spoiler[\`行内代码\` 以及包含 **加强调** 的较长详情]。
+
+点击正文右上方的「黑幕」按钮开启隐藏模式：遮罩生效后悬停、聚焦或点击即可揭示内容；关闭后全部内容完整显示。
+
 ## 结尾
 
 点击上方任意图片即可进入灯箱预览（ESC / 点击遮罩关闭，←/→ 切换）。
@@ -101,6 +109,9 @@ const { html, toc } = await renderMdx(
 
 <script>
   import '@/scripts/copy-button';
+  import '@/scripts/code-block-collapse';
+  import '@/scripts/callout-copy';
   import '@/scripts/lightbox';
   import '@/scripts/tabs';
+  import '@/scripts/spoiler';
 </script>

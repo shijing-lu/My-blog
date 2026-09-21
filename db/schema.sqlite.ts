@@ -6,7 +6,7 @@
  * - 时间戳用 `integer(timestamp_ms)`，读写均映射 `Date`。
  * - `$defaultFn` 在客户端（Node）生成时间，保证与 PG 的 defaultNow 语义一致。
  */
-import { sqliteTable, text, integer, check, customType, unique, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, check, customType, unique, index, primaryKey } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { isPostgres } from './dialect';
 
@@ -164,6 +164,8 @@ export const photos = sqliteTable('photos', {
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
 });
 
 /** 站点设置 KV 表（如首页 Hero 诗词轮播配置） */
@@ -190,6 +192,8 @@ export const todos = sqliteTable('todos', {
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
 });
 
 /** 日历：日记（私密，仅管理员，一人一天一篇） */
@@ -225,6 +229,8 @@ export const calendarEvents = sqliteTable('calendar_events', {
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
 });
 
 /** 动态（动态圈，公开浏览；评论/点赞预留，后续独立表） */
@@ -315,6 +321,8 @@ export const githubUsers = sqliteTable('github_users', {
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
 });
 
 /** 授权管理员（GitHub 授权账号；role=top 顶级管理员 / admin=普通管理员） */
@@ -363,6 +371,8 @@ export const adminApplications = sqliteTable('admin_applications', {
   createdAt: timestampMs('created_at')
     .notNull()
     .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   /** 处理时间（可空） */
   processedAt: timestampMs('processed_at'),
 });
@@ -393,6 +403,8 @@ export const comments = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     // 按目标取评论（分页/排序）
@@ -463,6 +475,8 @@ export const webCategories = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('web_categories_sort_idx').on(table.sort),
@@ -492,6 +506,8 @@ export const navSubCategories = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('nav_sub_categories_category_idx').on(table.categoryId),
@@ -523,6 +539,8 @@ export const websites = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('websites_category_idx').on(table.categoryId),
@@ -614,6 +632,8 @@ export const docCategories = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('doc_categories_sort_idx').on(table.sort),
@@ -640,6 +660,8 @@ export const docBundles = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('doc_bundles_category_idx').on(table.categoryId),
@@ -731,6 +753,8 @@ export const checkinTasks = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('checkin_tasks_sort_idx').on(table.sort),
@@ -774,6 +798,8 @@ export const articleCategories = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('article_categories_sort_idx').on(table.sort),
@@ -794,8 +820,65 @@ export const articlePostCategories = sqliteTable(
     createdAt: timestampMs('created_at')
       .notNull()
       .$defaultFn(() => new Date()),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
   },
   (table) => [
     index('article_post_categories_category_idx').on(table.categoryId),
   ],
 );
+
+/* ============================================================================
+ * 桌面端同步专用表（**仅本地 SQLite**，不参与云端同步，云端无对应表）
+ *
+ * 为什么只加在 sqlite 侧：这三张表是"本地同步状态"（镜像快照/日志/冲突备份），
+ * 对云端没有任何意义；同步引擎用 `SyncEndpoint` 的参数化原始 SQL 读写，
+ * 不依赖 drizzle 业务表对象，因此不存在"两侧 schema 必须一致"的约束。
+ * 它们已在 `src/sync/tables.ts` 登记为 role: 'skip'。
+ * ========================================================================== */
+
+/**
+ * 同步镜像快照（三方合并的 base）
+ *
+ * 每同步完一张表就整表推进一次 → 天然支持断点续传（中断后重跑，已完成表为空操作）。
+ * 行 id 与 core 的 `rowId()` 一致（复合主键用 \u001f 连接）。
+ */
+export const syncMirror = sqliteTable(
+  'sync_mirror',
+  {
+    /** 业务表名 */
+    table: text('table').notNull(),
+    /** 行 id */
+    rowId: text('row_id').notNull(),
+    /** 该行的内容哈希（core/hash.ts 计算） */
+    rowHash: text('row_hash').notNull(),
+    /** 快照时间（ms） */
+    syncedAt: integer('synced_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.table, t.rowId] })],
+);
+
+/** 同步日志（设置页展示"最近一次同步"用） */
+export const syncLog = sqliteTable('sync_log', {
+  id: text('id').primaryKey(),
+  startedAt: integer('started_at').notNull(),
+  finishedAt: integer('finished_at'),
+  /** ⚠️ 必须用 booleanFlag（双方言安全），勿用 integer(mode:'boolean') */
+  ok: booleanFlag('ok').notNull().default(false),
+  /** 完整报告 JSON（perTable 计数、warnings） */
+  reportJson: text('report_json').notNull().default('{}'),
+});
+
+/** 同步冲突备份（败方整行留痕，绝不静默丢数据） */
+export const syncConflicts = sqliteTable('sync_conflicts', {
+  id: text('id').primaryKey(),
+  table: text('table').notNull(),
+  rowId: text('row_id').notNull(),
+  /** 本地侧整行 JSON */
+  localJson: text('local_json').notNull().default('{}'),
+  /** 云端侧整行 JSON */
+  remoteJson: text('remote_json').notNull().default('{}'),
+  /** 胜方：local | remote */
+  winner: text('winner').notNull(),
+  createdAt: integer('created_at').notNull(),
+});

@@ -25,11 +25,12 @@ const profileJson = JSON.stringify(profile);
   title="个人中心"
   class="ml-1 inline-flex size-8 items-center justify-center overflow-hidden rounded-full border border-border text-sm transition-colors duration-200 hover:border-primary"
 >
-  {avatarSrc ? (
-    <img src={avatarSrc} alt={nickname} class="h-full w-full object-cover" />
-  ) : (
-    <span class="font-display font-semibold text-primary">{nickname.slice(0, 1)}</span>
-  )}
+  {/*
+    双元素 + hidden 切换（而非三元二选一）：保存资料后由 applyProfileDom 就地更新头像，
+    不必整页 reload。保留各自尺寸类名，靠 data-* 标记统一驱动。
+  */}
+  <img data-profile-avatar src={avatarSrc} alt={nickname} class="h-full w-full object-cover" hidden={!avatarSrc} />
+  <span data-profile-initial class="font-display font-semibold text-primary" hidden={!!avatarSrc}>{nickname.slice(0, 1)}</span>
 </button>
 
 <!-- 个人中心悬浮框（屏幕正中） -->
@@ -47,25 +48,21 @@ const profileJson = JSON.stringify(profile);
   <div id="profile-view" class="pt-4 text-center">
     <!-- P3-8：头像是装饰性的——下方 <h3> 已读出昵称，再给 alt 会让读屏重复一遍。
          装饰图用 alt="" + aria-hidden 显式标记为可忽略。 -->
-    {avatarSrc ? (
-      <img src={avatarSrc} alt="" aria-hidden="true" class="mx-auto size-24 rounded-full border-2 border-primary object-cover" />
-    ) : (
-      <span class="mx-auto inline-flex size-24 items-center justify-center rounded-full border-2 border-primary bg-muted font-display text-4xl font-semibold text-primary">
-        {nickname.slice(0, 1)}
-      </span>
-    )}
-    <h3 class="mt-3 font-display text-xl font-semibold">{nickname}</h3>
-    {profile.motto && <p class="mt-1 text-sm italic text-muted-foreground">「{profile.motto}」</p>}
-    {profile.bio && <p class="mt-3 text-sm leading-relaxed text-muted-foreground">{profile.bio}</p>}
-    {profile.location && (
-      <p class="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
-          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-          <circle cx="12" cy="10" r="3" />
-        </svg>
-        {profile.location}
-      </p>
-    )}
+    <img data-profile-avatar src={avatarSrc} alt="" aria-hidden="true" class="mx-auto size-24 rounded-full border-2 border-primary object-cover" hidden={!avatarSrc} />
+    <span data-profile-initial class="mx-auto inline-flex size-24 items-center justify-center rounded-full border-2 border-primary bg-muted font-display text-4xl font-semibold text-primary" hidden={!!avatarSrc}>
+      {nickname.slice(0, 1)}
+    </span>
+    <h3 data-profile-nickname class="mt-3 font-display text-xl font-semibold">{nickname}</h3>
+    {/* 以下三项常驻 + hidden：保存后由 applyProfileDom 就地改写，空值即隐藏 */}
+    <p data-profile-motto class="mt-1 text-sm italic text-muted-foreground" hidden={!profile.motto}>「{profile.motto ?? ''}」</p>
+    <p data-profile-bio class="mt-3 text-sm leading-relaxed text-muted-foreground" hidden={!profile.bio}>{profile.bio ?? ''}</p>
+    <p class="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground" hidden={!profile.location}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
+        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+        <circle cx="12" cy="10" r="3" />
+      </svg>
+      <span data-profile-location>{profile.location ?? ''}</span>
+    </p>
     {
       isAuthed && (
         <button id="profile-edit-btn" type="button" class="mt-5 rounded-md border border-border px-4 py-1.5 text-sm transition-colors hover:border-primary hover:text-primary">
@@ -152,8 +149,7 @@ const profileJson = JSON.stringify(profile);
     if (bi) bi.value = bio;
     if (lo) lo.value = location;
     // 重置到查看模式
-    document.getElementById('profile-edit')?.classList.add('hidden');
-    document.getElementById('profile-view')?.classList.remove('hidden');
+    switchToView();
     const status = document.getElementById('profile-status');
     if (status) status.classList.add('hidden');
     dlg?.showModal();
@@ -166,6 +162,51 @@ const profileJson = JSON.stringify(profile);
   function switchToEdit(): void {
     document.getElementById('profile-view')?.classList.add('hidden');
     document.getElementById('profile-edit')?.classList.remove('hidden');
+  }
+
+  function switchToView(): void {
+    document.getElementById('profile-edit')?.classList.add('hidden');
+    document.getElementById('profile-view')?.classList.remove('hidden');
+  }
+
+  /**
+   * 把资料同步到页面上**所有**展示位（导航头像按钮、个人中心查看态、动态页头部、每张动态卡…）。
+   *
+   * 为什么需要它：资料改动是全局性的，原先靠 `window.location.reload()` 传播——代价是
+   * 丢掉滚动位置与页面状态（长列表、已加载的分页、目录树折叠态等）。改为就地更新后，
+   * 各处展示位用 `data-profile-*` 标记，一次遍历全部同步。
+   *
+   * ⚠️ 头像用「img + 初始字」双元素 + hidden 切换，而不是二选一渲染：
+   *    这样各处尺寸类名原样保留，不需要在 JS 里复制样式。
+   */
+  function applyProfileDom(p: { nickname: string; avatar: string; motto?: string; bio?: string; location?: string }): void {
+    const nick = p.nickname || '博主';
+    const avatar = p.avatar || '';
+    document.querySelectorAll<HTMLImageElement>('[data-profile-avatar]').forEach((img) => {
+      img.src = avatar;
+      img.alt = img.getAttribute('aria-hidden') === 'true' ? '' : nick;
+      img.hidden = !avatar;
+    });
+    document.querySelectorAll<HTMLElement>('[data-profile-initial]').forEach((el) => {
+      el.textContent = nick.slice(0, 1);
+      el.hidden = !!avatar;
+    });
+    document.querySelectorAll<HTMLElement>('[data-profile-nickname]').forEach((el) => {
+      el.textContent = nick;
+    });
+    document.querySelectorAll<HTMLElement>('[data-profile-motto]').forEach((el) => {
+      el.textContent = p.motto ? `「${p.motto}」` : '';
+      el.hidden = !p.motto;
+    });
+    document.querySelectorAll<HTMLElement>('[data-profile-bio]').forEach((el) => {
+      el.textContent = p.bio ?? '';
+      el.hidden = !p.bio;
+    });
+    // 位置：标记在内层 span（外层 <p> 里还有定位图标），故隐藏的是父节点
+    document.querySelectorAll<HTMLElement>('[data-profile-location]').forEach((el) => {
+      el.textContent = p.location ?? '';
+      if (el.parentElement) el.parentElement.hidden = !p.location;
+    });
   }
 
   async function saveProfile(): Promise<void> {
@@ -184,7 +225,12 @@ const profileJson = JSON.stringify(profile);
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error('保存失败');
-      window.location.reload(); // 刷新导航头像/首页名片/动态
+      // 就地同步全部展示位（原实现 window.location.reload()：会丢掉滚动位置与页面状态）
+      const dlg = dialogEl();
+      if (dlg) dlg.dataset.json = JSON.stringify(body); // 下次打开弹窗读的是最新资料
+      applyProfileDom(body);
+      switchToView(); // 原由 reload 完成的「回到查看态」
+      if (status) status.classList.add('hidden');
     } catch {
       if (status) {
         status.textContent = '保存失败，请重试';
@@ -231,8 +277,7 @@ const profileJson = JSON.stringify(profile);
       return;
     }
     if (target.closest('#profile-cancel')) {
-      document.getElementById('profile-edit')?.classList.add('hidden');
-      document.getElementById('profile-view')?.classList.remove('hidden');
+      switchToView();
       return;
     }
     if (target.closest('#profile-save')) {

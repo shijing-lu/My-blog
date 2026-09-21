@@ -68,25 +68,35 @@ function formatShort(date: Date): string {
         ))
       }
     </ul>
-    {
-      articles.length === 0 && (
-        <p class="mt-6 text-sm text-muted-foreground">暂无文章，点右上角「+ 新建」开始写作。</p>
-      )
-    }
+    {/* 空态常驻 + hidden 切换：客户端删掉最后一行时就地显示，无需重绘/刷新 */}
+    <p id="articles-empty" class="mt-6 text-sm text-muted-foreground" hidden={articles.length > 0}>
+      暂无文章，点右上角「+ 新建」开始写作。
+    </p>
   </section>
 </AdminLayout>
 
 <script>
-  /** 删除确认 → DELETE /api/articles/[id] → 刷新 */
-  import { confirmDanger } from '@/lib/confirm';
-  document.querySelectorAll<HTMLButtonElement>('[data-delete-id]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.deleteId ?? '';
-      const title = btn.dataset.deleteTitle ?? '';
-      if (!id) return;
-      if (!(await confirmDanger(`确定删除「${title}」？此操作不可撤销。`))) return;
-      await fetch(`/api/articles/${id}`, { method: 'DELETE' });
-      window.location.reload();
-    });
+/**
+ * 删除确认 → DELETE /api/articles/[id] → **就地移除该行**。
+ *
+ * 不再 `window.location.reload()`：列表页重载会丢掉滚动位置（长列表里很烦），
+ * 也会把「刚看完的那一屏」弹回顶部。删除是纯减法，就地移除即可。
+ */
+import { confirmDanger } from '@/lib/confirm';
+document.querySelectorAll<HTMLButtonElement>('[data-delete-id]').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.deleteId ?? '';
+    const title = btn.dataset.deleteTitle ?? '';
+    if (!id) return;
+    if (!(await confirmDanger(`确定删除「${title}」？此操作不可撤销。`))) return;
+    const res = await fetch(`/api/articles/${id}`, { method: 'DELETE' });
+    if (!res.ok) return;
+    // ⚠️ 先取父节点再 remove()，否则 parentElement 已为 null
+    const li = btn.closest('li');
+    const list = li?.parentElement ?? null;
+    li?.remove();
+    const empty = document.getElementById('articles-empty');
+    if (empty && list) empty.hidden = list.children.length > 0;
   });
+});
 </script>

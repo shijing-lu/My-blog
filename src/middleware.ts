@@ -76,7 +76,8 @@ function requiredApiPermission(pathname: string, method: string): PermissionKey[
     (pathname === '/api/quote-settings' ||
       pathname === '/api/background' ||
       pathname === '/api/landing' ||
-      pathname === '/api/site-name') &&
+      pathname === '/api/site-name' ||
+      pathname === '/api/editor-shortcuts') &&
     method === 'PUT'
   ) {
     return ['settings'];
@@ -92,6 +93,12 @@ function requiredApiPermission(pathname: string, method: string): PermissionKey[
   }
   // 个人中心：写需 profile 权限
   if (pathname === '/api/profile' && method === 'PUT') return ['profile'];
+  // 桌面端同步（/api/desktop/sync、/api/desktop/object/*）：
+  // ⚠️ 白名单式登记——不在此处返回权限数组即等于"不保护"（端点裸奔）
+  // 对象缓存路由例外：返回的是 R2 上本就公开的对象（暴露面与原 publicUrl 一致），
+  // 放行以便桌面端未登录时也能显示图片
+  if (pathname.startsWith('/api/desktop/object/')) return null;
+  if (pathname.startsWith('/api/desktop/')) return ['settings'];
   // 网盘对接（含 /api/netdisk-settings 与 /api/netdisk-test 与 /api/netdisk/*）：
   // 列目录/取直链也含网盘结构信息，统一按 netdisk 权限收紧
   if (pathname === '/api/netdisk-settings' || pathname === '/api/netdisk-test' || pathname.startsWith('/api/netdisk/')) {
@@ -117,7 +124,7 @@ function pagePermission(pathname: string): PermissionKey[] | null {
   if (pathname === '/admin/mindmaps' || pathname.startsWith('/admin/mindmaps/')) return ['articles'];
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return ['articles'];
   if (pathname === '/edit' || pathname.startsWith('/edit/')) return ['articles'];
-  if (pathname === '/gallery/upload') return ['photos'];
+  if (pathname === '/gallery/upload' || pathname === '/gallery/manage-cards') return ['photos'];
   if (pathname === '/calendar/diary' || pathname.startsWith('/calendar/diary/')) return ['calendar'];
   return null;
 }

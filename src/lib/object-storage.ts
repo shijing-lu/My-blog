@@ -99,6 +99,75 @@ export async function headObject(key: string): Promise<boolean> {
   }
 }
 
+/**
+ * 列目录（分页拉取全部对象；同步引擎用它比对「云端有哪些对象」）
+ *
+ * - 用 `ListObjectsV2` + `ContinuationToken` 循环，直到 `IsTruncated` 为 false；
+ * - 未配置 R2 时返回空数组（调用方按"不可用"处理，不抛错）。
+ */
+export async function listObjects(
+  prefix = '',
+): Promise<Array<{ key: string; size: number; lastModified: number | null }>> {
+  if (!r2Enabled()) return [];
+  try {
+    const cfg = readConfig()!;
+    const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    const client = await getClient();
+    const out: Array<{ key: string; size: number; lastModified: number | null }> = [];
+    let token: string | undefined;
+    do {
+      const res = (await client.send(
+        new ListObjectsV2Command({
+          Bucket: cfg.bucket,
+          Prefix: prefix,
+          MaxKeys: 1000,
+          ContinuationToken: token,
+        }),
+      )) as {
+        Contents?: Array<{ Key?: string; Size?: number; LastModified?: Date }>;
+        IsTruncated?: boolean;
+        NextContinuationToken?: string;
+      };
+      for (const item of res.Contents ?? []) {
+        if (!item.Key) continue;
+        out.push({
+          key: item.Key,
+          size: item.Size ?? 0,
+          lastModified: item.LastModified ? item.LastModified.getTime() : null,
+        });
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+    return out;
+  } catch (err) {
+    console.error('[object-storage] listObjects 失败：', err);
+    return [];
+  }
+}
+
+/**
+ * 下载对象（同步引擎"按需下载"用）
+ * @returns 对象字节；不存在或下载失败返回 null（调用方降级为直连云端 URL）
+ */
+export async function getObject(key: string): Promise<Buffer | null> {
+  if (!r2Enabled()) return null;
+  try {
+    const cfg = readConfig()!;
+    const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await getClient();
+    const res = (await client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }))) as
+      | { Body?: { transformToByteArray?: () => Promise<Uint8Array> } }
+      | undefined;
+    const body = res?.Body;
+    if (!body || typeof body.transformToByteArray !== 'function') return null;
+    const bytes = await body.transformToByteArray();
+    return Buffer.from(bytes);
+  } catch (err) {
+    console.error(`[object-storage] getObject 失败（key=${key}）：`, err);
+    return null;
+  }
+}
+
 /** 删除对象（404 静默容忍） */
 export async function deleteObject(key: string): Promise<void> {
   if (!r2Enabled()) return;

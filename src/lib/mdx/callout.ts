@@ -226,7 +226,11 @@ function stripInlineMarkdown(s: string): string {
  * 非 callout 的普通引用块原样保留，不受影响。
  */
 export function remarkCallout() {
-  return (tree: Root) => {
+  return (tree: Root, file?: { value?: unknown }) => {
+    // 原始文档全文：供下方切片 callout 的 markdown 源码（阅读模式复制按钮的数据来源）。
+    // evaluate/renderMdx 走 VFile 传入的是 normalizeSource 之后的字符串；
+    // 非字符串（Buffer 等）时取不到，复制按钮优雅缺席。
+    const source = typeof file?.value === 'string' ? file.value : '';
     const walk = (children: Node[]): void => {
       for (let i = 0; i < children.length; i += 1) {
         const node = children[i] as DirectiveNode;
@@ -243,6 +247,15 @@ export function remarkCallout() {
             const richNodes = stripHeadPrefix(split.headNodes, m[1] ?? '', marker);
             const plainTitle = stripInlineMarkdown(m[3] ?? '');
 
+            // 整块 blockquote 的原始 markdown 源码（含 `>` 前缀、嵌套引用与代码块）。
+            // position 由 remark 解析期给出，offset 指向 file.value（即传入 evaluate 的源串）；
+            // 缺失（如自定义管线关闭 position）时不加属性，组件不出复制按钮。
+            let rawSource = '';
+            if (source && node.position?.start.offset != null && node.position?.end.offset != null) {
+              rawSource = source
+                .slice(node.position.start.offset, node.position.end.offset)
+                .replace(/\r\n?/g, '\n');
+            }
             const body: Node[] = [];
             if (split.restChildren.length > 0) {
               body.push(patched(inner[0]!, { children: split.restChildren }));
@@ -255,6 +268,8 @@ export function remarkCallout() {
             walk(body);
 
             const attrs: MdxJsxAttr[] = [jsxAttr('type', type)];
+            // 原始源码属性 → Callout 组件的 rawSource prop → 阅读模式复制按钮
+            if (rawSource) attrs.push(jsxAttr('rawSource', rawSource));
             // 无富文本节点时才用纯文本 title（富文本优先，见下方标记段落）
             if (richNodes.length === 0 && plainTitle) {
               attrs.push(jsxAttr('title', plainTitle));

@@ -4,11 +4,12 @@
  * Props.section: 当前激活分区；传递相同 form
  */
 interface Props {
-  section: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai' | 'netdisk';
+  section: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai' | 'netdisk' | 'sync' | 'shortcuts';
 }
 const { section } = Astro.props;
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import SettingsForm from '@/components/admin/SettingsForm.astro';
+import EditorShortcutsSettings from '@/components/admin/EditorShortcutsSettings';
 const SECTION_LABELS: Record<Props['section'], string> = {
   'site-name': '站点名称',
   'hero-quotes': '诗词轮播',
@@ -19,6 +20,8 @@ const SECTION_LABELS: Record<Props['section'], string> = {
   'site-css': '全站样式',
   'ai': 'AI 助手',
   'netdisk': '网盘对接',
+  'sync': '云端同步',
+  'shortcuts': '编辑器快捷键',
 };
 const titleSuffix = SECTION_LABELS[section] ?? '设置';
 const tabs: { id: Props['section']; label: string; href: string }[] = [
@@ -31,6 +34,8 @@ const tabs: { id: Props['section']; label: string; href: string }[] = [
   { id: 'site-css', label: '全站样式', href: '/admin/settings/site-css' },
   { id: 'ai', label: 'AI 助手', href: '/admin/settings/ai' },
   { id: 'netdisk', label: '网盘对接', href: '/admin/settings/netdisk' },
+  { id: 'sync', label: '云端同步', href: '/admin/settings/sync' },
+  { id: 'shortcuts', label: '编辑器快捷键', href: '/admin/settings/editor-shortcuts' },
 ];
 ---
 <AdminLayout title={`设置 · ${titleSuffix}`}>
@@ -45,6 +50,12 @@ const tabs: { id: Props['section']; label: string; href: string }[] = [
         <a href={t.href} class={`settings-tab${t.id === section ? ' active' : ''}`}>{t.label}</a>
       ))}
     </nav>
-    <SettingsForm section={section} />
+    {section === 'shortcuts' ? (
+      <div class="mt-6">
+        <EditorShortcutsSettings client:load />
+      </div>
+    ) : (
+      <SettingsForm section={section} />
+    )}
   </section>
 </AdminLayout>

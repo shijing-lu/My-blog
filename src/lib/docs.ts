@@ -318,37 +318,8 @@ export async function listBundleNodes(bundleId: string): Promise<DocNode[]> {
     .orderBy(asc(docNodes.sort), asc(docNodes.createdAt)) as Promise<DocNode[]>;
 }
 
-/** 节点数组 → 嵌套树（folder 可含 children） */
-export function buildNodeTree(nodes: DocNode[]): DocNodeView[] {
-  const map = new Map<string, DocNodeView>();
-  nodes.forEach((n) =>
-    map.set(n.id, {
-      id: n.id,
-      bundleId: n.bundleId,
-      parentId: n.parentId,
-      kind: n.kind as 'folder' | 'article',
-      title: n.title,
-      sort: n.sort,
-      createdAt: n.createdAt,
-      updatedAt: n.updatedAt,
-      children: [],
-    }),
-  );
-  const roots: DocNodeView[] = [];
-  map.forEach((v) => {
-    if (v.parentId && map.has(v.parentId)) {
-      map.get(v.parentId)!.children.push(v);
-    } else {
-      roots.push(v);
-    }
-  });
-  const sortRec = (list: DocNodeView[]): void => {
-    list.sort((a, b) => a.sort - b.sort || a.createdAt.getTime() - b.createdAt.getTime());
-    list.forEach((n) => sortRec(n.children));
-  };
-  sortRec(roots);
-  return roots;
-}
+/** 节点数组 → 嵌套树。见 `lib/doc-tree-render.ts` 的同构 `buildDocTree`
+ *  （服务端与客户端必须共用同一实现，否则树顺序会在就地更新后与刷新结果不一致）。 */
 
 /** 按 id 取节点 */
 export async function getDocNode(id: string): Promise<DocNode | null> {

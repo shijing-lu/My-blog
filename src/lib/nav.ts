@@ -4,7 +4,8 @@
  * - 公共页读聚合视图 listNav()（分类按 sort，子分类按 sort，网站按 sort）；
  * - 管理端 CRUD：分类增删改（删除级联其子分类与网站）、子分类增删改、网站增删改
  *   （改 categoryId = 移动分类，此时自动清空 subCategoryId 以免跨分类悬挂）；
- * - favicon 工具：从 URL 提取域名，生成自动图标 URL。
+ * - favicon 工具：从 URL 提取域名、生成自动图标 URL（实现与标记渲染同在 `nav-render.ts`，
+ *   本文件仅 re-export，便于客户端复用而不引入本文件的 Node 依赖）。
  */
 import { and, asc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -36,12 +37,15 @@ export async function listNav(): Promise<NavCategoryView[]> {
     name: c.name,
     icon: c.icon,
     sort: c.sort,
+    createdAt: c.createdAt,
     sites: (byCategory.get(c.id) ?? []).map((s) => ({
       id: s.id,
       name: s.name,
       url: s.url,
       icon: s.icon,
       desc: s.desc,
+      sort: s.sort,
+      createdAt: s.createdAt,
       categoryId: s.categoryId,
       subCategoryId: s.subCategoryId,
     })),
@@ -234,25 +238,11 @@ export async function deleteWebsite(id: string): Promise<void> {
 
 /* ---------------- favicon 工具 ---------------- */
 
-/** 从网址提取域名（如 https://www.example.com/a → example.com） */
-export function extractDomain(url: string): string {
-  try {
-    const u = new URL(url.startsWith('http') ? url : `https://${url}`);
-    return u.hostname.replace(/^www\./, '');
-  } catch {
-    return url.replace(/^https?:\/\//, '').split('/')[0]!.replace(/^www\./, '');
-  }
-}
-
-/** 自动图标 URL：手动 icon → 域名 /favicon.ico → Google favicon 兜底 */
-export function autoIconUrl(url: string, manualIcon?: string | null): string {
-  if (manualIcon) return manualIcon;
-  const domain = extractDomain(url);
-  return `https://${domain}/favicon.ico`;
-}
-
-/** Google favicon 兜底（favicon.ico 加载失败时用） */
-export function googleFaviconUrl(url: string): string {
-  const domain = extractDomain(url);
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
-}
+/**
+ * 图标工具已移入 `@/lib/nav-render`（纯函数、服务端与客户端共用），
+ * 这里 re-export 保持既有导入路径不变。
+ *
+ * ⚠️ 不要在本文件重新实现它们：nav-render 会被客户端脚本 import，
+ * 而本文件顶部引入了 drizzle / db（Node-only），客户端一旦直接依赖本文件就会打包失败。
+ */
+export { autoIconUrl, extractDomain, googleFaviconUrl } from './nav-render';

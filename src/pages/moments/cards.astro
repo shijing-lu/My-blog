@@ -11,7 +11,7 @@ export const partial = true;
 
 /* ===== Imports ===== */
 import MomentCard from '@/components/moments/MomentCard.astro';
-import { listMoments, toMomentView } from '@/lib/moments';
+import { getMoment, listMoments, toMomentView, type MomentView } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
 import { canManage } from '@/lib/admin-auth';
 import { countLikesByTargets } from '@/lib/likes';
@@ -33,14 +33,23 @@ const offset = clampInt(sp.get('offset'), 0, 1_000_000, 0);
 const q = (sp.get('q') ?? '').trim().slice(0, 100);
 const tag = (sp.get('tag') ?? '').trim().slice(0, 50);
 const date = (sp.get('date') ?? '').trim();
+/** 单卡模式：只渲染指定 id 的那一条 —— 供 /moments 就地更新（编辑保存后替换单卡） */
+const id = (sp.get('id') ?? '').trim().slice(0, 64);
 
-const raw = await listMoments(limit, offset, {
-  includePrivate: isAuthed,
-  q: q || undefined,
-  tag: tag || undefined,
-  date: date || undefined,
-});
-const moments = await Promise.all(raw.map((m) => toMomentView(m)));
+let moments: MomentView[];
+if (id) {
+  const one = await getMoment(id);
+  // 私密动态对普通访客等同不存在（与 /api/moments/[id] GET 一致，不暴露存在性）
+  moments = one && (isAuthed || one.visibility === 'public') ? [await toMomentView(one)] : [];
+} else {
+  const raw = await listMoments(limit, offset, {
+    includePrivate: isAuthed,
+    q: q || undefined,
+    tag: tag || undefined,
+    date: date || undefined,
+  });
+  moments = await Promise.all(raw.map((m) => toMomentView(m)));
+}
 const profile = await getProfile();
 const avatarSrc = profile.avatar || '';
 const nickname = profile.nickname || '博主';

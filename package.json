@@ -104,5 +104,8 @@
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
     "vitest": "^4.1.11"
-  }
+  },
+  "description": "白衣卿相 · 技术教程 / 学习笔记 / 随笔与摄影（桌面端）",
+  "author": "白衣卿相",
+  "packageManager": "pnpm@11.20.0"
 }

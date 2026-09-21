@@ -11,6 +11,7 @@ import {
   listApplications,
   PERMISSION_KEYS,
 } from '@/lib/admin-auth';
+import { authAccList, authAppList } from '@/lib/admin-auth-render';
 
 /* ===== Logic ===== */
 /**
@@ -29,7 +30,7 @@ const permEntries = Object.entries(PERMISSION_KEYS);
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="授权管理" description="授权管理（仅顶级管理员）" indexable={false}>
-  <section class="mx-auto w-full max-w-3xl px-4 py-12">
+  <section class="mx-auto w-full max-w-3xl px-4 py-12" data-perm-entries={JSON.stringify(permEntries)}>
     {
       !top ? (
         <div class="p-6">
@@ -54,140 +55,13 @@ const permEntries = Object.entries(PERMISSION_KEYS);
           <!-- ===== 权限申请审批 ===== -->
           <div class="mt-8">
             <h2 class="font-display text-lg font-semibold">权限申请</h2>
-            <div id="app-list" class="mt-3 space-y-3">
-              {
-                applications.length === 0 && (
-                  <p class="rounded-md border border-border p-4 text-sm text-muted-foreground">暂无待审申请。</p>
-                )
-              }
-              {applications.map((app) => (
-                <div class="rounded-md border border-border p-4" data-app-id={app.id}>
-                  <div class="flex items-center gap-3">
-                    {app.avatarUrl && <img src={app.avatarUrl} alt="" class="size-9 rounded-full" loading="lazy" />}
-                    <div class="min-w-0 flex-1">
-                      <p class="truncate text-sm font-medium">{app.name || app.login}</p>
-                      <p class="text-xs text-muted-foreground">@{app.login}</p>
-                    </div>
-                    <span class="pixel-chip rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">待审</span>
-                  </div>
-                  {app.note && <p class="mt-2 text-sm text-muted-foreground">{app.note}</p>}
-                  <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                    {permEntries.map(([key, label]) => (
-                      <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <input type="checkbox" data-app-perm={key} class="accent-[var(--color-primary)]" />
-                        {label}
-                      </label>
-                    ))}
-                  </div>
-                  <div class="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      data-action="approve"
-                      class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity duration-200 hover:opacity-90"
-                    >
-                      同意并授权
-                    </button>
-                    <button
-                      type="button"
-                      data-action="reject"
-                      class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-accent"
-                    >
-                      拒绝
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div id="app-list" class="mt-3 space-y-3" set:html={authAppList(applications, permEntries)} />
           </div>
 
           <!-- ===== 管理员列表 ===== -->
           <div class="mt-10">
             <h2 class="font-display text-lg font-semibold">授权管理员</h2>
-            <div id="acc-list" class="mt-3 space-y-3">
-              {
-                accounts.length === 0 && (
-                  <p class="rounded-md border border-border p-4 text-sm text-muted-foreground">
-                    暂无 GitHub 授权管理员 —— 同意访客申请后自动建立。
-                  </p>
-                )
-              }
-              {accounts.map((acc) => (
-                <div class="rounded-md border border-border p-4" data-acc-id={acc.id}>
-                  <div class="flex items-center gap-3">
-                    {acc.avatarUrl && <img src={acc.avatarUrl} alt="" class="size-9 rounded-full" loading="lazy" />}
-                    <div class="min-w-0 flex-1">
-                      <p class="truncate text-sm font-medium">{acc.name || acc.login}</p>
-                      <p class="text-xs text-muted-foreground">@{acc.login}</p>
-                    </div>
-                    <span class={`pixel-chip rounded px-2 py-0.5 text-xs ${acc.role === 'top' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
-                      {acc.role === 'top' ? '顶级管理员' : '普通管理员'}
-                    </span>
-                  </div>
-                  {acc.role === 'top' && (
-                    <p class="mt-2 text-xs text-primary">顶级管理员自动拥有全部权限（无需逐项授权，后续新增功能亦自动获得）。</p>
-                  )}
-                  {acc.role === 'admin' && (
-                    <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                      {permEntries.map(([key, label]) => (
-                        <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <input
-                            type="checkbox"
-                            data-acc-perm={key}
-                            checked={acc.permissions.includes(key)}
-                            class="accent-[var(--color-primary)]"
-                          />
-                          {label}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    {acc.role === 'admin' ? (
-                      <>
-                        <button
-                          type="button"
-                          data-action="save"
-                          class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity duration-200 hover:opacity-90"
-                        >
-                          保存权限
-                        </button>
-                        <button
-                          type="button"
-                          data-action="promote"
-                          class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-accent"
-                        >
-                          设为顶级管理员
-                        </button>
-                        <button
-                          type="button"
-                          data-action="remove"
-                          class="rounded-md border border-destructive/40 px-3 py-1.5 text-xs text-destructive transition-colors duration-200 hover:bg-destructive/10"
-                        >
-                          移除
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          data-action="demote"
-                          class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-accent"
-                        >
-                          降为普通管理员
-                        </button>
-                        <button
-                          type="button"
-                          data-action="remove"
-                          class="rounded-md border border-destructive/40 px-3 py-1.5 text-xs text-destructive transition-colors duration-200 hover:bg-destructive/10"
-                        >
-                          移除
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div id="acc-list" class="mt-3 space-y-3" set:html={authAccList(accounts, permEntries)} />
           </div>
 
           <!-- ===== 添加管理员（按 GitHub 用户名直接建号） ===== -->
@@ -251,25 +125,139 @@ const permEntries = Object.entries(PERMISSION_KEYS);
 </BaseLayout>
 
 <script>
-  /** 从容器内收集勾选的权限键 */
-  function collectPerms(container: HTMLElement, attr: string): string[] {
-    return Array.from(container.querySelectorAll<HTMLInputElement>(`input[${attr}]:checked`)).map((el) =>
-      el.getAttribute(attr) ?? '',
-    ).filter(Boolean);
+  import { authAccList, authAppList } from '@/lib/admin-auth-render';
+  import type { AuthAccountRenderable, AuthApplicationRenderable, PermEntries } from '@/lib/admin-auth-render';
+
+  /** 实时查询元素（ClientRouter 转场后 DOM 会被替换，必须每次重新取） */
+  function el(id: string): HTMLElement | null {
+    return document.getElementById(id);
   }
 
-  /** 统一请求 + 结果反馈后刷新（SSR 重渲染最新状态） */
-  function request(url: string, init: RequestInit, done: (data: { error?: string }) => void): void {
+  /** 权限项 [key, label]（由模板的 data-perm-entries 传入 —— 本脚本不能 import @/lib/admin-auth，会带进 db） */
+  function permEntries(): PermEntries {
+    const raw = document.querySelector<HTMLElement>('[data-perm-entries]')?.dataset.permEntries;
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as PermEntries;
+    } catch {
+      return [];
+    }
+  }
+
+  /** 从容器内收集勾选的权限键 */
+  function collectPerms(container: HTMLElement, attr: string): string[] {
+    return Array.from(container.querySelectorAll<HTMLInputElement>(`input[${attr}]:checked`))
+      .map((el) => el.getAttribute(attr) ?? '')
+      .filter(Boolean);
+  }
+
+  /* ================= 勾选态快照 / 回贴 =================
+   * 重绘列表会把 DOM 整个换掉，其它行里**尚未保存**的勾选会随之消失
+   * （原实现整页 reload 丢得更彻底）。这里在重绘前快照、重绘后回贴，
+   * 保住那些「已经勾好、但还没点保存」的项。
+   */
+
+  /** 快照当前所有行的勾选态（按行 id 分组） */
+  function snapshotPerms(): { app: Map<string, string[]>; acc: Map<string, string[]> } {
+    const grab = (rowSel: string, idAttr: string, permAttr: string): Map<string, string[]> => {
+      const out = new Map<string, string[]>();
+      document.querySelectorAll<HTMLElement>(rowSel).forEach((row) => {
+        const id = row.getAttribute(idAttr);
+        if (id) out.set(id, collectPerms(row, permAttr));
+      });
+      return out;
+    };
+    return {
+      app: grab('[data-app-id]', 'data-app-id', 'data-app-perm'),
+      acc: grab('[data-acc-id]', 'data-acc-id', 'data-acc-perm'),
+    };
+  }
+
+  /** 把快照回贴到（可能刚被重绘过的）列表上 */
+  function restorePerms(snap: { app: Map<string, string[]>; acc: Map<string, string[]> }): void {
+    const apply = (rowSel: string, idAttr: string, permAttr: string, saved: Map<string, string[]>): void => {
+      document.querySelectorAll<HTMLElement>(rowSel).forEach((row) => {
+        const keys = saved.get(row.getAttribute(idAttr) ?? '');
+        if (!keys) return; // 新出现的行（刚添加/刚提升）：沿用服务端渲染出的状态
+        row.querySelectorAll<HTMLInputElement>(`input[${permAttr}]`).forEach((box) => {
+          box.checked = keys.includes(box.getAttribute(permAttr) ?? '');
+        });
+      });
+    };
+    apply('[data-app-id]', 'data-app-id', 'data-app-perm', snap.app);
+    apply('[data-acc-id]', 'data-acc-id', 'data-acc-perm', snap.acc);
+  }
+
+  /* ================= 列表就地重绘 ================= */
+
+  /** 需要重绘哪一块列表 */
+  type RefreshTarget = 'none' | 'applications' | 'accounts' | 'both';
+
+  /**
+   * 重新拉取列表并就地重绘（**不整页刷新**）。
+   * 重绘前快照勾选态、重绘后回贴，保住其它行未保存的勾选。
+   */
+  async function refreshLists(target: RefreshTarget): Promise<void> {
+    if (target === 'none') return;
+    const snap = snapshotPerms();
+    const entries = permEntries();
+    const jobs: Promise<void>[] = [];
+
+    if (target === 'applications' || target === 'both') {
+      jobs.push(
+        fetch('/api/admin-auth/applications?status=pending')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d: { applications?: AuthApplicationRenderable[] } | null) => {
+            const list = el('app-list');
+            if (list) list.innerHTML = authAppList(d?.applications ?? [], entries);
+          })
+          .catch(() => undefined),
+      );
+    }
+    if (target === 'accounts' || target === 'both') {
+      jobs.push(
+        fetch('/api/admin-auth/accounts')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d: { accounts?: AuthAccountRenderable[] } | null) => {
+            const list = el('acc-list');
+            if (list) list.innerHTML = authAccList(d?.accounts ?? [], entries);
+          })
+          .catch(() => undefined),
+      );
+    }
+    await Promise.all(jobs);
+    restorePerms(snap);
+  }
+
+  /**
+   * 统一请求。
+   *
+   * - 失败 → `onError`（调用方回滚按钮状态并提示）；
+   * - 成功 → 先按 `refresh` 就地重绘受影响列表，再调 `onSuccess` 收尾。
+   *
+   * 关键：**不再 `window.location.reload()`**。本页的典型用法是「逐行勾好权限、再逐个点同意」，
+   * 整页刷新会把其它行里刚勾好、还没提交的权限全部抹掉。
+   */
+  function request(
+    url: string,
+    init: RequestInit,
+    handlers: {
+      onError: (data: { error?: string }) => void;
+      onSuccess?: () => void;
+      refresh?: RefreshTarget;
+    },
+  ): void {
     fetch(url, init)
       .then(async (res) => {
-        const data = (await res.json()) as { error?: string };
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!res.ok) {
-          done(data);
+          handlers.onError(data);
           return;
         }
-        window.location.reload();
+        await refreshLists(handlers.refresh ?? 'none');
+        handlers.onSuccess?.();
       })
-      .catch(() => done({ error: '网络错误，请重试' }));
+      .catch(() => handlers.onError({ error: '网络错误，请重试' }));
   }
 
   document.addEventListener('click', (e) => {
@@ -291,16 +279,22 @@ const permEntries = Object.entries(PERMISSION_KEYS);
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id, action: approve ? 'approve' : 'reject', permissions: perms }),
         },
-        (data) => {
-          appBtn.disabled = false;
-          alert(data.error ?? '操作失败');
+        {
+          // 申请行会消失；同意时还会新增一行授权账号
+          refresh: 'both',
+          onError: (data) => {
+            appBtn.disabled = false;
+            alert(data.error ?? '操作失败');
+          },
         },
       );
       return;
     }
 
     /* 管理员列表：保存权限 / 升降级 / 移除 */
-    const accBtn = target.closest<HTMLButtonElement>('[data-action="save"], [data-action="promote"], [data-action="demote"], [data-action="remove"]');
+    const accBtn = target.closest<HTMLButtonElement>(
+      '[data-action="save"], [data-action="promote"], [data-action="demote"], [data-action="remove"]',
+    );
     if (accBtn) {
       const row = accBtn.closest<HTMLElement>('[data-acc-id]');
       const id = row?.dataset.accId;
@@ -315,9 +309,15 @@ const permEntries = Object.entries(PERMISSION_KEYS);
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id, permissions: collectPerms(row, 'data-acc-perm') }),
           },
-          (data) => {
-            accBtn.disabled = false;
-            alert(data.error ?? '操作失败');
+          {
+            refresh: 'accounts',
+            onSuccess: () => {
+              accBtn.disabled = false;
+            },
+            onError: (data) => {
+              accBtn.disabled = false;
+              alert(data.error ?? '操作失败');
+            },
           },
         );
       } else if (action === 'promote' || action === 'demote') {
@@ -328,9 +328,15 @@ const permEntries = Object.entries(PERMISSION_KEYS);
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id, role: action === 'promote' ? 'top' : 'admin' }),
           },
-          (data) => {
-            accBtn.disabled = false;
-            alert(data.error ?? '操作失败');
+          {
+            refresh: 'accounts',
+            onSuccess: () => {
+              accBtn.disabled = false;
+            },
+            onError: (data) => {
+              accBtn.disabled = false;
+              alert(data.error ?? '操作失败');
+            },
           },
         );
       } else {
@@ -341,9 +347,12 @@ const permEntries = Object.entries(PERMISSION_KEYS);
         request(
           `/api/admin-auth/accounts?id=${encodeURIComponent(id)}`,
           { method: 'DELETE' },
-          (data) => {
-            accBtn.disabled = false;
-            alert(data.error ?? '操作失败');
+          {
+            refresh: 'accounts',
+            onError: (data) => {
+              accBtn.disabled = false;
+              alert(data.error ?? '操作失败');
+            },
           },
         );
       }
@@ -352,19 +361,24 @@ const permEntries = Object.entries(PERMISSION_KEYS);
 
     /* 添加管理员：POST /api/admin-auth/accounts { login, role } */
     if (target.closest('#acc-add-btn')) {
-      const input = document.getElementById('acc-add-login') as HTMLInputElement | null;
-      const roleSel = document.getElementById('acc-add-role') as HTMLSelectElement | null;
-      const btn = document.getElementById('acc-add-btn') as HTMLButtonElement | null;
-      const msg = document.getElementById('acc-add-msg');
+      const input = el('acc-add-login') as HTMLInputElement | null;
+      const roleSel = el('acc-add-role') as HTMLSelectElement | null;
+      const btn = el('acc-add-btn') as HTMLButtonElement | null;
+      const msg = el('acc-add-msg');
       if (!btn) return;
       const login = (input?.value ?? '').trim();
       const role = roleSel?.value === 'top' ? 'top' : 'admin';
-      if (!login) {
+      const fail = (text: string): void => {
+        btn.disabled = false;
+        btn.textContent = '添加';
         if (msg) {
-          msg.textContent = '请输入 GitHub 用户名';
+          msg.textContent = text;
           msg.className = 'mt-2 text-xs text-destructive';
           msg.classList.remove('hidden');
         }
+      };
+      if (!login) {
+        fail('请输入 GitHub 用户名');
         return;
       }
       btn.disabled = true;
@@ -376,19 +390,19 @@ const permEntries = Object.entries(PERMISSION_KEYS);
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ login, role }),
         },
-        (data) => {
-          btn.disabled = false;
-          btn.textContent = '添加';
-          if (msg) {
-            if (data.error) {
-              msg.textContent = data.error;
-              msg.className = 'mt-2 text-xs text-destructive';
-            } else {
-              msg.textContent = '已添加，列表已刷新。';
+        {
+          refresh: 'accounts',
+          onSuccess: () => {
+            btn.disabled = false;
+            btn.textContent = '添加';
+            if (input) input.value = '';
+            if (msg) {
+              msg.textContent = '已添加，列表已更新。';
               msg.className = 'mt-2 text-xs text-primary';
+              msg.classList.remove('hidden');
             }
-            msg.classList.remove('hidden');
-          }
+          },
+          onError: (data) => fail(data.error ?? '操作失败'),
         },
       );
       return;
@@ -396,17 +410,22 @@ const permEntries = Object.entries(PERMISSION_KEYS);
 
     /* GitHub 资料同步 */
     if (target.closest('#gh-sync-btn')) {
-      const input = document.getElementById('gh-sync-login') as HTMLInputElement | null;
-      const msg = document.getElementById('gh-sync-msg');
-      const btn = document.getElementById('gh-sync-btn') as HTMLButtonElement | null;
+      const input = el('gh-sync-login') as HTMLInputElement | null;
+      const msg = el('gh-sync-msg');
+      const btn = el('gh-sync-btn') as HTMLButtonElement | null;
       if (!btn) return;
       const login = (input?.value ?? '').trim();
-      if (!login) {
+      const fail = (text: string): void => {
+        btn.disabled = false;
+        btn.textContent = '同步资料';
         if (msg) {
-          msg.textContent = '请输入 GitHub 用户名';
+          msg.textContent = text;
+          msg.className = 'mt-2 text-xs text-destructive';
           msg.classList.remove('hidden');
-          msg.classList.add('text-destructive');
         }
+      };
+      if (!login) {
+        fail('请输入 GitHub 用户名');
         return;
       }
       btn.disabled = true;
@@ -418,19 +437,20 @@ const permEntries = Object.entries(PERMISSION_KEYS);
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ login }),
         },
-        (data) => {
-          btn.disabled = false;
-          btn.textContent = '同步资料';
-          if (msg) {
-            if (data.error) {
-              msg.textContent = data.error;
-              msg.className = 'mt-2 text-xs text-destructive';
-            } else {
-              msg.textContent = '已同步：博客头像与个人中心已更新为该 GitHub 账号的资料。';
+        {
+          // 不刷新列表：同步只改资料。导航头像在下次页面加载时更新（提示里已说明）
+          refresh: 'none',
+          onSuccess: () => {
+            btn.disabled = false;
+            btn.textContent = '同步资料';
+            if (msg) {
+              msg.textContent =
+                '已同步：博客头像与个人中心已更新为该 GitHub 账号的资料（导航头像将在下次页面加载时更新）。';
               msg.className = 'mt-2 text-xs text-primary';
+              msg.classList.remove('hidden');
             }
-            msg.classList.remove('hidden');
-          }
+          },
+          onError: (data) => fail(data.error ?? '操作失败'),
         },
       );
     }

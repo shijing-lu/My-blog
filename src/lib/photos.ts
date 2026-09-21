@@ -11,13 +11,14 @@ import { photos } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type { NewPhoto, Photo } from '../../db/types';
 import { headObject, r2Enabled } from '@/lib/object-storage';
+import { MAX_TAG_LEN, MAX_TAGS, combineTags, normalizeTags } from './photo-tags';
+import type { TagOp } from './photo-tags';
 
 /** 数据库原始行类型 */
 type PhotoRow = typeof photos.$inferSelect;
 
-/** 标签数量上限 / 单标签长度上限 */
-export const MAX_TAGS = 10;
-export const MAX_TAG_LEN = 20;
+/** 标签数量上限 / 单标签长度上限（定义在 `./photo-tags`，与客户端共用同一份） */
+export { MAX_TAG_LEN, MAX_TAGS };
 
 /** tags JSON → 数组 */
 export function parseTags(raw: string | null | undefined): string[] {
@@ -30,18 +31,14 @@ export function parseTags(raw: string | null | undefined): string[] {
   }
 }
 
-/** tags 数组 → JSON 文本（去空白、去重、限长） */
+/**
+ * tags 数组 → JSON 文本（去空白、去重、限长）。
+ *
+ * 净化算法与 `./photo-tags` 的 `normalizeTags` 同源，故此处直接复用：
+ * `JSON.parse(serializeTags(x))` 恒等于 `normalizeTags(x)`（有测试锁定）。
+ */
 export function serializeTags(tags: string[]): string {
-  const seen = new Set<string>();
-  const clean: string[] = [];
-  for (const t of tags) {
-    const v = t.trim().replace(/\s+/g, ' ').slice(0, MAX_TAG_LEN);
-    if (!v || seen.has(v)) continue;
-    seen.add(v);
-    clean.push(v);
-    if (clean.length >= MAX_TAGS) break;
-  }
-  return JSON.stringify(clean);
+  return JSON.stringify(normalizeTags(tags));
 }
 
 /** 行 → 实体（tags 反序列化） */
@@ -252,19 +249,16 @@ export async function getPhotoTags(): Promise<Array<{ tag: string; count: number
  * @param tags 标签集合（remove 时为空 → 无操作；清空请用 set: []）
  * @returns 实际更新的照片数
  */
-export async function batchUpdateTags(ids: string[], op: 'set' | 'add' | 'remove', tags: string[]): Promise<number> {
-  const clean = tags.map((t) => t.trim().replace(/\s+/g, ' ').slice(0, MAX_TAG_LEN)).filter(Boolean);
+export async function batchUpdateTags(ids: string[], op: TagOp, tags: string[]): Promise<number> {
   let updated = 0;
   for (const id of ids) {
     const photo = await getPhotoById(id);
     if (!photo) continue;
-    let next: string[];
-    if (op === 'set') next = clean;
-    else if (op === 'add') next = [...new Set([...photo.tags, ...clean])];
-    else next = photo.tags.filter((t) => !clean.includes(t));
+    // 集合运算（set / add / remove）与客户端共用 `combineTags`，避免两边语义漂移；
+    // 去重限个统一交给 serializeTags（= normalizeTags + JSON.stringify）。
     const rows = await db
       .update(photos)
-      .set({ tags: serializeTags(next) })
+      .set({ tags: serializeTags(combineTags(photo.tags, op, tags)) })
       .where(eq(photos.id, id))
       .returning();
     if (rows[0]) updated += 1;

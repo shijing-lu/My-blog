@@ -58,22 +58,21 @@ function renderVideo(url: string): string {
 ---
 <!-- ===== Template ===== -->
 <!-- 动态卡片唯一模板：首屏 SSR、/moments/cards partial（筛选 / 加载更多 / 清除筛选）
-     一律经此组件渲染，保证任何路径出现的卡片样式完全一致。 -->
-<article class="moment-card group hairline p-4">
+     一律经此组件渲染，保证任何路径出现的卡片样式完全一致。
+     data-moment-id：客户端就地更新（编辑保存后替换单卡 / 发布后插入新卡）靠它定位。 -->
+<article class="moment-card group hairline p-4" data-moment-id={m.id}>
   <div class="flex items-start gap-3">
     {/* 性能优化：动态列表里每张卡片的头像都是同一个 URL，原先不带
         loading=lazy，N 张卡片会在首屏并发发起 N 次相同请求。
-        加上 lazy + async 解码后，视口外的卡片不再触发请求。 */}
-    {avatarSrc ? (
-      <img src={avatarSrc} alt={nickname} loading="lazy" decoding="async" class="size-10 shrink-0 rounded-full border border-border object-cover" />
-    ) : (
-      <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
-        {nickname.slice(0, 1)}
-      </span>
-    )}
+        加上 lazy + async 解码后，视口外的卡片不再触发请求。
+        data-profile-* ：保存资料后就地更新（见 ProfileDialog 的 applyProfileDom）。 */}
+    <img data-profile-avatar src={avatarSrc} alt={nickname} loading="lazy" decoding="async" class="size-10 shrink-0 rounded-full border border-border object-cover" hidden={!avatarSrc} />
+    <span data-profile-initial class="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary" hidden={!!avatarSrc}>
+      {nickname.slice(0, 1)}
+    </span>
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-medium">{nickname}</span>
+        <span data-profile-nickname class="text-sm font-medium">{nickname}</span>
         <time class="text-xs text-muted-foreground" title={fullTime}>{formatRelativeTime(m.createdAt, now)}{edited && <span class="ml-1">· 已编辑</span>}</time>
         {
           isAuthed && m.visibility === 'private' && (

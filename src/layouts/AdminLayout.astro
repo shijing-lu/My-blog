@@ -33,6 +33,17 @@ const siteTitle = await getSiteName();
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
+    <!-- Buffer 垫片：同 BaseLayout —— 客户端共享模块引用了 Node 的 Buffer，
+         缺失会导致 astro-island 水合失败（编辑器空白、按钮失效） -->
+    <script is:inline>
+      if (typeof window !== 'undefined' && typeof window.Buffer === 'undefined') {
+        window.Buffer = {
+          isBuffer: function () { return false; },
+          from: function (v) { return typeof v === 'string' ? new TextEncoder().encode(v) : new Uint8Array(0); },
+          alloc: function (n) { return new Uint8Array(n || 0); },
+        };
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title} · {siteTitle}</title>
     {/* 后台页面一律不索引（P1-7）：防搜索引擎收录管理入口 */}

@@ -1,0 +1,24 @@
+---
+/**
+ * 影集管理卡片片段页（partial）：供 `/gallery/upload` 导入成功后就地取回**单张**卡 HTML。
+ *
+ * 与首屏共用 `lib/photo-card-render.ts`，标记完全一致 —— 客户端插入的卡与刷新后
+ * 服务端渲染的卡无差别（这是「不整页刷新」方案能成立的前提）。
+ *
+ * 权限：中间件按 `/gallery/manage-cards` → `photos` 放行（见 `middleware.ts`；
+ * 注意原规则是 `=== '/gallery/upload'` 精确匹配，新路由必须一并登记，否则会裸奔），
+ * 这里再自查一次作为防御。
+ */
+export const partial = true;
+
+/* ===== Imports ===== */
+import { canManage } from '@/lib/admin-auth';
+import { getPhotoById } from '@/lib/photos';
+import { renderManageCard } from '@/lib/photo-card-render';
+
+/* ===== Logic ===== */
+const isAuthed = await canManage(Astro.cookies, 'photos');
+const id = (Astro.url.searchParams.get('id') ?? '').trim().slice(0, 64);
+const photo = isAuthed && id ? await getPhotoById(id) : null;
+---
+{photo ? <Fragment set:html={renderManageCard(photo)} /> : null}

@@ -118,6 +118,11 @@ export const photos = pgTable('photos', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 /** 站点设置 KV 表（如首页 Hero 诗词轮播配置） */
@@ -144,6 +149,11 @@ export const todos = pgTable('todos', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 /** 日历：日记（私密，仅管理员，一人一天一篇） */
@@ -179,6 +189,11 @@ export const calendarEvents = pgTable('calendar_events', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 /** 动态（动态圈，公开浏览；评论/点赞预留，后续独立表） */
@@ -265,6 +280,11 @@ export const githubUsers = pgTable('github_users', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 /** 授权管理员（GitHub 授权账号；role=top 顶级管理员 / admin=普通管理员） */
@@ -313,6 +333,11 @@ export const adminApplications = pgTable('admin_applications', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   /** 处理时间（可空） */
   processedAt: timestamp('processed_at', { withTimezone: true, mode: 'date' }),
 });
@@ -343,6 +368,11 @@ export const comments = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     // 按目标取评论（分页/排序）
@@ -413,6 +443,11 @@ export const webCategories = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('web_categories_sort_idx').on(table.sort),
@@ -442,6 +477,11 @@ export const navSubCategories = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('nav_sub_categories_category_idx').on(table.categoryId),
@@ -473,6 +513,11 @@ export const websites = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('websites_category_idx').on(table.categoryId),
@@ -564,6 +609,11 @@ export const docCategories = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('doc_categories_sort_idx').on(table.sort),
@@ -590,6 +640,11 @@ export const docBundles = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('doc_bundles_category_idx').on(table.categoryId),
@@ -681,6 +736,11 @@ export const checkinTasks = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('checkin_tasks_sort_idx').on(table.sort),
@@ -724,6 +784,11 @@ export const articleCategories = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('article_categories_sort_idx').on(table.sort),
@@ -742,6 +807,11 @@ export const articlePostCategories = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
+  /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
   },
   (table) => [
     index('article_post_categories_category_idx').on(table.categoryId),

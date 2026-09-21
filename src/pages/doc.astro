@@ -4,6 +4,7 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import DocCategoryNav from '@/components/doc/DocCategoryNav.astro';
 import { canManage } from '@/lib/admin-auth';
 import { listDocTree } from '@/lib/docs';
+import { docEmptyState, docSections, docStats } from '@/lib/doc-render';
 
 /* ===== Logic ===== */
 const categories = await listDocTree();
@@ -32,9 +33,7 @@ function esc(s: string): string {
       {/* 页头：居中构图 —— 标题 + 统计（统计居中），管理开关悬于右上角 */}
       <div data-hero class="relative text-center">
         <h1 class="font-display text-3xl font-semibold tracking-tight">文档</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          {categories.length} 个分类 · {totalBundles} 册 · {totalArticles} 篇
-        </p>
+        <p id="doc-stats" class="mt-1 text-sm text-muted-foreground" set:html={docStats(categories.length, totalBundles, totalArticles)} />
         {/* 管理开关：仅登录可见，默认关闭（aria-pressed 表达状态） */}
         {isAuthed && (
           <button
@@ -51,139 +50,28 @@ function esc(s: string): string {
 
       {/* 主体：左分类侧栏 + 右文档书架 */}
       <div class="mt-8 grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
-        {/* 桌面侧栏（lg 断点 sticky） */}
-        {categories.length > 0 && (
-          <>
-            <aside class="doc-side hidden lg:sticky lg:top-20 lg:block lg:self-start">
-              <h2 class="filter-heading pixel-chip">分类 / CATEGORIES</h2>
+        {/* 侧栏槽位：display:contents 让 aside/details 直接成为 grid 子项（布局与原先一致）；
+            分类清零时整块 hidden。客户端增删分类后就地切换，无需刷新。 */}
+        <div id="doc-side-slot" class={categories.length === 0 ? 'hidden' : 'contents'}>
+          {/* 桌面侧栏（lg 断点 sticky） */}
+          <aside class="doc-side hidden lg:sticky lg:top-20 lg:block lg:self-start">
+            <h2 class="filter-heading pixel-chip">分类 / CATEGORIES</h2>
+            <DocCategoryNav categories={navCats} total={totalBundles} />
+          </aside>
+          {/* 窄屏折叠：同一份按钮（脚本无需区分两处） */}
+          <details class="archive-filter-mobile lg:hidden">
+            <summary class="archive-filter-mobile-summary pixel-chip">分类 / CATEGORIES</summary>
+            <div class="mt-3">
               <DocCategoryNav categories={navCats} total={totalBundles} />
-            </aside>
-            {/* 窄屏折叠：同一份按钮（脚本无需区分两处） */}
-            <details class="archive-filter-mobile lg:hidden">
-              <summary class="archive-filter-mobile-summary pixel-chip">分类 / CATEGORIES</summary>
-              <div class="mt-3">
-                <DocCategoryNav categories={navCats} total={totalBundles} />
-              </div>
-            </details>
-          </>
-        )}
+            </div>
+          </details>
+        </div>
 
-        {/* 右：按分类分组文档书架（左缘虚线与侧栏分隔，见 .doc-main-col） */}
+        {/* 右：按分类分组文档书架（左缘虚线与侧栏分隔，见 .doc-main-col）
+            两块内容都由 doc-render 生成 —— 客户端增删改后就地重建，管理态/筛选态不受影响 */}
         <div class="doc-main-col min-w-0">
-          {categories.length === 0 ? (
-            <div class="text-center">
-              <p class="text-sm text-muted-foreground">暂无文档 —— 管理员可在这里添加分类与文档。</p>
-              {isAuthed && (
-                <button
-                  type="button"
-                  data-doc-cat-add
-                  class="doc-manage-only mt-4 rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                >
-                  ＋ 添加分类
-                </button>
-              )}
-            </div>
-          ) : (
-            <div class="space-y-8">
-              {isAuthed && (
-                <div class="flex justify-end">
-                  <button
-                    type="button"
-                    data-doc-cat-add
-                    class="doc-manage-only rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                  >
-                    ＋ 添加分类
-                  </button>
-                </div>
-              )}
-              {categories
-                .filter((c) => c.bundles.length > 0 || isAuthed)
-                .map((c) => (
-                  <section
-                    class={`group doc-cat-section${c.bundles.length === 0 ? ' doc-cat-empty' : ''}`}
-                    data-doc-section={c.id}
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <h2 class="flex items-center gap-2 text-lg font-semibold">
-                        <span class="pixel-chip text-muted-foreground">分类</span>
-                        {esc(c.name)}
-                        <span class="font-pixel text-[0.55rem] text-muted-foreground">{c.bundles.length} 册</span>
-                      </h2>
-                      {isAuthed && (
-                        /* 管理按钮：仅在管理态显示（显隐交给 CSS 的 data-managing） */
-                        <span class="doc-manage-only flex items-center gap-1">
-                          <button
-                            type="button"
-                            data-doc-cat-edit={c.id}
-                            title="编辑分类"
-                            aria-label={`编辑分类「${c.name}」`}
-                            class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
-                          >✎</button>
-                          <button
-                            type="button"
-                            data-doc-cat-del={c.id}
-                            data-doc-name={esc(c.name)}
-                            title="删除分类"
-                            aria-label={`删除分类「${c.name}」`}
-                            class="inline-flex size-5 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
-                          >×</button>
-                        </span>
-                      )}
-                    </div>
-
-                    {c.bundles.length === 0 ? (
-                      <p class="mt-2 text-sm text-muted-foreground">该分类暂无文档</p>
-                    ) : (
-                      <div class="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
-                        {c.bundles.map((b) => (
-                          /* 卡片外层：相对定位容器。管理按钮作为 <a> 的兄弟节点绝对定位
-                             在卡片内，避免 <a> 内嵌 <button> 的非法嵌套。 */
-                          <div class="relative">
-                            <a href={`/doc/${b.id}`} class="doc-card block">
-                              <p class="flex items-center gap-2 font-medium">
-                                <span class="doc-card-name min-w-0 truncate">{esc(b.name)}</span>
-                              </p>
-                              <p class="mt-1.5 text-[0.6rem] text-muted-foreground">
-                                {b.articleCount} 篇{b.folderCount > 0 ? ` · ${b.folderCount} 个目录` : ''}
-                              </p>
-                            </a>
-                            {isAuthed && (
-                              <span class="doc-manage-only absolute right-1.5 top-1.5 z-10 flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  data-doc-bundle-edit={b.id}
-                                  title="编辑文档"
-                                  aria-label={`编辑文档「${b.name}」`}
-                                  class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary focus-visible:border-primary/50 focus-visible:text-primary"
-                                >✎</button>
-                                <button
-                                  type="button"
-                                  data-doc-bundle-del={b.id}
-                                  data-doc-name={esc(b.name)}
-                                  title="删除文档"
-                                  aria-label={`删除文档「${b.name}」`}
-                                  class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:border-destructive/50 focus-visible:text-destructive"
-                                >×</button>
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {isAuthed && (
-                      <button
-                        type="button"
-                        data-doc-bundle-add={c.id}
-                        class="doc-manage-only mt-3 rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                      >
-                        ＋ 添加文档
-                      </button>
-                    )}
-                  </section>
-                ))}
-            </div>
-          )}
+          <div id="doc-empty" class={categories.length === 0 ? 'text-center' : 'hidden text-center'} set:html={docEmptyState(isAuthed)} />
+          <div id="doc-sections" class={categories.length === 0 ? 'hidden space-y-8' : 'space-y-8'} set:html={docSections(categories, isAuthed)} />
         </div>
       </div>
 
@@ -257,6 +145,8 @@ function esc(s: string): string {
 <script>
   import { on } from '@/lib/dom';
   import { confirmDanger } from '@/lib/confirm';
+  import { docCategoryNav, docEmptyState, docSections, docStats, docTotals } from '@/lib/doc-render';
+  import { insertOrdered, removeById } from '@/lib/ordered-list';
 
   interface TreeArticle {
     id: string;
@@ -277,6 +167,9 @@ function esc(s: string): string {
   interface TreeCategory {
     id: string;
     name: string;
+    /** 排序权重与创建时间：就地插入要按服务端 `ORDER BY sort, createdAt` 定位 */
+    sort: number;
+    createdAt: string | Date;
     bundles: TreeBundle[];
   }
 
@@ -337,6 +230,62 @@ function esc(s: string): string {
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-pressed', String(on));
     });
+  }
+
+  /** 当前筛选值：直接读根容器，不另存一份状态（避免与 DOM 不同步） */
+  function currentCat(): string {
+    return docRoot()?.dataset.activeCat ?? 'all';
+  }
+
+  /**
+   * 就地重建全部由 TREE 驱动的区域（**不刷新页面**）：
+   * 页头统计 / 两处分类侧栏 / 文档书架 / 空态，最后把筛选态重新贴回去。
+   *
+   * 关键：`data-managing`（管理态）与 `data-active-cat`（筛选态）挂在根容器上，
+   * 不在重建范围内 —— 所以管理态与当前筛选天然保留，这正是原先 reload 会丢的东西。
+   */
+  function renderAll(): void {
+    const t = docTotals(TREE);
+
+    const stats = el('doc-stats');
+    if (stats) stats.innerHTML = docStats(t.catCount, t.bundleCount, t.articleCount);
+
+    // 两处侧栏（桌面 aside + 窄屏 details）共用同一份标记
+    const navHtml = docCategoryNav(
+      TREE.map((c) => ({ id: c.id, name: c.name, bundleCount: c.bundles.length })),
+      t.bundleCount,
+    );
+    document.querySelectorAll<HTMLElement>('[data-doc-nav]').forEach((nav) => {
+      nav.innerHTML = navHtml;
+    });
+
+    // 分类清零 → 侧栏整块隐藏、主体切成空态
+    const empty = TREE.length === 0;
+    const slot = el('doc-side-slot');
+    if (slot) {
+      slot.classList.toggle('hidden', empty);
+      slot.classList.toggle('contents', !empty);
+    }
+    const emptyBox = el('doc-empty');
+    if (emptyBox) {
+      emptyBox.innerHTML = docEmptyState(IS_AUTHED);
+      emptyBox.classList.toggle('hidden', !empty);
+    }
+    const sections = el('doc-sections');
+    if (sections) {
+      if (!empty) sections.innerHTML = docSections(TREE, IS_AUTHED);
+      sections.classList.toggle('hidden', empty);
+    }
+
+    // 弹窗里的「所属分类」下拉同步（分类可能被增删）
+    fillBundleCats(bundleDialogCatId || TREE[0]?.id || '');
+
+    // 隐藏数据源同步，保持 DOM 与内存一致
+    const data = el<HTMLElement>('doc-data');
+    if (data) data.dataset.tree = JSON.stringify(TREE);
+
+    // 重建出来的 section 默认全可见，必须把当前筛选重新贴回去
+    applyCat(currentCat());
   }
 
   /* ================= 管理按钮：捕获阶段拦截导航 =================
@@ -503,14 +452,36 @@ function esc(s: string): string {
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ name }),
           });
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      const d = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        category?: { id: string; name: string; sort: number; createdAt: string | Date };
+      };
       if (!res.ok) {
         const st = el('doc-cat-status');
         if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
         return;
       }
       dlg?.close();
-      window.location.reload();
+      const saved = d.category;
+      if (saved) {
+        const existing = TREE.find((c) => c.id === saved.id);
+        if (existing) {
+          // 编辑：先摘出来再按新 sort 插回，顺序与服务端一致
+          existing.name = saved.name;
+          existing.sort = saved.sort;
+          removeById(TREE, saved.id);
+          insertOrdered(TREE, existing);
+        } else {
+          insertOrdered(TREE, {
+            id: saved.id,
+            name: saved.name,
+            sort: saved.sort,
+            createdAt: saved.createdAt,
+            bundles: [],
+          });
+        }
+      }
+      renderAll();
     } catch {
       const st = el('doc-cat-status');
       if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
@@ -529,7 +500,9 @@ function esc(s: string): string {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: del.dataset.docCatDel }),
       });
-      if (res.ok) window.location.reload();
+      if (!res.ok) return;
+      removeById(TREE, del.dataset.docCatDel ?? '');
+      renderAll();
     } catch { /* 忽略 */ }
   });
 
@@ -608,14 +581,48 @@ function esc(s: string): string {
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ categoryId, name, icon, summary }),
           });
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      const d = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        bundle?: {
+          id: string;
+          categoryId: string;
+          name: string;
+          icon: string | null;
+          summary: string | null;
+          sort: number;
+          createdAt: string | Date;
+        };
+      };
       if (!res.ok) {
         const st = el('doc-bundle-status');
         if (st) { st.textContent = d.error ?? '保存失败'; st.classList.remove('hidden'); }
         return;
       }
       dlg?.close();
-      window.location.reload();
+      const saved = d.bundle;
+      if (saved) {
+        // 目标分类先取好；编辑 / 换分类都先把旧记录摘掉，再按 sort 插到正确位置
+        const dest = TREE.find((c) => c.id === saved.categoryId);
+        let prev: TreeBundle | undefined;
+        for (const c of TREE) {
+          const hit = removeById(c.bundles, saved.id);
+          if (hit) { prev = hit; break; }
+        }
+        const next: TreeBundle = {
+          id: saved.id,
+          name: saved.name,
+          icon: saved.icon,
+          summary: saved.summary,
+          sort: saved.sort,
+          createdAt: saved.createdAt,
+          // 文章/目录计数沿用原值：接口返回的是文档行本身，不含统计字段
+          articles: prev?.articles ?? [],
+          articleCount: prev?.articleCount ?? 0,
+          folderCount: prev?.folderCount ?? 0,
+        };
+        if (dest) insertOrdered(dest.bundles, next);
+      }
+      renderAll();
     } catch {
       const st = el('doc-bundle-status');
       if (st) { st.textContent = '保存失败'; st.classList.remove('hidden'); }
@@ -632,7 +639,10 @@ function esc(s: string): string {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: del.dataset.docBundleDel }),
       });
-      if (res.ok) window.location.reload();
+      if (!res.ok) return;
+      const id = del.dataset.docBundleDel ?? '';
+      for (const c of TREE) removeById(c.bundles, id);
+      renderAll();
     } catch { /* 忽略 */ }
   });
 

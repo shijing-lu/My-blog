@@ -1,0 +1,81 @@
+/**
+ * 打印样式表（「导出 PDF」的实现载体）
+ *
+ * 浏览器/Electron 的打印引擎即 Chromium，`window.print()` + 本表产出
+ * 与站点样式一致的 PDF（KaTeX/代码高亮/callout 天然保真），Web 与桌面端
+ * 共用同一份代码，无服务端依赖。
+ *
+ * 约定：任何不希望出现在纸面上的元素加 `.no-print`；结构性 chrome 在下方
+ * 按选择器隐藏。深色主题直接打出来费墨且对比反常，故在 print 下强制浅色
+ * 主题变量（!important 压过主题包/暗色变量的后定义权）。
+ */
+
+@media print {
+  @page {
+    margin: 18mm 16mm;
+  }
+
+  :root {
+    color-scheme: light !important;
+    --background: #ffffff !important;
+    --foreground: #141413 !important;
+    --card: #ffffff !important;
+    --muted: #f4f2ec !important;
+    --muted-foreground: #5f5b53 !important;
+    --border: #d8d2c6 !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #141413 !important;
+  }
+
+  /* 站点 chrome 与交互件 */
+  body > header,
+  body > footer,
+  .side-toolbar,
+  .site-bg,
+  .stardust,
+  #scroll-progress,
+  #nav-progress,
+  #nav-loader,
+  #doc-toc-aside,
+  #doc-ltoc-aside,
+  #doc-switch-progress,
+  #mindmap-open,
+  #mindmap-drawer,
+  #mindmap-snippet-bar,
+  #article-gate-form,
+  #to-top,
+  dialog,
+  .no-print {
+    display: none !important;
+  }
+
+  /* 纸面可读性 */
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  img {
+    max-width: 100% !important;
+  }
+  pre,
+  table,
+  blockquote,
+  figure,
+  .katex-display {
+    break-inside: avoid;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    break-after: avoid;
+  }
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+}

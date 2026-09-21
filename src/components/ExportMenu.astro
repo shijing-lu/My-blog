@@ -1,0 +1,63 @@
+---
+/**
+ * 文章导出菜单（MD 下载 + PDF 打印）
+ *
+ * 纯静态组件 + 一个文档级事件委托脚本：blog 详情页传静态 `mdUrl`；
+ * doc 页在客户端切文章（URL 同步 ?article=），故传 `mdBase`+`mdParam`
+ * 由点击时解析当前节点 id。PDF 走 window.print()（样式见 styles/print.css），
+ * 两种形态（Vercel Web / Electron 桌面）共用同一实现。
+ */
+interface Props {
+  /** 静态 MD 导出端点（文章详情页：SSR 期已知 slug） */
+  mdUrl?: string;
+  /** 动态拼接前缀（doc 页：点击时追加当前 ?article= 节点 id） */
+  mdBase?: string;
+  /** 节点 id 所在的查询参数名（配合 mdBase） */
+  mdParam?: string;
+  class?: string;
+}
+
+const { mdUrl = '', mdBase = '', mdParam = 'article', class: className = '' } = Astro.props;
+const btn =
+  'inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-xs text-muted-foreground transition-all duration-150 hover:border-primary/50 hover:text-primary';
+---
+
+<span
+  class={`export-menu no-print inline-flex items-center gap-1.5 ${className}`}
+  data-md-url={mdUrl || undefined}
+  data-md-base={mdBase || undefined}
+  data-md-param={mdParam}
+>
+  <button type="button" data-export-md class={btn} title="下载 Markdown 源文件">导出 MD</button>
+  <button type="button" data-export-pdf class={btn} title="打开打印对话框，选择「另存为 PDF」">导出 PDF</button>
+</span>
+
+<script>
+  /** 解析当前文章的 MD 导出地址：静态 mdUrl 优先；否则 mdBase + 节点 id。
+   *  节点 id 取当前 URL ?article=（doc 页切文章会 pushState 同步），
+   *  缺省回落 SSR 注入的 [data-active-node]（首屏未带参数时选中第一篇）。 */
+  function resolveMdUrl(menu: HTMLElement): string {
+    const staticUrl = menu.dataset.mdUrl;
+    if (staticUrl) return staticUrl;
+    const base = menu.dataset.mdBase;
+    if (!base) return '';
+    const id =
+      new URLSearchParams(location.search).get(menu.dataset.mdParam || 'article') ||
+      document.querySelector('[data-active-node]')?.getAttribute('data-active-node') ||
+      '';
+    return id ? `${base}${encodeURIComponent(id)}` : '';
+  }
+
+  // 文档级委托：ClientRouter 转场/doc 页内切换重建 DOM 后依旧有效
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement | null;
+    const menu = target?.closest<HTMLElement>('.export-menu');
+    if (!menu) return;
+    if (target?.closest('[data-export-md]')) {
+      const url = resolveMdUrl(menu);
+      if (url) location.assign(url);
+    } else if (target?.closest('[data-export-pdf]')) {
+      window.print();
+    }
+  });
+</script>

@@ -9,6 +9,8 @@ interface Props {
   indexable?: boolean;
 }
 
+import { serverEnv } from '@/lib/env';
+
 /* ===== Logic ===== */
 const {
   title = '',
@@ -19,6 +21,7 @@ const {
 
 /* ===== Imports ===== */
 import '../styles/global.css';
+import '../styles/print.css'; // 「导出 PDF」打印样式表（@media print，零屏显开销）
 import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
 // KaTeX 关键字体预热：?url 取打包后哈希 URL，head 里 preload（见模板）。
 // 国内网络下 KaTeX 字体加载失败会导致公式 vlist 行盒塌缩、糊成一团（诊断结论），
@@ -106,13 +109,50 @@ const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) 
  * 而误判（该 preload 却没 preload）只影响首帧公式字体，不影响正确性。 */
 const pathname = Astro.url.pathname;
 const needsKatexFonts =
-  pathname.startsWith('/blog/') || pathname.startsWith('/doc/') || pathname === '/demo';
+  pathname.startsWith('/blog/') ||
+  pathname.startsWith('/doc/') ||
+  // 动态列表/详情：2026-09-20 起动态与文章/文档共用 renderMdx 管线，同样可能出现公式
+  pathname.startsWith('/moments') ||
+  pathname === '/demo';
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
-<html lang="zh-CN">
+<!-- data-desktop：桌面端（Electron）标记 —— 用于启用"启动入场"等桌面专属动效 -->
+<html lang="zh-CN" data-desktop={serverEnv('DESKTOP_MODE') === '1' ? '' : undefined}>
   <head>
     <meta charset="utf-8" />
+    <!--
+      Buffer 垫片（必须在任何岛脚本之前）：
+      个别被客户端引用的共享模块（如 drizzle 的列类型映射）引用了 Node 的 Buffer，
+      其自身有 `typeof Buffer<"u"` 守卫，但浏览器里 Buffer 未定义时守卫之外的取值路径仍会抛
+      "Buffer is not defined"，导致 astro-island 水合失败（症状：编辑器空白、按钮全部无响应，实测踩过）。
+      这里提供一个最小占位实现：浏览器路径不会真正走二进制编解码，只需要"存在"。
+    -->
+    <script is:inline>
+      if (typeof window !== 'undefined' && typeof window.Buffer === 'undefined') {
+        window.Buffer = {
+          isBuffer: function () { return false; },
+          from: function (v) { return typeof v === 'string' ? new TextEncoder().encode(v) : new Uint8Array(0); },
+          alloc: function (n) { return new Uint8Array(n || 0); },
+        };
+      }
+    </script>
+    <!--
+      Buffer 垫片（必须在任何岛脚本之前）：
+      个别被客户端引用的共享模块（如 drizzle 的列类型映射）引用了 Node 的 Buffer，
+      其自身有 `typeof Buffer<"u"` 守卫，但浏览器里 Buffer 未定义时守卫之外的取值路径仍会抛
+      "Buffer is not defined"，导致 astro-island 水合失败（症状：编辑器空白、按钮全部无响应，实测踩过）。
+      这里提供一个最小占位实现：浏览器路径不会真正走二进制编解码，只需要"存在"。
+    -->
+    <script is:inline>
+      if (typeof window !== 'undefined' && typeof window.Buffer === 'undefined') {
+        window.Buffer = {
+          isBuffer: function () { return false; },
+          from: function (v) { return typeof v === 'string' ? new TextEncoder().encode(v) : new Uint8Array(0); },
+          alloc: function (n) { return new Uint8Array(n || 0); },
+        };
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
@@ -298,20 +338,43 @@ const needsKatexFonts =
 
     <RightToolbar />
 
+    <!-- 图标 sprite：代码块/行内代码的复制与折叠图标按 `<use href="#id">` 引用。
+         ⚠️ 不能用内联 SVG 逐个复制：行内代码可高频出现（实测 31KB 文章 331 处），
+         每处内联两枚 SVG 会让 HTML 原始体积 +228KB（桌面端本地服务无 gzip，直接承受），
+         改 sprite 后每处约 70B，整体增量降到 ~1/5。 -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="i-code-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </symbol>
+      <symbol id="i-code-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5" />
+      </symbol>
+      <symbol id="i-code-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15" />
+      </symbol>
+      <symbol id="i-code-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9" />
+      </symbol>
+    </svg>
+
     <!-- AI 助手「小卿」：选中文本右键 → 悬浮对话（全站，client:idle 惰性水合） -->
     <AiChatFloat client:idle enabled={aiReady} />
 
-    <!-- 公开页交互：代码复制按钮 + 图片灯箱 + 选项卡组（document 委托，View Transitions 下依然有效） -->
+    <!-- 公开页交互：代码块折叠 + 代码复制（块级/行内） + Callout 复制按钮 + 图片灯箱 + 选项卡组 + 黑幕开关（document 委托，View Transitions 下依然有效） -->
     <script>
       import '@/scripts/copy-button';
+      import '@/scripts/code-block-collapse';
+      import '@/scripts/callout-copy';
       import '@/scripts/lightbox';
       import '@/scripts/tabs';
+      import '@/scripts/spoiler';
     </script>
 
     <!-- 全局动效：滚动进度条 + 卡片入场动画 + GSAP 分割线展开 -->
     <script>
       import { initReveals } from '@/lib/anim';
-      import { restoreTheme, readState, isDark } from '@/lib/theme';
+      import { restoreTheme, readState, isDark, initSystemThemeWatcher } from '@/lib/theme';
       import { getCustomThemes, injectCustomThemeCss } from '@/lib/custom-theme';
 
       // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
@@ -329,18 +392,45 @@ const needsKatexFonts =
       window.addEventListener('resize', updateProgress);
       updateProgress();
 
-      /** 卡片入场动画：进入视口渐入上浮 */
+      /** 卡片入场动画：进入视口渐入上浮（同级错位，形成自然的级联节奏） */
       const revealObserver = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting) {
-              entry.target.classList.add('revealed');
-              revealObserver.unobserve(entry.target);
+              const el = entry.target as HTMLElement;
+              // 错位延迟按"在父容器中的序号"注入；上限 6 个，避免长列表尾项等太久
+              const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
+              const idx = Math.max(0, siblings.indexOf(el));
+              el.style.setProperty('--reveal-delay', `${Math.min(idx, 6) * 55}ms`);
+              el.classList.add('revealed');
+              revealObserver.unobserve(el);
             }
           });
         },
         { threshold: 0.06 },
       );
+
+      /**
+       * 错误提示抖动：任意 [role="alert"] 文本变化时抖动一次
+       *
+       * 用 observer 而不是逐处改代码：全站上百个错误提示（表单/网盘/AI/主题导入…）
+       * 都能自动获得同一反馈，且新增提示无需重复接线。
+       */
+      if (document.body.dataset.shakeBound !== '1') {
+        document.body.dataset.shakeBound = '1';
+        const shakeObserver = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            const node = m.target.nodeType === 1 ? (m.target as HTMLElement) : m.target.parentElement;
+            const alert = node?.closest?.('[role="alert"]') as HTMLElement | null;
+            if (!alert || !alert.textContent?.trim()) continue;
+            alert.classList.remove('motion-shake');
+            void alert.offsetWidth; // 强制回流以重启动画
+            alert.classList.add('motion-shake');
+            window.setTimeout(() => alert.classList.remove('motion-shake'), 520);
+          }
+        });
+        shakeObserver.observe(document.body, { subtree: true, childList: true, characterData: true });
+      }
 
       /** 全局导航加载指示：点击立即出现转圈+进度条，覆盖 fetch 与 DOM 交换全过程，
        *  交换完成(after-swap)后至少再显示 250ms 才淡出——转圈作为过渡遮罩，
@@ -407,11 +497,36 @@ const needsKatexFonts =
         if (linkTarget && linkTarget !== '_self') return;
         showLoader();
       }, true);
+      /**
+       * 是否首次加载
+       *
+       * 用途：astro:page-load 在**首次加载与 ClientRouter 转场后都会触发**。
+       * 原实现无条件把卡片标记为"已显示"，导致首次加载也不播进场动画
+       * （实测：卡片从未拿到 .reveal、--reveal-delay 也没写入 → 错位进场完全不可见）。
+       * 现在：首次加载交给 observeReveals 播错位进场；转场后仍直接显示（避免转场淡入 + 卡片上浮双重动画）。
+       */
+      let isFirstLoad = true;
+
       function observeReveals(): void {
         document.querySelectorAll<HTMLElement>('.post-card, .post-row, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
           if (el.classList.contains('revealed')) return;
           if (!el.classList.contains('reveal')) el.classList.add('reveal');
-          revealObserver.observe(el);
+          // 错位延迟在这里就写入（不依赖 IntersectionObserver 回调）
+          const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
+          const idx = Math.max(0, siblings.indexOf(el));
+          const delayMs = Math.min(idx, 6) * 55;
+          el.style.setProperty('--reveal-delay', `${delayMs}ms`);
+
+          // ⚠️ 实测：本环境下 IntersectionObserver 的首轮回调未按预期触发，
+          //    卡片会一直 opacity:0 直到 1.2s 兜底才被"直接显示"（内容空白 1.2 秒）。
+          //    因此首屏元素不再依赖 IO，直接按错位延迟播放；视口外交给 IO 处理。
+          const rect = el.getBoundingClientRect();
+          const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
+          if (inViewport) {
+            window.setTimeout(() => el.classList.add('revealed'), delayMs);
+          } else {
+            revealObserver.observe(el);
+          }
           // 兜底：1.2s 内未触发 revealed 也强制显示（防 IO 失效导致内容隐藏）
           window.setTimeout(() => {
             if (el.classList.contains('reveal') && !el.classList.contains('revealed')) {
@@ -450,6 +565,34 @@ const needsKatexFonts =
         } catch (e) { /* 失败则回落 after-swap/page-load 兜底，不影响导航 */ }
       });
 
+      /**
+       * 动效能力自检（输出到控制台 → 由主进程转发进 launch.log）
+       *
+       * 用途：用户反馈"没有任何动效"时，一次性看清渲染层真实环境：
+       * 是否支持 View Transitions、是否被系统 reduced-motion 压制、
+       * 桌面标记是否注入、令牌是否生效、卡片是否拿到错位延迟。
+       */
+      const motionSelfCheck = (): void => {
+        try {
+          const styles = getComputedStyle(document.documentElement);
+          const card = document.querySelector<HTMLElement>('.post-row, .post-card, .photo-card, .moment-card');
+          console.info(
+            '[motion] 自检 ' +
+              JSON.stringify({
+                支持视图过渡: typeof document.startViewTransition === 'function',
+                系统减弱动效: matchMedia('(prefers-reduced-motion: reduce)').matches,
+                桌面标记: document.documentElement.dataset.desktop ?? '(未设置)',
+                令牌时长: styles.getPropertyValue('--dur-slower').trim() || '(缺失)',
+                令牌缓动: styles.getPropertyValue('--ease-out-soft').trim() || '(缺失)',
+                卡片数: document.querySelectorAll('.post-row, .post-card, .photo-card, .moment-card').length,
+                首卡延迟: card ? card.style.getPropertyValue('--reveal-delay') || '(未设置)' : '(无卡片)',
+              }),
+          );
+        } catch (e) {
+          console.info('[motion] 自检失败 ' + String(e));
+        }
+      };
+
       document.addEventListener('astro:page-load', () => {
         // View Transition 后恢复主题（data-theme / 暗色 / 自定义主题 CSS 会被新 head 替换丢失）
         // 注意：主题的「无闪烁恢复」已由 astro:before-swap 提前到 swap 前处理；
@@ -461,16 +604,21 @@ const needsKatexFonts =
             const custom = getCustomThemes().find(function (t) { return t.id === state.themeId; });
             if (custom && !document.getElementById('custom-theme-css')) injectCustomThemeCss(custom);
           }
+          // 跟随系统明暗偏好（幂等，仅首次生效）
+          initSystemThemeWatcher();
         } catch (e) { /* 主题恢复失败不影响页面 */ }
         updateProgress();
         // View Transition 切换后的页面：卡片直接显示，不再叠加播放入场动画
-        // （避免「转场淡入 + 卡片上浮」双重动画造成闪烁）
-        document
-          .querySelectorAll<HTMLElement>('.post-card, .post-row, .moment-card, .photo-card, .activity-heatmap')
-          .forEach((el) => {
-            el.classList.remove('reveal');
-            el.classList.add('revealed');
-          });
+        // （避免「转场淡入 + 卡片上浮」双重动画造成闪烁）——首次加载例外，那次要播错位进场
+        if (!isFirstLoad) {
+          document
+            .querySelectorAll<HTMLElement>('.post-card, .post-row, .moment-card, .photo-card, .activity-heatmap')
+            .forEach((el) => {
+              el.classList.remove('reveal');
+              el.classList.add('revealed');
+            });
+        }
+        isFirstLoad = false;
       });
       observeReveals();
       // GSAP：全站像素分割线滚动展开（仅初始加载播放；转场后静态显示避免闪）

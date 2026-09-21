@@ -79,3 +79,22 @@ export function writeState(state: ThemeState): void {
 export function restoreTheme(): void {
   applyState(readState());
 }
+
+/** 防止重复注册（每次 astro:page-load 都会调用） */
+let systemWatcherReady = false;
+
+/**
+ * 跟随系统明暗偏好（此前缺失：mode='system' 下系统切换主题不会实时响应）
+ *
+ * 监听器挂在 matchMedia 上（不随 DOM 替换失效），只需注册一次。
+ */
+export function initSystemThemeWatcher(): void {
+  if (systemWatcherReady || typeof matchMedia === 'undefined') return;
+  systemWatcherReady = true;
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+  mq.addEventListener?.('change', () => {
+    const state = readState();
+    if (state.mode !== 'system') return;
+    applyState(state); // 即时应用（系统主题跟随不做过渡）
+  });
+}

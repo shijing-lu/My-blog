@@ -8,7 +8,7 @@
  * - 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
  */
 interface Props {
-  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai' | 'netdisk';
+  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai' | 'netdisk' | 'sync';
 }
 const { section } = Astro.props;
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
@@ -16,6 +16,8 @@ import { getSiteBackground } from '@/lib/background';
 import { getLandingHero } from '@/lib/landing';
 import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
+import EditorShortcutsSettings from '@/components/admin/EditorShortcutsSettings';
+import { serverEnv } from '@/lib/env';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 import { getMdCssLibrary } from '@/lib/md-css-library';
@@ -46,6 +48,11 @@ const showMdCss = !section || section === 'md-css';
 const showSiteCss = !section || section === 'site-css';
 const showAi = !section || section === 'ai';
 const showNetdisk = !section || section === 'netdisk';
+const showSync = !section || section === 'sync';
+
+/** 仅在桌面端（Electron 主进程注入 DESKTOP_MODE=1）显示同步分区：
+ *  Web 版没有本地库，"同步"无从谈起 —— 同一份代码按环境裁剪入口。 */
+const isDesktopMode = serverEnv('DESKTOP_MODE') === '1';
 
 /** GitHub 图床配置（token 掩码：SSR 注入 hasToken，明文永不出库） */
 const imageBed = serializeImageBedConfig(await getImageBedConfig());
@@ -657,8 +664,68 @@ const siteCssUpdatedAtText =
     </section>
     </>)}
 
+    <!-- 云端同步分区（仅桌面端） -->
+    {showSync && isDesktopMode && (<>
+    <section id="sync" data-settings-section="sync" class="border-t border-border pt-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">SYNC</p>
+          <h2 class="mt-1 font-medium">云端同步</h2>
+          <p class="mt-1 text-xs text-muted-foreground">
+            本地优先：浏览与写作都走本地数据库（毫秒级、可离线）。点「立即同步」双向推拉云端变更；
+            冲突会保留败方备份，绝不静默丢数据。
+          </p>
+        </div>
+        <span id="sync-cloud-state" class="text-xs text-muted-foreground"></span>
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          id="sync-now"
+          type="button"
+          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          立即同步
+        </button>
+        <span id="sync-status" class="text-xs text-muted-foreground" role="status"></span>
+      </div>
+
+      <div id="sync-report" class="mt-4 hidden">
+        <table class="w-full text-xs">
+          <thead class="text-muted-foreground">
+            <tr>
+              <th class="py-1 text-left font-normal">表</th>
+              <th class="text-right font-normal">推送</th>
+              <th class="text-right font-normal">拉取</th>
+              <th class="text-right font-normal">本地删</th>
+              <th class="text-right font-normal">云端删</th>
+              <th class="text-right font-normal">冲突</th>
+            </tr>
+          </thead>
+          <tbody id="sync-report-body"></tbody>
+        </table>
+        <p id="sync-warnings" class="mt-2 text-xs text-amber-600"></p>
+      </div>
+    </section>
+    </>)}
+
     <!-- Markdown 自定义样式分区 -->
     {showMdCss && (<>
+    <section id="shortcuts" data-settings-section="shortcuts" class="border-t border-border pt-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="pixel-chip text-primary">EDITOR SHORTCUTS</p>
+          <h2 class="mt-1 font-medium">编辑器快捷键</h2>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">
+        与 Obsidian 一致的 Markdown 快捷键。点「录制」后按下新组合键即可改绑（Esc 取消），
+        冲突会实时提示；保存后重新打开编辑器生效。
+      </p>
+      <div class="mt-4">
+        <EditorShortcutsSettings client:load />
+      </div>
+    </section>
     <section
       id="md-css"
       data-settings-section="md-css"
@@ -1091,6 +1158,7 @@ const siteCssUpdatedAtText =
 
 <script>
   import { confirmDialog, confirmDanger } from '@/lib/confirm';
+  import { toastSuccess } from '@/lib/toast';
   import { scopeMdCss } from '@/lib/md-css-scope';
 
   /** 幂等初始化：以 #settings-form-root[data-inited] 防重复绑定；
@@ -1121,6 +1189,7 @@ const siteCssUpdatedAtText =
         mdErr.classList.toggle('hidden', !msg);
       };
       const flashMdHint = (msg: string): void => {
+        if (msg.includes('已保存') || msg.includes('已清空')) toastSuccess(msg);
         if (!mdHint) return;
         mdHint.textContent = msg;
         window.setTimeout(() => {
@@ -1408,6 +1477,7 @@ const siteCssUpdatedAtText =
           scErr.classList.toggle('hidden', !msg);
         };
         const flashScHint = (msg: string): void => {
+          if (msg.includes('已保存') || msg.includes('已清空')) toastSuccess(msg);
           if (!scHint) return;
           scHint.textContent = msg;
           window.setTimeout(() => {
@@ -1623,6 +1693,7 @@ const siteCssUpdatedAtText =
             applyTokenPlaceholder();
             if (ibHint) {
               ibHint.textContent = '已保存并应用';
+              toastSuccess('已保存并应用');
               window.setTimeout(() => { ibHint.textContent = ''; }, 2000);
             }
           } catch (err) {
@@ -1756,6 +1827,7 @@ const siteCssUpdatedAtText =
             applyNdPlaceholders();
             if (ndHint) {
               ndHint.textContent = '已保存并应用';
+              toastSuccess('已保存并应用');
               window.setTimeout(() => { ndHint.textContent = ''; }, 2000);
             }
           } catch (err) {
@@ -1892,6 +1964,7 @@ const siteCssUpdatedAtText =
             applyKeyPlaceholder();
             if (aiHint) {
               aiHint.textContent = '已保存并应用';
+              toastSuccess('已保存并应用');
               window.setTimeout(() => {
                 aiHint.textContent = '';
               }, 2000);
@@ -2545,6 +2618,71 @@ const siteCssUpdatedAtText =
       const fontUi = document.getElementById('font-ui') as HTMLSelectElement | null;
       const fontScale = document.getElementById('font-scale') as HTMLSelectElement | null;
 
+      /** 自定义字体元信息（客户端状态，与 #appearance[data-custom-fonts] 双向同步） */
+      type FontMeta = { id: string; familyName: string; size: number; mime?: string };
+      function readCustomFonts(): FontMeta[] {
+        const raw = appearanceEl?.dataset.customFonts;
+        if (!raw) return [];
+        try {
+          const list = JSON.parse(raw) as FontMeta[];
+          return Array.isArray(list) ? list : [];
+        } catch {
+          return [];
+        }
+      }
+      function writeCustomFonts(list: FontMeta[]): void {
+        if (appearanceEl) appearanceEl.dataset.customFonts = JSON.stringify(list);
+      }
+
+      /** 两个下拉中的「系统/内置」静态选项快照：后续只替换 custom:* 项 */
+      const baseOptions = (sel: HTMLSelectElement | null): { value: string; text: string }[] =>
+        sel
+          ? Array.from(sel.options)
+              .filter((o) => !o.value.startsWith('custom:'))
+              .map((o) => ({ value: o.value, text: o.textContent ?? o.value }))
+          : [];
+      const baseArticleOptions = baseOptions(fontArticle);
+      const baseUiOptions = baseOptions(fontUi);
+
+      /**
+       * 用当前自定义字体重建两个下拉的 custom:* 选项。
+       * 保留既有选择；若原选择指向已删除的字体，则回落该下拉的首个内置项。
+       */
+      function refreshFontOptions(): void {
+        const fonts = readCustomFonts();
+        const rebuild = (sel: HTMLSelectElement | null, base: { value: string; text: string }[]): void => {
+          if (!sel) return;
+          const prev = sel.value;
+          sel.innerHTML = '';
+          base.forEach((o) => sel.appendChild(new Option(o.text, o.value)));
+          fonts.forEach((f) => sel.appendChild(new Option(`${f.familyName}（自定义）`, `custom:${f.id}`)));
+          sel.value = prev;
+          // 原选择已不存在（字体被删除）→ 回落默认
+          if (sel.value !== prev) sel.value = base[0]?.value ?? 'system:sans';
+        };
+        rebuild(fontArticle, baseArticleOptions);
+        rebuild(fontUi, baseUiOptions);
+      }
+
+      /**
+       * 上传成功后即时注册 @font-face，免整页刷新即可预览/生效。
+       * 与 src/lib/fonts.ts 的 fontFaceCss 保持一致：base64 与 Blob 字体统一走
+       * /api/fonts/{id}（Blob 字体由该路由 302 到公开 URL）。
+       */
+      function injectFontFace(f: FontMeta): void {
+        const styleId = `font-face-${f.id}`;
+        if (document.getElementById(styleId)) return;
+        const mime = f.mime ?? 'font/woff2';
+        const format = mime.includes('woff2') ? 'woff2' : mime.includes('ttf') ? 'truetype' : mime.includes('otf') ? 'opentype' : 'woff2';
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `@font-face{font-family:"${f.familyName.replace(/"/g, '\\"')}";src:url("/api/fonts/${f.id}") format("${format}");font-display:swap;}`;
+        document.head.appendChild(style);
+      }
+      function removeFontFace(id: string): void {
+        document.getElementById(`font-face-${id}`)?.remove();
+      }
+
       /** 初始化两个字体下拉与字号缩放为当前设置 */
       function initFontSelects(): void {
         const raw = appearanceEl?.dataset.fonts;
@@ -2564,7 +2702,12 @@ const siteCssUpdatedAtText =
       const fontModeText = document.getElementById('font-mode-text');
       const fontFollowTheme = document.getElementById('font-follow-theme');
       const fontModeStatus = document.getElementById('font-mode-status');
-      const hasManualFonts = appearanceEl?.dataset.hasManualFonts === 'true';
+      let hasManualFonts = appearanceEl?.dataset.hasManualFonts === 'true';
+      /** 就地更新「手动字体」状态（同步 dataset，供 renderFontList 等复用） */
+      function setHasManualFonts(v: boolean): void {
+        hasManualFonts = v;
+        if (appearanceEl) appearanceEl.dataset.hasManualFonts = String(v);
+      }
       function renderFontMode(): void {
         if (!fontModeText || !fontFollowTheme) return;
         if (hasManualFonts) {
@@ -2586,7 +2729,19 @@ const siteCssUpdatedAtText =
         try {
           const res = await fetch('/api/fonts-settings', { method: 'DELETE' });
           if (!res.ok) throw new Error('清除失败');
-          window.location.reload();
+          // 就地刷新（不整页刷新）：否则会关闭设置弹窗并跳回默认分区
+          setHasManualFonts(false);
+          if (appearanceEl) {
+            appearanceEl.dataset.fonts = JSON.stringify({
+              article: { type: 'system', value: 'sans' },
+              ui: { type: 'builtin', value: 'lora' },
+              scale: 100,
+            });
+          }
+          initFontSelects();
+          setFontModeStatus('', false);
+          renderFontMode();
+          toastSuccess('已恢复跟随主题字体');
         } catch {
           setFontModeStatus('清除失败，请重试', true);
         }
@@ -2617,13 +2772,45 @@ const siteCssUpdatedAtText =
           del.addEventListener('click', async () => {
             if (!(await confirmDanger(`删除字体 ${f.familyName}？`))) return;
             const res = await fetch(`/api/fonts/${f.id}`, { method: 'DELETE' });
-            if (res.ok) window.location.reload();
+            if (!res.ok) {
+              setFontStatus('删除失败，请重试');
+              return;
+            }
+            // 就地移除（不整页刷新）：更新列表/下拉选项并注销 @font-face
+            writeCustomFonts(readCustomFonts().filter((x) => x.id !== f.id));
+            removeFontFace(f.id);
+            refreshFontUi();
+            // 若当前保存的字体设置仍引用该字体，站点会回落默认字体——明确告知
+            let inUse = false;
+            try {
+              const s = JSON.parse(appearanceEl?.dataset.fonts ?? '{}') as {
+                article?: { type: string; value: string };
+                ui?: { type: string; value: string };
+              };
+              inUse =
+                (s.article?.type === 'custom' && s.article.value === f.id) ||
+                (s.ui?.type === 'custom' && s.ui.value === f.id);
+            } catch {
+              inUse = false;
+            }
+            if (inUse) {
+              setFontStatus(`已删除「${f.familyName}」；当前字体设置仍引用它，站点将回落默认字体，请重新选择并保存`);
+            } else {
+              setFontStatus(`已删除字体「${f.familyName}」`, 'info');
+            }
           });
           li.appendChild(del);
           fontList.appendChild(li);
         });
       }
       renderFontList();
+
+      /** 字体区就地刷新（列表 + 下拉选项 + 手动/跟随主题状态），避免整页刷新 */
+      function refreshFontUi(): void {
+        renderFontList();
+        refreshFontOptions();
+        renderFontMode();
+      }
 
       /** 选择文件 */
       const fontFile = document.getElementById('font-file') as HTMLInputElement | null;
@@ -2632,6 +2819,23 @@ const siteCssUpdatedAtText =
       fontFile?.addEventListener('change', () => {
         if (fontFileName && fontFile?.files?.[0]) fontFileName.textContent = fontFile.files[0].name;
       });
+
+      /** 上传成功后写入客户端字体列表（就地，不整页刷新） */
+      function addCustomFontLocally(f: FontMeta): void {
+        writeCustomFonts([
+          ...readCustomFonts().filter((x) => x.id !== f.id),
+          { id: f.id, familyName: f.familyName, size: f.size },
+        ]);
+        injectFontFace(f);
+        refreshFontUi();
+      }
+      /** 清空上传表单（文件 + 名称），便于连续导入 */
+      function resetFontUploadInputs(): void {
+        if (fontFile) fontFile.value = '';
+        if (fontFileName) fontFileName.textContent = '';
+        const nameInput = document.getElementById('font-name') as HTMLInputElement | null;
+        if (nameInput) nameInput.value = '';
+      }
 
       /** 上传字体（≤3MB base64 存站内；>3MB 走 Vercel Blob 直传） */
       const fontStatus = document.getElementById('font-status') as HTMLParagraphElement | null;
@@ -2681,12 +2885,15 @@ const siteCssUpdatedAtText =
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ familyName: name, mime, data: base64 }),
           });
-          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          const d = (await res.json().catch(() => ({}))) as { error?: string; font?: FontMeta };
           if (!res.ok) {
             setFontStatus(d.error ?? '上传失败');
             return;
           }
-          window.location.reload();
+          // 就地刷新（不整页刷新）：新字体立即出现在列表与下拉中
+          if (d.font) addCustomFontLocally(d.font);
+          resetFontUploadInputs();
+          setFontStatus(`已导入「${name}」，可在下方下拉中选择并保存`, 'info');
           return;
         }
 
@@ -2717,12 +2924,15 @@ const siteCssUpdatedAtText =
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ familyName: name, url: blob.url, mime: d.contentType, size: file.size }),
           });
-          const rd = (await rec.json().catch(() => ({}))) as { error?: string };
+          const rd = (await rec.json().catch(() => ({}))) as { error?: string; font?: FontMeta };
           if (!rec.ok) {
             setFontStatus(rd.error ?? '记录失败');
             return;
           }
-          window.location.reload();
+          // 就地刷新（不整页刷新）：新字体立即出现在列表与下拉中
+          if (rd.font) addCustomFontLocally(rd.font);
+          resetFontUploadInputs();
+          setFontStatus(`已导入「${name}」，可在下方下拉中选择并保存`, 'info');
         } catch (err) {
           setFontStatus(err instanceof Error ? err.message : '上传失败');
         }
@@ -2743,6 +2953,11 @@ const siteCssUpdatedAtText =
             body: JSON.stringify({ article: pick(fontArticle), ui: pick(fontUi), scale: Number(fontScale?.value ?? 100) }),
           });
           if (!res.ok) throw new Error('保存失败');
+          // 就地同步「手动字体」状态与已保存选择（否则模式文案要等整页刷新才更新）
+          const d = (await res.json().catch(() => ({}))) as { fonts?: unknown };
+          if (d.fonts && appearanceEl) appearanceEl.dataset.fonts = JSON.stringify(d.fonts);
+          setHasManualFonts(true);
+          renderFontMode();
           if (hint) {
             hint.textContent = '已保存并应用';
             window.setTimeout(() => {
@@ -2758,4 +2973,116 @@ const siteCssUpdatedAtText =
 
   initSettingsForm();
   document.addEventListener('astro:page-load', initSettingsForm);
+</script>
+
+<!-- 云端同步分区交互（仅桌面端渲染该分区；脚本对不存在时自动跳过） -->
+<script>
+  /** 同步报告的单表计数（与 src/sync/core/types.ts 的 TableReport 对齐） */
+  interface SyncTableStat {
+    table: string;
+    pushed: number;
+    pulled: number;
+    deletedLocal: number;
+    deletedRemote: number;
+    conflicts: number;
+    skipped?: string;
+  }
+  interface SyncReportLike {
+    ok: boolean;
+    perTable: SyncTableStat[];
+    warnings: string[];
+  }
+  interface SyncStatusLike {
+    running: boolean;
+    progress: { table: string; index: number; total: number } | null;
+    lastReport: SyncReportLike | null;
+    lastError: string | null;
+    cloudConfigured: boolean;
+  }
+
+  /** 同步面板：触发 + 轮询状态 + 渲染每表报告 */
+  function initSyncPanel(): void {
+    const btnCandidate = document.getElementById('sync-now') as HTMLButtonElement | null;
+    if (!btnCandidate || btnCandidate.dataset.inited === '1') return;
+    btnCandidate.dataset.inited = '1';
+    /** 收窄为非空：闭包内（poll / click 回调）复用，避免 TS 再次判 "possibly null" */
+    const btn: HTMLButtonElement = btnCandidate;
+
+    const statusEl = document.getElementById('sync-status');
+    const cloudEl = document.getElementById('sync-cloud-state');
+    const reportEl = document.getElementById('sync-report');
+    const bodyEl = document.getElementById('sync-report-body');
+    const warnEl = document.getElementById('sync-warnings');
+
+    function setStatus(text: string, cls: string): void {
+      if (!statusEl) return;
+      statusEl.textContent = text;
+      statusEl.className = cls;
+    }
+
+    function renderReport(report: SyncReportLike): void {
+      if (!bodyEl || !reportEl) return;
+      bodyEl.innerHTML = '';
+      for (const t of report.perTable) {
+        const tr = document.createElement('tr');
+        const cells: Array<string | number> = [t.table, t.pushed, t.pulled, t.deletedLocal, t.deletedRemote, t.conflicts];
+        cells.forEach((v, i) => {
+          const td = document.createElement('td');
+          td.className = i === 0 ? 'py-0.5 text-left' : 'py-0.5 text-right';
+          td.textContent = String(v);
+          tr.appendChild(td);
+        });
+        bodyEl.appendChild(tr);
+      }
+      reportEl.classList.remove('hidden');
+      if (warnEl) warnEl.textContent = (report.warnings || []).join('；');
+    }
+
+    async function poll(): Promise<void> {
+      try {
+        const res = await fetch('/api/desktop/sync');
+        if (!res.ok) {
+          setStatus('读取状态失败（HTTP ' + res.status + '）', 'text-xs text-destructive');
+          return;
+        }
+        const s = (await res.json()) as SyncStatusLike;
+        if (cloudEl) {
+          cloudEl.textContent = s.cloudConfigured ? '云端已配置' : '云端未配置：请在 config.json 填写 SYNC_DATABASE_URL';
+        }
+        if (s.running) {
+          const p = s.progress;
+          setStatus(
+            p ? '同步中：' + p.table + '（' + (p.index + 1) + '/' + p.total + '）' : '同步中…',
+            'text-xs text-muted-foreground',
+          );
+          setTimeout(() => void poll(), 800);
+          return;
+        }
+        btn.disabled = false;
+        if (s.lastError) {
+          setStatus('失败：' + s.lastError, 'text-xs text-destructive');
+        } else if (s.lastReport) {
+          setStatus('同步已完成', 'text-xs text-emerald-600');
+          renderReport(s.lastReport);
+        } else {
+          setStatus('尚未同步过', 'text-xs text-muted-foreground');
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setStatus('读取状态失败：' + msg, 'text-xs text-destructive');
+      }
+    }
+
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      setStatus('正在启动…', 'text-xs text-muted-foreground');
+      // 启动失败也交给轮询兜底（例如上一轮仍在运行）
+      void fetch('/api/desktop/sync', { method: 'POST' }).then(() => poll(), () => poll());
+    });
+
+    void poll();
+  }
+
+  initSyncPanel();
+  document.addEventListener('astro:page-load', initSyncPanel);
 </script>

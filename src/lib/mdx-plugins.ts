@@ -33,6 +33,7 @@ import { footnoteDef, footnoteRef, textNode, type MdxDirectiveNode } from './mdx
 import { remarkCallout } from './mdx/callout';
 import { remarkCollapse } from './mdx/collapse';
 import { remarkTabs } from './mdx/tabs';
+import { remarkSpoiler } from './mdx/spoiler';
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
 
 /* 节点助手已拆到 ./mdx/nodes（P1-9）；这里整体再导出，
@@ -98,6 +99,69 @@ export function rehypeBlockAnchors() {
       }
     };
     walk(tree);
+  };
+}
+
+/**
+ * 代码块可折叠的最小行数阈值。
+ *
+ * 低于阈值的短代码块不提供折叠控件——两三行的片段上挂一个「收起」按钮是视觉噪音，
+ * 也违背读者预期（折叠的价值只在长块上）。取值依据：15 行在常见终端字号下约
+ * 15 × 1.75 行高 ≈ 520px，已超过一屏可舒适浏览的长度。
+ */
+export const CODE_COLLAPSE_MIN_LINES = 15;
+
+/**
+ * rehype 插件：标注代码块可折叠性（`pre[data-collapsible]`）。
+ *
+ * ⚠️ 必须排在 `rehypePrismPlus` **之后**：行数由该插件生成的行容器数量决定
+ *   （`pre > code > span.code-line`，每行一个 `<span class="code-line line-number">`）；
+ *   排在高亮之前会数不到行 → 所有代码块都不可折叠。
+ * ⚠️ 不在此处注入按钮 DOM：按钮由 `Pre` 组件渲染（React 层），本插件只负责
+ *   「这行数据」（是否够长），保持解析层与视图层职责分离。
+ */
+export function rehypeCodeBlockMeta(options?: { minLines?: number }) {
+  const minLines = options?.minLines ?? CODE_COLLAPSE_MIN_LINES;
+  /** 行容器类名（rehype-prism-plus 约定） */
+  const LINE_CLASS = 'code-line';
+  /** 顺序守卫只提醒一次（同一进程内避免刷屏） */
+  let warnedOrder = false;
+  return (tree: HastRoot) => {
+    let sawPre = false;
+    let sawLineContainer = false;
+    const walk = (node: Element | HastRoot): void => {
+      if (node.type === 'element' && node.tagName === 'pre' && Array.isArray(node.children)) {
+        sawPre = true;
+        const code = node.children.find(
+          (c): c is Element => c.type === 'element' && c.tagName === 'code',
+        );
+        const lines = code?.children
+          ? code.children.filter(
+              (c): c is Element =>
+                c.type === 'element' &&
+                c.tagName === 'span' &&
+                Array.isArray(c.properties?.className) &&
+                (c.properties?.className as unknown[]).includes(LINE_CLASS),
+            ).length
+          : 0;
+        if (lines > 0) sawLineContainer = true;
+        if (lines >= minLines) {
+          node.properties = { ...(node.properties ?? {}), 'data-collapsible': 'true' };
+        }
+      }
+      if (Array.isArray(node.children)) {
+        node.children.forEach((child) => walk(child as Element));
+      }
+    };
+    walk(tree);
+    // 顺序守卫：存在代码块却一个行容器都没有 —— 只可能是本插件被排到了
+    // rehypePrismPlus 之前（此时折叠能力会**静默失效**：不报错、所有代码块都不可折叠）。
+    if (sawPre && !sawLineContainer && !warnedOrder) {
+      warnedOrder = true;
+      console.warn(
+        '[mdx-plugins] rehypeCodeBlockMeta 未发现任何 .code-line 行容器：请确认它排在 rehypePrismPlus 之后，否则代码块折叠将静默失效。',
+      );
+    }
   };
 }
 
@@ -793,7 +857,33 @@ export function remarkLegacyFootnotes() {
  * 必须在 `rehype-slug` 之后运行以获得标题 id；
  * 若管线含 `rehype-katex`，须在其之后运行，html 字段才能带上公式标记。
  */
-export function rehypeTocCollector() {
+/**
+ * 渲染期 TOC 回传寄存器。
+ *
+ * ## 为什么需要（2026-09-16 性能优化）
+ * `evaluate()` 模式下拿不到内部 vfile，插件的 `file.data` 无法回传调用方，
+ * 因此 renderMdx 原先改为对同一份源码**再跑一遍完整管线**（remark→rehype→KaTeX）
+ * 提取目录 —— 分阶段打点实测：182KB 数学文档该二次管线耗 **5.6s（占 33%）**。
+ * 现改为：主渲染流水线末尾挂 `rehypeTocCollector`（它本就在遍历 hast 树，零额外成本），
+ * 按每次渲染唯一的 token 把结果存进本寄存器，renderMdx 渲染后取走。
+ */
+const TOC_STORE = new Map<string, TocItem[]>();
+
+/** 取走并清除某 token 的目录（未取到返回 null，调用方自行兜底） */
+export function takeCollectedToc(token: string): TocItem[] | null {
+  const t = TOC_STORE.get(token);
+  if (t) TOC_STORE.delete(token);
+  return t ?? null;
+}
+
+/**
+ * rehype 插件：收集 h2/h3/h4 生成目录（写入 `file.data.toc`）。
+ *
+ * @param options.token 提供时同时把目录回传到 TOC_STORE（见上方说明），
+ *                      evaluate 模式的调用方据此免跑二次管线。
+ */
+export function rehypeTocCollector(options?: { token?: string }) {
+  const token = options?.token;
   return (tree: HastRoot, file: { data: Record<string, unknown> }) => {
     const toc: TocItem[] = [];
     const walk = (node: Element | HastRoot): void => {
@@ -819,6 +909,8 @@ export function rehypeTocCollector() {
     };
     walk(tree);
     file.data.toc = toc;
+    // evaluate 模式回传（token 由 buildRehypePlugins 注入，见 TOC_STORE 说明）
+    if (token) TOC_STORE.set(token, toc);
   };
 }
 
@@ -892,6 +984,9 @@ export const remarkPlugins = [
   remarkMath,
   remarkDirective,
   remarkDirectiveToJsx,
+  // `:spoiler[内容]` 行内黑幕 → <Spoiler>（须在 remarkDirective 之后，textDirective 已解析成型；
+  //   放在容器插件之前：容器转换时会把已生成的 Spoiler JSX 节点随 children 原样携带）
+  remarkSpoiler,
   // Obsidian 风格 `> [!type]` 引用块 → <Callout>（须在 remarkGfm 之后，blockquote 已解析成型）
   remarkCallout,
   // `:::collapse` 折叠面板容器 → <Collapse>（须在 remarkDirective 之后，容器已解析成型）
@@ -977,18 +1072,33 @@ export function rehypeDecodeMathEq() {
  * - `rehypeMark` 在 `rehypeBlockAnchors` **之后**：块锚点先给块级元素挂 id，
  *   高亮只改行内内容，不影响块级结构（顺序其实无关，但保持「结构先定、内容后改」）。
  */
-export const rehypePlugins = [
-  rehypeSlug,
-  rehypeAutolinkHeadings,
-  // 数学区哨兵 `=` 还原（必须紧邻 kaTeX 之前，见 rehypeDecodeMathEq 注释）
-  rehypeDecodeMathEq,
-  [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
-  // 表格 cell 内 remark-math 不激活 → 二次扫描 cell text 节点中 $…$ 段用 KaTeX 渲染
-  rehypeTableMath,
-  // 超长代码块先摘掉 language 类，让下游 Prism 跳过（P3-4，须在 rehypePrismPlus 之前）
-  rehypeSkipHugeCode,
-  [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
-  rehypeBlockAnchors,
-  // M3E 风格荧光高亮 `==文本==` → <mark>（须在 KaTeX 之后，跳过公式子树）
-  rehypeMark,
-];
+/**
+ * 构建 rehype 插件链。
+ *
+ * @param tocToken 提供时，末尾的 `rehypeTocCollector` 会把目录回传到 TOC_STORE
+ *                 （渲染方免跑二次管线；实测 182KB 文档省 5.6s）。
+ */
+export function buildRehypePlugins(tocToken?: string) {
+  return [
+    rehypeSlug,
+    rehypeAutolinkHeadings,
+    // 数学区哨兵 `=` 还原（必须紧邻 kaTeX 之前，见 rehypeDecodeMathEq 注释）
+    rehypeDecodeMathEq,
+    [rehypeKatex, { strict: false, throwOnError: false, output: 'htmlAndMathml' }],
+    // 表格 cell 内 remark-math 不激活 → 二次扫描 cell text 节点中 $…$ 段用 KaTeX 渲染
+    rehypeTableMath,
+    // 超长代码块先摘掉 language 类，让下游 Prism 跳过（P3-4，须在 rehypePrismPlus 之前）
+    rehypeSkipHugeCode,
+    [rehypePrismPlus, { showLineNumbers: true, ignoreMissing: true }],
+    rehypeBlockAnchors,
+    // M3E 风格荧光高亮 `==文本==` → <mark>（须在 KaTeX 之后，跳过公式子树）
+    rehypeMark,
+    // 代码块可折叠标注：须在 rehypePrismPlus 之后（行数取决于它生成的行容器）
+    rehypeCodeBlockMeta,
+    // 目录收集：放最后，拿到的是含 KaTeX/高亮产物的最终 hast（与页面结构最一致）
+    [rehypeTocCollector, { token: tocToken }],
+  ];
+}
+
+/** 默认 rehype 插件链（无 token；供 extractToc 等独立管线与其他调用方使用） */
+export const rehypePlugins = buildRehypePlugins();

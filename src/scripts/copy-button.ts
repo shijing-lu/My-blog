@@ -60,8 +60,8 @@ function flashError(btn: HTMLButtonElement): void {
   });
 }
 
-/** 复制文本：优先 Clipboard API，失败回退 execCommand */
-async function copyText(text: string): Promise<void> {
+/** 复制文本：优先 Clipboard API，失败回退 execCommand（callout-copy 复用导出） */
+export async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -97,15 +97,26 @@ function codeText(block: HTMLElement): string {
   return (clone.textContent ?? '').replace(/\r\n/g, '\n');
 }
 
-/** 文档级点击委托：点击复制按钮 → 复制所在代码块 */
-document.addEventListener('click', (e) => {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-copy]');
-  if (!btn) return;
-  const block = btn.closest<HTMLElement>('[data-code-block]');
-  if (!block) return;
-  const text = codeText(block);
-  if (!text) return;
-  copyText(text)
-    .then(() => flash(btn))
-    .catch(() => flashError(btn));
-});
+/** 文档级点击委托：点击复制按钮 → 复制所在代码块
+ *
+ * ⚠️ 挂**捕获阶段**：行内代码的复制按钮可能位于链接内部（`[`npm run dev`](url)`），
+ *   若在冒泡阶段处理，链接的默认跳转与 ClientRouter 的链接委托可能已先执行
+ *   —— 表现为「点复制顺带跳走」。捕获阶段先 `preventDefault()`，链接默认行为被阻止，
+ *   ClientRouter 亦按 `defaultPrevented` 跳过（与 doc 页管理按钮拦截同一手法）。
+ *   对普通按钮而言 preventDefault 无副作用（按钮本身没有默认行为）。 */
+document.addEventListener(
+  'click',
+  (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    const block = btn.closest<HTMLElement>('[data-code-block]');
+    if (!block) return;
+    const text = codeText(block);
+    if (!text) return;
+    copyText(text)
+      .then(() => flash(btn))
+      .catch(() => flashError(btn));
+  },
+  true,
+);

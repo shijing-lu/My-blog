@@ -2,11 +2,25 @@
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import { listNav } from '@/lib/nav';
+import { adminCatList, adminCatOptions, adminSiteGroups } from '@/lib/admin-nav-render';
 
 /* ===== Logic ===== */
 const categories = await listNav();
+/**
+ * 注入给客户端的数据源。
+ *
+ * `sort` + `createdAt` 都要带上：客户端增删改后要**就地**把记录插到与服务端
+ * `ORDER BY sort, createdAt` 一致的位置，否则原地重绘的顺序会和刷新后不一致。
+ */
 const categoriesJson = JSON.stringify(
-  categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, sort: c.sort, sites: c.sites })),
+  categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    icon: c.icon,
+    sort: c.sort,
+    createdAt: c.createdAt,
+    sites: c.sites,
+  })),
 );
 ---
 <AdminLayout title="导航管理">
@@ -21,7 +35,7 @@ const categoriesJson = JSON.stringify(
     <div class="mt-6">
       <div class="flex items-center justify-between">
         <h2 class="font-medium">分类</h2>
-        <span class="text-xs text-muted-foreground">共 {categories.length} 个</span>
+        <span id="cat-count" class="text-xs text-muted-foreground">共 {categories.length} 个</span>
       </div>
       <!-- 新增/编辑表单 -->
       <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -37,22 +51,8 @@ const categoriesJson = JSON.stringify(
         </button>
       </div>
       <p id="cat-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
-      <!-- 分类列表 -->
-      <ul id="cat-list" class="mt-3 list-blend">
-        {categories.map((c) => (
-          <li class="flex items-center justify-between gap-3 px-3 py-2">
-            <div class="flex min-w-0 items-center gap-2">
-              {c.icon && <span class="shrink-0 text-sm">{c.icon}</span>}
-              <span class="truncate text-sm font-medium">{c.name}</span>
-              <span class="font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length} 站</span>
-            </div>
-            <div class="flex shrink-0 gap-2 text-xs">
-              <button type="button" data-cat-edit={c.id} class="rounded-md border border-border px-2 py-1 hover:border-primary hover:text-primary">编辑</button>
-              <button type="button" data-cat-del={c.id} data-cat-name={c.name} class="rounded-md border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10">删除</button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <!-- 分类列表（客户端就地重建：见 renderAll） -->
+      <ul id="cat-list" class="mt-3 list-blend" set:html={adminCatList(categories)} />
     </div>
 
     <!-- 网站管理 -->
@@ -70,9 +70,7 @@ const categoriesJson = JSON.stringify(
         <input id="site-icon" type="text" maxlength="500" placeholder="图标 URL（可选，留空自动）"
           class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
         <div class="flex items-center gap-2">
-          <select id="site-cat" class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring">
-            {categories.map((c) => <option value={c.id}>{c.name}</option>)}
-          </select>
+          <select id="site-cat" class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" set:html={adminCatOptions(categories)} />
           <input id="site-sort" type="number" min="0" value="0" title="排序"
             class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
         </div>
@@ -89,43 +87,8 @@ const categoriesJson = JSON.stringify(
         </button>
       </div>
       <p id="site-status" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
-      <!-- 网站列表（按分类分组） -->
-      <div class="mt-4 space-y-5">
-        {categories.map((c) => (
-          <div>
-            <h3 class="flex items-center gap-2 text-xs">
-              {c.icon && <span>{c.icon}</span>}
-              <span class="font-pixel uppercase tracking-wider text-primary">{c.name}</span>
-              <span class="h-px flex-1 bg-border" />
-            </h3>
-            <ul class="mt-2 list-blend">
-              {
-                c.sites.length === 0 ? (
-                  <li class="px-3 py-2 text-xs text-muted-foreground">暂无网站</li>
-                ) : (
-                  c.sites.map((s) => (
-                    <li class="flex items-center justify-between gap-3 px-3 py-2">
-                      <div class="min-w-0">
-                        <p class="truncate text-sm font-medium">{s.name}</p>
-                        <p class="truncate text-xs text-muted-foreground">{s.url}</p>
-                      </div>
-                      <div class="flex shrink-0 items-center gap-2 text-xs">
-                        <select data-site-move={s.id} class="rounded-md border border-input bg-background px-1.5 py-1 outline-none">
-                          {categories.map((c2) => (
-                            <option value={c2.id} selected={c2.id === c.id}>{c2.name}</option>
-                          ))}
-                        </select>
-                        <button type="button" data-site-edit={s.id} class="rounded-md border border-border px-2 py-1 hover:border-primary hover:text-primary">编辑</button>
-                        <button type="button" data-site-del={s.id} data-site-name={s.name} class="rounded-md border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10">删除</button>
-                      </div>
-                    </li>
-                  ))
-                )
-              }
-            </ul>
-          </div>
-        ))}
-      </div>
+      <!-- 网站列表（按分类分组；客户端就地重建：见 renderAll） -->
+      <div id="site-groups" class="mt-4 space-y-5" set:html={adminSiteGroups(categories)} />
     </div>
     <!-- 分类数据（供脚本读取，避免 script 插值问题） -->
     <div id="nav-data" data-categories={categoriesJson} class="hidden" aria-hidden="true" />
@@ -133,29 +96,128 @@ const categoriesJson = JSON.stringify(
 </AdminLayout>
 
 <script>
-  /** 导航管理：分类/网站 增删改查 + 移动分类（操作后刷新） */
+  /**
+   * 导航管理：分类/网站 增删改查 + 移动分类。
+   *
+   * 关键点：所有增删改**不再整页刷新**（原来 5 处 window.location.reload()）。
+   * 成功回调里改内存中的 CATEGORIES，再用 admin-nav-render 的同一套渲染函数就地重建
+   * 分类列表 / 网站分组 / 分类下拉 —— 因此滚动位置与表单状态都保留。
+   *
+   * 顺序一致性：插入位置由 `insertOrdered`（sort 升序，同 sort 按 createdAt 升序）决定，
+   * 与服务端 `ORDER BY sort, createdAt` 等价，刷新前后顺序一致。
+   *
+   * 事件一律用 document 委托：列表节点会被 renderAll() 整块替换，直接绑在节点上的
+   * 监听器会随之丢失。（AdminLayout 未启用 ClientRouter，导航即整页加载，不存在监听器累积。）
+   */
   import { confirmDanger } from '@/lib/confirm';
-  interface CategoryJson { id: string; name: string; icon: string | null; sort: number; sites: { id: string; name: string; url: string; icon: string | null; desc: string | null }[] }
-  const CATEGORIES = JSON.parse((document.getElementById('nav-data') as HTMLElement).dataset.categories ?? '[]') as CategoryJson[];
-  const status = (id: string): HTMLElement | null => document.getElementById(id);
+  import { adminCatList, adminCatOptions, adminSiteGroups, insertOrdered, removeById } from '@/lib/admin-nav-render';
+
+  interface SiteJson {
+    id: string;
+    name: string;
+    url: string;
+    icon: string | null;
+    desc: string | null;
+    sort: number;
+    createdAt: string;
+    categoryId: string;
+    subCategoryId: string | null;
+  }
+  interface CategoryJson {
+    id: string;
+    name: string;
+    icon: string | null;
+    sort: number;
+    createdAt: string;
+    sites: SiteJson[];
+  }
+
+  const CATEGORIES = JSON.parse(
+    (document.getElementById('nav-data') as HTMLElement).dataset.categories ?? '[]',
+  ) as CategoryJson[];
+
+  const $ = (id: string): HTMLInputElement | HTMLSelectElement =>
+    document.getElementById(id) as HTMLInputElement | HTMLSelectElement;
+  const val = (id: string): string => ($(id) as HTMLInputElement).value?.trim() ?? '';
   const setStatus = (id: string, msg: string): void => {
-    const el = status(id);
+    const el = document.getElementById(id);
     if (!el) return;
     el.textContent = msg;
     el.classList.remove('hidden');
   };
-  const clearStatus = (id: string): void => status(id)?.classList.add('hidden');
-  const $ = (id: string): HTMLInputElement | HTMLSelectElement =>
-    document.getElementById(id) as HTMLInputElement | HTMLSelectElement;
-  const val = (id: string): string => ($(id) as HTMLInputElement).value?.trim() ?? '';
+  const clearStatus = (id: string): void => document.getElementById(id)?.classList.add('hidden');
 
-  // ---- 分类：新增 / 编辑 ----
+  /** 跨分类按 id 找网站 */
+  function findSite(siteId: string): { cat: CategoryJson; index: number } | null {
+    for (const cat of CATEGORIES) {
+      const index = cat.sites.findIndex((s) => s.id === siteId);
+      if (index >= 0) return { cat, index };
+    }
+    return null;
+  }
+
+  /**
+   * 就地重建三块由数据驱动的列表（**不刷新页面**）。
+   *
+   * `#site-cat` 会被重建，所以先记住用户当前的选择再恢复，避免改别的条目时选择被重置。
+   */
+  function renderAll(): void {
+    const keepCat = ($('site-cat') as HTMLSelectElement | null)?.value ?? '';
+
+    const countEl = document.getElementById('cat-count');
+    if (countEl) countEl.textContent = `共 ${CATEGORIES.length} 个`;
+
+    const catList = document.getElementById('cat-list');
+    if (catList) catList.innerHTML = adminCatList(CATEGORIES);
+
+    const siteGroups = document.getElementById('site-groups');
+    if (siteGroups) siteGroups.innerHTML = adminSiteGroups(CATEGORIES);
+
+    const siteCat = $('site-cat') as HTMLSelectElement | null;
+    if (siteCat) {
+      siteCat.innerHTML = adminCatOptions(CATEGORIES);
+      if (keepCat && CATEGORIES.some((c) => c.id === keepCat)) siteCat.value = keepCat;
+    }
+
+    // 隐藏数据源同步，保持 DOM 与内存状态一致
+    const dataEl = document.getElementById('nav-data');
+    if (dataEl) dataEl.dataset.categories = JSON.stringify(CATEGORIES);
+  }
+
+  function resetCatForm(): void {
+    editingCategoryId = null;
+    ($('cat-name') as HTMLInputElement).value = '';
+    ($('cat-icon') as HTMLInputElement).value = '';
+    ($('cat-sort') as HTMLInputElement).value = '0';
+    const btn = document.getElementById('cat-save');
+    if (btn) btn.textContent = '添加分类';
+  }
+
+  function resetSiteForm(): void {
+    editingSiteId = null;
+    ($('site-name') as HTMLInputElement).value = '';
+    ($('site-url') as HTMLInputElement).value = '';
+    ($('site-desc') as HTMLInputElement).value = '';
+    ($('site-icon') as HTMLInputElement).value = '';
+    ($('site-sort') as HTMLInputElement).value = '0';
+    const btn = document.getElementById('site-save');
+    if (btn) btn.textContent = '添加网站';
+    const scan = document.getElementById('site-scan-status');
+    if (scan) scan.textContent = '';
+  }
+
+  /* ================= 分类：新增 / 编辑 ================= */
+
   let editingCategoryId: string | null = null;
+
   document.getElementById('cat-save')?.addEventListener('click', async () => {
     const name = val('cat-name');
     const icon = val('cat-icon');
     const sort = Number(val('cat-sort') || 0);
-    if (!name) { setStatus('cat-status', '请填写分类名'); return; }
+    if (!name) {
+      setStatus('cat-status', '请填写分类名');
+      return;
+    }
     clearStatus('cat-status');
     const isEdit = editingCategoryId !== null;
     const body = isEdit
@@ -166,12 +228,41 @@ const categoriesJson = JSON.stringify(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) { setStatus('cat-status', '操作失败，请重试'); return; }
-    window.location.reload();
+    if (!res.ok) {
+      setStatus('cat-status', '操作失败，请重试');
+      return;
+    }
+    const d = (await res.json().catch(() => ({}))) as {
+      category?: { id: string; name: string; icon: string | null; sort: number; createdAt: string };
+    };
+    const saved = d.category;
+    if (saved) {
+      const existing = CATEGORIES.find((c) => c.id === saved.id);
+      if (existing) {
+        // 编辑：先摘出来再按新 sort 插回，顺序与服务端一致
+        removeById(CATEGORIES, saved.id);
+        existing.name = saved.name;
+        existing.icon = saved.icon;
+        existing.sort = saved.sort;
+        insertOrdered(CATEGORIES, existing);
+      } else {
+        insertOrdered(CATEGORIES, {
+          id: saved.id,
+          name: saved.name,
+          icon: saved.icon,
+          sort: saved.sort,
+          createdAt: saved.createdAt,
+          sites: [],
+        });
+      }
+    }
+    resetCatForm();
+    renderAll();
   });
 
-  document.getElementById('cat-list')?.addEventListener('click', async (e) => {
+  document.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
+
     const edit = target.closest<HTMLElement>('[data-cat-edit]');
     if (edit) {
       const cat = CATEGORIES.find((c) => c.id === edit.dataset.catEdit);
@@ -184,19 +275,35 @@ const categoriesJson = JSON.stringify(
       if (btn) btn.textContent = '保存修改';
       return;
     }
+
     const del = target.closest<HTMLElement>('[data-cat-del]');
     if (del) {
-      if (!(await confirmDanger(`删除分类「${del.dataset.catName}」？其下所有网站将一并删除。`))) return;
+      const catId = del.dataset.catDel;
+      if (!catId) return;
+      const cat = CATEGORIES.find((c) => c.id === catId);
+      const catName = del.dataset.catName ?? cat?.name ?? '';
+      const count = cat?.sites.length ?? 0;
+      const msg =
+        count > 0
+          ? `删除分类「${catName}」？其下 ${count} 个网站也会一并删除。`
+          : `删除分类「${catName}」？`;
+      if (!(await confirmDanger(msg))) return;
       const res = await fetch('/api/nav/categories', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: del.dataset.catDel }),
+        body: JSON.stringify({ id: catId }),
       });
-      if (res.ok) window.location.reload();
+      if (!res.ok) return;
+      removeById(CATEGORIES, catId);
+      // 正在编辑的对象被删掉了 → 清空表单，避免保存到不存在的记录
+      if (editingCategoryId === catId) resetCatForm();
+      if (editingSiteId && !findSite(editingSiteId)) resetSiteForm();
+      renderAll();
     }
   });
 
-  // ---- 网站：新增 / 编辑 ----
+  /* ================= 网站：新增 / 编辑 ================= */
+
   let editingSiteId: string | null = null;
 
   /** 自动抓取简介：填网址 → scan → 填充简介输入框 */
@@ -204,10 +311,16 @@ const categoriesJson = JSON.stringify(
     const url = val('site-url');
     const scanStatus = document.getElementById('site-scan-status');
     if (!url) {
-      if (scanStatus) { scanStatus.textContent = '先填写网址'; scanStatus.classList.add('text-destructive'); }
+      if (scanStatus) {
+        scanStatus.textContent = '先填写网址';
+        scanStatus.classList.add('text-destructive');
+      }
       return;
     }
-    if (scanStatus) { scanStatus.textContent = '抓取中…'; scanStatus.classList.remove('text-destructive'); }
+    if (scanStatus) {
+      scanStatus.textContent = '抓取中…';
+      scanStatus.classList.remove('text-destructive');
+    }
     try {
       const res = await fetch('/api/nav/sites/scan', {
         method: 'POST',
@@ -217,12 +330,21 @@ const categoriesJson = JSON.stringify(
       const d = (await res.json().catch(() => ({}))) as { desc?: string; error?: string };
       if (res.ok && d.desc) {
         ($('site-desc') as HTMLInputElement).value = d.desc;
-        if (scanStatus) { scanStatus.textContent = '已抓取简介 ✓'; scanStatus.classList.add('text-emerald-600'); }
+        if (scanStatus) {
+          scanStatus.textContent = '已抓取简介 ✓';
+          scanStatus.classList.add('text-emerald-600');
+        }
       } else {
-        if (scanStatus) { scanStatus.textContent = d.error ?? '未抓到简介'; scanStatus.classList.add('text-destructive'); }
+        if (scanStatus) {
+          scanStatus.textContent = d.error ?? '未抓到简介';
+          scanStatus.classList.add('text-destructive');
+        }
       }
     } catch {
-      if (scanStatus) { scanStatus.textContent = '抓取失败'; scanStatus.classList.add('text-destructive'); }
+      if (scanStatus) {
+        scanStatus.textContent = '抓取失败';
+        scanStatus.classList.add('text-destructive');
+      }
     }
   });
 
@@ -233,7 +355,14 @@ const categoriesJson = JSON.stringify(
     const icon = val('site-icon');
     const categoryId = ($('site-cat') as HTMLSelectElement).value;
     const sort = Number(val('site-sort') || 0);
-    if (!name || !url) { setStatus('site-status', '请填写网站名和网址'); return; }
+    if (!name || !url) {
+      setStatus('site-status', '请填写网站名和网址');
+      return;
+    }
+    if (!categoryId) {
+      setStatus('site-status', '请先创建分类');
+      return;
+    }
     clearStatus('site-status');
     const isEdit = editingSiteId !== null;
     const body = isEdit
@@ -244,49 +373,113 @@ const categoriesJson = JSON.stringify(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) { setStatus('site-status', '操作失败，请重试'); return; }
-    window.location.reload();
+    if (!res.ok) {
+      setStatus('site-status', '操作失败，请重试');
+      return;
+    }
+    const d = (await res.json().catch(() => ({}))) as { website?: SiteJson };
+    const saved = d.website;
+    if (saved) {
+      // 编辑 / 换分类都先把旧记录摘掉，再按 sort 插到目标分类的正确位置
+      for (const c of CATEGORIES) removeById(c.sites, saved.id);
+      const target = CATEGORIES.find((c) => c.id === saved.categoryId);
+      if (target) {
+        insertOrdered(target.sites, {
+          id: saved.id,
+          name: saved.name,
+          url: saved.url,
+          icon: saved.icon,
+          desc: saved.desc,
+          sort: saved.sort,
+          createdAt: saved.createdAt,
+          categoryId: saved.categoryId,
+          subCategoryId: saved.subCategoryId,
+        });
+      }
+    }
+    resetSiteForm();
+    renderAll();
   });
 
-  // 网站列表：编辑 / 删除 / 移动分类
-  document.querySelectorAll<HTMLElement>('[data-site-edit]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const siteId = btn.dataset.siteEdit;
+  /** 网站行：编辑（预填表单）/ 删除（就地移除） */
+  document.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+
+    const edit = target.closest<HTMLElement>('[data-site-edit]');
+    if (edit) {
+      const siteId = edit.dataset.siteEdit;
       if (!siteId) return;
-      const cat = CATEGORIES.find((c) => c.sites.some((s) => s.id === siteId));
-      const site = cat?.sites.find((s) => s.id === siteId);
-      if (!site || !cat) return;
+      const hit = findSite(siteId);
+      if (!hit) return;
+      const site = hit.cat.sites[hit.index]!;
       editingSiteId = siteId;
       ($('site-name') as HTMLInputElement).value = site.name;
       ($('site-url') as HTMLInputElement).value = site.url;
       ($('site-desc') as HTMLInputElement).value = site.desc ?? '';
       ($('site-icon') as HTMLInputElement).value = site.icon ?? '';
-      ($('site-sort') as HTMLInputElement).value = '0';
-      ($('site-cat') as HTMLSelectElement).value = cat.id;
-      const btn2 = document.getElementById('site-save');
-      if (btn2) btn2.textContent = '保存修改';
+      // 预填**真实** sort：以前写死 '0'，等于一编辑保存就把排序静默清零
+      ($('site-sort') as HTMLInputElement).value = String(site.sort);
+      ($('site-cat') as HTMLSelectElement).value = hit.cat.id;
+      const btn = document.getElementById('site-save');
+      if (btn) btn.textContent = '保存修改';
       document.getElementById('site-name')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-  });
-  document.querySelectorAll<HTMLElement>('[data-site-del]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      if (!(await confirmDanger(`删除网站「${btn.dataset.siteName}」？`))) return;
+      return;
+    }
+
+    const del = target.closest<HTMLElement>('[data-site-del]');
+    if (del) {
+      const siteId = del.dataset.siteDel;
+      if (!siteId) return;
+      if (!(await confirmDanger(`删除网站「${del.dataset.siteName}」？`))) return;
       const res = await fetch('/api/nav/sites', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: btn.dataset.siteDel }),
+        body: JSON.stringify({ id: siteId }),
       });
-      if (res.ok) window.location.reload();
-    });
+      if (!res.ok) return;
+      const hit = findSite(siteId);
+      if (hit) removeById(hit.cat.sites, siteId);
+      if (editingSiteId === siteId) resetSiteForm();
+      renderAll();
+    }
   });
-  document.querySelectorAll<HTMLSelectElement>('[data-site-move]').forEach((sel) => {
-    sel.addEventListener('change', async () => {
-      const res = await fetch('/api/nav/sites', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: sel.dataset.siteMove, categoryId: sel.value }),
-      });
-      if (res.ok) window.location.reload();
+
+  /** 移动分类：change 会冒泡，故用 document 委托（列表会被 renderAll 替换） */
+  document.addEventListener('change', async (e) => {
+    const sel = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-site-move]');
+    if (!sel) return;
+    const siteId = sel.dataset.siteMove;
+    if (!siteId) return;
+    const res = await fetch('/api/nav/sites', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: siteId, categoryId: sel.value }),
     });
+    if (!res.ok) {
+      // 失败：用内存状态重绘，把下拉恢复到真实归属
+      setStatus('site-status', '移动失败，请重试');
+      renderAll();
+      return;
+    }
+    const d = (await res.json().catch(() => ({}))) as { website?: SiteJson };
+    const saved = d.website;
+    if (saved) {
+      for (const c of CATEGORIES) removeById(c.sites, saved.id);
+      const target = CATEGORIES.find((c) => c.id === saved.categoryId);
+      if (target) {
+        insertOrdered(target.sites, {
+          id: saved.id,
+          name: saved.name,
+          url: saved.url,
+          icon: saved.icon,
+          desc: saved.desc,
+          sort: saved.sort,
+          createdAt: saved.createdAt,
+          categoryId: saved.categoryId,
+          subCategoryId: saved.subCategoryId,
+        });
+      }
+    }
+    renderAll();
   });
 </script>

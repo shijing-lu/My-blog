@@ -57,5 +57,13 @@ const categoryMap = Object.fromEntries(await articleCategoryMap());
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="写作">
+  <!--
+    关于「打开编辑栏是白板」（2026-09-21 定位）：
+    LiveEditor 是 client:load 岛，CodeMirror 只能在客户端创建 —— 从 HTML 到达、到客户端 JS
+    下载 + 水合 + CM 初始化完成之间有 1~3s 的空白窗口（资源首次加载时更久）。骨架必须
+    由**组件自身**输出，见 LiveEditor 内 MarkdownEditor 的骨架覆盖层。
+    ⚠️ 勿改用 Astro 岛的 children 传骨架：Astro 对 React 岛会做 SSR 渲染，而组件不渲染
+    props.children，children 会被丢弃、骨架不出现（已实测）。
+  -->
   <LiveEditor client:load initial={initial} articles={articles} categories={categories} categoryMap={categoryMap} />
 </AdminLayout>

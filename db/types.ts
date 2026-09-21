@@ -441,8 +441,20 @@ export interface NavCategoryView {
   name: string;
   icon: string | null;
   sort: number;
-  /** 该分类下全部网站（含子分类归属信息，前端据此分组） */
-  sites: Array<Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc' | 'categoryId' | 'subCategoryId'>>;
+  /**
+   * 创建时间。服务端排序为 `orderBy(sort, createdAt)`，客户端就地插入需要它做**同 sort 组的
+   * 次级比较**，否则原地重绘的顺序可能与刷新后不一致。
+   */
+  createdAt: Date;
+  /**
+   * 该分类下全部网站（含子分类归属信息，前端据此分组）。
+   *
+   * 带上 `sort` + `createdAt`：管理端新增/移动网站后需要**就地**把它插到与服务端
+   * `orderBy(sort, createdAt)` 一致的位置（否则原地重绘的顺序会和刷新后不一致）。
+   */
+  sites: Array<
+    Pick<Website, 'id' | 'name' | 'url' | 'icon' | 'desc' | 'sort' | 'createdAt' | 'categoryId' | 'subCategoryId'>
+  >;
   /** 该分类下的子分类（按 sort 升序） */
   subCategories: Array<Pick<NavSubCategory, 'id' | 'name' | 'sort'>>;
 }

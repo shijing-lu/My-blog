@@ -15,6 +15,7 @@
 @layer theme, base, components, utilities, site-text;
 @import "tailwindcss";
 @import "tw-animate-css";
+/* 动效令牌与视图过渡规则（时长/缓动/位移 + 主题圆形扩散 + reduced-motion 全量压制） */
 @import "@fontsource/silkscreen/400.css";
 @import "@fontsource/silkscreen/700.css";
 @import "@fontsource/lora/400.css";
@@ -313,10 +314,10 @@
 
   /* 全站页面切换过渡（View Transitions：平滑交叉淡化，无位移抖动） */
   ::view-transition-old(root) {
-    animation: vt-fade-out 0.15s ease forwards;
+    animation: vt-fade-out var(--dur-fast) var(--ease-out-soft) forwards;
   }
   ::view-transition-new(root) {
-    animation: vt-fade-in 0.25s ease forwards;
+    animation: vt-fade-in var(--dur-base) var(--ease-out-soft) forwards;
   }
   @keyframes vt-fade-out {
     to {
@@ -2086,6 +2087,8 @@
      --------------------------------------------------------------------- */
   .callout {
     @apply my-6 rounded-lg border border-l-4 px-4 py-3;
+    /* 右上角复制按钮的定位上下文（.callout-copy，见下方） */
+    position: relative;
   }
   /* 折叠态：summary 就是标题行，去掉原生三角、自绘箭头 */
   .callout > .callout-title {
@@ -2153,6 +2156,150 @@
   /* 嵌套 callout：内层去掉外边距，避免层层叠加留白 */
   .callout .callout {
     @apply my-3;
+  }
+
+  /* ---------------------------------------------------------------------
+     Callout 复制按钮 —— 右上角悬停显现，复制整块 markdown 源码
+     （Callout.tsx 渲染 data-callout-copy/source，scripts/callout-copy.ts 委托执行；
+      主题令牌随明暗切换，视觉语言与代码块复制按钮一致）
+     --------------------------------------------------------------------- */
+  .callout .callout-copy {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: var(--radius-md, 0.5rem);
+    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+    background-color: color-mix(in srgb, var(--color-card, #fff) 72%, transparent);
+    color: var(--color-muted-foreground, #71717a);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    transition: opacity 0.2s, background-color 0.2s, color 0.2s, border-color 0.2s;
+  }
+  .callout:hover .callout-copy,
+  .callout .callout-copy:focus-visible {
+    opacity: 1;
+  }
+  .callout .callout-copy:hover {
+    color: var(--color-foreground, #18181b);
+    background-color: color-mix(in srgb, var(--color-card, #fff) 95%, transparent);
+  }
+  /* 触屏无 hover：恒定半透明可点 */
+  @media (hover: none) {
+    .callout .callout-copy {
+      opacity: 0.75;
+    }
+  }
+  /* 复制成功 / 失败反馈（图标切换由 callout-copy.ts 完成） */
+  .callout .callout-copy.copied {
+    color: var(--color-primary);
+    border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  }
+  .callout .callout-copy.copy-failed {
+    color: #f87171;
+    border-color: rgb(248 113 113 / 0.55);
+    animation: copy-shake 0.32s ease;
+  }
+
+  /* ---------------------------------------------------------------------
+     黑幕（spoiler）—— `:spoiler[内容]` 行内指令（remarkSpoiler → <Spoiler>）
+     - 默认（隐藏模式关闭）：正文完整显示，观感与普通文本完全一致；
+     - 开启后（<html data-spoiler-hide="on">）：色块遮罩 + 内容模糊，
+       悬停 / 键盘聚焦 / 点击揭示（aria-expanded / .is-open），再点收回；
+     - 遮罩用「背景色块 + filter: blur」组合：无论内部嵌套 strong/code 等
+       任何着色元素一并糊掉，避免逐元素反转样式的 !important 大战；
+     - 无 JS：hover/focus 揭示仍然可用（渐进增强，原生 button 键盘可达）；
+       开关按钮由 spoiler.ts 按需注入（仅文章含该语法时出现）。
+     --------------------------------------------------------------------- */
+  .prose .spoiler {
+    /* 重置原生 button：默认态与周围文本完全一致 */
+    appearance: none;
+    background: none;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    line-height: inherit;
+    cursor: default;
+  }
+  /* 隐藏模式开启：遮罩态 */
+  html[data-spoiler-hide='on'] .prose .spoiler {
+    cursor: pointer;
+    padding: 0.1em 0.4em;
+    border-radius: 0.375rem;
+    background-color: var(--muted);
+    filter: blur(5px);
+    user-select: none;
+    -webkit-user-select: none;
+    transition: filter 0.18s ease, background-color 0.18s ease;
+  }
+  /* 浅色主题遮罩底色略压灰，色块边界更清晰 */
+  html[data-spoiler-hide='on'] .prose .spoiler:not(:hover):not(:focus-visible):not(.is-open):not([aria-expanded='true']) {
+    background-color: color-mix(in oklab, var(--foreground) 16%, var(--background));
+  }
+  /* 揭示：悬停 / 键盘聚焦 / 点开（script 切 aria-expanded） */
+  html[data-spoiler-hide='on'] .prose .spoiler:hover,
+  html[data-spoiler-hide='on'] .prose .spoiler:focus-visible,
+  html[data-spoiler-hide='on'] .prose .spoiler.is-open,
+  html[data-spoiler-hide='on'] .prose .spoiler[aria-expanded='true'] {
+    filter: none;
+    background-color: color-mix(in oklab, var(--primary) 10%, var(--background));
+  }
+
+  /* 文章顶部「黑幕」开关（脚本按需注入；文章无该语法时不渲染） */
+  .prose .spoiler-toggle-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 0.4rem;
+  }
+  .spoiler-toggle {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    padding: 0.28rem 0.65rem;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .spoiler-toggle:hover {
+    color: var(--primary);
+    border-color: color-mix(in oklab, var(--primary) 45%, transparent);
+  }
+  .spoiler-toggle.is-active {
+    color: var(--primary-foreground);
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+  .spoiler-toggle:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* 打印：黑幕自动完整显示，开关按钮不打印 */
+  @media print {
+    .prose .spoiler {
+      filter: none !important;
+      background: none !important;
+      color: inherit !important;
+      padding: 0 !important;
+    }
+    .prose .spoiler-toggle-wrap {
+      display: none !important;
+    }
   }
 
   /* ---------------------------------------------------------------------
@@ -2950,14 +3097,22 @@
 }
 
 /* ==================== cm-wysiwyg：单栏所见即所得（doc 编辑） ==================== */
-/* 块级 $$…$$ 公式：独立成块、可横向滚动（长公式不撑破编辑栏） */
+/* 块级 $$…$$ 公式：独立成块、可横向滚动（长公式不撑破编辑栏）；左对齐（覆盖
+   KaTeX .katex-display 的默认居中，与正文左缘对齐——与阅读页 .katex-display 一致性需求） */
 .cm-wy-math-display {
   display: block;
   margin: 0.45em 0;
   padding: 0.25em 0;
   overflow-x: auto;
   overflow-y: hidden;
+  text-align: left;
   cursor: pointer;
+}
+/* KaTeX 的 .katex-display 自带 text-align:center（直接命中规则，继承覆盖不了它），
+   必须在其自身层级改写为左对齐；margin 一并归零由外层控制间距 */
+.cm-wy-math-display .katex-display {
+  text-align: left;
+  margin: 0;
 }
 .cm-wy-math-display .katex {
   font-size: 1.05em;
@@ -3100,6 +3255,143 @@
   color: #f87171;
   border-color: rgb(248 113 113 / 0.55);
   animation: copy-shake 0.32s ease;
+}
+
+/* ==================== 行内代码一键复制（InlineCode 组件，2026-09-21 新增） ====================
+ * 结构：`span.inline-code[data-code-block] > code + button.copy-button`
+ * - 容器 `position: relative`：给右上角按钮提供定位上下文（display 保持 inline，
+ *   行内换行行为不变）；
+ * - 按钮**在 `<code>` 之外**（兄弟节点）：`copy-button.ts` 的 `codeText()` 只读容器内
+ *   第一个 `code` 的文本，按钮自身内容不会混入剪贴板；
+ * - 默认透明、悬停或键盘聚焦时显形；触屏无 hover → 常显（同代码块按钮策略）；
+ * - 样式走主题变量，深/浅色主题自动适配（代码块是深色底、行内 code 是主题底色，
+ *   故两者按钮配色不同源，不能共用 .code-block 的规则）。 */
+.inline-code {
+  position: relative;
+  display: inline;
+}
+.inline-code .copy-button {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-card);
+  color: var(--color-muted-foreground);
+  opacity: 0;
+  /* ⚠️ 隐藏态必须同时 pointer-events:none：opacity 为 0 的元素**仍可命中点击**，
+     否则读者在行内代码附近拖选文字时会误触隐形按钮（与 doc 页加载态同一处理）。 */
+  pointer-events: none;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+/* 图标：CSS mask 绘制（数据 URI，仅此一处定义）。行内代码密度极高（实测 31KB 文章
+   331 处），若逐处内联 SVG，HTML 原始体积 +228KB；改 sprite 仍每处多 6 个标签；
+   用 mask 则按钮内**零子元素**，只留 span+button 两个标签、约 110B。
+   mask 用 alpha 通道（stroke 色不影响），图标颜色跟随按钮 color 自动适配主题。 */
+.inline-code .copy-button::before {
+  content: '';
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* 复制成功：换成对勾（copy-button.ts 加 .copied 类；它查询 [data-icon] 时用可选链，
+   行内按钮无图标元素也不会报错） */
+.inline-code .copy-button.copied::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+.inline-code:hover .copy-button,
+.inline-code .copy-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.inline-code .copy-button:hover {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+}
+.inline-code .copy-button.copied {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
+  background-color: color-mix(in srgb, var(--color-primary) 12%, var(--color-card));
+}
+.inline-code .copy-button.copy-failed {
+  color: #f87171;
+  border-color: rgb(248 113 113 / 0.55);
+  animation: copy-shake 0.32s ease;
+}
+/* 无悬停能力的设备（触屏）：常显以便触发，不透明度对齐既有代码块按钮的 0.75。
+   用 any-hover 而非 hover：混合设备（触屏+鼠标）主输入为鼠标时不该常显。 */
+@media (any-hover: none) {
+  .inline-code .copy-button {
+    opacity: 0.75;
+    pointer-events: auto;
+  }
+}
+
+/* ==================== 代码块折叠 / 展开（rehypeCodeBlockMeta + Pre + code-block-collapse.ts） ====================
+ * - 控件 `.collapse-toggle` 与复制按钮同在右上角工具栏（折叠在左、复制在右）；
+ *   仅**长块**渲染（rehypeCodeBlockMeta 按 15 行阈值标注 data-collapsible）；
+ * - 折叠态 `[data-collapsed]`：限高 + 内容向下渐隐。渐隐用 mask 且**只作用于 `code`** ——
+ *   若加在 pre 上会连带淡化工具栏按钮，且 mask 不依赖代码块背景色变量（更稳）；
+ * - `overflow: hidden` 同时去掉折叠态的内部滚动条（折叠语义 = 不可滚）；
+ * - 高度阈值走 CSS 变量（`--code-collapse-max-h`），便于主题/场景覆盖，避免散落魔法数字。 */
+.code-block .collapse-toggle {
+  position: absolute;
+  top: 0.45rem;
+  right: 3.15rem;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background-color: rgb(255 255 255 / 0.06);
+  color: rgb(212 212 216 / 0.9);
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.code-block .collapse-toggle:hover {
+  background-color: rgb(255 255 255 / 0.16);
+  color: #fff;
+}
+.code-block .collapse-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.code-block[data-collapsed] {
+  max-height: var(--code-collapse-max-h, 14rem);
+  overflow: hidden;
+}
+.code-block[data-collapsed] > code {
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+}
+/* 打印必须还原全部代码：折叠态的限高与渐隐会把后半段代码裁掉、淡掉（读者打印的
+   是文档而不是屏幕状态）。与 content-visibility 的打印还原同一思路。 */
+@media print {
+  .code-block[data-collapsed] {
+    max-height: none;
+    overflow: visible;
+  }
+  .code-block[data-collapsed] > code {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  /* 工具栏按钮是屏幕交互控件，不进打印结果 */
+  .code-block .collapse-toggle,
+  .code-block .copy-button,
+  .inline-code .copy-button {
+    display: none;
+  }
 }
 
 /* ==================== 思维导图锚点跳转高亮 ==================== */
@@ -3292,3 +3584,8 @@ g.smm-node-highlight rect {
 .filter-panel .filter-heading {
   font-size: 0.72rem;
 }
+
+/* Toast（功能性反馈组件；随动效系统拆除迁入此处，无动画） */
+.byqx-toast-host { position: fixed; left: 50%; bottom: 28px; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; transform: translateX(-50%); pointer-events: none; }
+.byqx-toast { padding: 8px 16px; border-radius: var(--radius, 8px); font-size: 13px; line-height: 1.4; color: var(--foreground, #222); border: 1px solid rgba(128,128,128,0.25); background: var(--background, #fff); box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+.byqx-toast--error { color: var(--destructive, #b3261e); }

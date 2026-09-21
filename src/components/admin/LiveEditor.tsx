@@ -89,6 +89,13 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  /**
+   * 编辑器是否已就绪（CodeMirror 实例创建完成）。
+   * SSR 时为 false → 骨架覆盖层随首屏 HTML 一起送达，覆盖「HTML 到达 → CM 创建完成」
+   * 之间的空白窗口（冷缓存 1~3s，资源首次加载更久）——该空白曾被用户报为
+   * 「打开文章的编辑栏是白板，显示不出任何东西」（2026-09-21）。
+   */
+  const [editorReady, setEditorReady] = useState(false);
   /* ---- 自定义分类 ---- */
   const [cats, setCats] = useState<ArticleCategory[]>(categories ?? []);
   const [catMap, setCatMap] = useState<Record<string, string>>(categoryMap ?? {});
@@ -1031,14 +1038,37 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
 
         {/* 工作区：编辑器 + 思维导图 左右分栏 */}
         <div className="flex min-h-0 flex-1">
-          {/* 所见即所得编辑器（复用 MarkdownEditor） */}
-          <MarkdownEditor
-            ref={editorRef}
-            initialContent={draft.content}
-            onChange={(c) => update('content', c)}
-            onSave={() => void saveNow()}
-            className="min-h-0 min-w-0 flex-1"
-          />
+          {/* 所见即所得编辑器（复用 MarkdownEditor）。
+              包一层 relative 容器：CM 就绪前的骨架覆盖层（editorReady=false，SSR 即输出）
+              需要绝对定位铺满编辑区；就绪后由 onReady 撤下。 */}
+          <div className="relative flex min-h-0 min-w-0 flex-1">
+            <MarkdownEditor
+              ref={editorRef}
+              initialContent={draft.content}
+              onChange={(c) => update('content', c)}
+              onSave={() => void saveNow()}
+              onReady={() => setEditorReady(true)}
+              className="min-h-0 min-w-0 flex-1"
+            />
+            {!editorReady && (
+              /* 纯视觉骨架：不接收任何交互（与 doc/[id].astro 加载态 pointer-events:none 惯例一致） */
+              <div
+                role="status"
+                className="pointer-events-none absolute inset-0 flex flex-col gap-3 overflow-hidden bg-background px-6 py-5"
+              >
+                <div aria-hidden="true" className="flex flex-col gap-3">
+                  <div className="h-9 w-2/5 animate-pulse rounded-md bg-accent" />
+                  <div className="h-4 w-full animate-pulse rounded-md bg-accent" />
+                  <div className="h-4 w-11/12 animate-pulse rounded-md bg-accent" />
+                  <div className="h-4 w-full animate-pulse rounded-md bg-accent" />
+                  <div className="h-4 w-3/4 animate-pulse rounded-md bg-accent" />
+                </div>
+                <div className="mt-auto text-center text-xs text-muted-foreground">
+                  正在加载编辑器…若长时间无响应，请按 Ctrl+R 刷新
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* 导图面板：边写文章边编辑思维导图（右栏） */}
           {mapOpen && (

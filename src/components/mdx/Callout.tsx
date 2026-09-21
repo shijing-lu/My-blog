@@ -14,6 +14,14 @@
  *   `<summary>`，从而支持公式与加粗。
  * - 否则用 `title` prop（纯文本）或类型默认文案。
  *
+ * 复制按钮（rawSource）：
+ * - remarkCallout 把整块 blockquote 的原始 markdown 源码（含 `> [!type]` 标记、
+ *   嵌套引用与内嵌代码块）经 MDX 属性传入 `rawSource`；存在时在右上角渲染
+ *   复制按钮（悬停显现，触屏恒定半透明），点击复制源码——执行逻辑在
+ *   scripts/callout-copy.ts（document 级委托；本组件只负责渲染标记与图标）。
+ * - 按钮置于 <summary> **之外**（兄弟节点）：点击不会触发折叠切换，
+ *   且折叠收起时按钮仍悬浮在标题行右上角可用。
+ *
  * 折叠实现：**原生 `<details>/<summary>`**——
  * 浏览器原生行为在 ClientRouter 转场后自动生效，无需任何 JS 重绑，最稳妥。
  */
@@ -24,6 +32,8 @@ interface CalloutProps {
   title?: string;
   foldable?: string | boolean;
   collapsed?: string | boolean;
+  /** 整块 callout 的原始 markdown 源码（remarkCallout 切片注入）；缺省不出复制按钮 */
+  rawSource?: string;
   children?: ReactNode;
 }
 
@@ -65,12 +75,42 @@ function extractHeadContent(node: ReactNode): ReactNode {
   return props?.children ?? null;
 }
 
+/** 右上角复制按钮：标记 + 三枚图标（copy 默认 / check 成功 / error 失败），行为见 callout-copy.ts */
+function CopyButton({ rawSource }: { rawSource: string }): ReactNode {
+  return (
+    <button
+      type="button"
+      className="callout-copy"
+      data-callout-copy
+      data-callout-source={rawSource}
+      aria-label="复制引用块源码"
+      title="复制源码"
+    >
+      {/* 复制图标（默认） */}
+      <svg data-icon="copy" className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="9" y="9" width="13" height="13" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </svg>
+      {/* 成功对勾图标（复制后） */}
+      <svg data-icon="check" className="hidden size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+      {/* 失败 ✕ 图标（复制失败后） */}
+      <svg data-icon="error" className="hidden size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M18 6 6 18" />
+        <path d="m6 6 12 12" />
+      </svg>
+    </button>
+  );
+}
+
 /** 渲染一个 callout 提示块（可折叠时用 details/summary） */
 export default function Callout({
   type = 'note',
   title,
   foldable,
   collapsed,
+  rawSource,
   children,
 }: CalloutProps): ReactNode {
   const safeType = META[type] ? type : 'note';
@@ -98,6 +138,8 @@ export default function Callout({
     </>
   );
 
+  const copyButton = rawSource ? <CopyButton rawSource={rawSource} /> : null;
+
   if (isFoldable) {
     return (
       <details
@@ -106,6 +148,7 @@ export default function Callout({
         open={!isCollapsed}
       >
         <summary className="callout-title">{titleNode}</summary>
+        {copyButton}
         <div className="callout-body">{bodyChildren}</div>
       </details>
     );
@@ -114,6 +157,7 @@ export default function Callout({
   return (
     <aside className={`callout callout-${safeType}`} data-callout={safeType} role="note">
       <div className="callout-title">{titleNode}</div>
+      {copyButton}
       <div className="callout-body">{bodyChildren}</div>
     </aside>
   );

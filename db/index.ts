@@ -36,7 +36,7 @@ import { createRequire } from 'node:module';
 const requireHere = createRequire(import.meta.url);
 const SQLITE_PKG = 'better-sqlite3';
 const SQLITE_DRIZZLE_PKG = 'drizzle-orm/better-sqlite3';
-let betterSqlite3Ctor: (typeof import('better-sqlite3'))['default'] | null = null;
+let betterSqlite3Ctor: typeof import('better-sqlite3') | null = null;
 
 /** 对外统一数据库句柄类型（以 sqlite schema 为准，两方言形状一致） */
 export type BlogDb = BetterSQLite3Database<typeof sqliteSchema>;
@@ -80,8 +80,8 @@ function createDrizzle(ep: DbEndpoint, index: number): BlogDb {
     return drizzlePostgresJs(guarded, { schema: pgSchema }) as unknown as BlogDb;
   }
   const file = ep.url.startsWith('file:') ? ep.url.slice('file:'.length) : ep.url;
-  if (!betterSqlite3Ctor) betterSqlite3Ctor = requireHere(SQLITE_PKG);
-  const client = new betterSqlite3Ctor(file);
+  const ctor = betterSqlite3Ctor ?? (betterSqlite3Ctor = requireHere(SQLITE_PKG));
+  const client = new ctor(file);
   client.pragma('journal_mode = WAL');
   const { drizzle: drizzleBetterSqlite } = requireHere(SQLITE_DRIZZLE_PKG);
   return drizzleBetterSqlite(client, { schema: sqliteSchema }) as unknown as BlogDb;

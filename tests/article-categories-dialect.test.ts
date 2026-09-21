@@ -36,9 +36,10 @@ describe('写作台分类表：双方言一致性', () => {
     }
   });
 
-  it('分类表必备列齐全（id/name/color/sort/created_at）', () => {
+  it('分类表必备列齐全（id/name/color/sort/created_at/updated_at）', () => {
+    // updated_at 为 D4 同步新增：LWW 表需要变更时间戳（双侧 schema 同步补齐）
     const cols = getTableColumns(sqlite.articleCategories);
-    expect(Object.keys(cols).sort()).toEqual(['color', 'createdAt', 'id', 'name', 'sort']);
+    expect(Object.keys(cols).sort()).toEqual(['color', 'createdAt', 'id', 'name', 'sort', 'updatedAt']);
   });
 
   it('归属表：article_id 为主键（单分类语义），categoryId 非空', () => {

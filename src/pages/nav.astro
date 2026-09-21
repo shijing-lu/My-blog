@@ -1,347 +1,51 @@
 ---
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { autoIconUrl, googleFaviconUrl, listNav } from '@/lib/nav';
+import { listNav } from '@/lib/nav';
 import { canManage } from '@/lib/admin-auth';
+import { navMain, navTopTabs } from '@/lib/nav-render';
 
 /* ===== Logic ===== */
 const categories = await listNav();
 const totalSites = categories.reduce((n, c) => n + c.sites.length, 0);
 /** 管理者（nav 权限）：显示删除叉 / 添加加号 / 支持拖拽移动 */
 const isAuthed = await canManage(Astro.cookies, 'nav');
-/** 全量分类数据（编辑弹窗用，经隐藏 div 注入） */
+/**
+ * 全量分类数据（经隐藏 div 注入，客户端读取）：
+ * - 编辑弹窗据此填充表单；
+ * - 增删改后客户端就地重渲染（renderAll）的唯一数据源，因此必须带上 `sort`，
+ *   否则新增分类后本地顺序会与后端 `orderBy(sort, createdAt)` 不一致。
+ */
 const categoriesJson = JSON.stringify(
   categories.map((c) => ({
     id: c.id,
     name: c.name,
     icon: c.icon,
+    sort: c.sort,
     sites: c.sites,
     subCategories: c.subCategories,
   })),
 );
-/** 子分类 id → 名称（「全部网站」面板标注归属用） */
-const subNames = new Map<string, string>();
-categories.forEach((c) => c.subCategories.forEach((s) => subNames.set(s.id, s.name)));
 
-interface SiteLike {
-  id: string;
-  name: string;
-  url: string;
-  icon: string | null;
-  desc: string | null;
-  categoryId: string;
-  subCategoryId?: string | null;
-  /** 「全部网站」面板里的归属标注（hover 提示） */
-  groupLabel?: string;
-}
-
-/** HTML 转义 */
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-/**
- * 统一卡片模板（紧凑长方形）：图标 + 名称 + 简介
- * 管理员模式下：卡片可拖拽（移动到分类）+ 右上角删除叉
- */
-function renderSite(site: SiteLike, authed: boolean): string {
-  const iconSrc = autoIconUrl(site.url, site.icon);
-  const google = googleFaviconUrl(site.url);
-  const name = site.name || '?';
-  const desc = site.desc
-    ? `<span class="mt-0.5 block truncate text-[0.7rem] text-muted-foreground">${esc(site.desc)}</span>`
-    : '';
-  const dragAttr = authed ? ` draggable="true" data-site-id="${site.id}" data-site-name="${esc(name)}"` : '';
-  // 管理员：右上角操作组（编辑 ✎ + 删除 ×，hover 显示）
-  const actions = authed
-    // 管理按钮常驻可见（P1-8）：触屏/键盘无 hover，原先 opacity-0 会让按钮不可达
-    ? `<span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
-      `<button type="button" data-site-edit="${site.id}" title="编辑" aria-label="编辑" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">✎</button>` +
-      `<button type="button" data-site-del="${site.id}" data-site-name="${esc(name)}" title="删除" aria-label="删除" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive">×</button>` +
-      `</span>`
-    : '';
-  return (
-    `<div class="group relative">` +
-    `<a href="${esc(site.url)}"${dragAttr} target="_blank" rel="noopener noreferrer" ` +
-    (site.groupLabel ? `title="${esc(site.groupLabel)}" ` : '') +
-    `class="flex items-center gap-2.5 p-2.5 transition-colors duration-200 hover:bg-accent/60">` +
-    `<span class="relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">` +
-    `<img class="nav-icon size-5 object-contain" src="${esc(iconSrc)}" alt="" loading="lazy" data-google="${esc(google)}" data-name="${esc(name)}" />` +
-    `<span class="nav-icon-fallback hidden font-display text-sm font-semibold text-primary">${esc(name.slice(0, 1))}</span>` +
-    `</span>` +
-    `<span class="min-w-0"><span class="block truncate text-xs font-medium">${esc(name)}</span>${desc}</span>` +
-    `</a>${actions}</div>`
-  );
-}
-
-/** 与「＋ 添加网址」一致的虚线圆角按钮样式 */
-const ADD_BTN_CLASS =
-  'rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary';
-
-/** 分组内的网站网格（含底部「+ 添加网址」，携带子分类归属） */
-function siteGrid(sites: SiteLike[], categoryId: string, authed: boolean, subCategoryId = ''): string {
-  const cards = sites.map((s) => renderSite(s, authed)).join('');
-  const addBtn = authed
-    ? `<div class="mt-3 flex justify-center">` +
-      `<button type="button" data-site-add="${categoryId}" data-site-sub="${esc(subCategoryId)}" ` +
-      `class="${ADD_BTN_CLASS}">＋ 添加网址</button></div>`
-    : '';
-  return `<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">${cards}</div>${addBtn}`;
-}
-
-/** 子分类区块：虚线分隔 + 标题行（名称/计数/管理员操作）+ 该分组的网站网格 */
-function subBlock(
-  categoryId: string,
-  sub: { id: string; name: string; sort: number },
-  sites: SiteLike[],
-  authed: boolean,
-): string {
-  const actions = authed
-    // 管理按钮常驻可见（P1-8）
-    ? `<span class="ml-auto flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
-      `<button type="button" data-sub-edit="${sub.id}" data-sub-name="${esc(sub.name)}" title="重命名子分类" aria-label="重命名子分类" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">✎</button>` +
-      `<button type="button" data-sub-del="${sub.id}" data-sub-name="${esc(sub.name)}" data-sub-num="${sites.length}" title="删除子分类" aria-label="删除子分类" ` +
-      `class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive">×</button>` +
-      `</span>`
-    : '';
-  const head =
-    `<div class="group mb-2.5 flex items-center gap-2">` +
-    `<h3 class="text-sm font-medium" data-sub-title="${sub.id}">${esc(sub.name)}</h3>` +
-    `<span class="font-pixel text-[0.55rem] text-muted-foreground" data-sub-count="${sub.id}">${sites.length}</span>` +
-    actions +
-    `</div>`;
-  const tip = authed ? ` title="拖拽网站到此处归入「${esc(sub.name)}」"` : '';
-  // 空子分类：加一个明显的虚线占位区，让管理员清楚知道"这里就是放置区"
-  // （原 0 高度 grid 加上紧贴的 addSubForm 容易让人误以为整片都是 drop 目标，
-  //  其实只有 data-drop-sub 块内才是。占位区本身也属于子分类块，仍是合法落点）
-  const emptyHint = authed && sites.length === 0
-    ? `<div class="my-2 flex min-h-[56px] items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/30 px-4 text-xs text-muted-foreground" data-drop-hint>` +
-      `↓ 拖拽网站到此处归入「${esc(sub.name)}」</div>`
-    : '';
-  return (
-    `<div data-group data-group-cat="${categoryId}" data-group-sub="${sub.id}" data-drop-sub="${sub.id}"` +
-    ` class="nav-drop-group mt-4 rounded-lg border-t border-dashed border-border pt-4 transition-shadow"${tip}>` +
-    `${head}${emptyHint}${siteGrid(sites, categoryId, authed, sub.id)}</div>`
-  );
-}
-
-/**
- * 主分类面板内容：未分组区 + 各子分类区块（虚线分隔）+ 底部添加子分类表单。
- *
- * 「添加子分类」的输入框与按钮紧邻最后一个「＋ 添加网址」按钮，样式一致。
- */
-function categoryPanel(c: (typeof categories)[number], authed: boolean): string {
-  const subIds = new Set(c.subCategories.map((s) => s.id));
-  // 无子分类归属、或引用了已删子分类（历史数据）的网站，都归入「未分组」
-  const ungrouped = c.sites.filter((s) => !s.subCategoryId || !subIds.has(s.subCategoryId));
-  // 该分类完全为空且无子分类 → 空态提示
-  if (c.sites.length === 0 && c.subCategories.length === 0) {
-    return authed
-      ? `<div data-group data-group-cat="${c.id}" data-group-sub="" data-drop-sub="" ` +
-          `class="nav-drop-group rounded-lg transition-shadow" title="拖拽网站到此处归入该分类（未分组）">` +
-          `${siteGrid([], c.id, authed, '')}</div>` +
-          addSubForm(c.id)
-      : `<p class="text-sm text-muted-foreground">该分类暂无网站。</p>`;
-  }
-  // 有子分类且未分组为空 → 不渲染空的未分组区（避免空网格占位）
-  const showUngrouped = ungrouped.length > 0 || c.subCategories.length === 0;
-  const unTip = authed ? ` title="拖拽网站到此处归入该分类（未分组）"` : '';
-  let html = showUngrouped
-    ? `<div data-group data-group-cat="${c.id}" data-group-sub="" data-drop-sub="" ` +
-        `class="nav-drop-group rounded-lg transition-shadow"${unTip}>${siteGrid(ungrouped, c.id, authed, '')}</div>`
-    : '';
-  for (const sub of c.subCategories) {
-    html += subBlock(c.id, sub, c.sites.filter((s) => s.subCategoryId === sub.id), authed);
-  }
-  // 在"添加新子分类"表单前加分隔线，避免和上面子分类块的"拖拽归入"区视觉粘连
-  if (authed) {
-    if (c.subCategories.length > 0) html += `<div class="mt-6 border-t border-border/60 pt-4"></div>`;
-    html += addSubForm(c.id);
-  }
-  return html;
-}
-
-/** 添加子分类内联表单（输入框 + 按钮，与「添加网址」同一行排列，样式一致） */
-function addSubForm(categoryId: string): string {
-  return (
-    `<div class="mt-3 flex flex-wrap items-center justify-center gap-2" data-sub-add-form="${categoryId}">` +
-    `<input type="text" maxlength="50" placeholder="新子分类名" aria-label="新子分类名" data-sub-input="${categoryId}" ` +
-    `class="w-40 rounded-full border border-dashed border-border bg-background px-4 py-1.5 text-center text-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50" />` +
-    `<button type="button" data-sub-add="${categoryId}" class="${ADD_BTN_CLASS}">＋ 添加子分类</button>` +
-    `</div>`
-  );
-}
 ---
 <BaseLayout title="导航" description="精选网站导航 —— My Blog Navigation">
   <section data-authed={isAuthed ? '1' : '0'}>
-    {
-      categories.length > 0 && (
-        /* 窄屏分类横排（吸顶）：超宽屏（1720px+）才改用左侧悬浮栏，其余一律走顶部横条 */
-        <div class="sticky top-14 z-20 flex gap-1.5 overflow-x-auto border-b border-border bg-background/85 px-4 py-2 text-xs backdrop-blur-md min-[1720px]:hidden">
-          <button
-            type="button"
-            data-cat-tab="all"
-            data-cat-name="全部网站"
-            class="shrink-0 rounded-full border border-border px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-          >
-            🧭 全部
-          </button>
-          {categories.map((c) => (
-            <button
-              type="button"
-              data-cat-tab={c.id}
-              data-cat-name={c.name}
-              class="shrink-0 rounded-full border border-border px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-            >
-              {c.icon ? `${c.icon} ` : ''}{c.name}
-            </button>
-          ))}
-          {isAuthed && (
-            <button
-              type="button"
-              data-cat-add
-              class="shrink-0 rounded-full border border-dashed border-border px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-            >
-              ＋ 分类
-            </button>
-          )}
-        </div>
-      )
-    }
+    {/* 顶部吸顶分类横条（<1720px 显示）：超宽屏改用左侧悬浮栏，故此处 min-[1720px]:hidden。
+        无分类时隐藏 —— 服务端按数据写好 style，客户端 renderAll() 同步维护 */}
+    <div
+      id="nav-top-tabs"
+      class="sticky top-14 z-20 flex gap-1.5 overflow-x-auto border-b border-border bg-background/85 px-4 py-2 text-xs backdrop-blur-md min-[1720px]:hidden"
+      style={categories.length === 0 ? 'display:none' : undefined}
+      set:html={navTopTabs(categories, isAuthed)}
+    />
 
-    {/* 主体内容：与页脚同宽（max-w-6xl）居中，两条虚线左右对齐；分类栏锚定在内容区左侧 */}
-    <main class="relative mx-auto w-full max-w-6xl px-4 py-10">
-      {
-        categories.length === 0 ? (
-          <div class="mt-10 text-center">
-            <p class="text-sm text-muted-foreground">暂无分类 —— 管理员可到后台添加。</p>
-            {isAuthed && (
-              <button
-                type="button"
-                data-cat-add
-                class="mt-4 rounded-full border border-dashed border-border px-6 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-              >
-                ＋ 添加分类
-              </button>
-            )}
-          </div>
-        ) : (
-          <>
-            <div data-hero class="text-center">
-              <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">NAVIGATION</p>
-              <h1 id="nav-title" class="mt-1 font-display text-3xl font-semibold tracking-tight">全部网站</h1>
-              <p class="mt-1 text-sm text-muted-foreground">
-                共 {categories.length} 个分类 · {totalSites} 个网站
-              </p>
-            </div>
-            <div class="relative mt-5">
-              <div class="pixel-divider" />
-              {
-                categories.length > 0 && (
-                  <aside class="absolute right-[calc(100%+1.5rem)] top-0 z-30 hidden w-52 min-[1720px]:block">
-                  <div class="p-3">
-                    <p class="pixel-chip mb-2 px-1 text-muted-foreground">分类 / CATEGORIES</p>
-                    <nav class="space-y-0.5 text-sm" aria-label="导航分类">
-                      <button
-                        type="button"
-                        data-cat-tab="all"
-                        data-cat-name="全部网站"
-                        class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-                      >
-                        <span aria-hidden="true">🧭</span>
-                        <span>全部网站</span>
-                      </button>
-                      {categories.map((c) => (
-                        <div class="group relative">
-                          <button
-                            type="button"
-                            data-cat-tab={c.id}
-                            data-cat-name={c.name}
-                            data-cat-id={c.id}
-                            data-drop-cat={isAuthed ? c.id : undefined}
-                            draggable={isAuthed ? 'true' : undefined}
-                            class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 pr-6 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-                            title={isAuthed ? '拖拽可排序；拖拽网站卡片到此处可移动' : undefined}
-                          >
-                            {c.icon ? <span class="shrink-0" aria-hidden="true">{c.icon}</span> : null}
-                            <span class="truncate">{c.name}</span>
-                            <span class="ml-auto font-pixel text-[0.55rem] text-muted-foreground">{c.sites.length}</span>
-                          </button>
-                          {isAuthed && (
-                            <span
-                              class="absolute -top-1.5 right-0 z-10 flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-                            >
-                              <button
-                                type="button"
-                                data-cat-edit={c.id}
-                                title="编辑分类"
-                                aria-label="编辑分类"
-                                class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                              >✎</button>
-                              <button
-                                type="button"
-                                data-cat-del={c.id}
-                                data-cat-name={esc(c.name)}
-                                title="删除分类"
-                                aria-label="删除分类"
-                                class="inline-flex size-4 items-center justify-center rounded-full icon-btn-tap border border-border bg-card text-[0.6rem] leading-none text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
-                              >×</button>
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </nav>
-                    {isAuthed && (
-                      <>
-                        <button
-                          type="button"
-                          data-cat-add
-                          class="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                        >
-                          ＋ 添加分类
-                        </button>
-                        <p class="mt-2 border-t border-border px-1 pt-2 text-[0.6rem] text-muted-foreground">
-                          提示：拖网站卡片到分类（或分类内子分类块）移动；拖分类可排序
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </aside>
-              )
-            }
-            </div>
-            <div class="mt-6">
-              {/* 「全部网站」面板：跨分类平铺，hover 提示「分类 / 子分类」归属 */}
-              <div data-cat-panel="all">
-                <Fragment
-                  set:html={siteGrid(
-                    categories.flatMap((c) =>
-                      c.sites.map((s) => ({
-                        ...s,
-                        groupLabel: c.subCategories.length
-                          ? `${c.name}${s.subCategoryId && subNames.has(s.subCategoryId) ? ` / ${subNames.get(s.subCategoryId)}` : ''}`
-                          : c.name,
-                      })),
-                    ),
-                    '',
-                    false,
-                  )}
-                />
-              </div>
-              {/* 各主分类面板：未分组区 + 子分类分组（虚线分隔）+ 添加子分类 */}
-              {categories.map((c) => (
-                <div data-cat-panel={c.id} class="hidden">
-                  <Fragment set:html={categoryPanel(c, isAuthed)} />
-                </div>
-              ))}
-            </div>
-          </>
-        )
-      }
-    </main>
+    {/* 主体内容：与页脚同宽（max-w-6xl）居中，两条虚线左右对齐；分类栏锚定在内容区左侧。
+        整块由 nav-render 的 navMain() 生成，客户端 renderAll() 用同一函数就地重建 */}
+    <main
+      id="nav-main"
+      class="relative mx-auto w-full max-w-6xl px-4 py-10"
+      set:html={navMain(categories, isAuthed, totalSites)}
+    />
   </section>
 
   <!-- 添加网址弹框（管理员，居中） -->
@@ -514,34 +218,117 @@ function addSubForm(categoryId: string): string {
 </BaseLayout>
 
 <script>
-  /** 导航页：分类切换 + 图标兜底 + 管理员增删移（× 删除 / ＋ 添加 / 拖拽移动） */
+  /**
+   * 导航页：分类切换 + 图标兜底 + 管理员增删移（× 删除 / ＋ 添加 / 拖拽移动）
+   *
+   * ⚠️ 本脚本**不再整页刷新**。所有增删改成功后只更新内存数据 NAV_DATA，
+   * 再调用 renderAll() 用 `@/lib/nav-render` 的同一套渲染函数就地重建分类栏与面板。
+   * 于是页面不刷新、也不跳回「全部网站」—— 当前分类（currentCatId）始终保留；
+   * 同时写入 sessionStorage，浏览器手动刷新 / ClientRouter 转场后也能恢复。
+   */
   import { confirmDanger } from '@/lib/confirm';
+  import {
+    esc,
+    navMain,
+    navTopTabs,
+    type NavCategoryRenderable,
+    type NavSiteRenderable,
+  } from '@/lib/nav-render';
+
   const IS_AUTHED = document.querySelector<HTMLElement>('[data-authed]')?.dataset.authed === '1';
+
+  /** 当前分类 id（'all' = 全部网站）；跨局部重渲染保留 */
+  let currentCatId = 'all';
+  /** 当前分类持久化键：sessionStorage（同标签页内刷新 / 转场后恢复） */
+  const CAT_STORAGE_KEY = 'nav:active-category';
+
+  /** 从隐藏 div 读取全量分类数据（转场后 DOM 被替换，需要重新读） */
+  function readNavData(): NavCategoryRenderable[] {
+    const el = document.getElementById('nav-data');
+    return JSON.parse(el?.dataset.categories ?? '[]') as NavCategoryRenderable[];
+  }
+  /** 全量分类数据：编辑弹窗读取 + 局部重渲染的唯一数据源 */
+  let NAV_DATA = readNavData();
+
+  function readStoredCat(): string {
+    try {
+      return sessionStorage.getItem(CAT_STORAGE_KEY) || 'all';
+    } catch {
+      return 'all';
+    }
+  }
+  function storeCat(id: string): void {
+    try {
+      sessionStorage.setItem(CAT_STORAGE_KEY, id);
+    } catch {
+      /* 隐私模式 / 存储被禁用：忽略，仅本次会话内保持 */
+    }
+  }
+
+  /** 按 sort 稳定排序，与后端 `orderBy(sort, createdAt)` 对齐（插入新项后调用） */
+  function syncOrder(): void {
+    NAV_DATA.sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+    NAV_DATA.forEach((c) => c.subCategories.sort((a, b) => a.sort - b.sort));
+  }
+
+  /** 定位网站所在的分类与下标 */
+  function findSite(siteId: string): { cat: NavCategoryRenderable; index: number } | null {
+    for (const cat of NAV_DATA) {
+      const index = cat.sites.findIndex((s) => s.id === siteId);
+      if (index >= 0) return { cat, index };
+    }
+    return null;
+  }
 
   // ---- 分类切换（document 委托 + 实时查询 DOM，View Transition 后依然有效）----
   function activate(id: string): void {
-    // 实时查询（View Transition 后 DOM 被替换）
+    // 实时查询（View Transition / renderAll 后 DOM 被替换）
     const panels = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-panel]'));
     const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-cat-tab]'));
-    panels.forEach((p) => p.classList.toggle('hidden', p.dataset.catPanel !== id));
+    // 目标分类不存在（已被删除 / 持久化的是失效 id）→ 回落到「全部网站」
+    const next = id === 'all' || panels.some((p) => p.dataset.catPanel === id) ? id : 'all';
+    currentCatId = next;
+    storeCat(next);
+    panels.forEach((p) => p.classList.toggle('hidden', p.dataset.catPanel !== next));
     tabs.forEach((t) => {
-      const active = t.dataset.catTab === id;
+      const active = t.dataset.catTab === next;
       t.classList.toggle('bg-primary/10', active);
       t.classList.toggle('text-primary', active);
       t.classList.toggle('text-muted-foreground', !active);
     });
     // 标题跟随当前分类
     const navTitle = document.getElementById('nav-title');
-    const activeTab = tabs.find((t) => t.dataset.catTab === id);
+    const activeTab = tabs.find((t) => t.dataset.catTab === next);
     if (navTitle && activeTab?.dataset.catName) navTitle.textContent = activeTab.dataset.catName;
   }
-  activate('all');
+
+  /**
+   * 就地重建分类栏与主体（**不刷新页面**）：
+   * 用最新 NAV_DATA 重渲染 → 恢复当前分类 → 重新绑定图标兜底。
+   */
+  function renderAll(): void {
+    const topTabs = document.getElementById('nav-top-tabs');
+    if (topTabs) {
+      topTabs.innerHTML = navTopTabs(NAV_DATA, IS_AUTHED);
+      topTabs.style.display = NAV_DATA.length === 0 ? 'none' : '';
+    }
+    const main = document.getElementById('nav-main');
+    if (main) {
+      main.innerHTML = navMain(NAV_DATA, IS_AUTHED, NAV_DATA.reduce((n, c) => n + c.sites.length, 0));
+    }
+    // 同步隐藏数据源，保持 DOM 与内存状态一致
+    const dataEl = document.getElementById('nav-data');
+    if (dataEl) dataEl.dataset.categories = JSON.stringify(NAV_DATA);
+    activate(currentCatId);
+    bindIconFallback();
+  }
+
+  activate(readStoredCat());
   document.addEventListener('click', (e) => {
     const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-tab]');
     if (!tab) return;
     activate(tab.dataset.catTab ?? 'all');
   });
-  document.addEventListener('astro:page-load', () => activate('all'));
 
   // ---- 图标三级兜底：favicon.ico → Google favicon → 首字占位 ----
   // Google 可能被墙/慢：切换后 4s 未加载直接显示首字占位，避免空白/broken
@@ -568,7 +355,6 @@ function addSubForm(categoryId: string): string {
     });
   }
   bindIconFallback();
-  document.addEventListener('astro:page-load', bindIconFallback);
 
   // ---- 管理员操作：删除 / 添加 / 拖拽移动 ----
   if (IS_AUTHED) {
@@ -576,37 +362,23 @@ function addSubForm(categoryId: string): string {
     document.addEventListener('click', async (e) => {
       const del = (e.target as HTMLElement).closest<HTMLElement>('[data-site-del]');
       if (!del) return;
+      const siteId = del.dataset.siteDel;
+      if (!siteId) return;
       if (!(await confirmDanger(`删除网站「${del.dataset.siteName}」？`))) return;
       const res = await fetch('/api/nav/sites', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: del.dataset.siteDel }),
+        body: JSON.stringify({ id: siteId }),
       });
-      if (res.ok) del.closest<HTMLElement>('.group')?.remove();
+      if (!res.ok) return;
+      const hit = findSite(siteId);
+      if (hit) hit.cat.sites.splice(hit.index, 1);
+      renderAll();
     });
 
     // 编辑（卡片右上角 ✎）——居中弹窗
-    interface NavSiteJson {
-      id: string;
-      name: string;
-      url: string;
-      icon: string | null;
-      desc: string | null;
-      categoryId: string;
-      subCategoryId?: string | null;
-    }
-    interface NavCatJson {
-      id: string;
-      name: string;
-      icon: string | null;
-      sites: NavSiteJson[];
-      subCategories?: Array<{ id: string; name: string; sort: number }>;
-    }
-    const NAV_DATA = JSON.parse(
-      (document.getElementById('nav-data') as HTMLElement).dataset.categories ?? '[]',
-    ) as NavCatJson[];
     let editingSiteId: string | null = null;
-    /** 实时查询元素（View Transition 后 DOM 被替换，必须每次重新取） */
+    /** 实时查询元素（View Transition / renderAll 后 DOM 被替换，必须每次重新取） */
     function $(id: string): HTMLElement | null {
       return document.getElementById(id);
     }
@@ -614,21 +386,18 @@ function addSubForm(categoryId: string): string {
       const editCat = $('nav-edit-cat') as HTMLSelectElement | null;
       if (!editCat) return;
       editCat.innerHTML = NAV_DATA.map(
-        (c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${escHtml(c.name)}</option>`,
+        (c) => `<option value="${esc(c.id)}" ${c.id === selected ? 'selected' : ''}>${esc(c.name)}</option>`,
       ).join('');
-    }
-    function escHtml(s: string): string {
-      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
     document.addEventListener('click', (e) => {
       const edit = (e.target as HTMLElement).closest<HTMLElement>('[data-site-edit]');
       if (!edit) return;
       const siteId = edit.dataset.siteEdit;
       if (!siteId) return;
-      const cat = NAV_DATA.find((c) => c.sites.some((s) => s.id === siteId));
-      const site = cat?.sites.find((s) => s.id === siteId);
+      const hit = findSite(siteId);
+      const site = hit?.cat.sites[hit.index];
       const editDialog = $('nav-edit-dialog') as HTMLDialogElement | null;
-      if (!site || !cat || !editDialog) return;
+      if (!hit || !site || !editDialog) return;
       editingSiteId = siteId;
       const editName = $('nav-edit-name') as HTMLInputElement | null;
       const editUrl = $('nav-edit-url') as HTMLInputElement | null;
@@ -637,7 +406,7 @@ function addSubForm(categoryId: string): string {
       if (editName) editName.value = site.name;
       if (editUrl) editUrl.value = site.url;
       if (editDesc) editDesc.value = site.desc ?? '';
-      fillEditCats(cat.id);
+      fillEditCats(hit.cat.id);
       if (editStatus) editStatus.classList.add('hidden');
       editDialog.showModal();
       editName?.focus();
@@ -656,7 +425,8 @@ function addSubForm(categoryId: string): string {
       const editDesc = $('nav-edit-desc') as HTMLInputElement | null;
       const editCat = $('nav-edit-cat') as HTMLSelectElement | null;
       const editStatus = $('nav-edit-status');
-      if (!editingSiteId || !editDialog) return;
+      const siteId = editingSiteId;
+      if (!siteId || !editDialog) return;
       const name = (editName?.value ?? '').trim();
       const url = (editUrl?.value ?? '').trim();
       if (!name || !url) {
@@ -668,567 +438,641 @@ function addSubForm(categoryId: string): string {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            id: editingSiteId,
+            id: siteId,
             name,
             url,
             desc: (editDesc?.value ?? '').trim() || null,
             categoryId: editCat?.value ?? undefined,
           }),
         });
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        const d = (await res.json().catch(() => ({}))) as { error?: string; website?: NavSiteRenderable };
         if (!res.ok) {
           if (editStatus) { editStatus.textContent = d.error ?? '保存失败'; editStatus.classList.remove('hidden'); }
           return;
         }
         editDialog.close();
-        window.location.reload();
+        // 就地替换：先摘除旧位置，再按服务端返回的归属放回（可能换了分类）
+        const updated = d.website;
+        if (updated) {
+          const hit = findSite(siteId);
+          if (hit) hit.cat.sites.splice(hit.index, 1);
+          NAV_DATA.find((c) => c.id === updated.categoryId)?.sites.push(updated);
+        }
+        renderAll();
       } catch {
         if (editStatus) { editStatus.textContent = '保存失败'; editStatus.classList.remove('hidden'); }
       }
     });
 
-  // ---- 添加（分组区块底部 ＋，可指定子分类）----
-  let addCategoryId = '';
-  let addSubCategoryId = '';
-  function domainFromUrl(url: string): string {
-    try {
-      return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
-    } catch {
-      return url;
+    // ---- 添加（分组区块底部 ＋，可指定子分类）----
+    let addCategoryId = '';
+    let addSubCategoryId = '';
+    function domainFromUrl(url: string): string {
+      try {
+        return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
+      } catch {
+        return url;
+      }
     }
-  }
-  document.addEventListener('click', (e) => {
-    const add = (e.target as HTMLElement).closest<HTMLElement>('[data-site-add]');
-    if (!add) return;
-    const addDialog = $('nav-add-dialog') as HTMLDialogElement | null;
-    const addUrl = $('nav-add-url') as HTMLInputElement | null;
-    const addName = $('nav-add-name') as HTMLInputElement | null;
-    const addTarget = $('nav-add-target');
-    const addStatus = $('nav-add-status');
-    if (!addDialog) return;
-    addCategoryId = add.dataset.siteAdd ?? '';
-    addSubCategoryId = add.dataset.siteSub ?? '';
-    // 目标文案：「主分类」或「主分类 / 子分类」
-    const catName = NAV_DATA.find((c) => c.id === addCategoryId)?.name ?? '';
-    const subName = addSubCategoryId
-      ? (add.closest<HTMLElement>('[data-group]')?.querySelector<HTMLElement>(`[data-sub-title="${addSubCategoryId}"]`)?.textContent?.trim() ?? '')
-      : '';
-    if (addTarget) addTarget.textContent = catName ? `添加到「${catName}${subName ? ` / ${subName}` : ''}」` : '';
-    if (addUrl) addUrl.value = '';
-    if (addName) addName.value = '';
-    addStatus?.classList.add('hidden');
-    addDialog.showModal();
-    addUrl?.focus();
-  });
-  document.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('#nav-add-cancel')) ($('nav-add-dialog') as HTMLDialogElement | null)?.close();
-  });
-  let addingSite = false;
-  document.addEventListener('click', async (e) => {
-    const target = e.target as HTMLElement;
-    if (!target.closest('#nav-add-confirm')) return;
-    if (addingSite) return;
-    const addDialog = $('nav-add-dialog') as HTMLDialogElement | null;
-    const addUrl = $('nav-add-url') as HTMLInputElement | null;
-    const addName = $('nav-add-name') as HTMLInputElement | null;
-    const addStatus = $('nav-add-status');
-    const addConfirmBtn = $('nav-add-confirm') as HTMLButtonElement | null;
-    const url = (addUrl?.value ?? '').trim();
-    if (!url) {
-      if (addStatus) { addStatus.textContent = '请填写网址'; addStatus.classList.remove('hidden'); }
-      return;
-    }
-    const name = (addName?.value ?? '').trim() || domainFromUrl(url);
-    addingSite = true;
-    if (addConfirmBtn) { addConfirmBtn.disabled = true; addConfirmBtn.textContent = '添加中…'; }
-    addStatus?.classList.add('hidden');
-    try {
-      const res = await fetch('/api/nav/sites', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          categoryId: addCategoryId,
-          subCategoryId: addSubCategoryId || null,
-          name,
-          url,
-        }),
-      });
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        if (addStatus) { addStatus.textContent = d.error ?? '添加失败'; addStatus.classList.remove('hidden'); }
+    document.addEventListener('click', (e) => {
+      const add = (e.target as HTMLElement).closest<HTMLElement>('[data-site-add]');
+      if (!add) return;
+      const addDialog = $('nav-add-dialog') as HTMLDialogElement | null;
+      const addUrl = $('nav-add-url') as HTMLInputElement | null;
+      const addName = $('nav-add-name') as HTMLInputElement | null;
+      const addTarget = $('nav-add-target');
+      const addStatus = $('nav-add-status');
+      if (!addDialog) return;
+      addCategoryId = add.dataset.siteAdd ?? '';
+      addSubCategoryId = add.dataset.siteSub ?? '';
+      // 目标文案：「主分类」或「主分类 / 子分类」
+      const catName = NAV_DATA.find((c) => c.id === addCategoryId)?.name ?? '';
+      const subName = addSubCategoryId
+        ? (add.closest<HTMLElement>('[data-group]')?.querySelector<HTMLElement>(`[data-sub-title="${addSubCategoryId}"]`)?.textContent?.trim() ?? '')
+        : '';
+      if (addTarget) addTarget.textContent = catName ? `添加到「${catName}${subName ? ` / ${subName}` : ''}」` : '';
+      if (addUrl) addUrl.value = '';
+      if (addName) addName.value = '';
+      addStatus?.classList.add('hidden');
+      addDialog.showModal();
+      addUrl?.focus();
+    });
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('#nav-add-cancel')) ($('nav-add-dialog') as HTMLDialogElement | null)?.close();
+    });
+    let addingSite = false;
+    document.addEventListener('click', async (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('#nav-add-confirm')) return;
+      if (addingSite) return;
+      const addDialog = $('nav-add-dialog') as HTMLDialogElement | null;
+      const addUrl = $('nav-add-url') as HTMLInputElement | null;
+      const addName = $('nav-add-name') as HTMLInputElement | null;
+      const addStatus = $('nav-add-status');
+      const addConfirmBtn = $('nav-add-confirm') as HTMLButtonElement | null;
+      const url = (addUrl?.value ?? '').trim();
+      if (!url) {
+        if (addStatus) { addStatus.textContent = '请填写网址'; addStatus.classList.remove('hidden'); }
         return;
       }
-      addDialog?.close();
-      window.location.reload();
-    } catch {
-      if (addStatus) { addStatus.textContent = '添加失败'; addStatus.classList.remove('hidden'); }
-    } finally {
-      addingSite = false;
-      if (addConfirmBtn) { addConfirmBtn.disabled = false; addConfirmBtn.textContent = '添加（自动扒图标简介）'; }
-    }
-  });
-
-  // ---- 拖拽移动（卡片 → 分类 / 分类内子分类块）----
-  // 落点模型：网站可归到「主分类顶层（未分组）」或「主分类下某个子分类」。
-  // - 左侧栏分类按钮 [data-drop-cat]（或面板「未分组」区 [data-drop-sub=""]）→ 顶层/未分组（场景1）
-  // - 面板内的子分类块 [data-drop-sub={subId}] → 归入该子分类（场景2）
-  let draggingSiteId: string | null = null;
-  /** 被拖卡片的当前归属（categoryId / subCategoryId），用于判断是否为无效拖拽 */
-  let dragSource: { categoryId: string; subCategoryId: string } = { categoryId: '', subCategoryId: '' };
-  /** 当前高亮的落点元素（组块或侧栏按钮） */
-  let activeDropZone: HTMLElement | null = null;
-
-  /** 取被拖卡片当前所在分组归属（卡片必在某个 [data-drop-sub] 内；找不到则兜底查数据） */
-  function readSourceZone(card: HTMLElement): { categoryId: string; subCategoryId: string } {
-    const g = card.closest<HTMLElement>('[data-drop-sub]');
-    if (g && g.dataset.groupCat) {
-      return { categoryId: g.dataset.groupCat, subCategoryId: g.dataset.groupSub ?? '' };
-    }
-    const id = card.dataset.siteId;
-    if (id) {
-      for (const c of NAV_DATA) {
-        const s = c.sites.find((x) => x.id === id);
-        if (s) return { categoryId: c.id, subCategoryId: s.subCategoryId ?? '' };
+      const name = (addName?.value ?? '').trim() || domainFromUrl(url);
+      addingSite = true;
+      if (addConfirmBtn) { addConfirmBtn.disabled = true; addConfirmBtn.textContent = '添加中…'; }
+      addStatus?.classList.add('hidden');
+      try {
+        const res = await fetch('/api/nav/sites', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            categoryId: addCategoryId,
+            subCategoryId: addSubCategoryId || null,
+            name,
+            url,
+          }),
+        });
+        const d = (await res.json().catch(() => ({}))) as { error?: string; website?: NavSiteRenderable };
+        if (!res.ok) {
+          if (addStatus) { addStatus.textContent = d.error ?? '添加失败'; addStatus.classList.remove('hidden'); }
+          return;
+        }
+        addDialog?.close();
+        // 就地追加到目标分类（服务端返回含 categoryId / subCategoryId 的完整记录）
+        const created = d.website;
+        if (created) NAV_DATA.find((c) => c.id === created.categoryId)?.sites.push(created);
+        renderAll();
+      } catch {
+        if (addStatus) { addStatus.textContent = '添加失败'; addStatus.classList.remove('hidden'); }
+      } finally {
+        addingSite = false;
+        if (addConfirmBtn) { addConfirmBtn.disabled = false; addConfirmBtn.textContent = '添加（自动扒图标简介）'; }
       }
+    });
+
+    // ---- 拖拽移动（卡片 → 分类 / 分类内子分类块）----
+    // 落点模型：网站可归到「主分类顶层（未分组）」或「主分类下某个子分类」。
+    // - 左侧栏分类按钮 [data-drop-cat]（或面板「未分组」区 [data-drop-sub=""]）→ 顶层/未分组（场景1）
+    // - 面板内的子分类块 [data-drop-sub={subId}] → 归入该子分类（场景2）
+    let draggingSiteId: string | null = null;
+    /** 被拖卡片的当前归属（categoryId / subCategoryId），用于判断是否为无效拖拽 */
+    let dragSource: { categoryId: string; subCategoryId: string } = { categoryId: '', subCategoryId: '' };
+    /** 当前高亮的落点元素（组块或侧栏按钮） */
+    let activeDropZone: HTMLElement | null = null;
+
+    /** 取被拖卡片当前所在分组归属（卡片必在某个 [data-drop-sub] 内；找不到则兜底查数据） */
+    function readSourceZone(card: HTMLElement): { categoryId: string; subCategoryId: string } {
+      const g = card.closest<HTMLElement>('[data-drop-sub]');
+      if (g && g.dataset.groupCat) {
+        return { categoryId: g.dataset.groupCat, subCategoryId: g.dataset.groupSub ?? '' };
+      }
+      const id = card.dataset.siteId;
+      if (id) {
+        const hit = findSite(id);
+        if (hit) return { categoryId: hit.cat.id, subCategoryId: hit.cat.sites[hit.index]?.subCategoryId ?? '' };
+      }
+      return { categoryId: '', subCategoryId: '' };
     }
-    return { categoryId: '', subCategoryId: '' };
-  }
 
-  /** 清除所有落点高亮（组块 .nav-drop-over + 侧栏按钮高亮） */
-  function clearDropHighlights(): void {
-    document.querySelectorAll('.nav-drop-over').forEach((el) => el.classList.remove('nav-drop-over'));
-    document.querySelectorAll('[data-drop-cat]').forEach((el) => el.classList.remove('bg-primary/10', 'text-primary'));
-    activeDropZone = null;
-  }
-
-  /** 解析事件目标命中的落点；无合法落点返回 null */
-  function resolveDropZone(target: EventTarget | null): HTMLElement | null {
-    const el = target as HTMLElement | null;
-    if (!el || !el.closest) return null;
-    return el.closest<HTMLElement>('[data-drop-sub], [data-drop-cat]');
-  }
-
-  /** 给命中的落点上高亮（组块描边 / 侧栏按钮底色） */
-  function highlightDropZone(zone: HTMLElement): void {
-    if (zone.dataset.dropSub !== undefined) {
-      zone.classList.add('nav-drop-over'); // 子分类块 / 未分组块
-    } else {
-      zone.classList.add('bg-primary/10', 'text-primary'); // 侧栏分类按钮
-    }
-  }
-
-  document.addEventListener('dragstart', (e) => {
-    const card = (e.target as HTMLElement).closest<HTMLElement>('[data-site-id]');
-    if (!card || !IS_AUTHED) return;
-    draggingSiteId = card.dataset.siteId ?? null;
-    dragSource = readSourceZone(card);
-    e.dataTransfer?.setData('text/plain', draggingSiteId ?? '');
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-  });
-  document.addEventListener('dragover', (e) => {
-    if (!draggingSiteId) return; // 仅网站拖拽响应；分类排序走 [data-cat-id] 分支
-    const zone = resolveDropZone(e.target);
-    if (!zone) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    // 高亮只在命中落点变化时刷新，避免子元素间移动反复加/删
-    if (zone !== activeDropZone) {
-      if (activeDropZone) activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
-      highlightDropZone(zone);
-      activeDropZone = zone;
-    }
-  });
-  document.addEventListener('dragleave', (e) => {
-    if (!draggingSiteId) return;
-    // 判断是否真的离开当前落点（relatedTarget 仍在落点内则忽略）
-    const rt = e.relatedTarget as HTMLElement | null;
-    if (activeDropZone && rt && activeDropZone.contains(rt)) return;
-    if (activeDropZone) {
-      activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
+    /** 清除所有落点高亮（组块 .nav-drop-over + 侧栏按钮高亮） */
+    function clearDropHighlights(): void {
+      document.querySelectorAll('.nav-drop-over').forEach((el) => el.classList.remove('nav-drop-over'));
+      document.querySelectorAll('[data-drop-cat]').forEach((el) => el.classList.remove('bg-primary/10', 'text-primary'));
       activeDropZone = null;
     }
-  });
-  document.addEventListener('drop', async (e) => {
-    if (!draggingSiteId) return;
-    e.preventDefault();
-    const zone = resolveDropZone(e.target);
-    if (activeDropZone) activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
-    const siteId = draggingSiteId;
-    draggingSiteId = null;
-    activeDropZone = null;
-    if (!zone) return;
-    // 解析目标归属
-    let categoryId: string;
-    let subCategoryId: string;
-    if (zone.dataset.dropSub !== undefined) {
-      // 内容区组块：data-group-cat=主分类, data-group-sub=子分类(空=未分组/顶层)
-      categoryId = zone.dataset.groupCat ?? '';
-      subCategoryId = zone.dataset.groupSub ?? '';
-    } else {
-      // 侧栏分类按钮：归入该分类顶层（未分组）
-      categoryId = zone.dataset.dropCat ?? '';
-      subCategoryId = '';
+
+    /** 解析事件目标命中的落点；无合法落点返回 null */
+    function resolveDropZone(target: EventTarget | null): HTMLElement | null {
+      const el = target as HTMLElement | null;
+      if (!el || !el.closest) return null;
+      return el.closest<HTMLElement>('[data-drop-sub], [data-drop-cat]');
     }
-    if (!categoryId) return;
-    // 无效拖拽：未换分类且未换子分类 → 忽略
-    if (categoryId === dragSource.categoryId && (subCategoryId || '') === (dragSource.subCategoryId || '')) return;
-    const res = await fetch('/api/nav/sites', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: siteId, categoryId, subCategoryId: subCategoryId || null }),
+
+    /** 给命中的落点上高亮（组块描边 / 侧栏按钮底色） */
+    function highlightDropZone(zone: HTMLElement): void {
+      if (zone.dataset.dropSub !== undefined) {
+        zone.classList.add('nav-drop-over'); // 子分类块 / 未分组块
+      } else {
+        zone.classList.add('bg-primary/10', 'text-primary'); // 侧栏分类按钮
+      }
+    }
+
+    document.addEventListener('dragstart', (e) => {
+      const card = (e.target as HTMLElement).closest<HTMLElement>('[data-site-id]');
+      if (!card || !IS_AUTHED) return;
+      draggingSiteId = card.dataset.siteId ?? null;
+      dragSource = readSourceZone(card);
+      e.dataTransfer?.setData('text/plain', draggingSiteId ?? '');
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
     });
-    if (res.ok) window.location.reload();
-  });
-  document.addEventListener('dragend', () => {
-    draggingSiteId = null;
-    clearDropHighlights();
-  });
-
-  // ---- 子分类：添加（内联输入 + 按钮 / 回车）/ 重命名（内联编辑）/ 删除（网站回未分组）----
-  let addingSub = false;
-
-  /** 在输入框上提示错误（红色边框 + placeholder 文案，聚焦即清除） */
-  function subInputError(input: HTMLInputElement, msg: string): void {
-    input.classList.add('border-destructive');
-    input.placeholder = msg;
-    input.title = msg;
-    const clear = (): void => {
-      input.classList.remove('border-destructive');
-      input.placeholder = '新子分类名';
-      input.removeAttribute('title');
-      input.removeEventListener('input', clear);
-    };
-    input.addEventListener('input', clear);
-  }
-
-  async function submitSubCategory(categoryId: string): Promise<void> {
-    if (addingSub) return;
-    const input = document.querySelector<HTMLInputElement>(`[data-sub-input="${categoryId}"]`);
-    if (!input) return;
-    const name = input.value.trim();
-    if (!name) {
-      subInputError(input, '请输入子分类名');
-      input.focus();
-      return;
-    }
-    addingSub = true;
-    input.disabled = true;
-    try {
-      const res = await fetch('/api/nav/sub-categories', {
-        method: 'POST',
+    document.addEventListener('dragover', (e) => {
+      if (!draggingSiteId) return; // 仅网站拖拽响应；分类排序走 [data-cat-id] 分支
+      const zone = resolveDropZone(e.target);
+      if (!zone) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      // 高亮只在命中落点变化时刷新，避免子元素间移动反复加/删
+      if (zone !== activeDropZone) {
+        if (activeDropZone) activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
+        highlightDropZone(zone);
+        activeDropZone = zone;
+      }
+    });
+    document.addEventListener('dragleave', (e) => {
+      if (!draggingSiteId) return;
+      // 判断是否真的离开当前落点（relatedTarget 仍在落点内则忽略）
+      const rt = e.relatedTarget as HTMLElement | null;
+      if (activeDropZone && rt && activeDropZone.contains(rt)) return;
+      if (activeDropZone) {
+        activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
+        activeDropZone = null;
+      }
+    });
+    document.addEventListener('drop', async (e) => {
+      if (!draggingSiteId) return;
+      e.preventDefault();
+      const zone = resolveDropZone(e.target);
+      if (activeDropZone) activeDropZone.classList.remove('nav-drop-over', 'bg-primary/10', 'text-primary');
+      const siteId = draggingSiteId;
+      draggingSiteId = null;
+      activeDropZone = null;
+      if (!zone) return;
+      // 解析目标归属
+      let categoryId: string;
+      let subCategoryId: string;
+      if (zone.dataset.dropSub !== undefined) {
+        // 内容区组块：data-group-cat=主分类, data-group-sub=子分类(空=未分组/顶层)
+        categoryId = zone.dataset.groupCat ?? '';
+        subCategoryId = zone.dataset.groupSub ?? '';
+      } else {
+        // 侧栏分类按钮：归入该分类顶层（未分组）
+        categoryId = zone.dataset.dropCat ?? '';
+        subCategoryId = '';
+      }
+      if (!categoryId) return;
+      // 无效拖拽：未换分类且未换子分类 → 忽略
+      if (categoryId === dragSource.categoryId && (subCategoryId || '') === (dragSource.subCategoryId || '')) return;
+      const res = await fetch('/api/nav/sites', {
+        method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ categoryId, name }),
+        body: JSON.stringify({ id: siteId, categoryId, subCategoryId: subCategoryId || null }),
       });
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        input.disabled = false;
-        subInputError(input, d.error ?? '添加失败');
+      if (!res.ok) return;
+      // 就地移动：从原分类摘除 → 改写归属 → 追加到目标分类
+      const hit = findSite(siteId);
+      const moved = hit ? hit.cat.sites.splice(hit.index, 1)[0] : undefined;
+      if (moved) {
+        moved.categoryId = categoryId;
+        moved.subCategoryId = subCategoryId || null;
+        NAV_DATA.find((c) => c.id === categoryId)?.sites.push(moved);
+      }
+      renderAll();
+    });
+    document.addEventListener('dragend', () => {
+      draggingSiteId = null;
+      clearDropHighlights();
+    });
+
+    // ---- 子分类：添加（内联输入 + 按钮 / 回车）/ 重命名（内联编辑）/ 删除（网站回未分组）----
+    let addingSub = false;
+
+    /** 在输入框上提示错误（红色边框 + placeholder 文案，聚焦即清除） */
+    function subInputError(input: HTMLInputElement, msg: string): void {
+      input.classList.add('border-destructive');
+      input.placeholder = msg;
+      input.title = msg;
+      const clear = (): void => {
+        input.classList.remove('border-destructive');
+        input.placeholder = '新子分类名';
+        input.removeAttribute('title');
+        input.removeEventListener('input', clear);
+      };
+      input.addEventListener('input', clear);
+    }
+
+    async function submitSubCategory(categoryId: string): Promise<void> {
+      if (addingSub) return;
+      const input = document.querySelector<HTMLInputElement>(`[data-sub-input="${categoryId}"]`);
+      if (!input) return;
+      const name = input.value.trim();
+      if (!name) {
+        subInputError(input, '请输入子分类名');
         input.focus();
         return;
       }
-      window.location.reload();
-    } catch {
-      input.disabled = false;
-      subInputError(input, '添加失败');
-    } finally {
-      addingSub = false;
-    }
-  }
-
-  // 点击「＋ 添加子分类」按钮
-  document.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-add]');
-    if (!btn) return;
-    void submitSubCategory(btn.dataset.subAdd ?? '');
-  });
-  // 输入框内回车提交
-  document.addEventListener('keydown', (e) => {
-    const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-sub-input]');
-    if (!input) return;
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void submitSubCategory(input.dataset.subInput ?? '');
-    } else if (e.key === 'Escape') {
-      input.value = '';
-      input.blur();
-    }
-  });
-
-  // 重命名子分类（点击 ✎ 就地变输入框；回车保存 / Esc 取消 / 失焦保存）
-  document.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-edit]');
-    if (!btn) return;
-    const subId = btn.dataset.subEdit;
-    if (!subId) return;
-    const title = document.querySelector<HTMLElement>(`[data-sub-title="${subId}"]`);
-    // 已在编辑态则忽略
-    if (!title || title.querySelector('input')) return;
-    const oldName = btn.dataset.subName ?? title.textContent?.trim() ?? '';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.maxLength = 50;
-    input.value = oldName;
-    input.className =
-      'w-40 rounded-md border border-input bg-background px-2 py-0.5 text-sm font-medium outline-none focus-visible:border-ring';
-    input.setAttribute('aria-label', '子分类名');
-    title.textContent = '';
-    title.appendChild(input);
-    input.focus();
-    input.select();
-    let settled = false;
-    const finish = async (save: boolean): Promise<void> => {
-      if (settled) return;
-      settled = true;
-      const next = input.value.trim();
-      if (save && next && next !== oldName) {
+      addingSub = true;
+      input.disabled = true;
+      try {
         const res = await fetch('/api/nav/sub-categories', {
-          method: 'PUT',
+          method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: subId, name: next }),
+          body: JSON.stringify({ categoryId, name }),
         });
-        if (res.ok) {
-          window.location.reload();
+        const d = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          subCategory?: { id: string; name: string; sort: number };
+        };
+        const created = d.subCategory;
+        if (!res.ok || !created) {
+          input.disabled = false;
+          subInputError(input, d.error ?? '添加失败');
+          input.focus();
           return;
         }
+        NAV_DATA.find((c) => c.id === categoryId)?.subCategories.push({
+          id: created.id,
+          name: created.name,
+          sort: created.sort,
+        });
+        syncOrder();
+        renderAll();
+      } catch {
+        input.disabled = false;
+        subInputError(input, '添加失败');
+      } finally {
+        addingSub = false;
       }
-      title.textContent = oldName;
-    };
-    input.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        void finish(true);
-      } else if (ev.key === 'Escape') {
-        ev.preventDefault();
-        void finish(false);
+    }
+
+    // 点击「＋ 添加子分类」按钮
+    document.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-add]');
+      if (!btn) return;
+      void submitSubCategory(btn.dataset.subAdd ?? '');
+    });
+    // 输入框内回车提交
+    document.addEventListener('keydown', (e) => {
+      const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-sub-input]');
+      if (!input) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        void submitSubCategory(input.dataset.subInput ?? '');
+      } else if (e.key === 'Escape') {
+        input.value = '';
+        input.blur();
       }
     });
-    input.addEventListener('blur', () => void finish(true));
-  });
 
-  // 删除子分类（其下网站回到主分类「未分组」，不删网站）
-  document.addEventListener('click', async (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-del]');
-    if (!btn) return;
-    const id = btn.dataset.subDel;
-    if (!id) return;
-    const name = btn.dataset.subName ?? '';
-    const count = Number(btn.dataset.subNum ?? '0');
-    const msg =
-      count > 0
-        ? `删除子分类「${name}」？其下 ${count} 个网站会移到「未分组」，不会被删除。`
-        : `删除子分类「${name}」？`;
-    if (!(await confirmDanger(msg))) return;
-    const res = await fetch('/api/nav/sub-categories', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    if (res.ok) window.location.reload();
-  });
-
-  // ---- 分类：添加 / 编辑 / 删除 / 拖拽排序 ----
-  let editingCatId: string | null = null;
-
-  function catStatus(el: HTMLElement | null, msg: string): void {
-    if (el) { el.textContent = msg; el.classList.remove('hidden'); }
-  }
-
-  // 打开添加分类弹框
-  document.addEventListener('click', (e) => {
-    const add = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-add]');
-    if (!add) return;
-    const catAddDialog = $('nav-cat-add-dialog') as HTMLDialogElement | null;
-    const catAddName = $('nav-cat-add-name') as HTMLInputElement | null;
-    const catAddIcon = $('nav-cat-add-icon') as HTMLInputElement | null;
-    const catAddStatus = $('nav-cat-add-status');
-    if (!catAddDialog) return;
-    if (catAddName) catAddName.value = '';
-    if (catAddIcon) catAddIcon.value = '';
-    catAddStatus?.classList.add('hidden');
-    catAddDialog.showModal();
-    catAddName?.focus();
-  });
-  document.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('#nav-cat-add-cancel')) ($('nav-cat-add-dialog') as HTMLDialogElement | null)?.close();
-  });
-  let addingCat = false;
-  document.addEventListener('click', async (e) => {
-    const target = e.target as HTMLElement;
-    if (!target.closest('#nav-cat-add-confirm')) return;
-    if (addingCat) return;
-    const catAddDialog = $('nav-cat-add-dialog') as HTMLDialogElement | null;
-    const catAddName = $('nav-cat-add-name') as HTMLInputElement | null;
-    const catAddIcon = $('nav-cat-add-icon') as HTMLInputElement | null;
-    const catAddStatus = $('nav-cat-add-status');
-    const catAddConfirmBtn = $('nav-cat-add-confirm') as HTMLButtonElement | null;
-    const name = (catAddName?.value ?? '').trim();
-    if (!name) { catStatus(catAddStatus, '请填写分类名'); return; }
-    const icon = (catAddIcon?.value ?? '').trim() || null;
-    addingCat = true;
-    if (catAddConfirmBtn) { catAddConfirmBtn.disabled = true; catAddConfirmBtn.textContent = '添加中…'; }
-    catAddStatus?.classList.add('hidden');
-    try {
-      const res = await fetch('/api/nav/categories', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, icon }),
+    // 重命名子分类（点击 ✎ 就地变输入框；回车保存 / Esc 取消 / 失焦保存）
+    document.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-edit]');
+      if (!btn) return;
+      const subId = btn.dataset.subEdit;
+      if (!subId) return;
+      const title = document.querySelector<HTMLElement>(`[data-sub-title="${subId}"]`);
+      // 已在编辑态则忽略
+      if (!title || title.querySelector('input')) return;
+      const oldName = btn.dataset.subName ?? title.textContent?.trim() ?? '';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.maxLength = 50;
+      input.value = oldName;
+      input.className =
+        'w-40 rounded-md border border-input bg-background px-2 py-0.5 text-sm font-medium outline-none focus-visible:border-ring';
+      input.setAttribute('aria-label', '子分类名');
+      title.textContent = '';
+      title.appendChild(input);
+      input.focus();
+      input.select();
+      let settled = false;
+      const finish = async (save: boolean): Promise<void> => {
+        if (settled) return;
+        settled = true;
+        const next = input.value.trim();
+        if (save && next && next !== oldName) {
+          const res = await fetch('/api/nav/sub-categories', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: subId, name: next }),
+          });
+          if (res.ok) {
+            // 就地改名（renderAll 会整块重建，无需手工回写 DOM）
+            const sub = NAV_DATA.flatMap((c) => c.subCategories).find((s) => s.id === subId);
+            if (sub) sub.name = next;
+            renderAll();
+            return;
+          }
+        }
+        title.textContent = oldName;
+      };
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          void finish(true);
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          void finish(false);
+        }
       });
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) { catStatus(catAddStatus, d.error ?? '添加失败'); return; }
-      catAddDialog?.close();
-      window.location.reload();
-    } catch {
-      catStatus(catAddStatus, '添加失败');
-    } finally {
-      addingCat = false;
-      if (catAddConfirmBtn) { catAddConfirmBtn.disabled = false; catAddConfirmBtn.textContent = '添加'; }
-    }
-  });
+      input.addEventListener('blur', () => void finish(true));
+    });
 
-  // 打开编辑分类弹框
-  document.addEventListener('click', (e) => {
-    const edit = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-edit]');
-    if (!edit) return;
-    const catId = edit.dataset.catEdit;
-    const cat = NAV_DATA.find((c) => c.id === catId);
-    const catEditDialog = $('nav-cat-edit-dialog') as HTMLDialogElement | null;
-    const catEditName = $('nav-cat-edit-name') as HTMLInputElement | null;
-    const catEditIcon = $('nav-cat-edit-icon') as HTMLInputElement | null;
-    const catEditTarget = $('nav-cat-edit-target');
-    const catEditStatus = $('nav-cat-edit-status');
-    if (!cat || !catEditDialog) return;
-    editingCatId = catId ?? null;
-    if (catEditName) catEditName.value = cat.name;
-    if (catEditIcon) catEditIcon.value = cat.icon ?? '';
-    if (catEditTarget) catEditTarget.textContent = `分类「${cat.name}」 · ${cat.sites.length} 个网站`;
-    catEditStatus?.classList.add('hidden');
-    catEditDialog.showModal();
-    catEditName?.focus();
-  });
-  document.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('#nav-cat-edit-cancel')) ($('nav-cat-edit-dialog') as HTMLDialogElement | null)?.close();
-  });
-  document.addEventListener('click', async (e) => {
-    const target = e.target as HTMLElement;
-    if (!target.closest('#nav-cat-edit-confirm')) return;
-    const catEditDialog = $('nav-cat-edit-dialog') as HTMLDialogElement | null;
-    const catEditName = $('nav-cat-edit-name') as HTMLInputElement | null;
-    const catEditIcon = $('nav-cat-edit-icon') as HTMLInputElement | null;
-    const catEditStatus = $('nav-cat-edit-status');
-    if (!editingCatId || !catEditDialog) return;
-    const name = (catEditName?.value ?? '').trim();
-    if (!name) { catStatus(catEditStatus, '分类名不能为空'); return; }
-    const icon = (catEditIcon?.value ?? '').trim() || null;
-    try {
-      const res = await fetch('/api/nav/categories', {
-        method: 'PUT',
+    // 删除子分类（其下网站回到主分类「未分组」，不删网站）
+    document.addEventListener('click', async (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-sub-del]');
+      if (!btn) return;
+      const id = btn.dataset.subDel;
+      if (!id) return;
+      const name = btn.dataset.subName ?? '';
+      const count = Number(btn.dataset.subNum ?? '0');
+      const msg =
+        count > 0
+          ? `删除子分类「${name}」？其下 ${count} 个网站会移到「未分组」，不会被删除。`
+          : `删除子分类「${name}」？`;
+      if (!(await confirmDanger(msg))) return;
+      const res = await fetch('/api/nav/sub-categories', {
+        method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: editingCatId, name, icon }),
+        body: JSON.stringify({ id }),
       });
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) { catStatus(catEditStatus, d.error ?? '保存失败'); return; }
-      catEditDialog.close();
-      window.location.reload();
-    } catch {
-      catStatus(catEditStatus, '保存失败');
+      if (!res.ok) return;
+      // 与后端一致：其下网站回到「未分组」（subCategoryId 置空），不删网站
+      const cat = NAV_DATA.find((c) => c.subCategories.some((s) => s.id === id));
+      if (cat) {
+        cat.subCategories = cat.subCategories.filter((s) => s.id !== id);
+        cat.sites.forEach((s) => {
+          if (s.subCategoryId === id) s.subCategoryId = null;
+        });
+      }
+      renderAll();
+    });
+
+    // ---- 分类：添加 / 编辑 / 删除 / 拖拽排序 ----
+    let editingCatId: string | null = null;
+
+    function catStatus(el: HTMLElement | null, msg: string): void {
+      if (el) { el.textContent = msg; el.classList.remove('hidden'); }
     }
-  });
 
-  // 删除分类（级联删除其下网站）
-  document.addEventListener('click', async (e) => {
-    const del = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-del]');
-    if (!del) return;
-    const catId = del.dataset.catDel;
-    const cat = NAV_DATA.find((c) => c.id === catId);
-    const catName = del.dataset.catName ?? cat?.name ?? '';
-    const count = cat?.sites.length ?? 0;
-    const subCount = cat?.subCategories?.length ?? 0;
-    const extra = subCount > 0 ? `（含 ${subCount} 个子分类）` : '';
-    const msg = count > 0
-      ? `删除分类「${catName}」？其下 ${count} 个网站${extra}也会一并删除。`
-      : `删除分类「${catName}」？${extra}`;
-    if (!(await confirmDanger(msg))) return;
-    const res = await fetch('/api/nav/categories', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: catId }),
+    // 打开添加分类弹框
+    document.addEventListener('click', (e) => {
+      const add = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-add]');
+      if (!add) return;
+      const catAddDialog = $('nav-cat-add-dialog') as HTMLDialogElement | null;
+      const catAddName = $('nav-cat-add-name') as HTMLInputElement | null;
+      const catAddIcon = $('nav-cat-add-icon') as HTMLInputElement | null;
+      const catAddStatus = $('nav-cat-add-status');
+      if (!catAddDialog) return;
+      if (catAddName) catAddName.value = '';
+      if (catAddIcon) catAddIcon.value = '';
+      catAddStatus?.classList.add('hidden');
+      catAddDialog.showModal();
+      catAddName?.focus();
     });
-    if (res.ok) window.location.reload();
-  });
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('#nav-cat-add-cancel')) ($('nav-cat-add-dialog') as HTMLDialogElement | null)?.close();
+    });
+    let addingCat = false;
+    document.addEventListener('click', async (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('#nav-cat-add-confirm')) return;
+      if (addingCat) return;
+      const catAddDialog = $('nav-cat-add-dialog') as HTMLDialogElement | null;
+      const catAddName = $('nav-cat-add-name') as HTMLInputElement | null;
+      const catAddIcon = $('nav-cat-add-icon') as HTMLInputElement | null;
+      const catAddStatus = $('nav-cat-add-status');
+      const catAddConfirmBtn = $('nav-cat-add-confirm') as HTMLButtonElement | null;
+      const name = (catAddName?.value ?? '').trim();
+      if (!name) { catStatus(catAddStatus, '请填写分类名'); return; }
+      const icon = (catAddIcon?.value ?? '').trim() || null;
+      addingCat = true;
+      if (catAddConfirmBtn) { catAddConfirmBtn.disabled = true; catAddConfirmBtn.textContent = '添加中…'; }
+      catAddStatus?.classList.add('hidden');
+      try {
+        const res = await fetch('/api/nav/categories', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name, icon }),
+        });
+        const d = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          category?: { id: string; name: string; icon: string | null; sort: number };
+        };
+        const created = d.category;
+        if (!res.ok || !created) { catStatus(catAddStatus, d.error ?? '添加失败'); return; }
+        catAddDialog?.close();
+        // 就地追加空分类；syncOrder 按 sort 放回与后端一致的位置（不切换当前分类）
+        NAV_DATA.push({
+          id: created.id,
+          name: created.name,
+          icon: created.icon,
+          sort: created.sort,
+          sites: [],
+          subCategories: [],
+        });
+        syncOrder();
+        renderAll();
+      } catch {
+        catStatus(catAddStatus, '添加失败');
+      } finally {
+        addingCat = false;
+        if (catAddConfirmBtn) { catAddConfirmBtn.disabled = false; catAddConfirmBtn.textContent = '添加'; }
+      }
+    });
 
-  // 拖拽排序（分类上下拖动）
-  let draggingCatId: string | null = null;
-  let catDropBefore = false;
-  function clearCatDragUi(): void {
-    document.querySelectorAll('.cat-drag-top, .cat-drag-bottom').forEach((el) => {
-      el.classList.remove('cat-drag-top', 'cat-drag-bottom');
+    // 打开编辑分类弹框
+    document.addEventListener('click', (e) => {
+      const edit = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-edit]');
+      if (!edit) return;
+      const catId = edit.dataset.catEdit;
+      const cat = NAV_DATA.find((c) => c.id === catId);
+      const catEditDialog = $('nav-cat-edit-dialog') as HTMLDialogElement | null;
+      const catEditName = $('nav-cat-edit-name') as HTMLInputElement | null;
+      const catEditIcon = $('nav-cat-edit-icon') as HTMLInputElement | null;
+      const catEditTarget = $('nav-cat-edit-target');
+      const catEditStatus = $('nav-cat-edit-status');
+      if (!cat || !catEditDialog) return;
+      editingCatId = catId ?? null;
+      if (catEditName) catEditName.value = cat.name;
+      if (catEditIcon) catEditIcon.value = cat.icon ?? '';
+      if (catEditTarget) catEditTarget.textContent = `分类「${cat.name}」 · ${cat.sites.length} 个网站`;
+      catEditStatus?.classList.add('hidden');
+      catEditDialog.showModal();
+      catEditName?.focus();
     });
-  }
-  document.addEventListener('dragstart', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
-    if (!btn) return;
-    draggingCatId = btn.dataset.catId ?? null;
-    e.dataTransfer?.setData('text/plain', draggingCatId ?? '');
-    e.dataTransfer!.effectAllowed = 'move';
-  });
-  document.addEventListener('dragover', (e) => {
-    if (!draggingCatId) return;
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
-    if (!btn || btn.dataset.catId === draggingCatId) return;
-    e.preventDefault();
-    clearCatDragUi();
-    const rect = btn.getBoundingClientRect();
-    catDropBefore = e.clientY < rect.top + rect.height / 2;
-    btn.classList.add(catDropBefore ? 'cat-drag-top' : 'cat-drag-bottom');
-  });
-  document.addEventListener('drop', async (e) => {
-    if (!draggingCatId) return;
-    e.preventDefault();
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
-    clearCatDragUi();
-    const catId = draggingCatId;
-    draggingCatId = null;
-    if (!btn) return;
-    const targetId = btn.dataset.catId;
-    if (!targetId || targetId === catId) return;
-    const ids = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-id]')).map((el) => el.dataset.catId ?? '');
-    const from = ids.indexOf(catId);
-    if (from < 0) return;
-    ids.splice(from, 1);
-    let to = ids.indexOf(targetId);
-    if (to < 0) return;
-    if (!catDropBefore) to += 1;
-    ids.splice(to, 0, catId);
-    const results = await Promise.all(
-      ids.map((id, i) =>
-        fetch('/api/nav/categories', {
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('#nav-cat-edit-cancel')) ($('nav-cat-edit-dialog') as HTMLDialogElement | null)?.close();
+    });
+    document.addEventListener('click', async (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('#nav-cat-edit-confirm')) return;
+      const catEditDialog = $('nav-cat-edit-dialog') as HTMLDialogElement | null;
+      const catEditName = $('nav-cat-edit-name') as HTMLInputElement | null;
+      const catEditIcon = $('nav-cat-edit-icon') as HTMLInputElement | null;
+      const catEditStatus = $('nav-cat-edit-status');
+      if (!editingCatId || !catEditDialog) return;
+      const name = (catEditName?.value ?? '').trim();
+      if (!name) { catStatus(catEditStatus, '分类名不能为空'); return; }
+      const icon = (catEditIcon?.value ?? '').trim() || null;
+      try {
+        const res = await fetch('/api/nav/categories', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id, sort: i }),
-        }),
-      ),
-    );
-    if (results.every((r) => r.ok)) window.location.reload();
-  });
-  document.addEventListener('dragend', () => {
-    draggingCatId = null;
-    clearCatDragUi();
-  });
+          body: JSON.stringify({ id: editingCatId, name, icon }),
+        });
+        const d = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          category?: { id: string; name: string; icon: string | null };
+        };
+        if (!res.ok) { catStatus(catEditStatus, d.error ?? '保存失败'); return; }
+        catEditDialog.close();
+        const updated = d.category;
+        const cat = NAV_DATA.find((c) => c.id === editingCatId);
+        if (cat && updated) { cat.name = updated.name; cat.icon = updated.icon; }
+        renderAll();
+      } catch {
+        catStatus(catEditStatus, '保存失败');
+      }
+    });
+
+    // 删除分类（级联删除其下网站）
+    document.addEventListener('click', async (e) => {
+      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-del]');
+      if (!del) return;
+      const catId = del.dataset.catDel;
+      if (!catId) return;
+      const cat = NAV_DATA.find((c) => c.id === catId);
+      const catName = del.dataset.catName ?? cat?.name ?? '';
+      const count = cat?.sites.length ?? 0;
+      const subCount = cat?.subCategories?.length ?? 0;
+      const extra = subCount > 0 ? `（含 ${subCount} 个子分类）` : '';
+      const msg = count > 0
+        ? `删除分类「${catName}」？其下 ${count} 个网站${extra}也会一并删除。`
+        : `删除分类「${catName}」？${extra}`;
+      if (!(await confirmDanger(msg))) return;
+      const res = await fetch('/api/nav/categories', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: catId }),
+      });
+      if (!res.ok) return;
+      NAV_DATA = NAV_DATA.filter((c) => c.id !== catId);
+      // 删掉的正是当前所在分类 → 回落到「全部网站」，否则保持当前分类
+      if (currentCatId === catId) currentCatId = 'all';
+      renderAll();
+    });
+
+    // 拖拽排序（分类上下拖动）
+    let draggingCatId: string | null = null;
+    let catDropBefore = false;
+    function clearCatDragUi(): void {
+      document.querySelectorAll('.cat-drag-top, .cat-drag-bottom').forEach((el) => {
+        el.classList.remove('cat-drag-top', 'cat-drag-bottom');
+      });
+    }
+    document.addEventListener('dragstart', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
+      if (!btn) return;
+      draggingCatId = btn.dataset.catId ?? null;
+      e.dataTransfer?.setData('text/plain', draggingCatId ?? '');
+      e.dataTransfer!.effectAllowed = 'move';
+    });
+    document.addEventListener('dragover', (e) => {
+      if (!draggingCatId) return;
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
+      if (!btn || btn.dataset.catId === draggingCatId) return;
+      e.preventDefault();
+      clearCatDragUi();
+      const rect = btn.getBoundingClientRect();
+      catDropBefore = e.clientY < rect.top + rect.height / 2;
+      btn.classList.add(catDropBefore ? 'cat-drag-top' : 'cat-drag-bottom');
+    });
+    document.addEventListener('drop', async (e) => {
+      if (!draggingCatId) return;
+      e.preventDefault();
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-cat-id]');
+      clearCatDragUi();
+      const catId = draggingCatId;
+      draggingCatId = null;
+      if (!btn) return;
+      const targetId = btn.dataset.catId;
+      if (!targetId || targetId === catId) return;
+      const ids = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-id]')).map((el) => el.dataset.catId ?? '');
+      const from = ids.indexOf(catId);
+      if (from < 0) return;
+      ids.splice(from, 1);
+      let to = ids.indexOf(targetId);
+      if (to < 0) return;
+      if (!catDropBefore) to += 1;
+      ids.splice(to, 0, catId);
+      const results = await Promise.all(
+        ids.map((id, i) =>
+          fetch('/api/nav/categories', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id, sort: i }),
+          }),
+        ),
+      );
+      if (!results.every((r) => r.ok)) return;
+      // 就地重排：把新顺序写回 sort，再按 sort 稳定排序（与后端一致）
+      ids.forEach((id, i) => {
+        const cat = NAV_DATA.find((c) => c.id === id);
+        if (cat) cat.sort = i;
+      });
+      syncOrder();
+      renderAll();
+    });
+    document.addEventListener('dragend', () => {
+      draggingCatId = null;
+      clearCatDragUi();
+    });
   } // end if (IS_AUTHED)
 
-  // 转场后重置：分类高亮 + 拖拽高亮状态
+  // 转场 / 刷新后：重新同步数据源、恢复上次所在分类、清理拖拽高亮
   document.addEventListener('astro:page-load', () => {
-    activate('all');
+    // 非导航页也会收到该事件（document 上的监听器跨转场存活），必须先确认本页存在
+    if (!document.getElementById('nav-main')) return;
+    NAV_DATA = readNavData();
+    activate(readStoredCat());
     document.querySelectorAll('[data-drop-cat]').forEach((el) => el.classList.remove('bg-primary/10', 'text-primary'));
     document.querySelectorAll('.nav-drop-over').forEach((el) => el.classList.remove('nav-drop-over'));
     document.querySelectorAll('.cat-drag-top, .cat-drag-bottom').forEach((el) => el.classList.remove('cat-drag-top', 'cat-drag-bottom'));
   });
 </script>
 
-<style>
+<style is:global>
   /* 分类拖拽排序：指示插入位置的上/下线条 */
   .cat-drag-top {
     box-shadow: inset 0 2px 0 0 var(--color-primary);

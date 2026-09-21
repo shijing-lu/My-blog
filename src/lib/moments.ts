@@ -10,7 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, like, lt, or } from 'drizzle-orm';
 import { moments } from '../../db/schema.sqlite';
 import { db } from '../../db';
-import { renderMarkdownHtml } from './mdx';
+import { renderMarkdownHtml, renderMdx } from './mdx';
+import { collectImageIdsFromHtml, getImageSizes, injectImageSizeAttrs } from './images';
 import type { Moment, MomentMedia, MomentVisibility } from '../../db/types';
 
 /** 媒体类型白名单 */
@@ -200,9 +201,29 @@ export async function updateMoment(
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
+/**
+ * 全量标签聚合（按使用频次降序，同频按名称升序）。
+ *
+ * 用于动态页筛选栏：此前筛选 chips 由前端从「已加载进 DOM 的卡片」收集，
+ * 首屏只有第一页（20 条），未加载动态的标签全部缺失（表现为"标签显示不全"）。
+ * 改为服务端聚合全部动态的标签，前端拿到的即为完整集合。
+ */
+export async function getAllMomentTags(includePrivate = false): Promise<Array<{ tag: string; count: number }>> {
+  const rows = await db.select({ tags: moments.tags, visibility: moments.visibility }).from(moments);
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    if (!includePrivate && r.visibility !== 'public') continue;
+    for (const t of parseTags(r.tags)) {
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts, ([tag, count]) => ({ tag, count })).sort(
+    (a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'),
+  );
+}
+
 /** 动态日期时间线（按天聚合；includePrivate=false 时仅统计公开动态） */
-export async function getMomentTimeline(includePrivate = false): Promise<Array<{ date: string; count: number }>> {
-  const rows = await db
+export async function getMomentTimeline(includePrivate = false): Promise<Array<{ date: string; count: number }>> {  const rows = await db
     .select({ createdAt: moments.createdAt, visibility: moments.visibility })
     .from(moments)
     .orderBy(desc(moments.createdAt));
@@ -219,19 +240,59 @@ export async function getMomentTimeline(includePrivate = false): Promise<Array<{
 
 /** 动态对外视图：raw content + tags + 服务端渲染的 Markdown HTML */
 export interface MomentView extends Moment {
-  /** Markdown 渲染后的 HTML（remark-gfm 纯 Markdown 管线，XSS 安全） */
+  /** Markdown 渲染后的 HTML（与文章/文档同一套完整管线 renderMdx；XSS 安全同源） */
   contentHtml: string;
 }
 
 /**
  * Moment → 对外视图（含服务端渲染的 Markdown HTML）。
  *
- * 渲染原则：SSR 首屏、load-more、预览一律用同一份 `renderMarkdownHtml`
- * 在服务端产出 `contentHtml`，前端只 `set:html` 这份服务端结果，绝不用
- * 原始 content 在前端拼 HTML（与日记渲染先例一致）。
+ * ## ⚠️ 2026-09-20 管线统一（用户诉求：动态与文章/文档语法一致、预览与展示对齐）
+ *
+ * 原先走 `renderMarkdownHtml`（仅 remark-gfm + remark-rehype 四插件）→ 动态里写
+ * 数学公式 / `:::note` 容器 / Callout / 荧光高亮 / 黑幕 全部**原样泄漏或不渲染**，
+ * 与文章、文档的展示能力割裂。现改为 `renderMdx`——**与文章页/文档页完全同一套
+ * 解析管线与扩展配置**（normalizeSource 预处理 + remark/rehype 全插件链 + 组件注册表），
+ * 不再有第二套实现。
+ *
+ * 渲染原则不变：SSR 首屏、load-more、编辑预览一律用本函数在服务端产出 `contentHtml`，
+ * 前端只 `set:html` 这份服务端结果，绝不用原始 content 在前端拼 HTML。
+ *
+ * 性能（实测 .diag/moments-render-bench.ts）：动态 ≤2000 字，冷渲染 60~70ms/条，
+ * 列表页 20 条并发冷渲染 365ms，二次请求命中 renderMdx 的 LRU（~1ms）——开销可接受。
+ * 图片宽高注入与文章页同款（正文内嵌 DB 图片时避免懒加载宽度跳变）。
  */
+/**
+ * 动态正文渲染（**唯一实现**）：列表首屏、加载更多分页、编辑预览全部走这里。
+ *
+ * 与文章页/文档页同一套 `renderMdx` 管线（见 toMomentView 注释），并复刻文章页的
+ * 图片宽高注入（正文内嵌 DB 图片时避免懒加载宽度跳变）——保证「编辑预览所见」
+ * 与「发布后卡片展示」逐字节一致（同一函数、同一后处理）。
+ *
+ * ## 容错降级（必须有，勿删）
+ *
+ * `renderMdx` 是 MDX 编译管线：**畸形 HTML 会抛错**（实测 `<img src=x onerror=1>` →
+ * `Unexpected character before attribute value`；`<img ... onerror="...">` → 缺闭合标签），
+ * 而动态是随手输入的短内容、且一页要渲染 20 条——任何一条语法问题都**不能**让整页 500。
+ * 因此渲染失败时降级到轻量 GFM 管线（`renderMarkdownHtml`，等价迁移前的旧行为），
+ * 并在服务端日志留痕。预览接口同样走本函数，故「预览看到的」与「发布后展示的」在
+ * 降级路径下也保持一致。
+ */
+export async function renderMomentContent(content: string): Promise<string> {
+  try {
+    const { html } = await renderMdx(content);
+    const ids = collectImageIdsFromHtml(html);
+    if (ids.length === 0) return html;
+    const sizes = await getImageSizes(ids);
+    return sizes.size > 0 ? injectImageSizeAttrs(html, sizes) : html;
+  } catch (err) {
+    console.error('[moments] renderMdx 失败，降级为轻量 GFM 管线：', err);
+    return renderMarkdownHtml(content);
+  }
+}
+
 export async function toMomentView(m: Moment): Promise<MomentView> {
-  return { ...m, contentHtml: await renderMarkdownHtml(m.content) };
+  return { ...m, contentHtml: await renderMomentContent(m.content) };
 }
 
 /** 北京时间部件（服务器时区无关：Vercel 实例为 UTC，直接用 getHours/getDate 会差 8 小时） */

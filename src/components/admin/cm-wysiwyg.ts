@@ -25,6 +25,7 @@ import type { DecorationSet } from '@codemirror/view';
 import { RangeSetBuilder, StateField } from '@codemirror/state';
 import type { EditorState, Extension } from '@codemirror/state';
 import { makeClickToPos, selectionInside } from './cm-live-preview';
+import { isTableRow, isTableSeparator, TableWidget } from './cm-table';
 // katex 必须静态 import（勿改回 import('katex')）：
 // 1) vite build 会把 katex 并入本模块所属 chunk，随 MarkdownEditor 的动态 import 按需加载，
 //    写作台（非 wysiwyg 模式）不加载本模块 → 零 katex 负担；
@@ -241,10 +242,15 @@ function scanInlineMath(
 
 /* ================= 装饰构建 ================= */
 
-function buildDecorations(state: EditorState): DecorationSet {
-  const doc = state.doc;
-  const sel = state.selection.ranges.map((r) => [r.from, r.to] as const);
-  const items: Array<{ from: number; to: number; deco: Decoration }> = [];
+type DecoItem = { from: number; to: number; deco: Decoration; reveal?: boolean };
+
+/** 按 doc 计算装饰基座（与选区无关的部分 + 可回显块登记）
+ *  性能关键：此函数只依赖 doc —— 以 doc 为键做记忆化，
+ *  选区移动（最高频操作）不再触发全文档正则重建（实测卡顿主因）。 */
+function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]; revealable: Array<{ from: number; to: number }> } {
+  const sel: ReadonlyArray<readonly [number, number]> = [];
+  const items: DecoItem[] = [];
+  const revealable: Array<{ from: number; to: number }> = [];
 
   const lines: Array<{ from: number; to: number; text: string }> = [];
   for (let i = 1; i <= doc.lines; i += 1) {
@@ -282,19 +288,49 @@ function buildDecorations(state: EditorState): DecorationSet {
       if (close >= 0) {
         const from = line.from;
         const to = lines[close]!.to + 1;
-        if (!selectionInside(sel, from, to)) {
-          items.push({
-            from,
-            to,
-            deco: Decoration.replace({
-              widget: new CodeBlockWidget(fence[1] ?? '', body.join('\n')),
-            }),
-          });
-        }
+        items.push({
+          from,
+          to,
+          deco: Decoration.replace({
+            widget: new CodeBlockWidget(fence[1] ?? '', body.join('\n')),
+          }),
+          reveal: true,
+        });
+        revealable.push({ from, to });
         for (let k = i; k <= close; k += 1) blocked.add(k);
         i = close + 1;
         continue;
       }
+    }
+    i += 1;
+  }
+
+  /* ---- Pass 1.5: 表格 → 可视化表格 Widget（单元格原地编辑，Obsidian 式） ---- */
+  i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (blocked.has(i)) {
+      i += 1;
+      continue;
+    }
+    if (isTableRow(line.text) && i + 1 < lines.length && isTableSeparator(lines[i + 1]!.text)) {
+      const body: string[] = [];
+      let j = i;
+      while (j < lines.length && isTableRow(lines[j]!.text)) {
+        body.push(lines[j]!.text);
+        j += 1;
+      }
+      const from = line.from;
+      const to = lines[j - 1]!.to + 1;
+      // 表格自身承担编辑（contenteditable 单元格），不做"光标进入回显源码"
+      items.push({
+        from,
+        to,
+        deco: Decoration.replace({ widget: new TableWidget(body.join('\n'), from) }),
+      });
+      for (let k = i; k < j; k += 1) blocked.add(k);
+      i = j;
+      continue;
     }
     i += 1;
   }
@@ -320,9 +356,8 @@ function buildDecorations(state: EditorState): DecorationSet {
       if (inner.trim() !== '') {
         const from = line.from + open;
         const to = line.from + closeSame + 2;
-        if (!selectionInside(sel, from, to)) {
-          items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner.trim(), true) }) });
-        }
+        items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner.trim(), true) }), reveal: true });
+        revealable.push({ from, to });
         blocked.add(i);
         i += 1;
         continue;
@@ -349,10 +384,9 @@ function buildDecorations(state: EditorState): DecorationSet {
         if (inner.trim() !== '') {
           const from = line.from + open;
           const to = lines[closed]!.from + closeCol + 2;
-          if (!selectionInside(sel, from, to)) {
-            // 跨行内容：去掉首尾空白（含换行），让 KaTeX 解析时把多行公式当作合法输入
-            items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner.trim(), true) }) });
-          }
+          // 跨行内容：去掉首尾空白（含换行），让 KaTeX 解析时把多行公式当作合法输入
+          items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner.trim(), true) }), reveal: true });
+          revealable.push({ from, to });
           for (let k = i; k <= closed; k += 1) blocked.add(k);
           i = closed + 1;
           continue;
@@ -379,6 +413,7 @@ function buildDecorations(state: EditorState): DecorationSet {
     if (quote) {
       const markerEnd = line.from + (quote[1]?.length ?? 0) + 1;
       items.push({ from: line.from, to: markerEnd, deco: hide });
+      // Callout（> [!type]）与普通引用同等对待：保留源码文本，不做徽章/配色渲染
       items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: 'cm-lp-quote-text' }) });
       occupy(idx, line.from, markerEnd);
       return;
@@ -453,9 +488,8 @@ function buildDecorations(state: EditorState): DecorationSet {
 
       // 图片 ![alt](url)
       if (m[1] !== undefined && m[2] !== undefined) {
-        if (!selectionInside(sel, base, fullTo)) {
-          items.push({ from: base, to: fullTo, deco: Decoration.replace({ widget: new InlineImageWidget(m[2] ?? '', m[1] ?? '') }) });
-        }
+        items.push({ from: base, to: fullTo, deco: Decoration.replace({ widget: new InlineImageWidget(m[2] ?? '', m[1] ?? '') }), reveal: true });
+        revealable.push({ from: base, to: fullTo });
         occupied.push([base, fullTo]);
         continue;
       }
@@ -491,19 +525,103 @@ function buildDecorations(state: EditorState): DecorationSet {
 
     // 4b: 行内 $…$ 数学（跳过 code span 与行首装饰区间）
     scanInlineMath(line.text, line.from, occupied, (from, to, inner) => {
-      if (!selectionInside(sel, from, to)) {
-        items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner, false) }) });
-      }
+      items.push({ from, to, deco: Decoration.replace({ widget: new KatexWidget(inner, false) }), reveal: true });
+      revealable.push({ from, to });
       occupied.push([from, to]);
     });
   });
 
-  /* ---- 排序写入（保证非重叠） ---- */
-  items.sort((a, b) => a.from - b.from || a.to - b.to);
-  const builder = new RangeSetBuilder<Decoration>();
-  for (const item of items) {
-    builder.add(item.from, item.to, item.deco);
+  /* ---- Pass 5: 高亮 ==文本== + 脚注 [^n]（引用上标 / 定义行） ---- */
+  lines.forEach((line, idx) => {
+    if (blocked.has(idx)) return;
+    const occupied: Array<[number, number]> = [...(rowOccupied.get(idx) ?? [])];
+
+    // 高亮 ==文本==：隐藏等号，内容加荧光底
+    const hlRe = /==([^=\n]+)==/g;
+    let hm: RegExpExecArray | null = null;
+    while ((hm = hlRe.exec(line.text))) {
+      const base = line.from + hm.index;
+      const fullTo = base + hm[0].length;
+      if (overlapsAny(occupied, base, fullTo)) continue;
+      items.push({ from: base, to: base + 2, deco: hide });
+      items.push({ from: base + 2, to: fullTo - 2, deco: Decoration.mark({ class: 'cm-lp-hl' }) });
+      items.push({ from: fullTo - 2, to: fullTo, deco: hide });
+      occupied.push([base, fullTo]);
+    }
+
+    // 脚注引用 [^label] → 上标 chip（点击跳到定义）
+    const fnRe = /\[\^([^\]\s]+)\]/g;
+    let fm: RegExpExecArray | null = null;
+    while ((fm = fnRe.exec(line.text))) {
+      const base = line.from + fm.index;
+      const fullTo = base + fm[0].length;
+      if (overlapsAny(occupied, base, fullTo)) continue;
+      items.push({ from: base, to: fullTo, deco: Decoration.replace({ widget: new FootnoteRefWidget(fm[1] ?? '') }) });
+      occupied.push([base, fullTo]);
+    }
+
+    // 脚注定义行 [^label]: 内容 → 隐藏标记 + 缩进样式（内容保持可编辑）
+    const def = line.text.match(/^(\[\^[^\]]+\]:)\s?/);
+    if (def) {
+      const defLen = (def[1] ?? '').length;
+      if (!overlapsAny(occupied, line.from, line.from + defLen)) {
+        items.push({
+          from: line.from,
+          to: line.from + defLen,
+          deco: Decoration.replace({ widget: new FootnoteDefChipWidget(def[1] ?? '') }),
+        });
+        items.push({
+          from: line.from + defLen,
+          to: line.to,
+          deco: Decoration.mark({ class: 'cm-lp-fn-def' }),
+        });
+        occupied.push([line.from, line.from + defLen]);
+      }
+    }
+  });
+
+  /* ---- Pass 6: 水平线（独立一行 ---/***，前一行为空避免 setext 误判） ---- */
+  lines.forEach((line, idx) => {
+    if (blocked.has(idx)) return;
+    if (!/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line.text)) return;
+    if (idx > 0 && lines[idx - 1]!.text.trim() !== '') return;
+    items.push({ from: line.from, to: line.to, deco: Decoration.replace({ widget: new HrWidget() }) });
+  });
+
+  return { items, revealable };
+}
+
+/** doc → 装饰基座 的记忆化缓存（CM 的 doc 为不可变对象，可作缓存键）。
+ *  选区移动是最高频操作：缓存命中时 O(1)，不再全文档正则重建（实测卡顿主因）。 */
+const baseCache: {
+  doc: EditorState['doc'] | null;
+  items: DecoItem[];
+  revealable: Array<{ from: number; to: number }>;
+} = { doc: null, items: [], revealable: [] };
+
+function buildDecorations(state: EditorState): DecorationSet {
+  const doc = state.doc;
+  if (!baseCache.doc || !baseCache.doc.eq(doc)) {
+    try {
+      const base = computeBase(doc);
+      baseCache.doc = doc;
+      baseCache.items = base.items;
+      baseCache.revealable = base.revealable;
+    } catch (err) {
+      baseCache.doc = null;
+      console.error('[cm-wysiwyg] 装饰基座构建失败，回退纯源码', err);
+      return Decoration.none;
+    }
   }
+  // 选区在"可回显块"内 → 该块回显源码（不 push 其 widget 项）
+  const head = state.selection.main.head;
+  const active = baseCache.revealable.find((r) => r.from <= head && head <= r.to);
+  const final = active
+    ? baseCache.items.filter((it) => !(it.reveal && it.from === active.from && it.to === active.to))
+    : baseCache.items;
+  const sorted = [...final].sort((a, b) => a.from - b.from || a.to - b.to);
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const item of sorted) builder.add(item.from, item.to, item.deco);
   return builder.finish();
 }
 
@@ -585,7 +703,8 @@ function safeBuild(state: EditorState): DecorationSet {
   try {
     return buildDecorations(state);
   } catch {
-    return Decoration.none;
+    baseCache.doc = null;
+  return Decoration.none;
   }
 }
 
@@ -607,5 +726,107 @@ const wysiwygField = StateField.define<DecorationSet>({
 
 /** 获取 WYSIWYG 扩展（与 livePreview() 互斥使用，二者都提供 decorations） */
 export function wysiwygPreview(): Extension {
-  return wysiwygField;
+  return [wysiwygField, linkOpenHandler];
 }
+
+/* ================= LP 扩展：脚注/水平线 Widget + 样式 ================= */
+
+/** 脚注引用 chip：点击跳到定义行 */
+class FootnoteRefWidget extends WidgetType {
+  constructor(readonly label: string) {
+    super();
+  }
+  eq(other: FootnoteRefWidget): boolean {
+    return other.label === this.label;
+  }
+  toDOM(view: EditorView): HTMLElement {
+    const sup = document.createElement('sup');
+    sup.className = 'cm-lp-fnref';
+    sup.textContent = `[${this.label}]`;
+    sup.title = '跳转到脚注定义';
+    sup.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const doc = view.state.doc;
+      let target = -1;
+      for (let i = 1; i <= doc.lines; i += 1) {
+        if (doc.line(i).text.startsWith(`[^${this.label}]:`)) {
+          target = doc.line(i).from;
+          break;
+        }
+      }
+      if (target >= 0) {
+        view.dispatch({ selection: { anchor: target }, effects: EditorView.scrollIntoView(target, { y: 'center' }) });
+        view.focus();
+      }
+    });
+    return sup;
+  }
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+/** 脚注定义行的标记 chip */
+class FootnoteDefChipWidget extends WidgetType {
+  constructor(readonly label: string) {
+    super();
+  }
+  eq(other: FootnoteDefChipWidget): boolean {
+    return other.label === this.label;
+  }
+  toDOM(): HTMLElement {
+    const chip = document.createElement('span');
+    chip.className = 'cm-lp-fndef-chip';
+    chip.textContent = this.label.replace('[^', '').replace(']:', '');
+    return chip;
+  }
+}
+
+/** 水平线 Widget */
+class HrWidget extends WidgetType {
+  toDOM(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-lp-hr';
+    const hr = document.createElement('hr');
+    wrap.appendChild(hr);
+    return wrap;
+  }
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+/** LP 样式（一次注入） */
+let lpStylesInjected = false;
+
+function ensureLpStyles(): void {
+  if (lpStylesInjected || typeof document === 'undefined') return;
+  lpStylesInjected = true;
+  const style = document.createElement('style');
+  style.textContent = `
+.cm-lp-hl { background: rgba(250, 204, 21, 0.35); border-radius: 2px; }
+.cm-lp-fnref { color: var(--color-primary, #3b82f6); cursor: pointer; font-size: 0.78em; font-weight: 600; }
+.cm-lp-fndef-chip { display: inline-block; min-width: 20px; text-align: center; padding: 0 5px; margin-right: 6px;
+  border-radius: 4px; background: rgba(128,128,128,0.14); font-size: 0.72em; font-weight: 600;
+  color: var(--color-text-secondary, #666); }
+.cm-lp-fn-def { opacity: 0.85; font-size: 0.9em; }
+.cm-lp-hr hr { border: none; border-top: 1px solid rgba(128,128,128,0.4); margin: 10px 0; }
+`;
+  document.head.appendChild(style);
+}
+ensureLpStyles();
+
+/** LP-6：Ctrl/Cmd + 点击渲染链接 → 在新窗口打开（Web 与桌面一致） */
+const linkOpenHandler = EditorView.domEventHandlers({
+  mousedown(event, view) {
+    if (!(event.ctrlKey || event.metaKey)) return false;
+    const target = event.target as HTMLElement | null;
+    const el = target?.closest?.('[data-href]') as HTMLElement | null;
+    const href = el?.getAttribute('data-href');
+    if (!href) return false;
+    event.preventDefault();
+    window.open(href, '_blank', 'noopener');
+    return true;
+  },
+});

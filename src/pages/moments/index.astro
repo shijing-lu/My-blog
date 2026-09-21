@@ -6,7 +6,7 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
 import MomentCard from '@/components/moments/MomentCard.astro';
-import { listMoments, getMomentTimeline, toMomentView, type MomentView } from '@/lib/moments';
+import { listMoments, getMomentTimeline, getAllMomentTags, toMomentView, type MomentView } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
 import { canManage } from '@/lib/admin-auth';
 import { countLikesByTargets } from '@/lib/likes';
@@ -19,6 +19,9 @@ const rawMoments = await listMoments(PAGE_SIZE, 0, { includePrivate: isAuthed })
 /** 服务端渲染 Markdown → contentHtml（首屏与 load-more 同一管线） */
 const moments: MomentView[] = await Promise.all(rawMoments.map((m) => toMomentView(m)));
 const momentTimeline = await getMomentTimeline(isAuthed);
+/** 全量标签聚合（按频次降序）：筛选 chips 的数据源——首屏只有第一页卡片，
+ *  前端从已加载 DOM 收集标签会缺失未加载动态的标签（"标签显示不全"），改为服务端聚合 */
+const allTags = await getAllMomentTags(isAuthed);
 const profile = await getProfile();
 const now = new Date();
 const avatarSrc = profile.avatar || '';
@@ -40,14 +43,12 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
           <p class="mt-1 text-sm text-muted-foreground">随手记录，分享生活</p>
         </div>
         <div class="flex items-center gap-3">
-          {avatarSrc ? (
-            <img src={avatarSrc} alt={nickname} decoding="async" class="size-10 rounded-full border border-border object-cover" />
-          ) : (
-            <span class="inline-flex size-10 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary">
-              {nickname.slice(0, 1)}
-            </span>
-          )}
-          <span class="text-sm font-medium">{nickname}</span>
+          {/* data-profile-* ：保存资料后就地更新（见 ProfileDialog 的 applyProfileDom） */}
+          <img data-profile-avatar src={avatarSrc} alt={nickname} decoding="async" class="size-10 rounded-full border border-border object-cover" hidden={!avatarSrc} />
+          <span data-profile-initial class="inline-flex size-10 items-center justify-center rounded-full border border-border bg-muted font-display text-lg font-semibold text-primary" hidden={!!avatarSrc}>
+            {nickname.slice(0, 1)}
+          </span>
+          <span data-profile-nickname class="text-sm font-medium">{nickname}</span>
         </div>
       </div>
       <div class="pixel-divider mt-5" />
@@ -131,7 +132,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
           />
           <span id="moment-filter-state" class="shrink-0 text-xs text-muted-foreground"></span>
         </div>
-        <div id="moment-tags" class="mt-2 flex flex-wrap gap-1.5"></div>
+        <div id="moment-tags" class="mt-2 flex flex-wrap gap-1.5" data-all-tags={JSON.stringify(allTags.map((t) => t.tag))}></div>
       </div>
 
       <!-- 动态流 -->
@@ -366,9 +367,26 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content, media: pendingMedia, tags, visibility }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; moment?: { id: string } };
       if (!res.ok) throw new Error(data.error ?? '发布失败');
-      window.location.reload();
+      // 就地插入新卡（原实现整页 reload）：保住已加载的分页与滚动位置
+      const newId = data.moment?.id ?? '';
+      if (newId) {
+        const card = await fetchCardElement(newId);
+        if (card) insertMomentCard(card);
+      }
+      // 清空编辑器 —— 原由整页 reload 完成，现在必须显式做
+      const contentEl = el<HTMLTextAreaElement>('moment-content');
+      if (contentEl) contentEl.value = '';
+      const tagsEl = el<HTMLInputElement>('moment-tags-input');
+      if (tagsEl) tagsEl.value = '';
+      pendingMedia.length = 0;
+      renderPending();
+      if (status) status.textContent = '';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '发布';
+      }
     } catch (err) {
       if (status) status.textContent = err instanceof Error ? err.message : '发布失败';
       if (btn) {
@@ -498,18 +516,87 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     }
   }
 
+  /**
+   * 拉取「单张卡片」HTML（`/moments/cards?id=`）—— 与首屏 / 加载更多同一模板。
+   *
+   * 就地更新专用：发布后插入新卡、编辑保存后替换对应卡。**必须**走服务端渲染，
+   * 不能在客户端手拼：卡片含头像/姓名/相对时间/私密徽标/媒体灯箱/评论岛，
+   * 而 Astro 岛（`<astro-island>`）无法手工构造 —— 片段插入 DOM 后才会正常水合。
+   */
+  async function fetchCardElement(id: string): Promise<HTMLElement | null> {
+    try {
+      const res = await fetch(`/moments/cards?id=${encodeURIComponent(id)}`);
+      if (!res.ok) return null;
+      const tpl = document.createElement('template');
+      tpl.innerHTML = await res.text();
+      return tpl.content.querySelector<HTMLElement>('.moment-card');
+    } catch {
+      return null;
+    }
+  }
+
+  /** 就地插入新卡片（原实现整页 reload：会丢掉已加载的分页与滚动位置） */
+  function insertMomentCard(card: HTMLElement): void {
+    const stream = el('moment-stream');
+    if (!stream) return;
+    // 首屏空态不是卡片；不清掉的话它会残留在新卡上方
+    if (stream.querySelectorAll('.moment-card').length === 0) stream.innerHTML = '';
+    stream.prepend(card);
+    // 分页偏移 +1：否则「更多」会从旧偏移再拉一次，把这条重复渲染一遍
+    const next = Number(stream.dataset.offset ?? 0) + 1;
+    stream.dataset.offset = String(next);
+    offset = next;
+    // 新动态的新标签要即时出现在筛选 chips 里
+    knownTags = Array.from(new Set([...knownTags, ...collectCardTags(card)]));
+    renderTagChips();
+  }
+
+  /** 就地替换已有卡片（编辑保存）。整卡替换 = 与服务端渲染结果逐字节一致。 */
+  function replaceMomentCard(card: HTMLElement, id: string): void {
+    const old = document.querySelector<HTMLElement>(`[data-moment-id="${CSS.escape(id)}"]`);
+    if (!old) {
+      insertMomentCard(card);
+      return;
+    }
+    old.replaceWith(card);
+    knownTags = Array.from(new Set([...knownTags, ...collectCardTags(card)]));
+    renderTagChips();
+  }
+
+  /** 读取一张卡片上的标签（用于合并进筛选 chips 的已知标签集合） */
+  function collectCardTags(card: HTMLElement): string[] {
+    return Array.from(card.querySelectorAll<HTMLElement>('[data-moment-tag]'))
+      .map((b) => b.dataset.momentTag ?? '')
+      .filter(Boolean);
+  }
+
   // ---------- 搜索 / 标签 / 时间线筛选 ----------
-  /** 从 DOM 收集所有标签并渲染筛选 chips */
+  /**
+   * 筛选 chips 数据源 = 全量标签集合：
+   * 初始来自服务端聚合（#moment-tags 的 data-all-tags，按频次降序，覆盖**所有**
+   * 动态的标签——此前从已加载 DOM 收集，首屏只有第一页，标签显示不全）；
+   * 运行期从新加载的卡片收集增量补充（新发动态的新标签即时出现，排在末尾）。
+   */
+  let knownTags: string[] = (() => {
+    const raw = el('moment-tags')?.dataset.allTags ?? '[]';
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  /** 渲染筛选 chips（knownTags 全量 + DOM 增量合并；高亮当前筛选 tag） */
   function renderTagChips(): void {
     const box = el('moment-tags');
     if (!box) return;
-    const set = new Set<string>();
     document.querySelectorAll<HTMLElement>('[data-moment-tag]').forEach((b) => {
       const t = b.dataset.momentTag ?? '';
-      if (t) set.add(t);
+      if (t && !knownTags.includes(t)) knownTags.push(t);
     });
     box.innerHTML = '';
-    set.forEach((t) => {
+    for (const t of knownTags) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.dataset.filterTag = t;
@@ -520,7 +607,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
           : 'bg-muted text-muted-foreground hover:bg-accent hover:text-primary');
       chip.textContent = `# ${t}`;
       box.appendChild(chip);
-    });
+    }
   }
 
   /** 重置列表并按当前筛选重新加载第一页（筛选状态已由调用方写入 URL） */
@@ -610,6 +697,13 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     if (!(await confirmDanger('确定删除这条动态？'))) return;
     await fetch(`/api/moments/${del.dataset.momentDel}`, { method: 'DELETE' });
     del.closest<HTMLElement>('.moment-card')?.remove();
+    // 分页偏移 −1：与服务端少了一条对齐，否则「更多」会跳过一条
+    const stream = el('moment-stream');
+    if (stream) {
+      const next = Math.max(0, Number(stream.dataset.offset ?? 0) - 1);
+      stream.dataset.offset = String(next);
+      offset = next;
+    }
   });
 
   // 底部哨兵 → 显示「更多」
@@ -754,7 +848,15 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
         body: JSON.stringify({ content, media: editMedia, tags, visibility }),
       });
       if (!res.ok) throw new Error('保存失败');
-      window.location.reload();
+      // 就地替换该卡片（原实现整页 reload）：整卡由服务端同一模板重渲染，
+      // 与刷新后逐字节一致（含评论岛 / 媒体灯箱 / 私密徽标 / 「已编辑」标记）
+      const card = await fetchCardElement(editingMomentId);
+      if (card) replaceMomentCard(card, editingMomentId);
+      el<HTMLDialogElement>('moment-edit-dialog')?.close(); // 原由 reload 关闭
+      if (status) {
+        status.textContent = '';
+        status.classList.add('hidden');
+      }
     } catch (err) {
       if (status) { status.textContent = err instanceof Error ? err.message : '保存失败'; status.classList.remove('hidden'); }
     }
