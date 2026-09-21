@@ -374,7 +374,23 @@ function escapeBareLt(line: string): string {
       const isTagStart = /[A-Za-z_$>]/.test(next);
       // `<` 后跟空白或行尾：非标签，保留
       const isNonTag = next === '' || next === ' ' || next === '\t';
-      if (isTagStart || isNonTag) {
+      if (isTagStart) {
+        // ⚠️ 光看首字符不够（2026-09-21 实证：`说明A<B。` 让整篇 500）。
+        //    必须继续读到「标签名结束」，并校验其后继字符是否合法：
+        //      合法后继 = 空白 / `>` / `/` / 行尾（如 `<B>`、`<br/>`、`<Foo bar="1">`）
+        //      非法后继 = 中文标点等（如 `<B。`、`<n，`）→ 说明这是正文里的裸 `<`，必须转义
+        const nameMatch = /^[A-Za-z_$][\w$.-]*/.exec(line.slice(i + 1));
+        if (nameMatch) {
+          const after = line[i + 1 + nameMatch[0].length] ?? '';
+          const isRealTag = after === '' || after === '>' || after === '/' || after === ' ' || after === '\t';
+          if (!isRealTag) {
+            out += '\\<';
+            i += 1;
+            continue;
+          }
+        }
+        out += ch;
+      } else if (isNonTag) {
         out += ch;
       } else {
         // 裸 `<` 会让 MDX JSX 解析器崩溃：转义为字面 `<`
