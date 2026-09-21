@@ -1,0 +1,123 @@
+<svg viewBox="0 0 680 350" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>小卿形象：纸鸢</title>
+<desc>一只会飞的中国风筝精灵，展示待机、高兴、思考、惊讶、困倦五种表情，以及三级、五级、七级的装饰变化。</desc>
+<line x1="40" y1="196" x2="640" y2="196" stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="4 4"/>
+<path d="M94 46 q-16 -6 -20 -18" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M100 108 q-18 18 -6 32 q12 14 0 26" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M92 158 l-8 -6 l8 -6 l8 6 z" fill="#E24B4A"/>
+<path d="M88 182 l-8 -6 l8 -6 l8 6 z" fill="#E24B4A"/>
+<path d="M100 62 Q116 82 132 102 Q116 126 100 150 Q84 126 68 102 Q84 82 100 62 Z" fill="#FAC775" stroke="#8A5A2B" stroke-width="2"/>
+<path d="M100 66 L100 146" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M72 100 L128 100" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<ellipse cx="84" cy="110" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="116" cy="110" rx="5" ry="3" fill="#F0997B"/>
+<circle cx="91" cy="96" r="4.5" fill="#2C2C2A"/>
+<circle cx="89.8" cy="94.8" r="1.5" fill="#FFFFFF"/>
+<circle cx="109" cy="96" r="4.5" fill="#2C2C2A"/>
+<circle cx="107.8" cy="94.8" r="1.5" fill="#FFFFFF"/>
+<path d="M95 112 q5 3 10 0" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<text x="100" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">待机 · 轻轻飘</text>
+<path d="M234 46 q-16 -8 -22 -20" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M220 108 q-22 14 -8 30 q14 16 2 28" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M206 156 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M210 184 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M220 62 Q236 82 252 102 Q236 126 220 150 Q204 126 188 102 Q204 82 220 62 Z" fill="#FAC775" stroke="#8A5A2B" stroke-width="2"/>
+<path d="M220 66 L220 146" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M192 100 L248 100" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<ellipse cx="204" cy="110" rx="5.5" ry="3.5" fill="#F0997B"/>
+<ellipse cx="236" cy="110" rx="5.5" ry="3.5" fill="#F0997B"/>
+<path d="M205 97 Q211 89 217 97" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M223 97 Q229 89 235 97" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M213 110 Q220 118 227 110" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<text x="220" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">高兴 · 尾带上扬</text>
+<g transform="rotate(-12 340 106)">
+<path d="M346 50 q-14 -8 -18 -20" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M340 108 q-16 18 -4 32 q12 14 0 24" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M332 158 l-8 -6 l8 -6 l8 6 z" fill="#E24B4A"/>
+<path d="M340 62 Q356 82 372 102 Q356 126 340 150 Q324 126 308 102 Q324 82 340 62 Z" fill="#FAC775" stroke="#8A5A2B" stroke-width="2"/>
+<path d="M340 66 L340 146" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M312 100 L368 100" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<ellipse cx="324" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="356" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<circle cx="331" cy="93" r="4" fill="#2C2C2A"/>
+<circle cx="349" cy="93" r="4" fill="#2C2C2A"/>
+<path d="M335 114 h10" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<circle cx="378" cy="82" r="2.5" fill="#5F5E5A"/>
+<circle cx="386" cy="78" r="2" fill="#5F5E5A"/>
+<circle cx="392" cy="74" r="1.6" fill="#5F5E5A"/>
+</g>
+<text x="340" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">思考 · 倾斜仰望</text>
+<path d="M454 42 q-18 -4 -24 -16" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M460 108 q-24 10 -12 28 q12 18 -2 30" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M446 156 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M444 184 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M460 58 Q476 78 492 98 Q476 122 460 146 Q444 122 428 98 Q444 78 460 58 Z" fill="#FAC775" stroke="#8A5A2B" stroke-width="2"/>
+<path d="M460 62 L460 142" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M432 96 L488 96" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<ellipse cx="444" cy="108" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="476" cy="108" rx="5" ry="3" fill="#F0997B"/>
+<circle cx="451" cy="92" r="6.5" fill="#FFFFFF" stroke="#2C2C2A" stroke-width="1.5"/>
+<circle cx="451" cy="92" r="2.8" fill="#2C2C2A"/>
+<circle cx="469" cy="92" r="6.5" fill="#FFFFFF" stroke="#2C2C2A" stroke-width="1.5"/>
+<circle cx="469" cy="92" r="2.8" fill="#2C2C2A"/>
+<ellipse cx="460" cy="110" rx="3" ry="4" fill="#2C2C2A"/>
+<text x="504" y="64" text-anchor="middle" font-size="12" fill="#5F5E5A">!</text>
+<text x="460" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">惊讶 · 猛地一抖</text>
+<g transform="rotate(9 580 106)">
+<path d="M586 50 q-14 -6 -18 -18" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M580 108 q-12 20 -2 34 q10 14 -2 22" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M572 158 l-8 -6 l8 -6 l8 6 z" fill="#E24B4A"/>
+<path d="M580 66 Q596 86 612 106 Q596 130 580 154 Q564 130 548 106 Q564 86 580 66 Z" fill="#FAC775" stroke="#8A5A2B" stroke-width="2"/>
+<path d="M580 70 L580 150" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M552 104 L608 104" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<ellipse cx="564" cy="116" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="596" cy="116" rx="5" ry="3" fill="#F0997B"/>
+<path d="M567 102 h8" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M585 102 h8" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M576 118 q4 3 8 0" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+</g>
+<text x="618" y="92" text-anchor="middle" font-size="12" fill="#5F5E5A">z</text>
+<text x="628" y="82" text-anchor="middle" font-size="12" fill="#5F5E5A">z</text>
+<text x="580" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">困倦 · 低头打盹</text>
+<path d="M170 206 q-14 -10 -18 -22" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M170 266 q-20 16 -6 32 q14 16 0 30" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M160 330 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M158 356 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M170 222 Q186 242 202 262 Q186 286 170 310 Q154 286 138 262 Q154 242 170 222 Z" fill="#FAC775" stroke="#8A5A2B" stroke-width="2"/>
+<path d="M170 226 L170 306" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M142 260 L198 260" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<circle cx="161" cy="258" r="4.5" fill="#2C2C2A"/>
+<circle cx="179" cy="258" r="4.5" fill="#2C2C2A"/>
+<path d="M165 274 q5 3 10 0" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<text x="170" y="332" text-anchor="middle" font-size="12" fill="#5F5E5A">3 级 · 尾带加长 + 双飘带</text>
+<path d="M340 206 q-14 -10 -18 -22" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M340 266 q-20 16 -6 32 q14 16 0 30" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M330 330 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M328 356 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M340 222 Q356 242 372 262 Q356 286 340 310 Q324 286 308 262 Q324 242 340 222 Z" fill="#FAC775" stroke="#8A5A2B" stroke-width="2"/>
+<path d="M340 226 L340 306" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M312 260 L368 260" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<circle cx="331" cy="258" r="4.5" fill="#2C2C2A"/>
+<circle cx="349" cy="258" r="4.5" fill="#2C2C2A"/>
+<path d="M335 274 q5 3 10 0" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<circle cx="296" cy="238" r="3" fill="#EF9F27"/>
+<circle cx="384" cy="238" r="3" fill="#EF9F27"/>
+<circle cx="340" cy="214" r="3.5" fill="#EF9F27"/>
+<text x="340" y="332" text-anchor="middle" font-size="12" fill="#5F5E5A">5 级 · 再加星光</text>
+<path d="M510 206 q-14 -10 -18 -22" fill="none" stroke="#B4B2A9" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M510 266 q-22 16 -8 34 q14 18 -2 32" fill="none" stroke="#8A5A2B" stroke-width="2" stroke-linecap="round"/>
+<path d="M498 332 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M496 358 l-9 -7 l9 -7 l9 7 z" fill="#E24B4A"/>
+<path d="M472 322 q-10 8 -2 14" fill="none" stroke="#EF9F27" stroke-width="2" stroke-linecap="round"/>
+<path d="M548 322 q10 8 2 14" fill="none" stroke="#EF9F27" stroke-width="2" stroke-linecap="round"/>
+<path d="M510 222 Q526 242 542 262 Q526 286 510 310 Q494 286 478 262 Q494 242 510 222 Z" fill="#FAC775" stroke="#EF9F27" stroke-width="3"/>
+<path d="M510 226 L510 306" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<path d="M482 260 L538 260" fill="none" stroke="#8A5A2B" stroke-width="1"/>
+<circle cx="501" cy="258" r="4.5" fill="#2C2C2A"/>
+<circle cx="519" cy="258" r="4.5" fill="#2C2C2A"/>
+<path d="M505 274 q5 3 10 0" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<circle cx="466" cy="238" r="3" fill="#EF9F27"/>
+<circle cx="554" cy="238" r="3" fill="#EF9F27"/>
+<circle cx="510" cy="214" r="3.5" fill="#EF9F27"/>
+<text x="510" y="332" text-anchor="middle" font-size="12" fill="#5F5E5A">7 级 · 金边 + 长流苏</text>
+</svg>

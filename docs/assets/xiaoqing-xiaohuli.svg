@@ -1,0 +1,146 @@
+<svg viewBox="0 0 680 350" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>小卿形象：小狐狸</title>
+<desc>一只橙色小狐狸，展示待机、高兴、思考、惊讶、困倦五种表情与尾巴姿态，以及三级、五级、七级的装饰变化。</desc>
+<line x1="40" y1="196" x2="640" y2="196" stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="4 4"/>
+<path d="M118 134 q26 6 22 -20" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="139" cy="112" r="7" fill="#FAEEDA"/>
+<ellipse cx="100" cy="132" rx="20" ry="15" fill="#E8863A"/>
+<ellipse cx="88" cy="146" rx="6" ry="4" fill="#FAEEDA"/>
+<ellipse cx="112" cy="146" rx="6" ry="4" fill="#FAEEDA"/>
+<path d="M78 88 L72 62 L94 78 Z" fill="#E8863A"/>
+<path d="M80 84 L77 70 L88 78 Z" fill="#F0997B"/>
+<path d="M122 88 L128 62 L106 78 Z" fill="#E8863A"/>
+<path d="M120 84 L123 70 L112 78 Z" fill="#F0997B"/>
+<circle cx="100" cy="106" r="27" fill="#E8863A"/>
+<ellipse cx="100" cy="116" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="100" cy="110" rx="3.5" ry="2.5" fill="#2C2C2A"/>
+<ellipse cx="82" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="118" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<circle cx="90" cy="100" r="4.5" fill="#2C2C2A"/>
+<circle cx="88.8" cy="98.8" r="1.5" fill="#FFFFFF"/>
+<circle cx="110" cy="100" r="4.5" fill="#2C2C2A"/>
+<circle cx="108.8" cy="98.8" r="1.5" fill="#FFFFFF"/>
+<text x="100" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">待机 · 尾巴轻扫</text>
+<path d="M120 132 q30 8 24 -26 q-2 -14 -14 -16" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="128" cy="94" r="7.5" fill="#FAEEDA"/>
+<ellipse cx="220" cy="132" rx="20" ry="15" fill="#E8863A"/>
+<ellipse cx="208" cy="146" rx="6" ry="4" fill="#FAEEDA"/>
+<ellipse cx="232" cy="146" rx="6" ry="4" fill="#FAEEDA"/>
+<path d="M198 88 L192 60 L214 76 Z" fill="#E8863A"/>
+<path d="M200 84 L197 68 L208 76 Z" fill="#F0997B"/>
+<path d="M242 88 L248 60 L226 76 Z" fill="#E8863A"/>
+<path d="M240 84 L243 68 L232 76 Z" fill="#F0997B"/>
+<circle cx="220" cy="106" r="27" fill="#E8863A"/>
+<ellipse cx="220" cy="116" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="220" cy="110" rx="4" ry="3" fill="#2C2C2A"/>
+<ellipse cx="202" cy="112" rx="5.5" ry="3.5" fill="#F0997B"/>
+<ellipse cx="238" cy="112" rx="5.5" ry="3.5" fill="#F0997B"/>
+<path d="M204 102 Q210 94 216 102" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M224 102 Q230 94 236 102" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M213 118 Q220 124 227 118" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<text x="220" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">高兴 · 尾巴卷起来</text>
+<g transform="rotate(-10 340 108)">
+<path d="M362 134 q-6 26 -26 20" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="338" cy="153" r="7" fill="#FAEEDA"/>
+<ellipse cx="340" cy="132" rx="20" ry="15" fill="#E8863A"/>
+<path d="M318 88 L312 62 L334 78 Z" fill="#E8863A"/>
+<path d="M320 84 L317 70 L328 78 Z" fill="#F0997B"/>
+<path d="M362 88 L368 62 L346 78 Z" fill="#E8863A"/>
+<path d="M360 84 L363 70 L352 78 Z" fill="#F0997B"/>
+<circle cx="340" cy="106" r="27" fill="#E8863A"/>
+<ellipse cx="340" cy="116" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="340" cy="110" rx="3.5" ry="2.5" fill="#2C2C2A"/>
+<ellipse cx="322" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="358" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<circle cx="330" cy="98" r="4" fill="#2C2C2A"/>
+<circle cx="350" cy="98" r="4" fill="#2C2C2A"/>
+<path d="M335 118 h10" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<circle cx="382" cy="86" r="2.5" fill="#5F5E5A"/>
+<circle cx="390" cy="82" r="2" fill="#5F5E5A"/>
+<circle cx="396" cy="78" r="1.6" fill="#5F5E5A"/>
+</g>
+<text x="340" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">思考 · 尾巴尖轻颤</text>
+<path d="M460 132 q34 -4 30 -40" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="488" cy="94" r="7.5" fill="#FAEEDA"/>
+<ellipse cx="460" cy="132" rx="20" ry="15" fill="#E8863A"/>
+<ellipse cx="448" cy="146" rx="6" ry="4" fill="#FAEEDA"/>
+<ellipse cx="472" cy="146" rx="6" ry="4" fill="#FAEEDA"/>
+<path d="M437 84 L427 56 L452 74 Z" fill="#E8863A"/>
+<path d="M439 80 L434 64 L446 74 Z" fill="#F0997B"/>
+<path d="M483 84 L493 56 L468 74 Z" fill="#E8863A"/>
+<path d="M481 80 L486 64 L474 74 Z" fill="#F0997B"/>
+<circle cx="460" cy="106" r="27" fill="#E8863A"/>
+<ellipse cx="460" cy="116" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="460" cy="111" rx="4" ry="3.5" fill="#2C2C2A"/>
+<ellipse cx="442" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="478" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<circle cx="450" cy="98" r="6.5" fill="#FFFFFF" stroke="#2C2C2A" stroke-width="1.5"/>
+<circle cx="450" cy="98" r="2.8" fill="#2C2C2A"/>
+<circle cx="470" cy="98" r="6.5" fill="#FFFFFF" stroke="#2C2C2A" stroke-width="1.5"/>
+<circle cx="470" cy="98" r="2.8" fill="#2C2C2A"/>
+<text x="506" y="68" text-anchor="middle" font-size="12" fill="#5F5E5A">!</text>
+<text x="460" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">惊讶 · 尾巴竖直</text>
+<path d="M580 134 q-30 12 -38 -4" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="544" cy="130" r="7" fill="#FAEEDA"/>
+<ellipse cx="580" cy="132" rx="20" ry="15" fill="#E8863A"/>
+<path d="M558 88 L552 66 L574 80 Z" fill="#E8863A"/>
+<path d="M560 84 L557 72 L568 80 Z" fill="#F0997B"/>
+<path d="M602 88 L608 66 L586 80 Z" fill="#E8863A"/>
+<path d="M600 84 L603 72 L592 80 Z" fill="#F0997B"/>
+<circle cx="580" cy="106" r="27" fill="#E8863A"/>
+<ellipse cx="580" cy="116" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="580" cy="110" rx="3.5" ry="2.5" fill="#2C2C2A"/>
+<ellipse cx="562" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<ellipse cx="598" cy="112" rx="5" ry="3" fill="#F0997B"/>
+<path d="M564 100 h9" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M588 100 h9" fill="none" stroke="#2C2C2A" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M576 118 q4 3 8 0" fill="none" stroke="#2C2C2A" stroke-width="2" stroke-linecap="round"/>
+<text x="620" y="96" text-anchor="middle" font-size="12" fill="#5F5E5A">z</text>
+<text x="630" y="86" text-anchor="middle" font-size="12" fill="#5F5E5A">z</text>
+<text x="580" y="176" text-anchor="middle" font-size="12" fill="#5F5E5A">困倦 · 尾巴当毯子</text>
+<path d="M188 258 q26 6 22 -20" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="209" cy="236" r="7" fill="#FAEEDA"/>
+<ellipse cx="170" cy="256" rx="20" ry="15" fill="#E8863A"/>
+<path d="M148 214 L142 190 L164 204 Z" fill="#E8863A"/>
+<path d="M192 214 L198 190 L176 204 Z" fill="#E8863A"/>
+<circle cx="170" cy="232" r="27" fill="#E8863A"/>
+<ellipse cx="170" cy="242" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="170" cy="236" rx="3.5" ry="2.5" fill="#2C2C2A"/>
+<circle cx="160" cy="226" r="4.5" fill="#2C2C2A"/>
+<circle cx="180" cy="226" r="4.5" fill="#2C2C2A"/>
+<path d="M152 240 q18 8 36 0" fill="none" stroke="#EF9F27" stroke-width="3"/>
+<circle cx="170" cy="248" r="4.5" fill="#EF9F27"/>
+<text x="170" y="332" text-anchor="middle" font-size="12" fill="#5F5E5A">3 级 · 戴上小铃铛</text>
+<path d="M358 258 q26 6 22 -20" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="379" cy="236" r="7" fill="#FAEEDA"/>
+<ellipse cx="340" cy="256" rx="20" ry="15" fill="#E8863A"/>
+<path d="M318 214 L312 190 L334 204 Z" fill="#E8863A"/>
+<path d="M362 214 L368 190 L346 204 Z" fill="#E8863A"/>
+<circle cx="340" cy="232" r="27" fill="#E8863A"/>
+<ellipse cx="340" cy="242" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="340" cy="236" rx="3.5" ry="2.5" fill="#2C2C2A"/>
+<circle cx="330" cy="226" r="4.5" fill="#2C2C2A"/>
+<circle cx="350" cy="226" r="4.5" fill="#2C2C2A"/>
+<path d="M322 240 q18 8 36 0" fill="none" stroke="#EF9F27" stroke-width="3"/>
+<circle cx="340" cy="248" r="4.5" fill="#EF9F27"/>
+<circle cx="304" cy="222" r="3" fill="#EF9F27"/>
+<circle cx="376" cy="222" r="3" fill="#EF9F27"/>
+<circle cx="340" cy="196" r="3.5" fill="#EF9F27"/>
+<text x="340" y="332" text-anchor="middle" font-size="12" fill="#5F5E5A">5 级 · 再加星光</text>
+<path d="M528 258 q26 6 22 -20" fill="none" stroke="#E8863A" stroke-width="13" stroke-linecap="round"/>
+<circle cx="549" cy="236" r="7" fill="#FAEEDA"/>
+<ellipse cx="510" cy="256" rx="20" ry="15" fill="#E8863A"/>
+<path d="M488 214 L482 190 L504 204 Z" fill="#E8863A"/>
+<path d="M532 214 L538 190 L516 204 Z" fill="#E8863A"/>
+<path d="M494 244 q-14 10 -24 6 q10 12 26 8" fill="#E24B4A" stroke="#A32D2D" stroke-width="1.5"/>
+<circle cx="510" cy="232" r="27" fill="#E8863A"/>
+<ellipse cx="510" cy="242" rx="13" ry="9" fill="#FAEEDA"/>
+<ellipse cx="510" cy="236" rx="3.5" ry="2.5" fill="#2C2C2A"/>
+<circle cx="500" cy="226" r="4.5" fill="#2C2C2A"/>
+<circle cx="520" cy="226" r="4.5" fill="#2C2C2A"/>
+<path d="M492 240 q18 8 36 0" fill="none" stroke="#EF9F27" stroke-width="3"/>
+<circle cx="510" cy="248" r="4.5" fill="#EF9F27"/>
+<path d="M486 196 Q510 184 534 196" fill="none" stroke="#EF9F27" stroke-width="2.5" stroke-linecap="round"/>
+<circle cx="510" cy="188" r="3.5" fill="#EF9F27"/>
+<text x="510" y="332" text-anchor="middle" font-size="12" fill="#5F5E5A">7 级 · 铃铛 + 星光 + 红围巾</text>
+</svg>
