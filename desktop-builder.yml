@@ -7,6 +7,10 @@ copyright: © 2026 白衣卿相
 # v1 不用 asar：Astro Node standalone 产物（含原生模块路径解析）直接以平铺文件分发，最稳妥
 asar: false
 
+# 跳过原生模块重编：better-sqlite3 v13 / sharp 均为 N-API（跨 ABI 通用，冒烟已在
+# Electron 内实测加载成功），本机无 Visual Studio，重编必然失败且不必要
+npmRebuild: false
+
 directories:
   output: release
   buildResources: build

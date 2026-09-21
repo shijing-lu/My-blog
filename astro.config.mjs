@@ -40,6 +40,12 @@ export default defineConfig({
     // `[SENSITIVE]` 脱敏占位与本地 dev 值）不被加载，import.meta.env 保持干净，
     // 运行时全部由 Electron 主进程注入的 process.env 提供（见 desktop/main.cjs）。
     ...(isDesktop ? { envDir: fileURLToPath(new URL('./desktop/empty-env', import.meta.url)) } : {}),
+    /**
+     * ⚠️ 不要在此启用 `ssr.noExternal`（把依赖内联进 bundle）——实测会破坏服务端模块初始化：
+     * 内联后 drizzle-orm 的 `customType` 在 schema 求值时为 undefined，
+     * 报 `Class extends value undefined is not a constructor or null`（应用起不来）。
+     * 自包含分发请走"复制依赖闭包"路线（scripts/make-desktop-bundle.mjs）。
+     */
     plugins: [tailwindcss()],
     resolve: {
       alias: {

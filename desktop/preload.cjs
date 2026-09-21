@@ -5,7 +5,9 @@
  * - **不暴露**任何 Node / fs / IPC 写能力——桌面端的安全边界是「浏览器页面 = Web 页面」，
  *   所有数据读写都走本地服务的 HTTP API（与 Web 版同一套端点），桌面壳不参与业务。
  */
-import { contextBridge, ipcRenderer } from 'electron';
+// ⚠️ 本文件是 .cjs，必须用 CommonJS：写成 ESM 的 import 会导致
+// "Cannot use import statement outside a module"（preload 加载失败，实测踩过）。
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('desktop', {
   /** 桌面端构建版本（package.json version） */
