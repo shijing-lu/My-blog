@@ -1,0 +1,76 @@
+// My-Blog 模块依赖图（L3/L4，当前态）。密集关系用 TB 布局。
+// 置信度标注：[H]=代码直接证据 [M]=多处信号一致 [I]=推断
+digraph modules {
+    rankdir=TB;
+    node [fontname="Microsoft YaHei", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f5f5f5"];
+    edge [fontname="Microsoft YaHei", fontsize=9];
+
+    subgraph cluster_client {
+        label="请求入口"; style=rounded;
+        pages   [label="src/pages/**\n公共页+admin页 [H]", fillcolor="#dbe9f4"];
+        api     [label="src/pages/api/**\n~120 端点 prerender=false [H]", fillcolor="#dbe9f4"];
+        islands [label="React 岛\nMarkdownEditor/cm-wysiwyg/LiveEditor [H]", fillcolor="#dbe9f4"];
+    }
+
+    mw [label="src/middleware.ts\n三层身份: admin_session/GitHub管理员/访客 [H]", fillcolor="#fce8d5"];
+
+    subgraph cluster_content {
+        label="内容管线"; style=rounded;
+        mdx   [label="src/lib/mdx.ts\n@mdx-js evaluate + LRU缓存100条 [H]"];
+        plug  [label="mdx-plugins.ts + mdx/*\nremark/rehype: gfm,math,directive,katex [H]"];
+        reg   [label="components/mdx/registry.tsx\nCallout/Collapse/Tabs/Spoiler/Lightbox [H]"];
+    }
+
+    subgraph cluster_data {
+        label="数据层"; style=rounded;
+        dblayer [label="db/index.ts\nProxy方言路由+断路器60s+双写镜像 [H]"];
+        dial    [label="db/dialect.ts\nDATABASE_URL前缀判定 PG/SQLite [H]"];
+        schema  [label="schema.pg.ts / schema.sqlite.ts\n31表字段严格一致 [H]"];
+        sync    [label="src/sync/engine.ts\n逐表串行/表级镜像/15min上限 [H]"];
+        coresyn [label="sync/core: 三方合并\nbase-ours-theirs, LWW updated_at [H]"];
+        adapt   [label="sync/adapters\nsqlite-endpoint / pg-endpoint / local-objects [H]"];
+        sqlite  [label="本地 SQLite\nbetter-sqlite3 惰性加载 [H]", shape=cylinder];
+        pg      [label="PostgreSQL\n主库(Vercel侧)+备库(同步镜像) [H]", shape=cylinder];
+    }
+
+    subgraph cluster_storage {
+        label="对象/外部"; style=rounded;
+        obj  [label="src/lib/object-storage.ts\nR2 via @aws-sdk/client-s3 惰性import [H]"];
+        r2   [label="Cloudflare R2", shape=cloud, fillcolor="#e8f0e8"];
+        gh   [label="GitHub OAuth/图床", shape=cloud, fillcolor="#e8f0e8"];
+        blob [label="Vercel Blob(仅字体)", shape=cloud, fillcolor="#e8f0e8"];
+    }
+
+    subgraph cluster_desktop {
+        label="Electron 桌面端"; style=rounded;
+        main [label="desktop/main.cjs\n注入env→动态import entry.mjs→127.0.0.1 [H]"];
+        pre  [label="desktop/preload.cjs\n仅暴露 version/openConfigDir [H]"];
+        bundle [label="scripts/make-desktop-bundle.mjs\nDESKTOP=1 node standalone [H]"];
+    }
+
+    pages -> mw [label="经过"];
+    api   -> mw [label="经过"];
+    pages -> mdx [label="SSR 渲染"];
+    api   -> dblayer [label="读写 [H]"];
+    pages -> dblayer [label="28 文件引用 db [H]"];
+    islands -> api [label="保存草稿/渲染预览"];
+    mdx -> plug;
+    mdx -> reg [label="directive→组件 [I]"];
+    mdx -> dblayer [label="渲染缓存失效 [M]"];
+    dblayer -> dial;
+    dblayer -> schema;
+    dblayer -> pg [label="双写镜像→备库 [H]"];
+    dblayer -> sqlite [label="桌面/本地模式"];
+    sync -> coresyn;
+    sync -> adapt;
+    adapt -> sqlite;
+    adapt -> pg [label="SYNC_DATABASE_URL"];
+    api -> obj;
+    obj -> r2;
+    api -> gh [label="auth/github[/callback]"];
+    api -> blob [label="fonts/* [M]"];
+    api -> sync [label="/api/desktop/sync 触发 [H]"];
+    main -> bundle [label="加载构建产物", style=dashed];
+    main -> mw [label="同一套 HTTP 端点 [H]", style=dashed];
+    pre -> main [label="受限 IPC", style=dashed];
+}
