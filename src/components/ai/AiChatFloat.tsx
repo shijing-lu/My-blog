@@ -19,11 +19,22 @@
  * SSE 帧格式（服务端 /api/ai/chat 重帧）：data: {"delta":"…"} / {"error":"…"} / {"done":true}
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageCircle, Send, Square, Trash2, X } from 'lucide-react';
+import { Brain, MessageCircle, Send, Square, Trash2, X } from 'lucide-react';
+import XiaoQingFox from './XiaoQingFox';
+import { LEVEL_NAMES } from '@/lib/ai-bond';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
 import { KATEX_ALLOWED_TAGS, KATEX_RENDER_OPTIONS } from '@/lib/math-sanitize';
+
+/** 触发会话摘要（fire-and-forget；失败静默——记忆是附加值，不能因它报错） */
+function triggerSummarize(conversationId: string): void {
+  void fetch('/api/ai/summarize', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ conversationId }),
+  }).catch(() => {});
+}
 
 interface Props {
   /** SSR 判定 AI 是否就绪（enabled + baseUrl/apiKey/model 齐全）；false 时组件不渲染任何 UI */
@@ -191,6 +202,17 @@ export default function AiChatFloat({ enabled }: Props) {
   const [docked, setDocked] = useState(false);
   /** 服务端首帧下发的元信息（昵称/等级/是否主人） */
   const [meta, setMeta] = useState<ChatMeta | null>(null);
+  /**
+   * 站主专属：当前会话 id（消息落库 + 摘要触发用）。
+   * 一个站主长期只有一个"主会话"（关系是连续的），清空对话 = 开新会话。
+   * 访客恒为空串 = 不落库、不记忆。
+   */
+  const [convId, setConvId] = useState('');
+  const convIdRef = useRef('');
+  /** 记忆管理弹窗 */
+  const [memOpen, setMemOpen] = useState(false);
+  const [memList, setMemList] = useState<Array<{ id: string; kind: string; content: string; importance: number }>>([]);
+  const [memLoading, setMemLoading] = useState(false);
   const [pos, setPos] = useState<FloatPos>({ x: 0, y: 0 });
   const [size, setSize] = useState<{ w: number; h: number }>({ w: DEFAULT_W, h: DEFAULT_H });
   const [selectionCtx, setSelectionCtx] = useState<{ text: string; title: string } | null>(null);
@@ -262,6 +284,8 @@ export default function AiChatFloat({ enabled }: Props) {
 
   /** 当前浏览者是主人（顶级管理员）→ 浮窗显示徽标；仅 UI 展示，服务端独立判定不受此处影响 */
   const [isOwner, setIsOwner] = useState(false);
+  /** 回调（closeFloat 等）里读 isOwner 用 ref，避免依赖数组膨胀 */
+  const isOwnerRef = useRef(false);
   useEffect(() => {
     if (!enabled) return;
     if (ownerBadgeCache !== null) {
@@ -275,13 +299,41 @@ export default function AiChatFloat({ enabled }: Props) {
         if (!d) return;
         const owner = d.identity === 'top' || (d.identity === 'github' && d.account?.role === 'top');
         ownerBadgeCache = owner;
-        if (alive && owner) setIsOwner(true);
+        if (alive && owner) {
+          setIsOwner(true);
+          // 站主的会话 id 持久化：关系是连续的，跨页面/重启都延续同一段记忆
+          setConvId((v) => v || localStorage.getItem('ai_conversation_id_v1') || `conv-${crypto.randomUUID()}`);
+        }
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
   }, [enabled]);
+
+  /** ref 同步：回调（closeFloat 等）里读取，避免依赖数组膨胀 */
+  useEffect(() => {
+    isOwnerRef.current = isOwner;
+  }, [isOwner]);
+  useEffect(() => {
+    convIdRef.current = convId;
+  }, [convId]);
+  /** 站主的会话 id 持久化：跨页面/重启延续同一段记忆 */
+  useEffect(() => {
+    if (!isOwner || !convId) return;
+    try {
+      localStorage.setItem('ai_conversation_id_v1', convId);
+    } catch {
+      /* 隐私模式忽略 */
+    }
+  }, [isOwner, convId]);
+
+  /** 开启新会话：旧会话保留在库（摘要原料），但关系重新开始 */
+  const rollConversation = useCallback((): void => {
+    const fresh = `conv-${crypto.randomUUID()}`;
+    convIdRef.current = fresh;
+    setConvId(fresh);
+  }, []);
 
   /* ---------- 尺寸初始化（ClientRouter 转场岛重建后执行） ---------- */
   /* 说明：消息与尺寸均**不跨页面/跨会话持久化**——每次重建都回到默认尺寸（见 initialSize），
@@ -342,8 +394,15 @@ export default function AiChatFloat({ enabled }: Props) {
             error?: string;
             done?: boolean;
             meta?: ChatMeta;
+            conversationId?: string;
+            turnCount?: number;
+            suggestSummarize?: boolean;
           };
           if (payload.meta) setMeta(payload.meta);
+          if (payload.done && payload.conversationId) setConvId(payload.conversationId);
+          if (payload.done && payload.suggestSummarize && convIdRef.current) {
+            triggerSummarize(convIdRef.current); // fire-and-forget：失败静默
+          }
           if (typeof payload.delta === 'string' && payload.delta !== '' && !controller.signal.aborted) appendDelta(payload.delta);
           if (payload.error) throw new Error(payload.error);
           // done 帧无需处理：随后 read() 自然 done
@@ -382,7 +441,10 @@ export default function AiChatFloat({ enabled }: Props) {
         const res = await fetch('/api/ai/chat', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ messages: next.slice(0, -1) }),
+          body: JSON.stringify({
+            messages: next.slice(0, -1),
+            ...(convIdRef.current ? { conversationId: convIdRef.current } : {}),
+          }),
           signal: controller.signal,
         });
         if (!res.ok) {
@@ -614,11 +676,47 @@ export default function AiChatFloat({ enabled }: Props) {
   const closeFloat = useCallback(() => {
     setOpen(false);
     iconModeRef.current = false; // 关闭后复位，下一次图标点击仍是"打开"
+    // 会话结束收尾：站主且聊得够多 → 触发一次收尾摘要，然后开启新会话
+    if (isOwnerRef.current && messagesRef.current.length >= 4 && convIdRef.current) {
+      triggerSummarize(convIdRef.current);
+      rollConversation();
+    }
     resetConversation();
   }, [resetConversation]);
   closeRef.current = closeFloat;
 
-  const clearChat = resetConversation;
+  const clearChat = useCallback(() => {
+    // 清空对话 = 主动开新会话（旧会话的摘要原料保留在库里，但关系重新开始）
+    if (isOwnerRef.current && convIdRef.current) {
+      rollConversation();
+    }
+    resetConversation();
+  }, [resetConversation, rollConversation]);
+
+  /* ---------- 记忆管理（站主专属）：查看 / 删除单条 / 全部清空 ---------- */
+  const openMemModal = useCallback((): void => {
+    setMemOpen(true);
+    setMemLoading(true);
+    fetch('/api/ai/memory')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { memories?: Array<{ id: string; kind: string; content: string; importance: number }> }) => {
+        setMemList(d.memories ?? []);
+      })
+      .catch(() => setMemList([]))
+      .finally(() => setMemLoading(false));
+  }, []);
+
+  const delMem = useCallback((id: string): void => {
+    fetch(`/api/ai/memory?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .then(() => setMemList((prev) => prev.filter((m) => m.id !== id)))
+      .catch(() => {});
+  }, []);
+
+  const clearAllMem = useCallback((): void => {
+    fetch('/api/ai/memory?all=1', { method: 'DELETE' })
+      .then(() => setMemList([]))
+      .catch(() => {});
+  }, []);
 
   /* ---------- 渲染 ---------- */
   if (!enabled) return null;
@@ -657,6 +755,65 @@ export default function AiChatFloat({ enabled }: Props) {
 .ai-md.ai-streaming .ai-md-body > :last-child::after { content: '▌'; margin-left: 1px; animation: ai-caret 1s step-end infinite; }
 @keyframes ai-caret { 50% { opacity: 0; } }
       `}</style>
+
+      {/* 记忆管理弹窗（站主专属） */}
+      {memOpen && (
+        <div
+          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setMemOpen(false)}
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+              <p className="text-sm font-medium">小卿的记忆（{memList.length} 条）</p>
+              <div className="flex items-center gap-1">
+                {memList.length > 0 && (
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
+                    onClick={() => void clearAllMem()}
+                  >
+                    全部清空
+                  </button>
+                )}
+                <button type="button" aria-label="关闭" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={() => setMemOpen(false)}>
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[52vh] overflow-y-auto px-4 py-2">
+              {memLoading ? (
+                <p className="py-8 text-center text-xs text-muted-foreground">加载中…</p>
+              ) : memList.length === 0 ? (
+                <p className="py-8 text-center text-xs text-muted-foreground">还没有长期记忆。多和小卿聊聊，它会把重要的事记下来。</p>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {memList.map((m) => (
+                    <li key={m.id} className="flex items-start gap-2 py-2">
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{m.kind}</span>
+                      <span className="min-w-0 flex-1 break-words text-sm">{m.content}</span>
+                      <button
+                        type="button"
+                        aria-label="删除这条记忆"
+                        title="删除这条记忆"
+                        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => void delMem(m.id)}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <p className="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
+              记忆仅站主可见；删除后小卿将不再记得对应内容。访客不会有任何记忆。
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* F2 右键菜单 */}
       {menu && (
@@ -698,11 +855,11 @@ export default function AiChatFloat({ enabled }: Props) {
           >
             <div className="min-w-0 flex-1">
               <p id="ai-chat-float-title" className="flex items-center gap-1.5 text-sm font-medium">
-                <MessageCircle className="size-4 text-primary" />
+                {docked && isOwner ? <XiaoQingFox size={24} level={meta?.level ?? 0} /> : <MessageCircle className="size-4 text-primary" />}
                 {meta?.nickname?.trim() || '小卿'}
                 {isOwner ? (
                   <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                    {meta ? `Lv.${meta.level} · 主人` : '主人'}
+                    {meta ? `Lv.${meta.level} ${LEVEL_NAMES[meta.level] ?? ''} · 主人` : '主人'}
                   </span>
                 ) : (
                   <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -718,6 +875,17 @@ export default function AiChatFloat({ enabled }: Props) {
                   <Square className="size-3.5" />
                 </button>
               )}
+              {docked && isOwner && (
+                <button
+                  type="button"
+                  aria-label="记忆管理"
+                  title="小卿的记忆（查看 / 删除）"
+                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={openMemModal}
+                >
+                  <Brain className="size-3.5" />
+                </button>
+              )}
               <button type="button" aria-label="清空对话" title="清空对话" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" onClick={clearChat}>
                 <Trash2 className="size-3.5" />
               </button>
@@ -726,6 +894,20 @@ export default function AiChatFloat({ enabled }: Props) {
               </button>
             </div>
           </div>
+
+          {/* 亲密度进度条（站主 + docked 模式） */}
+          {docked && isOwner && meta && (
+            <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-3 py-1">
+              <span className="text-[10px] text-muted-foreground">亲密度</span>
+              <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-500"
+                  style={{ width: `${Math.round(meta.familiarity * 100)}%` }}
+                />
+              </div>
+              <span className="text-[10px] tabular-nums text-muted-foreground">{Math.round(meta.familiarity * 100)}%</span>
+            </div>
+          )}
 
           {/* 消息区（自动滚动：内容增高跟滚 + 发送后平滑到底 + 上滚暂停跟随） */}
           <div ref={bodyRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto overscroll-contain px-3 py-3">
