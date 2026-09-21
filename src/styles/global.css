@@ -2421,6 +2421,74 @@
     margin: 0;
   }
 
+  /* ---------- 图片画廊网格 `:::grid`（Markdown 扩展语法） ----------
+     卡片比例由 --md-grid-aspect 固定，图片以 object-fit 填充（--md-grid-fit）；
+     列数走 --md-grid-cols（桌面）/ --md-grid-cols-sm（<768px）；
+     这是「容器外图片左对齐、无图注」规范的**受控例外**：仅网格内显示图注。 */
+  .prose .md-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--md-grid-cols, 3), minmax(0, 1fr));
+    gap: 0.5rem;
+    margin: 1.25rem 0;
+    align-items: stretch;
+  }
+  /* 图片各自成段（`<p><figure/></p>`）：让 figure 直接成为网格项 */
+  .prose .md-grid > p {
+    display: contents;
+  }
+  .prose .md-grid .lightbox-figure {
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    border-radius: 0.5rem;
+    overflow: hidden; /* 悬停放大时裁掉溢出，卡片保持圆角 */
+  }
+  .prose .md-grid .lightbox-figure img {
+    display: block;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    aspect-ratio: var(--md-grid-aspect, 16/10);
+    object-fit: var(--md-grid-fit, cover);
+    margin: 0;
+    border-radius: 0;
+    transition: transform 0.35s ease;
+  }
+  .prose .md-grid .lightbox-figure:hover img {
+    transform: scale(1.03);
+  }
+  /* 网格内显示图注并**底部对齐**（同行卡片等高，长图注不撑乱行） */
+  .prose .md-grid .lightbox-figure figcaption {
+    display: block;
+    margin-top: auto;
+    padding: 0.45rem 0.15rem 0;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--muted-foreground);
+  }
+  /* 响应式：<768px 最多两列；<480px 单列 */
+  @media (max-width: 767px) {
+    .prose .md-grid {
+      grid-template-columns: repeat(var(--md-grid-cols-sm, 2), minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 479px) {
+    .prose .md-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prose .md-grid .lightbox-figure img {
+      transition: none;
+    }
+    .prose .md-grid .lightbox-figure:hover img {
+      transform: none;
+    }
+  }
+
   /* 灯箱遮罩（JS 动态注入） */
   .lightbox-overlay {
     @apply fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm;
@@ -2446,6 +2514,10 @@
   }
   .lightbox-overlay .lightbox-next {
     @apply right-4;
+  }
+  /* 图片计数（仅多图分组显示；网格画廊内导航时可见） */
+  .lightbox-overlay .lightbox-count {
+    @apply absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-xs tabular-nums text-white/80;
   }
 }
 

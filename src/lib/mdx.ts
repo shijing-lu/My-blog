@@ -884,6 +884,106 @@ export function normalizeCollapseParams(source: string): string {
 /** `:::collapse` 允许的参数名白名单 */
 const COLLAPSE_PARAM_NAMES = new Set(['accordion', 'expand']);
 
+/* ============================================================================
+ * 图片画廊网格 `:::grid` 参数规范化
+ *
+ * ## 作者书写形态（两种都接受）
+ *
+ *   :::grid{columns="3" aspect="16/9" fit="cover"}
+ *   :::grid columns=3 aspect=16/9 fit=cover
+ *   :::grid                       ← 全默认（3 列 / 16:10 / cover）
+ *
+ * ## 为什么必须改写（实测，勿回退）
+ *
+ * `remark-directive` 在本项目的实测结果（.diag 探针脚本验证）：
+ * - `{columns="3"}`（带引号的值）→ **整行降级为普通段落**，指令完全失效；
+ * - `{columns=3}` → 被解析为属性名 `columns=3`、值为空串（值丢失）；
+ * - `{#id}` / `{.class}` / `{#id .class}` → 正常解析。
+ *
+ * 另有一层叠加原因：管线前段的 `escapeBareBraces`（数学区外裸花括号兜底，
+ * 防 acorn 崩）会把作者写的 `{` `}` 转义成 `\{` `\}`。因此**带引号的参数
+ * 写法注定活不到解析器**。
+ *
+ * 结论：作者侧保留自然写法，源码层统一改写为解析器唯一稳的形态——
+ * `:::grid{#<token>}`，token 形如 `g3-a16x9-cover`（列数 / 比例 / 适应模式），
+ * 由 `remarkDirectiveToJsx` 解码。与 `normalizeTabs` 产出 `{#stableId}`
+ * 是同一手法：**改写发生在花括号转义之后，故产物不会被二次转义**。
+ *
+ * ## 降级
+ *
+ * 参数解析不出任何合法键值（例如行尾混入了正文）→ 原样保留该行；
+ * 单个参数非法 → 该参数回退默认值（列数 1~6 否则 3；比例非法否则 16/10；
+ * 适应模式非 contain 一律 cover）。
+ * ==========================================================================*/
+
+/** 网格参数（已校验） */
+interface GridParams {
+  columns: number;
+  aspect: string;
+  fit: 'cover' | 'contain';
+}
+
+/** 把 `g3-a16x9-cover` 编码为参数（与 mdx-plugins 的解码互为逆运算） */
+function encodeGridToken(p: GridParams): string {
+  return `g${p.columns}-a${p.aspect.replace('/', 'x')}-${p.fit}`;
+}
+
+/** 解析并校验参数（容错：去转义反斜杠、忽略引号、大小写不敏感） */
+function parseGridParams(raw: string): GridParams {
+  const out: GridParams = { columns: 3, aspect: '16/10', fit: 'cover' };
+  // 还原花括号转义兜底留下的反斜杠（`\{` → `{`、`\"` → `"`）
+  const text = raw.replace(/\\([{}\\'"])/g, '$1');
+  for (const m of text.matchAll(/([A-Za-z][\w-]*)\s*=\s*"?([^"\s,}]+)"?/g)) {
+    const key = (m[1] ?? '').toLowerCase();
+    const value = (m[2] ?? '').trim();
+    if (!value) continue;
+    if (key === 'columns' || key === 'cols') {
+      const n = Number.parseInt(value, 10);
+      if (Number.isFinite(n) && n >= 1 && n <= 6) out.columns = n;
+    } else if (key === 'aspect' || key === 'ratio') {
+      const am = /^(\d{1,3})\s*[/:]\s*(\d{1,3})$/.exec(value);
+      if (am && Number(am[1]) > 0 && Number(am[2]) > 0) out.aspect = `${am[1]}/${am[2]}`;
+    } else if (key === 'fit') {
+      if (value.toLowerCase() === 'contain') out.fit = 'contain';
+      else if (value.toLowerCase() === 'cover') out.fit = 'cover';
+    }
+  }
+  return out;
+}
+
+/**
+ * 源码层：把 `:::grid` 开标记行的参数改写为 `{#token}` 编码形式。
+ *
+ * - 仅处理开标记行（行首 0~3 空格 + 至少 3 个冒号 + `grid`），闭合 `:::` 与行内提及不受影响；
+ * - 仅在围栏代码块之外生效（示例写法原样保留）；
+ * - 行尾出现无法解释的内容时原样保留该行（降级为普通文本，不吞用户内容）。
+ */
+export function normalizeGridParams(source: string): string {
+  return mapOutsideCode(source, (chunk) =>
+    chunk.replace(
+      /^([ \t]{0,3})(:{3,})[ \t]*grid\b(.*)$/gm,
+      (full, indent: string, colons: string, rest: string) => {
+        const tail = rest.trim();
+        let body = '';
+        if (tail) {
+          // 花括号形态（可能已被花括号转义兜底改写为 \{ … \}）
+          const brace = /^\\?\{([\s\S]*?)\\?\}$/.exec(tail);
+          if (brace) {
+            body = brace[1] ?? '';
+          } else if (/^(?:[A-Za-z][\w-]*\s*=\s*"?[^"\s,}]+"?[ \t]*)+$/.test(tail)) {
+            // 空格分隔的 key=value 形态
+            body = tail;
+          } else {
+            // 无法解释 → 原样保留（降级）
+            return full;
+          }
+        }
+        return `${indent}${colons}grid{#${encodeGridToken(parseGridParams(body))}}`;
+      },
+    ),
+  );
+}
+
 /** 折叠面板初始状态标记的哨兵（私有区字符，正文不会自然出现） */
 const COLLAPSE_MARK_SENT = '\uE002';
 
@@ -1280,7 +1380,11 @@ export function normalizeSource(source: string): string {
     encodeCollapseMarkers(
       normalizeTabs(
         normalizeCollapseParams(
-          normalizeMathFences(encodeMarkLeadVariant(normalizeBackticks(source))),
+          // grid 必须排在 normalizeMathFences 之后：花括号转义兜底先跑，
+          // 否则作者写的 `{columns="3"}` 会被转义成 `\{…\}` 而在解析器前失效
+          normalizeGridParams(
+            normalizeMathFences(encodeMarkLeadVariant(normalizeBackticks(source))),
+          ),
         ),
       ),
     ),

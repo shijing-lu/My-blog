@@ -163,6 +163,21 @@ export function rehypeSkipHugeCode() {
  *  @deprecated 请从 `@/lib/mdx/nodes` 导入 `DirectiveNode`，此处仅为兼容旧引用保留别名。 */
 type DirectiveNode = MdxDirectiveNode;
 
+/** `:::grid` 参数解码（与 src/lib/mdx.ts 的 encodeGridToken 互为逆运算） */
+function decodeGridToken(id: unknown): { columns: number; aspect: string; fit: 'cover' | 'contain' } {
+  const fallback = { columns: 3, aspect: '16/10', fit: 'cover' as const };
+  const m = /^g(\d{1,2})-a(\d{1,3})x(\d{1,3})-(cover|contain)$/.exec(String(id ?? ''));
+  if (!m) return fallback;
+  const cols = Number(m[1]);
+  const w = Number(m[2]);
+  const h = Number(m[3]);
+  return {
+    columns: cols >= 1 && cols <= 6 ? cols : 3,
+    aspect: w > 0 && h > 0 ? `${w}/${h}` : '16/10',
+    fit: m[4] === 'contain' ? 'contain' : 'cover',
+  };
+}
+
 /** 递归转换某子级数组（含嵌套） */
 function transformChildren(children: Node[]): void {
   for (let i = 0; i < children.length; i += 1) {
@@ -171,6 +186,25 @@ function transformChildren(children: Node[]): void {
       node.type === 'containerDirective' ||
       node.type === 'leafDirective' ||
       node.type === 'textDirective';
+    if (isDirective && node.name === 'grid') {
+      // `:::grid` → <Grid columns aspect fit>
+      // 参数由源码层 normalizeGridParams 编码为 `{#g3-a16x9-cover}`（见 src/lib/mdx.ts
+      // 说明：带引号的属性写法在本项目的 remark-directive 下会导致整行降级，故走编码）
+      const decoded = decodeGridToken((node.attributes as Record<string, unknown> | undefined)?.id);
+      const newNode = {
+        type: 'mdxJsxFlowElement',
+        name: 'Grid',
+        attributes: [
+          { type: 'mdxJsxAttribute', name: 'columns', value: String(decoded.columns) },
+          { type: 'mdxJsxAttribute', name: 'aspect', value: decoded.aspect },
+          { type: 'mdxJsxAttribute', name: 'fit', value: decoded.fit },
+        ],
+        children: node.children ?? [],
+      } as unknown as RootContent;
+      children[i] = newNode;
+      transformChildren(node.children ?? []);
+      continue;
+    }
     if (isDirective && node.name && (ADMONITION_TYPES as readonly string[]).includes(node.name)) {
       const isText = node.type === 'textDirective';
       const newNode = {
