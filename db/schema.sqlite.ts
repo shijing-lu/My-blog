@@ -882,3 +882,127 @@ export const syncConflicts = sqliteTable('sync_conflicts', {
   winner: text('winner').notNull(),
   createdAt: integer('created_at').notNull(),
 });
+
+/* ============================================================================
+ * AI 小卿：会话 / 消息 / 长期记忆 / 养成度（站主专属）
+ *
+ * 设计要点：
+ * - 四张表都是**站主私有数据**，只在 isTopAdmin 身份下读写（见 src/lib/ai-store.ts）；
+ * - 均登记为同步 `lww`（见 src/sync/tables.ts），因此都带 updated_at；
+ * - `depthScore` 用**千分制整数**（浮点 ×1000 后取整）存储：双方言整数运算一致，
+ *   避免 SQLite/PG 浮点表示差异导致哈希不同、同步误判为"有变更"；
+ * - 布尔列一律 `booleanFlag`（项目铁律：`integer(mode:'boolean')` 在 PG 会静默存 false）；
+ * - 游客用量计数**不建表**：沿用 settings 表的 `ai_usage` 键（已在同步策略里排除）。
+ * ==========================================================================*/
+
+/** AI 会话（一次连续对话一行） */
+export const aiConversations = sqliteTable(
+  'ai_conversations',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 会话标题（首条用户消息截取，便于历史列表辨识） */
+    title: text('title').notNull().default(''),
+    /** 消息条数（含双方，聚合避免每次扫 ai_messages） */
+    messageCount: integer('message_count').notNull().default(0),
+    /** 会话深度分（千分制整数，见文件头说明） */
+    depthScore: integer('depth_score').notNull().default(0),
+    /** 是否已产出长期记忆摘要（避免重复摘要烧 token） */
+    summarized: booleanFlag('summarized').notNull().default(false),
+    /** 开始时间 */
+    startedAt: timestampMs('started_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+    /** 结束时间（超过空闲阈值后回填；未结束为 null） */
+    endedAt: timestampMs('ended_at'),
+    /** 更新时间（同步依据） */
+    updatedAt: timestampMs('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [index('ai_conversations_updated_idx').on(table.updatedAt)],
+);
+
+/** AI 消息（原文；用于「最近 N 轮」注入与回溯） */
+export const aiMessages = sqliteTable(
+  'ai_messages',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属会话 id */
+    conversationId: text('conversation_id').notNull(),
+    /** 角色：user | assistant */
+    role: text('role').notNull(),
+    /** 消息正文 */
+    content: text('content').notNull(),
+    /** 估算 token 数（用于注入预算裁剪，不追求精确） */
+    tokenEstimate: integer('token_estimate').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestampMs('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+    /** 更新时间（同步依据；消息只新增不改，保留列以满足 lww 约定） */
+    updatedAt: timestampMs('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [index('ai_messages_conversation_idx').on(table.conversationId, table.createdAt)],
+);
+
+/** AI 长期记忆条目（摘要产物；注入时按 importance × 新鲜度排序取前 K 条） */
+export const aiMemories = sqliteTable(
+  'ai_memories',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 类别：fact（事实）| preference（偏好）| event（事件） */
+    kind: text('kind').notNull().default('fact'),
+    /** 记忆内容（≤80 字，写入前做敏感信息脱敏） */
+    content: text('content').notNull(),
+    /** 重要度 1~5（由摘要模型给出，站主可在记忆管理里改） */
+    importance: integer('importance').notNull().default(3),
+    /** 来源会话 id（可回溯；会话被删也不级联删记忆） */
+    sourceConversationId: text('source_conversation_id').notNull().default(''),
+    /** 被注入使用的次数（用于淘汰冷记忆） */
+    useCount: integer('use_count').notNull().default(0),
+    /** 最近一次被注入的时间 */
+    lastUsedAt: timestampMs('last_used_at'),
+    /** 创建时间 */
+    createdAt: timestampMs('created_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+    /** 更新时间（同步依据） */
+    updatedAt: timestampMs('updated_at')
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [index('ai_memories_rank_idx').on(table.importance, table.updatedAt)],
+);
+
+/** AI 养成度（**单行聚合**，id 固定 'owner'；避免每次聊天扫描全表） */
+export const aiBond = sqliteTable('ai_bond', {
+  /** 固定 'owner'（站主唯一） */
+  id: text('id').primaryKey(),
+  /** 累计消息条数（用户侧消息） */
+  messageCount: integer('message_count').notNull().default(0),
+  /** 累计活跃天数 */
+  activeDays: integer('active_days').notNull().default(0),
+  /** 当前连续天数（断签不清零，只停滞） */
+  streakDays: integer('streak_days').notNull().default(0),
+  /** 历史最长连续天数 */
+  maxStreak: integer('max_streak').notNull().default(0),
+  /** 累计深度分（千分制整数，与 ai_conversations.depthScore 单位一致） */
+  depthScore: integer('depth_score').notNull().default(0),
+  /** 熟悉度积分（各分量加权后的整数分，便于比较与埋点） */
+  bondPoints: integer('bond_points').notNull().default(0),
+  /** 等级 0~7（派生值，落库便于同步与展示；算法见技术方案第六节） */
+  level: integer('level').notNull().default(0),
+  /** 站主锁定的称呼（空串 = 跟随等级自动漂移） */
+  nickname: text('nickname').notNull().default(''),
+  /** 最近活跃日期 YYYY-MM-DD（本机时区，用于活跃天/连续天计算） */
+  lastActiveDate: text('last_active_date').notNull().default(''),
+  /** 更新时间（同步依据） */
+  updatedAt: timestampMs('updated_at')
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

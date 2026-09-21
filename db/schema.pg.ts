@@ -817,3 +817,124 @@ export const articlePostCategories = pgTable(
     index('article_post_categories_category_idx').on(table.categoryId),
   ],
 );
+
+/* ============================================================================
+ * AI 小卿：会话 / 消息 / 长期记忆 / 养成度（站主专属）
+ *
+ * 与 schema.sqlite.ts 的对应表**列名与类型语义完全一致**：
+ * - 布尔列用原生 boolean（SQLite 侧用 booleanFlag 自定义类型，语义等价）；
+ * - 时间列一律 timestamptz + mode:'date'；
+ * - depthScore / bondPoints 用整数（千分制），避免跨方言浮点差异。
+ * ==========================================================================*/
+
+/** AI 会话（一次连续对话一行） */
+export const aiConversations = pgTable(
+  'ai_conversations',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 会话标题 */
+    title: text('title').notNull().default(''),
+    /** 消息条数 */
+    messageCount: integer('message_count').notNull().default(0),
+    /** 会话深度分（千分制整数） */
+    depthScore: integer('depth_score').notNull().default(0),
+    /** 是否已产出长期记忆摘要 */
+    summarized: boolean('summarized').notNull().default(false),
+    /** 开始时间 */
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    /** 结束时间 */
+    endedAt: timestamp('ended_at', { withTimezone: true, mode: 'date' }),
+    /** 更新时间（同步依据） */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index('ai_conversations_updated_idx').on(table.updatedAt)],
+);
+
+/** AI 消息（原文） */
+export const aiMessages = pgTable(
+  'ai_messages',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 所属会话 id */
+    conversationId: text('conversation_id').notNull(),
+    /** 角色：user | assistant */
+    role: text('role').notNull(),
+    /** 消息正文 */
+    content: text('content').notNull(),
+    /** 估算 token 数 */
+    tokenEstimate: integer('token_estimate').notNull().default(0),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    /** 更新时间（同步依据） */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index('ai_messages_conversation_idx').on(table.conversationId, table.createdAt)],
+);
+
+/** AI 长期记忆条目 */
+export const aiMemories = pgTable(
+  'ai_memories',
+  {
+    /** UUID 主键 */
+    id: text('id').primaryKey(),
+    /** 类别：fact | preference | event */
+    kind: text('kind').notNull().default('fact'),
+    /** 记忆内容（≤80 字，写入前脱敏） */
+    content: text('content').notNull(),
+    /** 重要度 1~5 */
+    importance: integer('importance').notNull().default(3),
+    /** 来源会话 id */
+    sourceConversationId: text('source_conversation_id').notNull().default(''),
+    /** 被注入使用次数 */
+    useCount: integer('use_count').notNull().default(0),
+    /** 最近一次被注入时间 */
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }),
+    /** 创建时间 */
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+    /** 更新时间（同步依据） */
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index('ai_memories_rank_idx').on(table.importance, table.updatedAt)],
+);
+
+/** AI 养成度（单行聚合，id 固定 'owner'） */
+export const aiBond = pgTable('ai_bond', {
+  /** 固定 'owner' */
+  id: text('id').primaryKey(),
+  /** 累计消息条数 */
+  messageCount: integer('message_count').notNull().default(0),
+  /** 累计活跃天数 */
+  activeDays: integer('active_days').notNull().default(0),
+  /** 当前连续天数 */
+  streakDays: integer('streak_days').notNull().default(0),
+  /** 历史最长连续天数 */
+  maxStreak: integer('max_streak').notNull().default(0),
+  /** 累计深度分（千分制整数） */
+  depthScore: integer('depth_score').notNull().default(0),
+  /** 熟悉度积分 */
+  bondPoints: integer('bond_points').notNull().default(0),
+  /** 等级 0~7 */
+  level: integer('level').notNull().default(0),
+  /** 站主锁定的称呼（空串 = 跟随等级） */
+  nickname: text('nickname').notNull().default(''),
+  /** 最近活跃日期 YYYY-MM-DD */
+  lastActiveDate: text('last_active_date').notNull().default(''),
+  /** 更新时间（同步依据） */
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});

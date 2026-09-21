@@ -72,6 +72,11 @@ export const SYNC_POLICIES: SyncPolicy[] = [
 
   // ── 云端为准 / 本地专用 ──────────────────────────────────────────────
   { table: 'admin_accounts', pk: ['id'], role: 'remote-only', changeBy: 'updated_at', note: '权限体系以云端为准，只拉不推' },
+  // ── AI 小卿（站主私有数据；仅站主会改，LWW 足够）─────────────────────
+  { table: 'ai_conversations', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: 'AI 会话（站主专属；游客不落库）' },
+  { table: 'ai_messages', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: 'AI 消息原文（只新增，不改写）' },
+  { table: 'ai_memories', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: 'AI 长期记忆条目（站主可编辑/删除）' },
+  { table: 'ai_bond', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: 'AI 养成度单行聚合（id=owner）' },
   ...LOCAL_ONLY_TABLES.map((table) => ({ table, pk: ['id'], role: 'skip' as const, changeBy: 'hash' as const })),
 ];
 
