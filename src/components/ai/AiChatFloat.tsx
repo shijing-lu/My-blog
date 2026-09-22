@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Brain, MessageCircle, Send, Square, Trash2, X } from 'lucide-react';
 import XiaoQingFox from './XiaoQingFox';
-import { LEVEL_NAMES } from '@/lib/ai-bond';
+import { LEVEL_NAMES } from '@/lib/ai-bond-levels';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
