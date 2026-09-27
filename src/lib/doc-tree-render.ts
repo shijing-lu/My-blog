@@ -117,26 +117,6 @@ export function patchNodes<T extends DocTreeItem>(
   });
 }
 
-/** 管理员行内操作按钮组 */
-function adminActions(n: DocTreeItem, authed: boolean): string {
-  if (!authed) return '';
-  const add =
-    n.kind === 'folder'
-      ? `<button type="button" data-node-add-article="${n.id}" title="新增文章" aria-label="新增文章" class="text-[0.65rem] text-muted-foreground hover:text-primary">＋文</button>` +
-        `<button type="button" data-node-add-folder="${n.id}" title="新增子目录" aria-label="新增子目录" class="text-[0.65rem] text-muted-foreground hover:text-primary">＋目</button>`
-      : '';
-  return (
-    /* 管理按钮组（P1-8）：原先 group-hover:flex 在触屏/键盘下完全不可达。
-       改为常驻 flex + 低透明度，hover / 内部聚焦时提亮。 */
-    `<span class="ml-auto flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
-    add +
-    `<button type="button" data-node-move="${n.id}" title="移动" aria-label="移动" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-primary">⇄</button>` +
-    `<button type="button" data-node-edit="${n.id}" title="编辑" aria-label="编辑" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-primary">✎</button>` +
-    `<button type="button" data-node-del="${n.id}" data-node-name="${esc(n.title)}" title="删除" aria-label="删除" class="icon-btn-tap text-[0.65rem] text-muted-foreground hover:text-destructive">×</button>` +
-    `</span>`
-  );
-}
-
 /**
  * 递归渲染目录树（folder → details；article → 可切换链接）。
  *
@@ -155,22 +135,22 @@ export function renderDocTree(items: DocTreeItem[], opts: DocTreeRenderOpts): st
         const children = walk(n.children ?? []);
         out +=
           `<details class="group doc-folder" open data-folder="${n.id}">` +
-          `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${authed ? ` data-doc-folder-target="${n.id}"` : ''}>` +
+          `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${authed ? ` data-doc-folder-target="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="folder" data-tree-node-title="${esc(n.title)}" tabindex="0"` : ''}>` +
           `<span class="text-[0.7rem]">▸</span>` +
           `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
-          adminActions(n, authed) +
+          (authed ? `<button type="button" data-tree-menu-trigger title="目录操作" aria-label="${esc(n.title)}的操作" class="ml-auto rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">⋯</button>` : '') +
           `</summary>` +
           (children ? `<div class="ml-3 border-l border-border pl-2">${children}</div>` : '') +
           `</details>`;
       } else {
         // href 为完整 URL：JS 正常时 preventDefault 走前端即时切换；新标签打开 / 无 JS 时直达正确文章
         out +=
-          `<a href="/doc/${bundleId}?article=${encodeURIComponent(n.id)}" data-article-switch="${n.id}"${authed ? ` draggable="true" data-doc-node-id="${n.id}"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
+          `<div${authed ? ` draggable="true" data-doc-node-id="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="article" data-tree-node-title="${esc(n.title)}" tabindex="-1"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
           (n.id === activeId ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
           `">` +
-          `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
-          adminActions(n, authed) +
-          `</a>`;
+          `<a href="/doc/${bundleId}?article=${encodeURIComponent(n.id)}" data-article-switch="${n.id}" class="min-w-0 flex-1 truncate">${esc(n.title)}</a>` +
+          (authed ? `<button type="button" data-tree-menu-trigger title="文章操作" aria-label="${esc(n.title)}的操作" class="shrink-0 rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">⋯</button>` : '') +
+          `</div>`;
       }
     }
     return out;

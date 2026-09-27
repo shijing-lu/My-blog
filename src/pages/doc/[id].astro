@@ -559,6 +559,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     type DocTreeItem,
   } from '@/lib/doc-tree-render';
   import type { TocItem } from '@/lib/mdx-plugins';
+  import { installTreeContextMenu } from '@/lib/tree-context-menu';
 
   const DATA = document.getElementById('doc-detail-data');
   const IS_AUTHED = DATA?.dataset.authed === '1';
@@ -830,9 +831,10 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   function setActiveArticle(id: string): void {
     document.querySelectorAll<HTMLElement>('[data-article-switch]').forEach((a) => {
       const active = a.dataset.articleSwitch === id;
-      a.classList.toggle('bg-primary/10', active);
-      a.classList.toggle('text-primary', active);
-      a.classList.toggle('text-muted-foreground', !active);
+      const row = a.closest<HTMLElement>('[data-tree-node-id]') ?? a;
+      row.classList.toggle('bg-primary/10', active);
+      row.classList.toggle('text-primary', active);
+      row.classList.toggle('text-muted-foreground', !active);
     });
   }
   function currentActiveId(): string {
@@ -1653,16 +1655,16 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       }
     });
 
-    // 删除
-    document.addEventListener('click', async (e) => {
-      const del = (e.target as HTMLElement).closest<HTMLElement>('[data-node-del]');
-      if (!del) return;
-      const name = del.dataset.nodeName ?? '';
-      const delId = del.dataset.nodeDel ?? '';
+    // 删除命令：文档域沿用级联删除，菜单确认前明确提示影响范围。
+    async function deleteNode(delId: string, name: string): Promise<void> {
       if (!delId) return;
-      if (!(await confirmDanger(`确定删除「${name}」？其下所有子目录与文章将一并删除。`))) return;
+      const affected = collectSubtreeIds(readNodes(), delId).length;
+      if (!(await confirmDanger(`确定删除「${name}」？将一并删除 ${affected} 个目录或文章节点。`))) return;
       const res = await fetch(`/api/doc/nodes/${delId}`, { method: 'DELETE' });
-      if (!res.ok) return;
+      if (!res.ok) {
+        window.alert('删除失败，请重试。');
+        return;
+      }
       // 就地移除（含全部子孙 —— 与服务端级联删除一致），并清掉被删文章的渲染缓存
       const doomed = collectSubtreeIds(readNodes(), delId);
       writeNodes(removeSubtree(readNodes(), delId));
@@ -1677,6 +1679,21 @@ const folderOptionsJson = JSON.stringify(folderOptions);
         // 整册已空：没有可保留的上下文，整页导航到 SSR 的「暂无文章」形态
         if (next) await loadArticleById(next.id, 'message');
         else window.location.href = `/doc/${readBundle().id}`;
+      }
+    }
+
+    const treeRoot = el<HTMLElement>('doc-ltoc-inner');
+    if (treeRoot) installTreeContextMenu(treeRoot, async (command, target) => {
+      const parentId = target.kind === 'folder' ? target.id : null;
+      if (command === 'create-article') return createBlankArticle(parentId);
+      if (command === 'create-folder') return openNodeDialog({ mode: 'create', kind: 'folder', parentId });
+      if (!target.id) return;
+      if (command === 'delete') return deleteNode(target.id, target.title);
+      if (command === 'edit' && target.kind === 'folder') {
+        openNodeDialog({ mode: 'edit', nodeId: target.id });
+      } else if (command === 'edit') {
+        const loaded = target.id === currentActiveId() || await loadArticleById(target.id, 'message');
+        if (loaded) window.__docInlineEditor?.open();
       }
     });
 
