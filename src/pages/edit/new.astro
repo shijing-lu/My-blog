@@ -3,17 +3,26 @@
 /* （新建入口，无 Props） */
 
 /* ===== Logic ===== */
-import { createArticleDraft } from '@/lib/articles';
+import { createArticleDraft, deleteArticle } from '@/lib/articles';
+import { listArticleCategories, setArticleCategory } from '@/lib/article-categories';
 let error = '';
+const parentId = Astro.url.searchParams.get('parent');
 try {
+  if (parentId && !(await listArticleCategories()).some((folder) => folder.id === parentId)) {
+    throw new Error('目标目录不存在');
+  }
   const article = await createArticleDraft();
-  return Astro.redirect(`/edit/${article.id}`);
+  if (parentId && !(await setArticleCategory(article.id, parentId))) {
+    await deleteArticle(article.id);
+    throw new Error('无法将草稿加入目标目录');
+  }
+  return Astro.redirect(`/edit/${article.id}?edit=1`);
 } catch (cause) {
   console.error('[edit/new] 创建草稿失败', cause);
-  error = '创建草稿失败，请重试。';
+  error = cause instanceof Error ? cause.message : '创建草稿失败，请重试。';
 }
 ---
 <main class="mx-auto max-w-xl p-10 text-center">
   <p role="alert">{error}</p>
-  <a href="/edit/new" class="mt-4 inline-block underline">重试创建</a>
+  <a href={`/edit/new${parentId ? `?parent=${encodeURIComponent(parentId)}` : ''}`} class="mt-4 inline-block underline">重试创建</a>
 </main>

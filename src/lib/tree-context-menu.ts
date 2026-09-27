@@ -46,7 +46,7 @@ export function installTreeContextMenu(
       return {
         value: {
           id: row.dataset.treeNodeId ?? null,
-          kind: row.dataset.treeNodeKind === 'folder' ? 'folder' : 'article',
+          kind: row.dataset.treeNodeKind === 'root' ? 'root' : row.dataset.treeNodeKind === 'folder' ? 'folder' : 'article',
           title: row.dataset.treeNodeTitle ?? '',
         },
         focus: row,

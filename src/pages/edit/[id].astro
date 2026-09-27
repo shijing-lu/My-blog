@@ -1,59 +1,83 @@
 ---
-/* ===== Props ===== */
-/* （动态路由，无 Props） */
-
-/* ===== Imports ===== */
-import AdminLayout from '@/layouts/AdminLayout.astro';
-import LiveEditor from '@/components/admin/LiveEditor';
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import ArticleDetailShell from '@/components/article/ArticleDetailShell.astro';
+import DocInlineEditor from '@/components/doc/DocInlineEditor';
+import HomeArticleSettings from '@/components/article/HomeArticleSettings';
+import ExportMenu from '@/components/ExportMenu.astro';
 import { getArticleById, listAdminArticleMeta } from '@/lib/articles';
-import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
-import type { ArticleType } from '../../../db/types';
+import { articleCategoryMap, listArticleCategories } from '@/lib/article-categories';
+import { buildDocTree, renderDocTree, type DocTreeItem } from '@/lib/doc-tree-render';
+import { renderMdx } from '@/lib/mdx';
+import { renderTocTreeHtml } from '@/lib/toc-tree';
+import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/lib/images';
 
-/* ===== Logic ===== */
-const { id } = Astro.params;
-const article = id ? await getArticleById(id) : null;
-
-/** 新建入口已先持久化草稿；不存在的 ID 不渲染虚假的客户端草稿。 */
-const initial = article
-  ? {
-      id: article.id,
-      title: article.title,
-      type: article.type as ArticleType,
-      summary: article.summary,
-      cover: article.cover ?? '',
-      tags: article.tags,
-      content: article.content,
-      encrypted: article.encrypted,
-      published: article.published,
-      encryptHint: article.encryptHint,
-    }
-  : null;
-
-if (!initial) return Astro.redirect('/admin');
-
-/** 全部文章元信息（左栏资源管理器，不含正文） */
-const articles = (await listAdminArticleMeta()).map((a) => ({
-  id: a.id,
-  title: a.title,
-  type: a.type as ArticleType,
-  updatedAt: a.updatedAt.toISOString(),
-  published: a.published,
-}));
-
-/** 自定义分类（表未迁移时返回空数组 → 写作台回落到「按类型分组」，不会 500） */
-const categories = await listArticleCategories();
-/** 文章 → 分类 归属映射 */
-const categoryMap = Object.fromEntries(await articleCategoryMap());
+const id = Astro.params.id ?? '';
+const article = await getArticleById(id);
+if (!article) return Astro.redirect('/admin');
+const [articles, categories, categoryMap] = await Promise.all([
+  listAdminArticleMeta(), listArticleCategories(), articleCategoryMap(),
+]);
+const uncategorizedId = '__home_uncategorized__';
+const nodes: DocTreeItem[] = [
+  ...categories.map((category) => ({ id: category.id, parentId: category.parentId, kind: 'folder' as const, title: category.name, sort: category.sort })),
+  { id: uncategorizedId, parentId: null, kind: 'folder', title: '未分类', sort: Number.MAX_SAFE_INTEGER },
+  ...articles.map((item, index) => ({ id: item.id, parentId: categoryMap.get(item.id) ?? uncategorizedId, kind: 'article' as const, title: item.title || '未命名文章', sort: index, updatedAt: item.updatedAt })),
+];
+const treeHtml = renderDocTree(buildDocTree(nodes), { authed: true, bundleId: '', activeId: article.id, articlePath: 'home', virtualRootId: uncategorizedId });
+const folderPath: string[] = [];
+const byId = new Map(categories.map((category) => [category.id, category]));
+let parentId = categoryMap.get(article.id) ?? null;
+const seen = new Set<string>();
+while (parentId && !seen.has(parentId)) {
+  const folder = byId.get(parentId);
+  if (!folder) break;
+  folderPath.unshift(folder.name);
+  seen.add(parentId);
+  parentId = folder.parentId;
+}
+if (folderPath.length === 0) folderPath.push('未分类');
+const deferRender = article.content.length > 96 * 1024;
+const rendered = deferRender ? null : await renderMdx(article.content);
+let html = rendered?.html ?? (deferRender ? '<p class="text-sm text-muted-foreground">正在加载长文章…</p>' : '');
+if (rendered && html) {
+  const imageIds = collectImageIdsFromHtml(html);
+  if (imageIds.length) html = injectImageSizeAttrs(html, await getImageSizes(imageIds));
+}
+const tocHtml = renderTocTreeHtml(rendered?.toc ?? []);
+const settingsArticle = {
+  id: article.id, title: article.title, type: article.type,
+  summary: article.summary, cover: article.cover ?? '', tags: article.tags,
+  encrypted: article.encrypted, encryptHint: article.encryptHint, published: article.published,
+};
 ---
-<!-- ===== Template ===== -->
-<AdminLayout title="写作">
-  <!--
-    关于「打开编辑栏是白板」（2026-09-21 定位）：
-    LiveEditor 是 client:load 岛，CodeMirror 只能在客户端创建 —— 从 HTML 到达、到客户端 JS
-    下载 + 水合 + CM 初始化完成之间有 1~3s 的空白窗口（资源首次加载时更久）。骨架必须
-    由**组件自身**输出，见 LiveEditor 内 MarkdownEditor 的骨架覆盖层。
-    ⚠️ 勿改用 Astro 岛的 children 传骨架：Astro 对 React 岛会做 SSR 渲染，而组件不渲染
-    props.children，children 会被丢弃、骨架不出现（已实测）。
-  -->
-  <LiveEditor client:load initial={initial} articles={articles} categories={categories} categoryMap={categoryMap} />
-</AdminLayout>
+
+<BaseLayout title={`${article.title || '未命名文章'} · 文章编辑`} description={article.summary || '编辑文章'}>
+  <ArticleDetailShell
+    domain="home" authed={true} treeLabel="全部文章" treeHtml={treeHtml}
+    title={article.title || '未命名文章'} articleHtml={html} tocHtml={tocHtml}
+    tocState={deferRender ? 'loading' : rendered?.toc.length ? 'ready' : 'empty'}
+    deferArticleId={deferRender ? article.id : undefined} emptyText="暂无文章。"
+  >
+    <Fragment slot="breadcrumb">
+      <a href="/" class="transition-colors hover:text-primary">首页文章</a>
+      <span id="home-folder-breadcrumb">{folderPath.map((part) => <><span class="mx-1">/</span><span>{part}</span></>)}</span>
+    </Fragment>
+    <Fragment slot="title-actions">
+      <span id="home-publish-status" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">{article.published ? '已发布' : '草稿'}</span>
+      <button id="home-article-settings" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary">文章设置</button>
+      <button id="doc-inline-edit" type="button" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>
+      <ExportMenu mdUrl={`/api/export/article/${encodeURIComponent(article.slug)}`} class="mt-1.5" />
+    </Fragment>
+    <Fragment slot="editor"><DocInlineEditor client:idle /></Fragment>
+  </ArticleDetailShell>
+  <HomeArticleSettings client:load article={settingsArticle} categories={categories} categoryId={categoryMap.get(article.id) ?? null} />
+  <div id="doc-detail-data" data-authed="1" data-active-node={article.id} data-nodes={JSON.stringify(nodes)} class="hidden" aria-hidden="true" />
+  <dialog id="home-folder-dialog" class="m-auto w-[min(92vw,25rem)] rounded-lg border border-border bg-card p-5 text-foreground shadow-xl backdrop:bg-black/40">
+    <h2 id="home-folder-dialog-title" class="font-display text-lg font-semibold">目录</h2>
+    <label class="mt-4 block text-sm">目录名称<input id="home-folder-name" maxlength="30" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" /></label>
+    <p id="home-folder-error" role="alert" class="mt-2 hidden text-sm text-destructive"></p>
+    <div class="mt-5 flex justify-end gap-2"><button id="home-folder-cancel" type="button" class="rounded-md border border-border px-3 py-1.5 text-sm">取消</button><button id="home-folder-save" type="button" class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground">保存</button></div>
+  </dialog>
+</BaseLayout>
+
+<script>import '@/scripts/home-article-detail';</script>

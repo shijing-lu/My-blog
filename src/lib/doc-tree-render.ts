@@ -37,6 +37,10 @@ export interface DocTreeRenderOpts {
   bundleId: string;
   /** 当前选中文章 id：命中行高亮 */
   activeId?: string;
+  /** 首页文章沿用同一树 DOM，链接指向独立编辑路由。 */
+  articlePath?: 'docs' | 'home';
+  /** 首页“未分类”仅为视觉分组，右键应执行根级命令。 */
+  virtualRootId?: string;
 }
 
 /**
@@ -125,7 +129,7 @@ export function patchNodes<T extends DocTreeItem>(
  * - `<details open>`：默认全开。客户端重绘后由页面回放用户折叠态。
  */
 export function renderDocTree(items: DocTreeItem[], opts: DocTreeRenderOpts): string {
-  const { authed, bundleId, activeId } = opts;
+  const { authed, bundleId, activeId, articlePath = 'docs', virtualRootId } = opts;
   if (items.length === 0) return DOC_TREE_EMPTY_HTML;
 
   const walk = (list: DocTreeItem[]): string => {
@@ -133,9 +137,10 @@ export function renderDocTree(items: DocTreeItem[], opts: DocTreeRenderOpts): st
     for (const n of list) {
       if (n.kind === 'folder') {
         const children = walk(n.children ?? []);
+        const virtual = n.id === virtualRootId;
         out +=
           `<details class="group doc-folder" open data-folder="${n.id}">` +
-          `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${authed ? ` data-doc-folder-target="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="folder" data-tree-node-title="${esc(n.title)}" tabindex="0"` : ''}>` +
+          `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${authed ? ` data-doc-folder-target="${n.id}" data-tree-node-id="${virtual ? '' : n.id}" data-tree-node-kind="${virtual ? 'root' : 'folder'}" data-tree-node-title="${esc(n.title)}" tabindex="0"` : ''}>` +
           `<span class="text-[0.7rem]">▸</span>` +
           `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
           (authed ? `<button type="button" data-tree-menu-trigger title="目录操作" aria-label="${esc(n.title)}的操作" class="ml-auto rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">⋯</button>` : '') +
@@ -144,11 +149,14 @@ export function renderDocTree(items: DocTreeItem[], opts: DocTreeRenderOpts): st
           `</details>`;
       } else {
         // href 为完整 URL：JS 正常时 preventDefault 走前端即时切换；新标签打开 / 无 JS 时直达正确文章
+        const href = articlePath === 'home'
+          ? `/edit/${encodeURIComponent(n.id)}`
+          : `/doc/${bundleId}?article=${encodeURIComponent(n.id)}`;
         out +=
           `<div${authed ? ` draggable="true" data-doc-node-id="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="article" data-tree-node-title="${esc(n.title)}" tabindex="-1"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
           (n.id === activeId ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
           `">` +
-          `<a href="/doc/${bundleId}?article=${encodeURIComponent(n.id)}" data-article-switch="${n.id}" class="min-w-0 flex-1 truncate">${esc(n.title)}</a>` +
+          `<a href="${href}" data-article-switch="${n.id}" class="min-w-0 flex-1 truncate">${esc(n.title)}</a>` +
           (authed ? `<button type="button" data-tree-menu-trigger title="文章操作" aria-label="${esc(n.title)}的操作" class="shrink-0 rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">⋯</button>` : '') +
           `</div>`;
       }
