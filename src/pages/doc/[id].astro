@@ -211,6 +211,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   } from '@/lib/doc-tree-render';
   import type { TocItem } from '@/lib/mdx-plugins';
   import { installTreeContextMenu } from '@/lib/tree-context-menu';
+  import { setupArticleDetailRails } from '@/lib/article-detail-rails';
 
   const DATA = document.getElementById('doc-detail-data');
   const IS_AUTHED = DATA?.dataset.authed === '1';
@@ -848,122 +849,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     document.querySelector('.doc-dragging')?.classList.remove('doc-dragging');
   });
 
-  /* ================= 左栏目录树：整栏可折叠/展开（transform 滑入滑出，纯合成器动画） =================
-     状态：默认展开；收起后该栏仅留按钮，正文自动变宽。
-     关键性能点：不动画 grid-template-columns（布局属性，每帧触发全文档重排卡顿），
-     列宽由 data-* 属性一次性切换（单次 reflow）；目录内容用 transform 滑入滑出（合成器，零重排零重绘），
-     正文永不参与动画（不再淡出消失、不再产生巨型合成层）。
-     ⚠️ 绑定时机：Astro module script 只在站点首次加载执行一次——从其它页面转场进入本文时
-     doc DOM 尚不存在，顶层直接 getElementById 必为 null（「首次进入折叠按钮不可点、刷新
-     后恢复」根因）。必须封装为幂等 setup 挂 astro:page-load（转场后新 DOM 重绑）。 */
-  function setupLtocRail(): void {
-    const grd = el<HTMLDivElement>('doc-3col');
-    const lTocToggle = el<HTMLButtonElement>('doc-ltoc-toggle');
-    if (!grd || !lTocToggle || grd.dataset.ltocBound === '1') return;
-    grd.dataset.ltocBound = '1';
-    const attr = 'ltocCollapsed' as const;
-    const key = 'doc-ltoc-collapsed';
-    const apply = (collapsed: boolean): void => {
-      grd.dataset[attr] = collapsed ? 'true' : 'false';
-      lTocToggle.setAttribute('aria-expanded', String(!collapsed));
-      lTocToggle.setAttribute('aria-label', collapsed ? '展开目录' : '收起目录');
-      lTocToggle.title = collapsed ? '展开目录' : '收起目录';
-    };
-    let initial = false;
-    try {
-      initial = window.localStorage.getItem(key) === '1';
-    } catch { /* 忽略隐私模式等异常 */ }
-    apply(initial);
-    lTocToggle.addEventListener('click', () => {
-      const next = grd.dataset[attr] !== 'true';
-      apply(next); // 列宽瞬切 + inner transform 过渡自动滑入/滑出
-      try {
-        window.localStorage.setItem(key, next ? '1' : '0');
-      } catch { /* 忽略 */ }
-    });
-  }
-
-  /* ================= 右栏文章内目录：悬浮面板三态 =================
-     ① ≥1320px：悬浮展开（fixed 贴视口右缘，正文右缘与面板留白 ≥40px，互不遮盖）
-     ② <1320px：自动收起为贴右浮钮（fab）；点开 → 浮层 + 遮罩，点遮罩收起
-     ③ 用户手动收起（任意宽度）：同 ② 浮钮形态
-     正文列与面板永不相交：面板不占布局列，正文可用宽度完整释放。
-     ⚠️ 绑定时机：同 setupLtocRail——幂等 setup + astro:page-load（转场后重绑）。
-     resize 监听全站只挂一次（模块级标志），处理器动态重查 DOM，转场后依然生效。 */
-  const TOC_KEY = 'doc-toc-collapsed';
-  /** 宽屏阈值：≥ 该宽度悬浮展开不遮正文（正文右缘 940px + 面板 340px + 40px 间隙） */
-  const TOC_AUTO_THRESHOLD = 1320;
-
-  function readStoredTocCollapsed(): boolean {
-    try {
-      return window.localStorage.getItem(TOC_KEY) === '1';
-    } catch {
-      return false;
-    }
-  }
-
-  /** 应用折叠态（动态重查 DOM：任意一次 setup 代的闭包都能操作当页节点） */
-  function applyTocState(collapsed: boolean, persist: boolean): void {
-    const aside = el<HTMLElement>('doc-toc-aside');
-    const toggle = el<HTMLButtonElement>('doc-toc-toggle');
-    const fab = el<HTMLButtonElement>('doc-toc-fab');
-    if (!aside) return;
-    aside.dataset.collapsed = collapsed ? 'true' : 'false';
-    if (toggle) {
-      toggle.setAttribute('aria-expanded', String(!collapsed));
-      toggle.title = collapsed ? '展开目录' : '收起目录';
-    }
-    fab?.setAttribute('aria-expanded', String(!collapsed));
-    if (persist) {
-      try {
-        window.localStorage.setItem(TOC_KEY, collapsed ? '1' : '0');
-      } catch { /* 忽略 */ }
-    }
-  }
-
-  /** 视口跨阈值时重算 auto 态；窄窗强制收起（不覆盖用户宽屏偏好） */
-  function applyTocAuto(): void {
-    const aside = el<HTMLElement>('doc-toc-aside');
-    if (!aside) return;
-    const auto = window.innerWidth < TOC_AUTO_THRESHOLD;
-    aside.dataset.auto = auto ? 'true' : 'false';
-    applyTocState(auto ? true : readStoredTocCollapsed(), false);
-  }
-
-  function setupTocRail(): void {
-    const tocAside = el<HTMLElement>('doc-toc-aside');
-    const tocToggle = el<HTMLButtonElement>('doc-toc-toggle');
-    const tocFab = el<HTMLButtonElement>('doc-toc-fab');
-    const tocOverlay = el<HTMLElement>('doc-toc-overlay');
-    if (!tocAside || !tocToggle || !tocFab || tocAside.dataset.tocBound === '1') return;
-    tocAside.dataset.tocBound = '1';
-
-    // 面板头部「收起」按钮：宽屏写入用户偏好，窄窗仅临时收起
-    tocToggle.addEventListener('click', () => {
-      applyTocState(true, tocAside.dataset.auto !== 'true');
-    });
-    // 浮钮「展开」：窄窗进入浮层模式，宽屏恢复悬浮展开
-    tocFab.addEventListener('click', () => applyTocState(false, tocAside.dataset.auto !== 'true'));
-    // 遮罩点击：收起浮层
-    tocOverlay?.addEventListener('click', () => applyTocState(true, false));
-
-    applyTocAuto();
-  }
-
-  // resize 防抖：处理器动态重查 DOM，模块级只挂一次（转场累积安全）
-  let tocResizeTimer = 0;
-  window.addEventListener('resize', () => {
-    window.clearTimeout(tocResizeTimer);
-    tocResizeTimer = window.setTimeout(applyTocAuto, 120);
-  });
-
-  /** 两侧折叠栏统一初始化：立即执行（直达/刷新）+ astro:page-load（转场进入重绑） */
-  function setupDocRails(): void {
-    setupLtocRail();
-    setupTocRail();
-  }
-  setupDocRails();
-  document.addEventListener('astro:page-load', setupDocRails);
+  setupArticleDetailRails();
+  document.addEventListener('astro:page-load', setupArticleDetailRails);
 
   /* ================= 目录定位原语（阅读态跳转 + 编辑态退出回读位共用） =================
      content-visibility:auto 的估算高度问题：视口外区块高度是 contain-intrinsic-size
