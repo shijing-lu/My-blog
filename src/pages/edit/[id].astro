@@ -69,6 +69,7 @@ const settingsArticle = {
     </Fragment>
     <Fragment slot="title-actions">
       <span id="home-publish-status" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">{article.published ? '已发布' : '草稿'}</span>
+      <button id="home-title-edit" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary">改标题</button>
       <button id="home-article-settings" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary">文章设置</button>
       <button id="doc-inline-edit" type="button" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>
       <ExportMenu mdUrl={`/api/export/article/${encodeURIComponent(article.slug)}`} class="mt-1.5" />
