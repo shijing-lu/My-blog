@@ -68,7 +68,7 @@ const settingsArticle = {
       <button id="doc-inline-edit" type="button" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>
       <ExportMenu mdUrl={`/api/export/article/${encodeURIComponent(article.slug)}`} class="mt-1.5" />
     </Fragment>
-    <Fragment slot="editor"><DocInlineEditor client:idle /></Fragment>
+    <Fragment slot="editor"><DocInlineEditor client:load /></Fragment>
   </ArticleDetailShell>
   <HomeArticleSettings client:load article={settingsArticle} categories={categories} categoryId={categoryMap.get(article.id) ?? null} />
   <div id="doc-detail-data" data-authed="1" data-active-node={article.id} data-nodes={JSON.stringify(nodes)} class="hidden" aria-hidden="true" />
