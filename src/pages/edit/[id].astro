@@ -18,15 +18,20 @@ const [articles, categories, categoryMap] = await Promise.all([
   listAdminArticleMeta(), listArticleCategories(), articleCategoryMap(),
 ]);
 const uncategorizedId = '__home_uncategorized__';
+const categoryIds = new Set(categories.map((category) => category.id));
+const articleFolder = (articleId: string): string | null => {
+  const folderId = categoryMap.get(articleId);
+  return folderId && categoryIds.has(folderId) ? folderId : null;
+};
 const nodes: DocTreeItem[] = [
   ...categories.map((category) => ({ id: category.id, parentId: category.parentId, kind: 'folder' as const, title: category.name, sort: category.sort })),
   { id: uncategorizedId, parentId: null, kind: 'folder', title: '未分类', sort: Number.MAX_SAFE_INTEGER },
-  ...articles.map((item, index) => ({ id: item.id, parentId: categoryMap.get(item.id) ?? uncategorizedId, kind: 'article' as const, title: item.title || '未命名文章', sort: index, updatedAt: item.updatedAt })),
+  ...articles.map((item, index) => ({ id: item.id, parentId: articleFolder(item.id) ?? uncategorizedId, kind: 'article' as const, title: item.title || '未命名文章', sort: index, updatedAt: item.updatedAt })),
 ];
 const treeHtml = renderDocTree(buildDocTree(nodes), { authed: true, bundleId: '', activeId: article.id, articlePath: 'home', virtualRootId: uncategorizedId });
 const folderPath: string[] = [];
 const byId = new Map(categories.map((category) => [category.id, category]));
-let parentId = categoryMap.get(article.id) ?? null;
+let parentId = articleFolder(article.id);
 const seen = new Set<string>();
 while (parentId && !seen.has(parentId)) {
   const folder = byId.get(parentId);
@@ -70,7 +75,7 @@ const settingsArticle = {
     </Fragment>
     <Fragment slot="editor"><DocInlineEditor client:load /></Fragment>
   </ArticleDetailShell>
-  <HomeArticleSettings client:load article={settingsArticle} categories={categories} categoryId={categoryMap.get(article.id) ?? null} />
+  <HomeArticleSettings client:load article={settingsArticle} categories={categories} categoryId={articleFolder(article.id)} />
   <div id="doc-detail-data" data-authed="1" data-active-node={article.id} data-nodes={JSON.stringify(nodes)} class="hidden" aria-hidden="true" />
   <dialog id="home-folder-dialog" class="m-auto w-[min(92vw,25rem)] rounded-lg border border-border bg-card p-5 text-foreground shadow-xl backdrop:bg-black/40">
     <h2 id="home-folder-dialog-title" class="font-display text-lg font-semibold">目录</h2>
