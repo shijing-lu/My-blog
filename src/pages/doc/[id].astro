@@ -1,6 +1,7 @@
 ---
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import ArticleDetailShell from '@/components/article/ArticleDetailShell.astro';
 import { canManage } from '@/lib/admin-auth';
 import { getBundle, getCategoryName, listBundleNodes } from '@/lib/docs';
 import { esc } from '@/lib/html-escape';
@@ -98,159 +99,34 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 ---
 
 <BaseLayout title={`${bundle.name} · 文档`} description={bundle.summary ?? `${bundle.name} 文档`}>
-  <section data-authed={isAuthed ? '1' : '0'}>
-    {/* 面包屑 */}
-    <div class="mx-auto w-full max-w-[1320px] px-4 pt-6 text-sm text-muted-foreground">
+  <ArticleDetailShell
+    domain="docs"
+    authed={isAuthed}
+    treeLabel="本册目录"
+    treeHtml={treeHtml}
+    title={activeNode?.title}
+    articleHtml={html}
+    tocHtml={tocTreeHtml}
+    tocState={deferRender ? 'loading' : toc.length > 0 ? 'ready' : 'empty'}
+    deferArticleId={deferRender ? activeNode?.id : undefined}
+    emptyText="该文档暂无文章。"
+  >
+    <Fragment slot="breadcrumb">
       <a href="/doc" class="transition-colors hover:text-primary">文档</a>
       {catName && <span class="mx-1">/</span>}
       {catName && <span>{esc(catName)}</span>}
       <span class="mx-1">/</span>
       <span id="doc-bundle-name" class="text-foreground">{esc(bundle.name)}</span>
-      {isAuthed && (
-        <button id="doc-edit-bundle" type="button" title="编辑文档" aria-label="编辑文档" class="icon-btn-tap ml-2 text-xs text-muted-foreground transition-colors hover:text-primary">✎</button>
-      )}
-    </div>
-
-    <div class="mx-auto w-full max-w-[1320px] px-4 py-6">
-      {/* 两栏布局：左=目录树（可折叠 44px）/ 中=正文（锁 680px 阅读宽）。
-          右侧「文章内目录」已脱离文档流：fixed 悬浮贴视口右缘 340px（见 #doc-toc-panel），
-          宽屏（≥1320px）悬浮不遮正文；窄窗自动收起为贴右浮钮，点开为带遮罩的浮层。
-          正文列可用宽度因此完整释放（572px → 680px），与目录互不挤占。 */}
-      <div id="doc-3col" data-ltoc-collapsed="false" data-toc-collapsed="false" data-toc-auto="false" class="grid gap-6 lg:grid-cols-[var(--toc-lw,220px)_minmax(0,1fr)]">
-        {/* 左栏：册内目录树（可折叠，与右栏对称交互） */}
-        <aside id="doc-ltoc-aside" class="lg:sticky lg:top-20 lg:self-start">
-          <div id="doc-ltoc-inner" class="lg:border-r lg:border-border lg:pr-4">
-            <div class="flex items-center justify-between gap-2 pl-1 pr-10">
-              <p data-ltoc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">本册目录</p>
-              {
-                isAuthed && (
-                  <span data-ltoc-label class="flex items-center gap-1">
-                    <button id="doc-add-root-folder" type="button" title="新建目录" aria-label="新建目录" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋目录</button>
-                    <button id="doc-add-root-article" type="button" title="新建文章" aria-label="新建文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋文章</button>
-                    <span id="doc-create-status" role="status" class="sr-only" />
-                  </span>
-                )
-              }
-            </div>
-            <div id="doc-ltoc-body" class="mt-3 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
-              <nav class="space-y-0.5 text-base" aria-label="本册目录">
-                {/* 容器恒存在（空态由 renderDocTree 输出）：客户端就地增删改后整体重绘此处 */}
-                <div class="space-y-0.5" data-doc-tree-root set:html={treeHtml} />
-              </nav>
-            </div>
-          </div>
-          <button
-            id="doc-ltoc-toggle"
-            type="button"
-            title="收起 / 展开目录"
-            aria-label="收起或展开目录"
-            aria-controls="doc-ltoc-body"
-            aria-expanded="true"
-            class="hidden h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-primary lg:inline-flex"
-          >
-            <svg data-ltoc-icon-collapse class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
-            <svg data-ltoc-icon-expand class="hidden h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
-          </button>
-        </aside>
-
-        {/* 中栏：正文（占满 grid 第二列 ≈ 1044px；右侧目录为悬浮面板不占布局列，
-            可用宽度完整给正文，行长宽松更舒展。过长行内/块级公式仍按 katex-display
-            overflow-x:auto 横向滚动。⚠️ 勿加 justify-self-start：grid item 在非 stretch
-            对齐下 auto 宽度退化为 shrink-to-fit（跟随内容最窄处），正文中段会缩到
-            ~414px。默认 stretch + 无 max-width 即占满 1fr 列、贴列左缘。 */}
-        <main class="min-w-0">
-          {activeNode ? (
-            <>
-              <header>
-                <div class="flex items-start gap-3">
-                  <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(activeNode.title)}</h1>
-                  {isAuthed && <button id="doc-rename-article" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary" title="修改文章标题">改标题</button>}
-                  {isAuthed && <input id="doc-rename-input" type="text" maxlength="200" value={activeNode.title} aria-label="文章标题" class="mt-1 hidden min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm" />}
-                  {
-                    isAuthed && (
-                      <button
-                        id="doc-inline-edit"
-                        type="button"
-                        title="原地编辑本文"
-                        aria-label="原地编辑本文"
-                        class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                      >
-                        编辑
-                      </button>
-                    )
-                  }
-                  {/* 导出入口：MD 端点在点击时按当前 ?article= 节点 id 拼接（页内切换后仍正确） */}
-                  <ExportMenu mdBase="/api/export/doc/" mdParam="article" class="mt-1.5" />
-                </div>
-                <div class="pixel-divider mt-4" />
-              </header>
-              <article
-                class="prose mt-6 max-w-none break-words"
-                data-defer-article={deferRender && activeNode ? activeNode.id : undefined}
-                set:html={html}
-              />
-              {/* 正文原编辑岛：仅登录用户加载（client:idle 延后到空闲，不拖阅读首屏） */}
-              {isAuthed && <DocInlineEditor client:idle />}
-            </>
-          ) : (
-            <p class="mt-10 text-center text-sm text-muted-foreground">该文档暂无文章。</p>
-          )}
-        </main>
-
-        {/* 右栏：文章内目录 —— 悬浮面板（fixed 贴视口右缘 340px），状态机见 <script> setupTocRail：
-            ① ≥1320px：悬浮展开，不遮正文（正文右缘与面板间留白 ≥40px）
-            ② <1320px：自动收起为贴右浮钮（#doc-toc-fab）；点开 → 浮层 + 遮罩（#doc-toc-overlay）
-            ③ 用户手动收起（任意宽度）：同 ② 的浮钮形态 */}
-      </div>
-
-      {/* TOC 悬浮面板（置于 grid 外：fixed 定位不参与两栏布局） */}
-      <aside id="doc-toc-aside" class="hidden lg:block">
-        <div id="doc-toc-panel" class="fixed top-20 right-0 z-30 flex max-h-[calc(100vh-6rem)] w-[340px] flex-col border-l border-y border-border bg-card/95 shadow-lg backdrop-blur">
-          {/* 标题行 */}
-          <div class="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
-            <p data-toc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
-            <button
-              id="doc-toc-toggle"
-              type="button"
-              title="收起目录"
-              aria-label="收起目录"
-              aria-controls="doc-toc-list"
-              aria-expanded="true"
-              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
-            >
-              <svg data-toc-icon-collapse class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
-              <svg data-toc-icon-expand class="hidden h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
-            </button>
-          </div>
-          {/* 目录滚动区：悬停滚动时仅滚自身（overscroll-behavior:contain 阻断联动正文） */}
-          <div id="doc-toc-rail" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 [scrollbar-width:thin]">
-            {toc.length > 0 ? (
-              <div id="doc-toc-list" data-toc-label class="flex flex-col gap-1.5" set:html={tocTreeHtml} />
-            ) : (
-              <p data-toc-label class="mt-2 text-xs text-muted-foreground">{deferRender ? '正在加载目录…' : '无目录'}</p>
-            )}
-          </div>
-        </div>
-
-        {/* 收起后的贴右浮钮（替代旧「44px 窄列」形态） */}
-        <button
-          id="doc-toc-fab"
-          type="button"
-          title="展开目录"
-          aria-label="展开目录"
-          aria-controls="doc-toc-list"
-          aria-expanded="false"
-          class="fixed top-20 right-3 z-30 hidden h-9 w-9 items-center justify-center rounded-full border border-border bg-card/95 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
-        >
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
-        </button>
-      </aside>
-
-      {/* overlay 遮罩：窄窗浮层模式下点击空白处收起目录 */}
-      <div id="doc-toc-overlay" class="fixed inset-0 z-20 hidden bg-black/30 backdrop-blur-[1px]" aria-hidden="true" />
-    </div>
-  </section>
-
+      {isAuthed && <button id="doc-edit-bundle" type="button" title="编辑文档" aria-label="编辑文档" class="icon-btn-tap ml-2 text-xs text-muted-foreground transition-colors hover:text-primary">✎</button>}
+    </Fragment>
+    <Fragment slot="title-actions">
+      {isAuthed && activeNode && <button id="doc-rename-article" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary" title="修改文章标题">改标题</button>}
+      {isAuthed && activeNode && <input id="doc-rename-input" type="text" maxlength="200" value={activeNode.title} aria-label="文章标题" class="mt-1 hidden min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm" />}
+      {isAuthed && activeNode && <button id="doc-inline-edit" type="button" title="原地编辑本文" aria-label="原地编辑本文" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>}
+      {activeNode && <ExportMenu mdBase="/api/export/doc/" mdParam="article" class="mt-1.5" />}
+    </Fragment>
+    <Fragment slot="editor">{isAuthed && activeNode && <DocInlineEditor client:idle />}</Fragment>
+  </ArticleDetailShell>
   {/* 数据注入 */}
   <div id="doc-detail-data" data-authed={isAuthed ? '1' : '0'} data-nodes={nodesJson} data-bundle={bundleJson} data-active-node={activeNodeId} data-folders={folderOptionsJson} class="hidden" aria-hidden="true" />
   {/* 切换文章加载条：首渲染 1~3s 期间的即时反馈（否则页面静止会被当成卡死），见页内切换 handler */}
@@ -318,232 +194,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   </dialog>
 </BaseLayout>
 
-<style is:global>
-  /* ===== /doc/[id] 布局：左目录树两栏 grid + 右 TOC 悬浮面板 ===== */
-  /* 左栏宽度（可折叠为 44px 只留按钮条）；右 TOC 为 fixed 悬浮面板，不占布局列 */
-  #doc-3col { --toc-lw: 220px; }
-  /* 左栏折叠态：只留按钮条 */
-  #doc-3col[data-ltoc-collapsed='true'] { --toc-lw: 44px; }
 
-  /* —— TOC 悬浮面板三态（状态属性挂在 #doc-toc-aside 上，由 setupTocRail 维护） ——
-     ① data-collapsed='false' + data-auto='false'（≥1320px）：悬浮展开，贴视口右缘不遮正文
-     ② data-collapsed='true'：收起为贴右浮钮（fab）
-     ③ data-collapsed='false' + data-auto='true'（<1320px 手动点开）：浮层 + 遮罩 */
-  #doc-toc-aside[data-collapsed='true'] #doc-toc-panel { display: none; }
-  #doc-toc-aside[data-collapsed='true'] #doc-toc-fab { display: inline-flex; }
-  #doc-toc-aside[data-collapsed='false'][data-auto='true'] ~ #doc-toc-overlay { display: block; }
-  /* 浮层模式下面板抬升层级（高于遮罩 z-20） */
-  #doc-toc-aside[data-auto='true'][data-collapsed='false'] #doc-toc-panel { z-index: 40; }
-
-  /* 左栏折叠动画：inner 向左滑出（纯合成器动画），列宽由 data-* 瞬切（单次 reflow）。
-     旧实现把 opacity 过渡挂在 #doc-3col 上导致正文整段淡出 + 巨型合成层卡顿，已废弃。 */
-  @media (min-width: 1024px) {
-    #doc-ltoc-aside { overflow: hidden; }
-    #doc-ltoc-inner { width: 220px; }
-    #doc-ltoc-inner { transition: transform 0.2s ease; }
-    #doc-3col[data-ltoc-collapsed='true'] #doc-ltoc-inner { transform: translateX(-100%); }
-    #doc-ltoc-toggle { position: absolute; top: 0; right: 0.5rem; z-index: 10; }
-  }
-  /* 左栏折叠态按钮图标切换（折叠图隐藏，展开图显示） */
-  #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-icon-collapse] { display: none; }
-  #doc-3col[data-ltoc-collapsed='true'] [data-ltoc-icon-expand] { display: inline-block; }
-  #doc-3col[data-ltoc-collapsed='false'] [data-ltoc-icon-collapse] { display: inline-block; }
-  #doc-3col[data-ltoc-collapsed='false'] [data-ltoc-icon-expand] { display: none; }
-
-  /* ===== 树形目录：层级递归折叠 ===== */
-  .toc-row { display: flex; align-items: flex-start; gap: 0.125rem; }
-  .toc-fold {
-    flex-shrink: 0;
-    width: 1rem;
-    height: 1.4rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-muted-foreground);
-    cursor: pointer;
-    border-radius: 0.25rem;
-    transition: color 0.15s;
-  }
-  .toc-fold:hover { color: var(--color-primary); }
-  .toc-fold .toc-chevron { width: 0.7rem; height: 0.7rem; transition: transform 0.15s ease; }
-  .toc-node.folded > .toc-row .toc-chevron { transform: rotate(-90deg); }
-  .toc-node.folded > .toc-children { display: none; }
-  .toc-fold-spacer { flex-shrink: 0; width: 1rem; height: 1.4rem; }
-  .toc-children {
-    margin-left: 1.05rem;
-    margin-top: 0.375rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-  .toc-item {
-    display: block;
-    font-size: 0.95rem;
-    line-height: 1.35;
-    color: var(--color-muted-foreground);
-    transition: color 0.2s;
-    min-width: 0;
-  }
-  .toc-item:hover { color: var(--color-primary); }
-  /* 编辑态反向高亮：编辑器滚动 → 当前小节目录项（由 DocInlineEditor 切 class） */
-  #doc-toc-list .toc-item.toc-active {
-    color: var(--color-primary);
-    font-weight: 500;
-  }
-  .toc-l3 { font-size: 0.9rem; }
-  .toc-l4 { font-size: 0.85rem; }
-
-  /* ===== 目录内 KaTeX：缩小字号防撑行；display 公式收敛为块内展示 ===== */
-  #doc-toc-list .katex { font-size: 0.85em; }
-  #doc-toc-list .katex-display { margin: 0.2em 0; }
-  #doc-toc-list .katex-display > .katex { display: inline-block; white-space: nowrap; }
-
-  /* ===== 正文 KaTeX：解拥挤 =====
-     vlist 防御（诊断实验）：.katex 内部行盒必须用 KaTeX 官方行高 1.2 ——
-     覆盖成 1.6 会给每个绝对定位行盒叠加额外前导，分式/上下标嵌套时 bbox 相交
-     数倍增（实测 lh1.6 → 1.2 使 mfrac 重叠显著下降）。段落级行距由
-     p:has(.katex) 的 line-height: 2 独立兜底，两者互不影响。
-     字体失败场景由 html.katex-font-fallback 的 MathML 兜底处理（global.css）。 */
-  .prose .katex { font-size: 1.05em; line-height: 1.2; }
-  /* 行内公式左右留白：0.05em → 0.18em，避免与相邻文字粘连 */
-  .prose p .katex,
-  .prose li .katex { padding: 0 0.18em; }
-  /* 含公式的段落/列表项放宽行距：\frac / \int 等"高"公式不再顶到相邻行 */
-  .prose p:has(.katex),
-  .prose li:has(.katex) { line-height: 2; }
-  /* 行间公式：上下留白更舒展，横向溢出时独立滚动而不是撑破栏宽 */
-  .prose .katex-display {
-    margin: 1.3em 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 0.35em 0;
-  }
-  .prose .katex-display > .katex { display: inline-block; white-space: nowrap; }
-  /* 窄屏下宽公式轻微降字号，换取横向空间（宁可小一点，也不要挤成滚动条） */
-  @media (max-width: 767px) {
-    .prose .katex-display > .katex { font-size: 0.94em; }
-  }
-
-  /* ===== 长文渲染优化：跳过首屏外区块的布局与绘制 =====
-     实测：243KB 文章渲染出约 1.9 万个 DOM 标签，浏览器一次性 layout 是
-     「切到大文章卡一下」的主因（服务端有 LRU 后仅 0.1ms，网络 gzip 后也很小）。
-     content-visibility:auto 让视口外区块跳过 layout/paint，只算可见部分；
-     contain-intrinsic-size 的 `auto` 前缀会记住真实高度，避免滚动条反复抖动。
-     权衡：未渲染过的区块用估算高度，首次锚点/TOC 跳转可能有轻微偏移；
-     打印时必须还原 visible，否则视口外内容不会进打印结果。 */
-  main article.prose > * {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 120px;
-  }
-  @media print {
-    main article.prose > * { content-visibility: visible; }
-  }
-  /* 目录跳转/模式切换定位专用的「强制渲染」态：
-     首次点击目录时视口外区块仍是估算高（120px），滚动途中逐渐真实化导致
-     首次定位偏移、后续点击才准。跳转前暂时整篇强制布局（contain-intrinsic-size
-     的 auto 前缀会记住真实高度，恢复后不再回跳），定位完即恢复。 */
-  main article.prose.toc-nav-rendering > * {
-    content-visibility: visible;
-  }
-
-  /* ===== 切换文章的加载反馈（见页内切换 handler 的性能说明） =====
-     每篇文章首次服务端渲染 1~3s；页内切换无浏览器原生加载指示，
-     必须给出即时反馈，否则用户会当成卡死并连点（连点让 node 单线程排队）。
-     正文降透明 + 顶部不确定进度条；同时禁 pointer-events，避免加载中误操作旧内容。 */
-  main article.prose.doc-article-loading {
-    opacity: 0.4;
-    pointer-events: none;
-    transition: opacity 0.15s ease;
-  }
-  #doc-switch-progress {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 60;
-    height: 3px;
-    overflow: hidden;
-    background: color-mix(in oklab, var(--primary) 15%, transparent);
-  }
-  #doc-switch-progress > span {
-    display: block;
-    width: 35%;
-    height: 100%;
-    background: var(--primary);
-    animation: doc-switch-slide 1.1s ease-in-out infinite;
-  }
-  @keyframes doc-switch-slide {
-    0% { transform: translateX(-110%); }
-    100% { transform: translateX(330%); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    #doc-switch-progress > span { animation-duration: 2.4s; }
-  }
-
-  /* ===== 就地编辑（Obsidian 式原位编辑） =====
-     编辑器=ghost 变体：透明融入正文、无卡片无工具条；高度按正文高计算不跳变。
-     host 承接原 <article> 的 mt-6，使编辑内容与阅读正文起点一致。 */
-  .doc-ie-host { margin-top: 1.5rem; }
-  .doc-ie-view {
-    overflow: hidden;
-    border-radius: var(--radius-md);
-    /* 就地编辑态下编辑器处于可点选状态，滚动条细而低调 */
-    scrollbar-width: thin;
-  }
-  .doc-ie-view .cm-editor { border-radius: var(--radius-md); }
-  .doc-ie-view .cm-scroller { scrollbar-width: thin; }
-  /* 正文原位替换时去除 CM 的焦点外框（阅读正文无框，编辑态亦应无框） */
-  .doc-ie-view .cm-editor.cm-focused { outline: none; }
-  /* ghost 编辑器首行/末尾对齐阅读正文间距 */
-  .doc-ie-view .cm-content { padding-top: 0.375rem; }
-
-  /* 标题旁入口按钮：编辑态 →「完成」高亮（primary 色） */
-  #doc-inline-edit.doc-entry-active {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-  }
-
-  /* ===== 目录树拖拽反馈（对齐导航模块交互） ===== */
-  /* 目录行落点：主色浅底 + 虚线描边（移入该目录末尾） */
-  #doc-ltoc-body [data-doc-folder-target].doc-drag-over-folder {
-    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-    color: var(--color-primary);
-    outline: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
-    outline-offset: -1px;
-  }
-  /* 文章行落点：上/下插入线（2px 主色，inset 不占布局） */
-  #doc-ltoc-body [data-doc-node-id].doc-drag-line-top {
-    box-shadow: inset 0 2px 0 var(--color-primary);
-  }
-  #doc-ltoc-body [data-doc-node-id].doc-drag-line-bottom {
-    box-shadow: inset 0 -2px 0 var(--color-primary);
-  }
-  /* 被拖源行半透明 */
-  #doc-ltoc-body .doc-dragging {
-    opacity: 0.45;
-  }
-
-  /* ====== 块级公式行：源 line 文本透明 / 不占布局，仅保留 KaTeX widget ======
-     根因：cm-wysiwyg 的 `Decoration.replace({ widget })` 在 CodeMirror 6 中不会
-     删除源 line 节点（widget 仅替代渲染位置），导致 $$..$$ 行内 KaTeX 字符与
-     源码字符并存甚至被压扁。CSS 层把源文本藏起来 —— 公式始终以 KaTeX 形式可见，
-     透明文本仍可选中（selectionInside 行为完整保留：光标进公式行可改源码）*/
-  .doc-ie-view .cm-line:has(.cm-wy-math-display) {
-    color: transparent;
-    font-size: 0;
-    line-height: 0;
-  }
-  .doc-ie-view .cm-line:has(.cm-wy-math-display) .cm-wy-math-display {
-    display: block;
-    /* 左对齐（KaTeX .katex-display 默认居中，这里按需求改为与正文左缘对齐） */
-    text-align: left;
-    margin: 1em 0;
-    color: var(--color-foreground);
-    font-size: 1rem;
-    line-height: 1.5;
-  }
-</style>
 
 <script>
   /** 文档详情页：目录树文章切换 + 节点 CRUD（目录/文章 增删改移动）+ 预览 */
