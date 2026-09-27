@@ -153,7 +153,7 @@ export function renderDocTree(items: DocTreeItem[], opts: DocTreeRenderOpts): st
           ? `/edit/${encodeURIComponent(n.id)}`
           : `/doc/${bundleId}?article=${encodeURIComponent(n.id)}`;
         out +=
-          `<div${authed ? ` draggable="true" data-doc-node-id="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="article" data-tree-node-title="${esc(n.title)}" tabindex="-1"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
+          `<div${authed ? ` ${articlePath === 'docs' ? 'draggable="true" ' : ''}data-doc-node-id="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="article" data-tree-node-title="${esc(n.title)}" tabindex="-1"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
           (n.id === activeId ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
           `">` +
           `<a href="${href}" data-article-switch="${n.id}" class="min-w-0 flex-1 truncate">${esc(n.title)}</a>` +
