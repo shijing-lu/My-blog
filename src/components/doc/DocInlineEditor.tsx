@@ -433,7 +433,7 @@ export default function DocInlineEditor(): ReactElement {
     const avail = Math.max(320, window.innerHeight - 244);
     // 短文形态：正文不高于一屏可用高 → 编辑器高度随内容撑开（无内部滚动，
     // 页面级滚动承载——与阅读正文完全一致）；超长文 → 一屏高 + 编辑器内滚。
-    const fit = artH > 0 && artH <= avail;
+    const fit = artH <= avail;
     fitRef.current = fit;
     // 阅读进度 = 视口顶在正文中的比例（顶部对顶部：与退出方向的映射公式互逆）
     savedProgress.current = fit
