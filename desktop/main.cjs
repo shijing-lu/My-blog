@@ -724,7 +724,10 @@ async function main() {
     return;
   }
 
-  void checkVersion();
+  // 便携包由打包脚本写入标记；安装版仍执行原有版本检查。
+  if (!existsSync(path.join(process.resourcesPath || '', 'desktop-assets', 'portable.marker'))) {
+    void checkVersion();
+  }
   // 启动后静默拉取一次云端变更（本地优先下这是"看到 Web 端新评论"的来源）
   setTimeout(() => void silentStartupSync(), 3000);
 }

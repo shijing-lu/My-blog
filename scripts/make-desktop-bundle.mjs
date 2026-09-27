@@ -174,6 +174,7 @@ console.log('✓ 应用载荷（dist / desktop / package.json）已复制');
 // ── 3) 复制桌面端资源（main.cjs 在 isPackaged 布局下从这里取模板与图标）──
 const assets = path.join(OUT, 'resources', 'desktop-assets');
 mkdirSync(assets, { recursive: true });
+writeFileSync(path.join(assets, 'portable.marker'), 'portable\n', 'utf8');
 for (const f of ['template.db', 'tray-icon.png']) {
   const from = path.join(ROOT, 'desktop', f === 'template.db' ? 'assets/template.db' : f);
   if (existsSync(from)) cpSync(from, path.join(assets, f));
