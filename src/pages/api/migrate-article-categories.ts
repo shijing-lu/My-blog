@@ -27,6 +27,7 @@ const DDL_LIST: Array<{ name: string; ddl: string }> = [
     ddl: `CREATE TABLE IF NOT EXISTS article_categories (
       id text PRIMARY KEY,
       name text NOT NULL,
+      parent_id text,
       color text NOT NULL DEFAULT '',
       sort integer NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now()
@@ -35,6 +36,14 @@ const DDL_LIST: Array<{ name: string; ddl: string }> = [
   {
     name: 'article_categories_sort_idx',
     ddl: 'CREATE INDEX IF NOT EXISTS article_categories_sort_idx ON article_categories (sort)',
+  },
+  {
+    name: 'article_categories_parent_id',
+    ddl: 'ALTER TABLE article_categories ADD COLUMN IF NOT EXISTS parent_id text',
+  },
+  {
+    name: 'article_categories_parent_idx',
+    ddl: 'CREATE INDEX IF NOT EXISTS article_categories_parent_idx ON article_categories (parent_id)',
   },
   {
     name: 'article_post_categories',

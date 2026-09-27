@@ -14,13 +14,14 @@
  *    调用方无需 try/catch。
  */
 import { asc, eq, inArray } from 'drizzle-orm';
-import { db } from '../../db';
+import { db, dbWrite } from '../../db';
 import { articleCategories, articlePostCategories } from '../../db/schema.sqlite';
 
 /** 分类视图（对外形态） */
 export interface ArticleCategory {
   id: string;
   name: string;
+  parentId: string | null;
   /** 主题色（空串 = 跟随站点主色） */
   color: string;
   sort: number;
@@ -44,12 +45,13 @@ export async function listArticleCategories(): Promise<ArticleCategory[]> {
       .select({
         id: articleCategories.id,
         name: articleCategories.name,
+        parentId: articleCategories.parentId,
         color: articleCategories.color,
         sort: articleCategories.sort,
       })
       .from(articleCategories)
       .orderBy(asc(articleCategories.sort));
-    return rows.map((r) => ({ id: r.id, name: r.name, color: r.color ?? '', sort: r.sort }));
+    return rows.map((r) => ({ id: r.id, name: r.name, parentId: r.parentId, color: r.color ?? '', sort: r.sort }));
   } catch {
     // 表尚未迁移 → 功能降级（写作台回落到「按类型分组」）
     return [];
@@ -79,13 +81,14 @@ export async function articleCategoryMap(): Promise<Map<string, string>> {
  * @param color 主题色（空串 = 跟随主色）
  * @returns 新建分类；失败返回 null
  */
-export async function createArticleCategory(name: string, color = ''): Promise<ArticleCategory | null> {
+export async function createArticleCategory(name: string, color = '', parentId: string | null = null): Promise<ArticleCategory | null> {
   try {
     const all = await listArticleCategories();
-    const sort = all.reduce((max, c) => Math.max(max, c.sort), -1) + 1;
-    const row = { id: newId(), name, color, sort };
+    if (parentId && !all.some((category) => category.id === parentId)) return null;
+    const sort = all.filter((category) => category.parentId === parentId).reduce((max, c) => Math.max(max, c.sort), -1) + 1;
+    const row = { id: newId(), name, parentId, color, sort };
     await db.insert(articleCategories).values({ ...row, createdAt: new Date() });
-    return { id: row.id, name: row.name, color: row.color, sort: row.sort };
+    return { id: row.id, name: row.name, parentId: row.parentId, color: row.color, sort: row.sort };
   } catch {
     return null;
   }
@@ -100,12 +103,31 @@ export async function createArticleCategory(name: string, color = ''): Promise<A
  */
 export async function updateArticleCategory(
   id: string,
-  patch: { name?: string; color?: string },
+  patch: { name?: string; color?: string; parentId?: string | null },
 ): Promise<boolean> {
   try {
     const next: Record<string, unknown> = {};
     if (typeof patch.name === 'string' && patch.name.trim()) next.name = patch.name.trim();
     if (typeof patch.color === 'string') next.color = patch.color;
+    if (patch.parentId !== undefined) {
+      const all = await listArticleCategories();
+      const current = all.find((category) => category.id === id);
+      if (!current) return false;
+      if (patch.parentId && !all.some((category) => category.id === patch.parentId)) return false;
+      const byId = new Map(all.map((category) => [category.id, category]));
+      let cursor = patch.parentId;
+      const seen = new Set<string>();
+      while (cursor) {
+        if (cursor === id || seen.has(cursor)) return false;
+        seen.add(cursor);
+        cursor = byId.get(cursor)?.parentId ?? null;
+      }
+      next.parentId = patch.parentId;
+      if (patch.parentId !== current.parentId) {
+        next.sort = all.filter((category) => category.parentId === patch.parentId)
+          .reduce((max, category) => Math.max(max, category.sort), -1) + 1;
+      }
+    }
     if (Object.keys(next).length === 0) return false;
     await db.update(articleCategories).set(next).where(eq(articleCategories.id, id));
     return true;
@@ -122,6 +144,10 @@ export async function updateArticleCategory(
  */
 export async function reorderArticleCategories(orderedIds: string[]): Promise<boolean> {
   try {
+    const all = await listArticleCategories();
+    if (orderedIds.length === 0 || new Set(orderedIds).size !== orderedIds.length) return false;
+    const first = all.find((category) => category.id === orderedIds[0]);
+    if (!first || orderedIds.some((id) => !all.some((category) => category.id === id && category.parentId === first.parentId))) return false;
     for (let i = 0; i < orderedIds.length; i += 1) {
       const id = orderedIds[i];
       if (!id) continue;
@@ -141,8 +167,32 @@ export async function reorderArticleCategories(orderedIds: string[]): Promise<bo
  */
 export async function deleteArticleCategory(id: string): Promise<boolean> {
   try {
-    await db.delete(articlePostCategories).where(eq(articlePostCategories.categoryId, id));
-    await db.delete(articleCategories).where(eq(articleCategories.id, id));
+    const all = await listArticleCategories();
+    const target = all.find((category) => category.id === id);
+    if (!target) return false;
+    const children = all.filter((category) => category.parentId === id);
+    const startSort = all.filter((category) => category.parentId === target.parentId && category.id !== id)
+      .reduce((max, category) => Math.max(max, category.sort), -1) + 1;
+    await dbWrite(async (database, postgres) => {
+      let nextSort = startSort;
+      if (postgres) {
+        await (database as any).transaction(async (tx: any) => {
+          for (const child of children) {
+            await tx.update(articleCategories).set({ parentId: target.parentId, sort: nextSort++ }).where(eq(articleCategories.id, child.id));
+          }
+          await tx.delete(articlePostCategories).where(eq(articlePostCategories.categoryId, id));
+          await tx.delete(articleCategories).where(eq(articleCategories.id, id));
+        });
+      } else {
+        (database as any).transaction((tx: any) => {
+          for (const child of children) {
+            tx.update(articleCategories).set({ parentId: target.parentId, sort: nextSort++ }).where(eq(articleCategories.id, child.id)).run();
+          }
+          tx.delete(articlePostCategories).where(eq(articlePostCategories.categoryId, id)).run();
+          tx.delete(articleCategories).where(eq(articleCategories.id, id)).run();
+        });
+      }
+    });
     return true;
   } catch {
     return false;
@@ -162,6 +212,8 @@ export async function setArticleCategory(articleId: string, categoryId: string |
       await db.delete(articlePostCategories).where(eq(articlePostCategories.articleId, articleId));
       return true;
     }
+    const available = await listArticleCategories();
+    if (!available.some((category) => category.id === categoryId)) return false;
     await db
       .insert(articlePostCategories)
       .values({ articleId, categoryId, createdAt: new Date() })

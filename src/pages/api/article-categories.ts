@@ -38,15 +38,16 @@ export const GET: APIRoute = async ({ cookies }) => {
 export const POST: APIRoute = async ({ request, cookies }) => {
   const denied = await guardManager(cookies);
   if (denied) return denied;
-  const body = await readJson<{ name?: unknown; color?: unknown }>(request);
+  const body = await readJson<{ name?: unknown; color?: unknown; parentId?: unknown }>(request);
   if (!body) return badJson();
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
   if (!name) return badRequest('请填写分类名');
-  // 重名直接拒绝：写作台左栏按名分组，重名会让用户分不清
+  const parentId = typeof body.parentId === 'string' && body.parentId ? body.parentId : null;
   const exists = await listArticleCategories();
-  if (exists.some((c) => c.name === name)) return json({ error: `已存在分类「${name}」` }, 400);
+  if (parentId && !exists.some((c) => c.id === parentId)) return badRequest('上级目录不存在');
+  if (exists.some((c) => c.parentId === parentId && c.name === name)) return json({ error: `同级目录已存在「${name}」` }, 400);
   const color = typeof body.color === 'string' ? body.color.trim().slice(0, MAX_COLOR) : '';
-  const category = await createArticleCategory(name, color);
+  const category = await createArticleCategory(name, color, parentId);
   if (!category) return json({ error: '创建失败（分类表可能尚未迁移，请执行迁移端点）' }, 500);
   return json({ category }, 201);
 };
@@ -61,6 +62,7 @@ export const PATCH: APIRoute = async ({ request, cookies }) => {
     ids?: unknown;
     articleId?: unknown;
     categoryId?: unknown;
+    parentId?: unknown;
   }>(request);
   if (!body) return badJson();
 
@@ -82,13 +84,24 @@ export const PATCH: APIRoute = async ({ request, cookies }) => {
   /* 重命名 / 改色：{ id, name?, color? } */
   const id = typeof body.id === 'string' ? body.id : '';
   if (!id) return badRequest('缺少分类 id');
-  const patch: { name?: string; color?: string } = {};
+  const patch: { name?: string; color?: string; parentId?: string | null } = {};
+  const all = await listArticleCategories();
+  const current = all.find((category) => category.id === id);
+  if (!current) return badRequest('目录不存在');
+  if (body.parentId !== undefined) {
+    const parentId = typeof body.parentId === 'string' && body.parentId ? body.parentId : null;
+    if (parentId && !all.some((category) => category.id === parentId)) return badRequest('上级目录不存在');
+    patch.parentId = parentId;
+  }
   if (typeof body.name === 'string') {
     const n = body.name.trim().slice(0, MAX_NAME);
     if (!n) return badRequest('分类名不能为空');
-    const all = await listArticleCategories();
-    if (all.some((c) => c.name === n && c.id !== id)) return json({ error: `已存在分类「${n}」` }, 400);
     patch.name = n;
+  }
+  const targetParent = patch.parentId === undefined ? current.parentId : patch.parentId;
+  const targetName = patch.name ?? current.name;
+  if (all.some((category) => category.id !== id && category.parentId === targetParent && category.name === targetName)) {
+    return json({ error: `同级目录已存在「${targetName}」` }, 400);
   }
   if (typeof body.color === 'string') patch.color = body.color.trim().slice(0, MAX_COLOR);
   const ok = await updateArticleCategory(id, patch);

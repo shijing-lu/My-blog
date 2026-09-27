@@ -88,6 +88,13 @@ function createDrizzle(ep: DbEndpoint, index: number): BlogDb {
   if (articleColumns.length > 0 && !articleColumns.some((column) => column.name === 'published')) {
     client.exec('ALTER TABLE articles ADD COLUMN published integer NOT NULL DEFAULT 1');
   }
+  const categoryColumns = client.pragma('table_info(article_categories)') as Array<{ name: string }>;
+  if (categoryColumns.length > 0 && !categoryColumns.some((column) => column.name === 'parent_id')) {
+    client.exec('ALTER TABLE article_categories ADD COLUMN parent_id text');
+  }
+  if (categoryColumns.length > 0) {
+    client.exec('CREATE INDEX IF NOT EXISTS article_categories_parent_idx ON article_categories(parent_id)');
+  }
   const { drizzle: drizzleBetterSqlite } = requireHere(SQLITE_DRIZZLE_PKG);
   return drizzleBetterSqlite(client, { schema: sqliteSchema }) as unknown as BlogDb;
 }
@@ -199,7 +206,7 @@ export function getDb(): BlogDb {
  * - 全部端点失败：抛出最后一次错误；
  * - 单端点（本地 SQLite / 未配置 FALLBACK）时行为与直接写一致。
  */
-export async function dbWrite<T>(build: (d: BlogDb) => Promise<T>): Promise<T> {
+export async function dbWrite<T>(build: (d: BlogDb, postgres: boolean) => Promise<T>): Promise<T> {
   let result: T | undefined;
   let lastErr: unknown;
   let anySuccess = false;
@@ -207,7 +214,7 @@ export async function dbWrite<T>(build: (d: BlogDb) => Promise<T>): Promise<T> {
     const ep = endpoints[i]!;
     if (!ep.db) ep.db = createDrizzle(ep, i);
     try {
-      const r = await build(ep.db);
+      const r = await build(ep.db, ep.postgres);
       if (result === undefined) result = r; // 保留主库（首个成功端点）的结果
       anySuccess = true;
     } catch (err) {

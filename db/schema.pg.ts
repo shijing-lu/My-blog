@@ -778,6 +778,8 @@ export const articleCategories = pgTable(
     id: text('id').primaryKey(),
     /** 分类名 */
     name: text('name').notNull(),
+    /** 上级目录；旧分类迁移后均位于根级 */
+    parentId: text('parent_id'),
     /** 主题色（可选；空串 = 跟随站点主色） */
     color: text('color').notNull().default(''),
     /** 排序（升序） */
@@ -794,6 +796,7 @@ export const articleCategories = pgTable(
   },
   (table) => [
     index('article_categories_sort_idx').on(table.sort),
+    index('article_categories_parent_idx').on(table.parentId),
   ],
 );
 
