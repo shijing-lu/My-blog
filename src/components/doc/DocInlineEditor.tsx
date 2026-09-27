@@ -57,6 +57,16 @@ declare global {
 function readActiveNodeId(): string {
   return document.getElementById('doc-detail-data')?.getAttribute('data-active-node') ?? '';
 }
+/** 页面骨架相同，正文读写由当前数据域决定。 */
+function isHomeArticle(): boolean {
+  return document.querySelector('[data-article-domain="home"]') !== null;
+}
+
+function articleApiUrl(id: string, render = false): string {
+  return isHomeArticle()
+    ? `/api/articles/${encodeURIComponent(id)}${render ? '/render' : ''}`
+    : `/api/doc/nodes/${encodeURIComponent(id)}${render ? '/render' : ''}`;
+}
 
 /** 目录快照项（编辑态目录点击跳转的定位依据） */
 interface TocSnapshotItem {
@@ -173,7 +183,7 @@ export default function DocInlineEditor(): ReactElement {
     void (async () => {
       try {
         // 不带 v → 绕过 CDN 缓存，强制回源重渲
-        const rr = await fetch(`/api/doc/nodes/${id}/render`);
+        const rr = await fetch(articleApiUrl(id, true));
         const d = (await rr.json().catch(() => ({}))) as { html?: string; toc?: TocItem[]; error?: string };
         if (!rr.ok || typeof d.html !== 'string') return;
         const art = document.querySelector<HTMLElement>('main article.prose');
@@ -211,7 +221,7 @@ export default function DocInlineEditor(): ReactElement {
     setPhase('saving');
     try {
       const title = document.querySelector('main h1')?.textContent?.trim() ?? '';
-      const res = await fetch(`/api/doc/nodes/${id}`, {
+      const res = await fetch(articleApiUrl(id), {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title, content: contentRef.current }),
@@ -434,10 +444,11 @@ export default function DocInlineEditor(): ReactElement {
     setError(null);
     nodeIdRef.current = id;
     try {
-      const res = await fetch(`/api/doc/nodes/${id}`);
-      const d = (await res.json().catch(() => ({}))) as { node?: { content?: string }; error?: string };
-      if (!res.ok || typeof d.node?.content !== 'string') throw new Error(d.error ?? '读取正文失败');
-      setContent(d.node.content);
+      const res = await fetch(articleApiUrl(id));
+      const d = (await res.json().catch(() => ({}))) as { node?: { content?: string }; article?: { content?: string }; error?: string };
+      const source = isHomeArticle() ? d.article?.content : d.node?.content;
+      if (!res.ok || typeof source !== 'string') throw new Error(d.error ?? '读取正文失败');
+      setContent(source);
       dirtyRef.current = false;
       setDirty(false);
       savedRef.current = false;
