@@ -96,6 +96,11 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
    * 「打开文章的编辑栏是白板，显示不出任何东西」（2026-09-21）。
    */
   const [editorReady, setEditorReady] = useState(false);
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewSeq = useRef(0);
   /* ---- 自定义分类 ---- */
   const [cats, setCats] = useState<ArticleCategory[]>(categories ?? []);
   const [catMap, setCatMap] = useState<Record<string, string>>(categoryMap ?? {});
@@ -340,9 +345,32 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
     if (!res.ok) return;
     const data = (await res.json()) as { article: InitialDraft };
     setDraft({ ...data.article, cover: data.article.cover ?? '', tags: data.article.tags ?? [] });
+    setViewMode('edit');
     setSelectedId(id);
     setSaveStatus('saved');
     setLastSaved(null);
+  }, []);
+
+  const showPreview = useCallback(async (): Promise<void> => {
+    const seq = ++previewSeq.current;
+    setPreviewLoading(true);
+    setPreviewError('');
+    setViewMode('preview');
+    try {
+      const res = await fetch('/api/articles/preview', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ source: draftRef.current.content }),
+      });
+      const data = (await res.json()) as { html?: string; error?: string };
+      if (seq !== previewSeq.current) return;
+      if (!res.ok) throw new Error(data.error ?? '预览失败');
+      setPreviewHtml(data.html ?? '');
+    } catch (error) {
+      if (seq === previewSeq.current) setPreviewError(error instanceof Error ? error.message : '预览失败');
+    } finally {
+      if (seq === previewSeq.current) setPreviewLoading(false);
+    }
   }, []);
 
   const newArticle = useCallback((): void => {
@@ -978,7 +1006,12 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
           ) : null}
 
           <div className="flex items-center gap-2 text-xs">
+            <div className="inline-flex rounded-md border border-border p-0.5" aria-label="编辑模式">
+              <button type="button" aria-pressed={viewMode === 'edit'} onClick={() => { ++previewSeq.current; setViewMode('edit'); }} className={`rounded px-2.5 py-1 ${viewMode === 'edit' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>编辑</button>
+              <button type="button" aria-pressed={viewMode === 'preview'} onClick={() => void showPreview()} className={`rounded px-2.5 py-1 ${viewMode === 'preview' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>预览</button>
+            </div>
             <span
+              role="status"
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 ${
                 saveStatus === 'saved'
                   ? 'bg-emerald-500/10 text-emerald-600'
@@ -1041,10 +1074,12 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
           {/* 所见即所得编辑器（复用 MarkdownEditor）。
               包一层 relative 容器：CM 就绪前的骨架覆盖层（editorReady=false，SSR 即输出）
               需要绝对定位铺满编辑区；就绪后由 onReady 撤下。 */}
-          <div className="relative flex min-h-0 min-w-0 flex-1">
+          <div className={`relative min-h-0 min-w-0 flex-1 ${viewMode === 'edit' ? 'flex' : 'hidden'}`}>
             <MarkdownEditor
               ref={editorRef}
               initialContent={draft.content}
+              wysiwyg
+              documentContextMenu
               onChange={(c) => update('content', c)}
               onSave={() => void saveNow()}
               onReady={() => setEditorReady(true)}
@@ -1069,6 +1104,11 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
               </div>
             )}
           </div>
+          {viewMode === 'preview' && (
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 md:px-10">
+              {previewLoading ? <p className="text-sm text-muted-foreground">正在渲染预览…</p> : previewError ? <p role="alert" className="text-sm text-destructive">{previewError}</p> : previewHtml ? <article className="prose prose-neutral dark:prose-invert mx-auto max-w-3xl" dangerouslySetInnerHTML={{ __html: previewHtml }} /> : <p className="mx-auto max-w-3xl text-sm text-muted-foreground">空白文章，返回编辑开始写作。</p>}
+            </div>
+          )}
 
           {/* 导图面板：边写文章边编辑思维导图（右栏） */}
           {mapOpen && (
