@@ -127,6 +127,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
                   <span data-ltoc-label class="flex items-center gap-1">
                     <button id="doc-add-root-folder" type="button" title="新建目录" aria-label="新建目录" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋目录</button>
                     <button id="doc-add-root-article" type="button" title="新建文章" aria-label="新建文章" class="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">＋文章</button>
+                    <span id="doc-create-status" role="status" class="sr-only" />
                   </span>
                 )
               }
@@ -163,6 +164,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
               <header>
                 <div class="flex items-start gap-3">
                   <h1 class="font-display text-3xl font-semibold tracking-tight">{esc(activeNode.title)}</h1>
+                  {isAuthed && <button id="doc-rename-article" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary" title="修改文章标题">改标题</button>}
+                  {isAuthed && <input id="doc-rename-input" type="text" maxlength="200" value={activeNode.title} aria-label="文章标题" class="mt-1 hidden min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm" />}
                   {
                     isAuthed && (
                       <button
@@ -1394,6 +1397,74 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
   /* ================= 节点 CRUD（登录） ================= */
   if (IS_AUTHED) {
+    let creatingArticle = false;
+    /** 新建文章即时入库；跳转后由编辑桥接自动打开可视化编辑。 */
+    async function createBlankArticle(parentId: string | null): Promise<void> {
+      if (creatingArticle) return;
+      creatingArticle = true;
+      const status = el<HTMLElement>('doc-create-status');
+      if (status) { status.classList.remove('sr-only'); status.textContent = '正在新建文章…'; }
+      try {
+        const res = await fetch('/api/doc/nodes', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ bundleId: readBundle().id, parentId, kind: 'article', title: '未命名文章', content: '' }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { node?: NodeMeta; error?: string };
+        if (!res.ok || !data.node?.id) throw new Error(data.error ?? '创建失败');
+        window.location.href = `/doc/${readBundle().id}?article=${encodeURIComponent(data.node.id)}&edit=1`;
+      } catch (error) {
+        if (status) status.textContent = error instanceof Error ? error.message : '创建失败，请重试';
+        creatingArticle = false;
+      }
+    }
+
+    function enterEditAfterCreate(): void {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('edit') !== '1') return;
+      url.searchParams.delete('edit');
+      history.replaceState(history.state, '', url);
+      let attempts = 0;
+      const open = (): void => {
+        const bridge = window.__docInlineEditor;
+        if (bridge) bridge.open();
+        else if (attempts++ < 80) window.setTimeout(open, 100);
+        else console.warn('[doc] 新文章编辑器加载失败，可点击“编辑”重试');
+      };
+      open();
+    }
+    enterEditAfterCreate();
+    document.addEventListener('astro:page-load', enterEditAfterCreate);
+
+    document.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('#doc-rename-article')) return;
+      const input = el<HTMLInputElement>('doc-rename-input');
+      const title = document.querySelector<HTMLElement>('main h1');
+      if (!input || !title) return;
+      input.value = title.textContent ?? '';
+      title.classList.add('hidden');
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    });
+    el<HTMLInputElement>('doc-rename-input')?.addEventListener('keydown', async (e) => {
+      const input = e.currentTarget as HTMLInputElement;
+      const title = document.querySelector<HTMLElement>('main h1');
+      if (e.key === 'Escape') { input.classList.add('hidden'); title?.classList.remove('hidden'); return; }
+      if (e.key !== 'Enter') return;
+      const value = input.value.trim();
+      const id = currentActiveId();
+      if (!value || !id) return;
+      try {
+        const res = await fetch(`/api/doc/nodes/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: value }) });
+        if (!res.ok) throw new Error('标题保存失败');
+        writeNodes(patchNodes(readNodes(), [{ id, patch: { title: value } }]));
+        renderTree();
+        if (title) { title.textContent = value; title.classList.remove('hidden'); }
+        input.classList.add('hidden');
+      } catch { input.setCustomValidity('标题保存失败，请重试'); input.reportValidity(); input.setCustomValidity(''); }
+    });
+
     /** 打开节点弹窗：mode=create|edit；parentId 为创建时的所在目录 */
     function openNodeDialog(opts: {
       mode: 'create' | 'edit';
@@ -1458,9 +1529,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     document.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('#doc-add-root-folder')) return void openNodeDialog({ mode: 'create', kind: 'folder', parentId: null });
-      if (t.closest('#doc-add-root-article')) return void openNodeDialog({ mode: 'create', kind: 'article', parentId: null });
+      if (t.closest('#doc-add-root-article')) return void createBlankArticle(null);
       const addArt = t.closest<HTMLElement>('[data-node-add-article]');
-      if (addArt) return void openNodeDialog({ mode: 'create', kind: 'article', parentId: addArt.dataset.nodeAddArticle ?? null });
+      if (addArt) return void createBlankArticle(addArt.dataset.nodeAddArticle ?? null);
       const addFolder = t.closest<HTMLElement>('[data-node-add-folder]');
       if (addFolder) return void openNodeDialog({ mode: 'create', kind: 'folder', parentId: addFolder.dataset.nodeAddFolder ?? null });
       const edit = t.closest<HTMLElement>('[data-node-edit]');

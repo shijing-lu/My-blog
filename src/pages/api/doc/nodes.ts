@@ -23,7 +23,6 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (!bundleId || !kind) return missing('bundleId / kind');
   if (!title) return badRequest('标题不能为空');
-  if (kind === 'article' && content === '') return badRequest('文章正文不能为空');
   const bundle = await getBundle(bundleId);
   if (!bundle) return notFound('文档不存在');
 
