@@ -8,16 +8,22 @@
 import type { APIRoute } from 'astro';
 import { badJson, badRequest, guardManager, json, notFound, readJson } from '@/lib/api';
 import { deleteMindmap, getMindmap, parseMindmapData, updateMindmap } from '@/lib/mindmaps';
+import { getArticleById } from '@/lib/articles';
+import { canManage } from '@/lib/admin-auth';
 
 export const prerender = false;
 
 const MAX_TITLE = 100;
 
-export const GET: APIRoute = async ({ params }) => {
+export const GET: APIRoute = async ({ params, cookies }) => {
   const id = params.id ?? '';
   try {
     const map = await getMindmap(id);
     if (!map) return notFound('思维导图不存在');
+    if (map.articleId && !(await canManage(cookies, 'articles'))) {
+      const article = await getArticleById(map.articleId);
+      if (!article?.published) return notFound('思维导图不存在');
+    }
     return json({
       map: {
         id: map.id,

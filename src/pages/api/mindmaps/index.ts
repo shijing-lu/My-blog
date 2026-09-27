@@ -7,17 +7,21 @@
 import type { APIRoute } from 'astro';
 import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import { createMindmap, emptyMindmapData, listMindmaps, stringifyMindmapData } from '@/lib/mindmaps';
+import { listArticleMeta } from '@/lib/articles';
+import { canManage } from '@/lib/admin-auth';
 
 export const prerender = false;
 
 const MAX_TITLE = 100;
 
-export const GET: APIRoute = async ({ url }) => {
+export const GET: APIRoute = async ({ url, cookies }) => {
   try {
     const articleId = url.searchParams.get('articleId')?.trim() || undefined;
     const maps = await listMindmaps(articleId);
+    const manager = await canManage(cookies, 'articles');
+    const visibleArticleIds = manager ? null : new Set((await listArticleMeta()).map((article) => article.id));
     return json({
-      maps: maps.map((m) => ({
+      maps: maps.filter((m) => !m.articleId || manager || visibleArticleIds?.has(m.articleId)).map((m) => ({
         id: m.id,
         title: m.title,
         articleId: m.articleId,
