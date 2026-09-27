@@ -32,6 +32,7 @@ function meta(id: string, createdAt: string, title = id): ArticleMeta & { conten
     cover: null,
     tags: [],
     encrypted: false,
+    published: true,
     createdAt: new Date(createdAt),
     updatedAt: new Date(createdAt),
     contentLength: 100,

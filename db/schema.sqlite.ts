@@ -71,6 +71,8 @@ export const articles = sqliteTable(
     cover: text('cover'),
     /** 标签：JSON 编码的 string[] */
     tags: text('tags').notNull().default('[]'),
+    /** 草稿仅管理端可见；迁移时旧文章默认已发布。 */
+    published: booleanFlag('published').notNull().default(true),
     /**
      * 是否启用文章加密。
      *

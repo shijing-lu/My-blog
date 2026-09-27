@@ -3,6 +3,17 @@
 /* （新建入口，无 Props） */
 
 /* ===== Logic ===== */
-// 生成新 UUID 并进入编辑页（内容在首次自动保存时落库）
-return Astro.redirect(`/edit/${crypto.randomUUID()}`);
+import { createArticleDraft } from '@/lib/articles';
+let error = '';
+try {
+  const article = await createArticleDraft();
+  return Astro.redirect(`/edit/${article.id}`);
+} catch (cause) {
+  console.error('[edit/new] 创建草稿失败', cause);
+  error = '创建草稿失败，请重试。';
+}
 ---
+<main class="mx-auto max-w-xl p-10 text-center">
+  <p role="alert">{error}</p>
+  <a href="/edit/new" class="mt-4 inline-block underline">重试创建</a>
+</main>

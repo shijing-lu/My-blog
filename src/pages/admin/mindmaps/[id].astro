@@ -3,7 +3,7 @@
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import MindMapEditor from '@/components/mindmap/MindMapEditor';
 import { getMindmap } from '@/lib/mindmaps';
-import { getArticleById, listArticleMeta } from '@/lib/articles';
+import { getArticleById, listAdminArticleMeta } from '@/lib/articles';
 import { renderMdx } from '@/lib/mdx';
 
 /* ===== Logic ===== */
@@ -12,7 +12,7 @@ const map = id ? await getMindmap(id) : null;
 if (!map) return Astro.redirect('/admin/mindmaps');
 
 /** 全部文章（绑定下拉） */
-const articles = await listArticleMeta();
+const articles = await listAdminArticleMeta();
 
 /** 绑定文章的块级锚点映射（失效引用检测用） */
 let articleBlockMap: Record<string, { type: string; text: string }> = {};

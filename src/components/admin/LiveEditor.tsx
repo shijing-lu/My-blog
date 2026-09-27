@@ -26,6 +26,7 @@ export interface InitialDraft {
   cover: string;
   tags: string[];
   content: string;
+  published: boolean;
   /** 是否已启用加密（服务端状态） */
   encrypted?: boolean;
   /** 密码提示语（明文） */
@@ -38,6 +39,7 @@ export interface ArticleMeta {
   title: string;
   type: ArticleType;
   updatedAt: string;
+  published: boolean;
 }
 
 /** 自定义分类（写作台可增删改排序） */
@@ -85,7 +87,9 @@ function extractToc(md: string): Array<{ text: string; line: number; level: numb
 export default function LiveEditor({ initial, articles, categories, categoryMap }: LiveEditorProps): ReactElement {
   const [draft, setDraft] = useState<InitialDraft>(initial);
   const [list, setList] = useState<ArticleMeta[]>(articles);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initial.id);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -148,7 +152,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   const versionRef = useRef(0);
 
   /* ---- 保存 ---- */
-  const saveNow = useCallback(async (): Promise<void> => {
+  const saveNow = useCallback(async (): Promise<boolean> => {
     const v = ++versionRef.current;
     setSaveStatus('saving');
     try {
@@ -182,7 +186,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
       });
       if (res.status === 401) {
         if (v === versionRef.current) setSaveStatus('expired');
-        return;
+        return false;
       }
       if (!res.ok) {
         // 400 多为密码强度等可展示的业务错误
@@ -191,7 +195,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
           if (d.error && v === versionRef.current) setCryptoMsg(d.error);
         }
         if (v === versionRef.current) setSaveStatus('error');
-        return;
+        return false;
       }
       if (v === versionRef.current) {
         setCryptoMsg('');
@@ -203,14 +207,39 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
         const d = draftRef.current;
         setList((prev) => {
           const exists = prev.some((x) => x.id === d.id);
-          const item: ArticleMeta = { id: d.id, title: d.title || '未命名', type: d.type, updatedAt: new Date().toISOString() };
+          const item: ArticleMeta = { id: d.id, title: d.title || '未命名', type: d.type, published: d.published, updatedAt: new Date().toISOString() };
           return exists ? prev.map((x) => (x.id === d.id ? item : x)) : [...prev, item];
         });
       }
+      return true;
     } catch {
       if (v === versionRef.current) setSaveStatus('error');
+      return false;
     }
   }, []);
+
+  const publishNow = useCallback(async (): Promise<void> => {
+    if (publishing) return;
+    setPublishError('');
+    if (!draftRef.current.title.trim() || !draftRef.current.content.trim()) {
+      setPublishError('请先填写标题和正文');
+      return;
+    }
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    setPublishing(true);
+    try {
+      if (!(await saveNow())) throw new Error('保存失败，请重试发布');
+      const res = await fetch(`/api/articles/${draftRef.current.id}/publish`, { method: 'POST' });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? '发布失败');
+      setDraft((current) => ({ ...current, published: true }));
+      setList((current) => current.map((item) => item.id === draftRef.current.id ? { ...item, published: true } : item));
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : '发布失败');
+    } finally {
+      setPublishing(false);
+    }
+  }, [publishing, saveNow]);
 
   const scheduleSave = useCallback((): void => {
     setSaveStatus('dirty');
@@ -341,15 +370,24 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
 
   /* ---- 打开 / 删除 / 移动 ---- */
   const loadArticle = useCallback(async (id: string): Promise<void> => {
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      if (!(await saveNow())) return;
+    }
     const res = await fetch(`/api/articles/${id}`);
     if (!res.ok) return;
     const data = (await res.json()) as { article: InitialDraft };
     setDraft({ ...data.article, cover: data.article.cover ?? '', tags: data.article.tags ?? [] });
+    setEncryptOn(Boolean(data.article.encrypted));
+    setEncryptPassword('');
+    setEncryptHint(data.article.encryptHint ?? '');
     setViewMode('edit');
     setSelectedId(id);
     setSaveStatus('saved');
     setLastSaved(null);
-  }, []);
+    window.history.replaceState(window.history.state, '', `/edit/${id}`);
+  }, [saveNow]);
 
   const showPreview = useCallback(async (): Promise<void> => {
     const seq = ++previewSeq.current;
@@ -385,7 +423,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
     setList((prev) => prev.filter((x) => x.id !== id));
     if (selectedId === id) {
       setSelectedId(null);
-      setDraft({ id: crypto.randomUUID(), title: '', type: 'tech', summary: '', cover: '', tags: [], content: '' });
+      window.location.href = '/edit/new';
       setSaveStatus('idle');
       setLastSaved(null);
     }
@@ -650,6 +688,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
                               >
                                 {selectedId === a.id && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" />}
                                 <span className="min-w-0 flex-1 truncate">{a.title || '未命名'}</span>
+                                {!a.published && <span className="rounded bg-amber-500/10 px-1 text-[0.6rem] text-amber-600">草稿</span>}
                                 <span className="hidden shrink-0 items-center gap-1 group-hover/item:flex" onClick={(e) => e.stopPropagation()}>
                                   <select
                                     value={catMap[a.id] ?? ''}
@@ -1006,6 +1045,9 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
           ) : null}
 
           <div className="flex items-center gap-2 text-xs">
+            <span className={`rounded-md px-2 py-1 ${draft.published ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>{draft.published ? '已发布' : '草稿 · 仅管理员可见'}</span>
+            {!draft.published && <button type="button" onClick={() => void publishNow()} disabled={publishing} className="rounded-md bg-primary px-3 py-1 font-medium text-primary-foreground disabled:opacity-50">{publishing ? '发布中…' : '发布文章'}</button>}
+            {publishError && <span role="alert" className="text-destructive">{publishError}</span>}
             <div className="inline-flex rounded-md border border-border p-0.5" aria-label="编辑模式">
               <button type="button" aria-pressed={viewMode === 'edit'} onClick={() => { ++previewSeq.current; setViewMode('edit'); }} className={`rounded px-2.5 py-1 ${viewMode === 'edit' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>编辑</button>
               <button type="button" aria-pressed={viewMode === 'preview'} onClick={() => void showPreview()} className={`rounded px-2.5 py-1 ${viewMode === 'preview' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>预览</button>

@@ -162,6 +162,7 @@ export function serializeArticle(article: Article): {
   summary: string;
   cover: string | null;
   tags: string[];
+  published: boolean;
   encrypted: boolean;
   encryptHint: string;
   createdAt: string;
@@ -176,6 +177,7 @@ export function serializeArticle(article: Article): {
     summary: article.summary,
     cover: article.cover,
     tags: article.tags,
+    published: article.published,
     encrypted: article.encrypted,
     encryptHint: article.encryptHint,
     createdAt: article.createdAt.toISOString(),

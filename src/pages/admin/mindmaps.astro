@@ -2,11 +2,11 @@
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import { listMindmaps } from '@/lib/mindmaps';
-import { listArticleMeta } from '@/lib/articles';
+import { listAdminArticleMeta } from '@/lib/articles';
 
 /* ===== Logic ===== */
 const maps = await listMindmaps();
-const articles = await listArticleMeta();
+const articles = await listAdminArticleMeta();
 const articleTitle = new Map(articles.map((a) => [a.id, a.title]));
 
 function formatShort(date: Date): string {

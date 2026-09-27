@@ -6,7 +6,7 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "dev": "astro dev",
-    "build": "node scripts/migrate-photos-tags.mjs && node scripts/migrate-nav-subcats.mjs && node scripts/migrate-moments-visibility.mjs && node scripts/migrate-admin-auth.mjs && node scripts/migrate-article-views.mjs && astro build",
+    "build": "node scripts/migrate-photos-tags.mjs && node scripts/migrate-nav-subcats.mjs && node scripts/migrate-moments-visibility.mjs && node scripts/migrate-admin-auth.mjs && node scripts/migrate-article-views.mjs && node scripts/migrate-article-publication.mjs && astro build",
     "build:desktop": "node scripts/build-desktop.mjs",
     "desktop:template": "node scripts/make-desktop-template.mjs",
     "dist:desktop": "pnpm run desktop:template && pnpm run build:desktop && electron-builder --win nsis --config desktop-builder.yml",

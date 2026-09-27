@@ -83,6 +83,11 @@ function createDrizzle(ep: DbEndpoint, index: number): BlogDb {
   const ctor = betterSqlite3Ctor ?? (betterSqlite3Ctor = requireHere(SQLITE_PKG));
   const client = new ctor(file);
   client.pragma('journal_mode = WAL');
+  // 旧桌面/开发 SQLite 在打开 ORM 前补列；模板新库由 schema 直接建列。
+  const articleColumns = client.pragma('table_info(articles)') as Array<{ name: string }>;
+  if (articleColumns.length > 0 && !articleColumns.some((column) => column.name === 'published')) {
+    client.exec('ALTER TABLE articles ADD COLUMN published integer NOT NULL DEFAULT 1');
+  }
   const { drizzle: drizzleBetterSqlite } = requireHere(SQLITE_DRIZZLE_PKG);
   return drizzleBetterSqlite(client, { schema: sqliteSchema }) as unknown as BlogDb;
 }

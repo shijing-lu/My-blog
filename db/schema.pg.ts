@@ -28,6 +28,8 @@ export const articles = pgTable(
     cover: text('cover'),
     /** 标签：jsonb 数组（应用层以 JSON 字符串写入，PG 自动解析） */
     tags: jsonb('tags').notNull().default([]),
+    /** 草稿仅管理端可见；迁移时旧文章默认已发布。 */
+    published: boolean('published').notNull().default(true),
     /**
      * 是否启用文章加密。
      *

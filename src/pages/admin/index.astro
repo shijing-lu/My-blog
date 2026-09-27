@@ -4,11 +4,11 @@
 
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
-import { listArticleMeta } from '@/lib/articles';
+import { listAdminArticleMeta } from '@/lib/articles';
 import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
 
 /* ===== Logic ===== */
-const articles = await listArticleMeta();
+const articles = await listAdminArticleMeta();
 /** 自定义分类（写作台维护）：管理列表行的「分类」列与它保持一致 */
 const categories = await listArticleCategories();
 const catNameById = new Map(categories.map((c) => [c.id, c.name]));

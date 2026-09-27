@@ -39,6 +39,7 @@ function mapRow(row: ArticleRow): Article {
     tags: parseTags(row.tags),
     type: row.type as ArticleType,
     encrypted: Boolean(r.encrypted),
+    published: Boolean(r.published),
     encryptHint: r.encryptHint ?? '',
     encryptMeta: r.encryptMeta ?? '',
   };
@@ -65,6 +66,7 @@ const META_COLUMNS = {
   cover: articles.cover,
   tags: articles.tags,
   encrypted: articles.encrypted,
+  published: articles.published,
   createdAt: articles.createdAt,
   updatedAt: articles.updatedAt,
 };
@@ -75,13 +77,20 @@ const META_COLUMNS = {
  * @returns 文章元信息数组
  */
 export async function listArticleMeta(): Promise<ArticleMeta[]> {
-  const rows = await db.select(META_COLUMNS).from(articles).orderBy(desc(articles.updatedAt));
+  const rows = await db.select(META_COLUMNS).from(articles).where(eq(articles.published, true)).orderBy(desc(articles.updatedAt));
   return rows.map((r) => ({
     ...r,
     tags: parseTags(r.tags),
     type: r.type as ArticleType,
     encrypted: Boolean(r.encrypted),
+    published: Boolean(r.published),
   }));
+}
+
+/** 管理端文章列表，包含尚未发布的草稿。 */
+export async function listAdminArticleMeta(): Promise<ArticleMeta[]> {
+  const rows = await db.select(META_COLUMNS).from(articles).orderBy(desc(articles.updatedAt));
+  return rows.map((r) => ({ ...r, tags: parseTags(r.tags), type: r.type as ArticleType, encrypted: Boolean(r.encrypted), published: Boolean(r.published) }));
 }
 
 /**
@@ -90,13 +99,13 @@ export async function listArticleMeta(): Promise<ArticleMeta[]> {
  * @returns 文章实体数组
  */
 export async function listArticles(): Promise<Article[]> {
-  const rows = await db.select().from(articles).orderBy(desc(articles.updatedAt));
+  const rows = await db.select().from(articles).where(eq(articles.published, true)).orderBy(desc(articles.updatedAt));
   return rows.map(mapRow);
 }
 
 /** 文章总数 */
 export async function countArticles(): Promise<number> {
-  const rows = await db.select({ n: count() }).from(articles);
+  const rows = await db.select({ n: count() }).from(articles).where(eq(articles.published, true));
   // ⚠️ PG 的 `count()` 返回 bigint **字符串**（SQLite 返回 number），必须显式转 Number，
   //    否则前端 `total + 1`、`n > 0` 之类的算术/比较在 PG 上行为异常。
   return Number(rows[0]?.n ?? 0);
@@ -127,7 +136,7 @@ export async function getAdjacentArticles(
 ): Promise<{ prev: ArticleMeta | null; next: ArticleMeta | null }> {
   /** 行 → ArticleMeta（tags 解码、type 收窄、null 归一） */
   const toMeta = (r: {
-    id: string; title: string; slug: string; type: string; summary: string | null;
+    id: string; title: string; slug: string; type: string; summary: string | null; published: boolean;
     cover: string | null; tags: string; encrypted: boolean | number | null;
     createdAt: Date; updatedAt: Date;
   }): ArticleMeta => ({
@@ -139,6 +148,7 @@ export async function getAdjacentArticles(
     cover: r.cover,
     tags: parseTags(r.tags),
     encrypted: Boolean(r.encrypted),
+    published: Boolean(r.published),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   });
@@ -148,13 +158,13 @@ export async function getAdjacentArticles(
   const [newer] = await db
     .select(META_COLUMNS)
     .from(articles)
-    .where(and(gt(articles.updatedAt, article.updatedAt), ne(articles.id, article.id)))
+    .where(and(eq(articles.published, true), gt(articles.updatedAt, article.updatedAt), ne(articles.id, article.id)))
     .orderBy(asc(articles.updatedAt))
     .limit(1);
   const [older] = await db
     .select(META_COLUMNS)
     .from(articles)
-    .where(and(lt(articles.updatedAt, article.updatedAt), ne(articles.id, article.id)))
+    .where(and(eq(articles.published, true), lt(articles.updatedAt, article.updatedAt), ne(articles.id, article.id)))
     .orderBy(desc(articles.updatedAt))
     .limit(1);
 
@@ -182,6 +192,7 @@ export async function listArticlePage(page: number, pageSize: number): Promise<A
   const rows = await db
     .select()
     .from(articles)
+    .where(eq(articles.published, true))
     .orderBy(desc(articles.updatedAt))
     .limit(pageSize)
     .offset(Math.max(0, offset));
@@ -210,6 +221,7 @@ export async function listArticlePageMeta(
   const rows = await db
     .select({ ...META_COLUMNS, contentLength: sql<number>`length(${articles.content})` })
     .from(articles)
+    .where(eq(articles.published, true))
     .orderBy(desc(articles.updatedAt))
     .limit(pageSize)
     .offset(Math.max(0, offset));
@@ -222,6 +234,7 @@ export async function listArticlePageMeta(
     cover: r.cover,
     tags: parseTags(r.tags),
     encrypted: Boolean(r.encrypted),
+    published: Boolean(r.published),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     // PG 的 length() 可能以字符串回传（bigint 系），统一转 Number
@@ -244,7 +257,7 @@ export async function getArticleContents(ids: string[]): Promise<Map<string, str
   const rows = await db
     .select({ id: articles.id, content: articles.content })
     .from(articles)
-    .where(inArray(articles.id, ids));
+    .where(and(eq(articles.published, true), inArray(articles.id, ids)));
   return new Map(rows.map((r) => [r.id, r.content ?? '']));
 }
 
@@ -255,7 +268,7 @@ export async function getArticleContents(ids: string[]): Promise<Map<string, str
  * @returns 文章实体或 null
  */
 export async function getArticleBySlug(slug: string): Promise<Article | null> {
-  const rows = await db.select().from(articles).where(eq(articles.slug, slug)).limit(1);
+  const rows = await db.select().from(articles).where(and(eq(articles.slug, slug), eq(articles.published, true))).limit(1);
   const row = rows[0];
   return row ? mapRow(row) : null;
 }
@@ -403,7 +416,7 @@ export async function getArticlePasswordMeta(
       encryptMeta: articles.encryptMeta,
     })
     .from(articles)
-    .where(eq(articles.id, id))
+    .where(and(eq(articles.id, id), eq(articles.published, true)))
     .limit(1);
   const row = rows[0];
   if (!row) return null;
@@ -463,6 +476,7 @@ export async function saveDraft(input: ArticleUpsertInput): Promise<Article> {
       summary: input.summary,
       cover: normalizeCover(input.cover),
       tags: serializeTags(input.tags),
+      published: false,
       encrypted: enc.encrypted,
       encryptHint: enc.encryptHint,
       encryptMeta: enc.encryptMeta,
@@ -471,6 +485,23 @@ export async function saveDraft(input: ArticleUpsertInput): Promise<Article> {
     })
     .returning();
   return mapRow(rows[0] as ArticleRow);
+}
+
+/** 创建持久化的空白草稿，避免首屏只存在于客户端。 */
+export async function createArticleDraft(): Promise<Article> {
+  const id = crypto.randomUUID();
+  return saveDraft({ id, title: '', type: 'tech', summary: '', cover: '', tags: [], content: '', slug: `draft-${id}` });
+}
+
+/** 发布前在服务端再次校验；自动保存不改变发布状态。 */
+export async function publishArticle(id: string): Promise<Article | null> {
+  const article = await getArticleById(id);
+  if (!article) return null;
+  if (!article.title.trim() || !article.content.trim()) throw new Error('请填写标题和正文后再发布');
+  if (article.published) return article;
+  const slug = await uniqueSlug(slugifyOrFallback(article.title));
+  const rows = await db.update(articles).set({ published: true, slug, updatedAt: new Date() }).where(and(eq(articles.id, id), eq(articles.published, false))).returning();
+  return rows[0] ? mapRow(rows[0] as ArticleRow) : getArticleById(id);
 }
 
 /**

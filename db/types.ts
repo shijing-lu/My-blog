@@ -65,6 +65,8 @@ export interface Article {
   cover: string | null;
   /** 标签列表 */
   tags: string[];
+  /** 是否已经公开发布 */
+  published: boolean;
   /** 是否启用加密 */
   encrypted: boolean;
   /** 密码提示语（明文；未设置时为空串） */
@@ -86,6 +88,7 @@ export interface ArticleMeta {
   summary: string;
   cover: string | null;
   tags: string[];
+  published: boolean;
   /** 是否启用加密（列表页据此显示锁标识、跳过正文检索） */
   encrypted: boolean;
   createdAt: Date;

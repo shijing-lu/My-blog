@@ -5,7 +5,7 @@
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import LiveEditor from '@/components/admin/LiveEditor';
-import { getArticleById, listArticleMeta } from '@/lib/articles';
+import { getArticleById, listAdminArticleMeta } from '@/lib/articles';
 import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
 import type { ArticleType } from '../../../db/types';
 
@@ -13,7 +13,7 @@ import type { ArticleType } from '../../../db/types';
 const { id } = Astro.params;
 const article = id ? await getArticleById(id) : null;
 
-/** 初始草稿：已存在 → 载入；不存在（新文章）→ 空草稿 */
+/** 新建入口已先持久化草稿；不存在的 ID 不渲染虚假的客户端草稿。 */
 const initial = article
   ? {
       id: article.id,
@@ -24,30 +24,20 @@ const initial = article
       tags: article.tags,
       content: article.content,
       encrypted: article.encrypted,
+      published: article.published,
       encryptHint: article.encryptHint,
     }
-  : id
-    ? {
-        id,
-        title: '',
-        type: 'tech' as ArticleType,
-        summary: '',
-        cover: '',
-        tags: [],
-        content: '',
-        encrypted: false,
-        encryptHint: '',
-      }
-    : null;
+  : null;
 
-if (!initial) return Astro.redirect('/edit/new');
+if (!initial) return Astro.redirect('/admin');
 
 /** 全部文章元信息（左栏资源管理器，不含正文） */
-const articles = (await listArticleMeta()).map((a) => ({
+const articles = (await listAdminArticleMeta()).map((a) => ({
   id: a.id,
   title: a.title,
   type: a.type as ArticleType,
   updatedAt: a.updatedAt.toISOString(),
+  published: a.published,
 }));
 
 /** 自定义分类（表未迁移时返回空数组 → 写作台回落到「按类型分组」，不会 500） */
