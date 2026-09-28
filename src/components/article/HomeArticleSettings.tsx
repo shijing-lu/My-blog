@@ -36,7 +36,6 @@ function categoryLabel(category: ArticleCategory, byId: Map<string, ArticleCateg
 export default function HomeArticleSettings({ article, categories, categoryId }: Props): ReactElement {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [current, setCurrent] = useState(article);
-  const [title, setTitle] = useState(article.title);
   const [summary, setSummary] = useState(article.summary);
   const [cover, setCover] = useState(article.cover);
   const [type, setType] = useState(article.type);
@@ -53,22 +52,15 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
 
   useEffect(() => {
     const button = document.getElementById('home-article-settings');
-    const titleButton = document.getElementById('home-title-edit');
     const open = (): void => {
       dialogRef.current?.showModal();
       void fetch('/api/article-categories').then((res) => res.ok ? res.json() : null).then((data) => {
         if (Array.isArray(data?.categories)) setAvailableCategories(data.categories as ArticleCategory[]);
       }).catch(() => { /* 保留初始目录列表 */ });
     };
-    const editTitle = (): void => {
-      open();
-      document.getElementById('home-setting-title')?.focus();
-    };
     button?.addEventListener('click', open);
-    titleButton?.addEventListener('click', editTitle);
     return () => {
       button?.removeEventListener('click', open);
-      titleButton?.removeEventListener('click', editTitle);
     };
   }, []);
 
@@ -86,7 +78,7 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          title, summary, cover, type,
+          summary, cover, type,
           tags: tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean),
           encrypted, encryptPassword: password || undefined, encryptHint: hint,
         }),
@@ -101,13 +93,10 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
         });
         if (!moved.ok) throw new Error('文章已保存，但目录移动失败，请重试');
       }
-      setCurrent((prev) => ({ ...prev, title, summary, cover, type, tags: tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean), encrypted, encryptHint: hint }));
+      setCurrent((prev) => ({ ...prev, summary, cover, type, tags: tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean), encrypted, encryptHint: hint }));
       const folderChanged = folder !== savedFolder;
       setSavedFolder(folder);
       setPassword('');
-      const heading = document.querySelector('main h1');
-      if (heading) heading.textContent = title || '未命名文章';
-      document.dispatchEvent(new CustomEvent('home-article-metadata-saved', { detail: { title } }));
       dialogRef.current?.close();
       if (folderChanged) window.location.reload();
     } catch (cause) {
@@ -145,7 +134,6 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
         <button type="button" onClick={() => dialogRef.current?.close()} aria-label="关闭文章设置" className="rounded px-2 text-xl text-muted-foreground hover:text-foreground">×</button>
       </div>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="text-sm sm:col-span-2">标题<input id="home-setting-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" /></label>
         <label className="text-sm">所属目录<select value={folder} onChange={(event) => setFolder(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2"><option value="">未分类</option>{availableCategories.map((category) => <option key={category.id} value={category.id}>{categoryLabel(category, byId)}</option>)}</select></label>
         <label className="text-sm">文章类型<select value={type} onChange={(event) => setType(event.target.value as HomeSettingsArticle['type'])} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2"><option value="tech">技术</option><option value="note">随笔</option><option value="photo">摄影</option></select></label>
         <label className="text-sm sm:col-span-2">标签（用逗号分隔）<input value={tags} onChange={(event) => setTags(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" /></label>

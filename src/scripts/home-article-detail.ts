@@ -223,9 +223,10 @@ function setup(): void {
   }
 }
 
-document.addEventListener('home-article-metadata-saved', (event) => {
-  const title = (event as CustomEvent<{ title: string }>).detail.title || '未命名文章';
-  writeNodes(readNodes().map((node) => node.id === activeId() ? { ...node, title } : node));
+document.addEventListener('article-title-saved', (event) => {
+  if (!document.querySelector('[data-article-domain="home"]')) return;
+  const { id, title } = (event as CustomEvent<{ id: string; title: string }>).detail;
+  writeNodes(readNodes().map((node) => node.id === id ? { ...node, title } : node));
   renderTree();
 });
 setup();

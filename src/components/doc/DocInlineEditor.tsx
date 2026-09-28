@@ -27,6 +27,7 @@ import type { ReactElement } from 'react';
 import MarkdownEditor from '@/components/admin/MarkdownEditor';
 import type { MarkdownEditorHandle } from '@/components/admin/MarkdownEditor';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
+import { activateInlineArticleTitle, type InlineArticleTitleSession } from '@/lib/inline-article-title';
 import type { TocItem } from '@/lib/mdx-plugins';
 
 /** 自动保存防抖（ms）：停顿 1.5s 即静默 PATCH */
@@ -134,6 +135,7 @@ function syncEntryButtons(editing: boolean): void {
 
 export default function DocInlineEditor(): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const titleSessionRef = useRef<InlineArticleTitleSession | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
@@ -220,11 +222,10 @@ export default function DocInlineEditor(): ReactElement {
     savingRef.current = true;
     setPhase('saving');
     try {
-      const title = document.querySelector('main h1')?.textContent?.trim() ?? '';
       const res = await fetch(articleApiUrl(id), {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ title, content: contentRef.current }),
+        body: JSON.stringify({ content: contentRef.current }),
       });
       if (!res.ok) throw new Error('保存失败');
       const saved = (await res.json().catch(() => ({}))) as { node?: { updatedAt?: string } };
@@ -257,6 +258,9 @@ export default function DocInlineEditor(): ReactElement {
         const ok = await saveCoreRef.current();
         if (!ok) return; // 保存失败：保持编辑态，error 已提示
       }
+      if (!opts?.discard && titleSessionRef.current && !(await titleSessionRef.current.flush())) return;
+      titleSessionRef.current?.close(Boolean(opts?.discard));
+      titleSessionRef.current = null;
       const grid = document.getElementById('doc-3col');
       if (grid) grid.setAttribute('data-editing', 'false');
       const art = document.querySelector<HTMLElement>('main article.prose');
@@ -458,6 +462,8 @@ export default function DocInlineEditor(): ReactElement {
       setViewH(fit ? 0 : avail);
       const grid = document.getElementById('doc-3col');
       if (grid) grid.setAttribute('data-editing', 'true');
+      titleSessionRef.current?.close();
+      titleSessionRef.current = activateInlineArticleTitle(id, setError);
       tocSnapshotRef.current = collectTocSnapshot();
       setOpen(true);
       syncEntryButtons(true);
@@ -526,6 +532,8 @@ export default function DocInlineEditor(): ReactElement {
     () => () => {
       window.clearTimeout(saveTimer.current);
       window.clearTimeout(tocTimer.current);
+      titleSessionRef.current?.close(true);
+      titleSessionRef.current = null;
     },
     [],
   );

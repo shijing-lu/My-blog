@@ -184,6 +184,22 @@
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
 
+  main h1[data-inline-title-editing='true'] {
+    min-width: 4ch;
+    overflow-wrap: anywhere;
+    cursor: text;
+    border-radius: 0.25rem;
+  }
+  main h1[data-inline-title-editing='true']:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+  main h1[data-inline-title-editing='true']:empty::before {
+    content: attr(data-inline-title-placeholder);
+    color: var(--color-muted-foreground);
+    pointer-events: none;
+  }
+
   /* ===== 目录树拖拽反馈（对齐导航模块交互） ===== */
   /* 目录行落点：主色浅底 + 虚线描边（移入该目录末尾） */
   #doc-ltoc-body [data-doc-folder-target].doc-drag-over-folder {

@@ -120,8 +120,6 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       {isAuthed && <button id="doc-edit-bundle" type="button" title="编辑文档" aria-label="编辑文档" class="icon-btn-tap ml-2 text-xs text-muted-foreground transition-colors hover:text-primary">✎</button>}
     </Fragment>
     <Fragment slot="title-actions">
-      {isAuthed && activeNode && <button id="doc-rename-article" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary" title="修改文章标题">改标题</button>}
-      {isAuthed && activeNode && <input id="doc-rename-input" type="text" maxlength="200" value={activeNode.title} aria-label="文章标题" class="mt-1 hidden min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm" />}
       {isAuthed && activeNode && <button id="doc-inline-edit" type="button" title="原地编辑本文" aria-label="原地编辑本文" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>}
       {activeNode && <ExportMenu mdBase="/api/export/doc/" mdParam="article" class="mt-1.5" />}
     </Fragment>
@@ -976,33 +974,12 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     enterEditAfterCreate();
     document.addEventListener('astro:page-load', enterEditAfterCreate);
 
-    document.addEventListener('click', (e) => {
-      if (!(e.target as HTMLElement).closest('#doc-rename-article')) return;
-      const input = el<HTMLInputElement>('doc-rename-input');
-      const title = document.querySelector<HTMLElement>('main h1');
-      if (!input || !title) return;
-      input.value = title.textContent ?? '';
-      title.classList.add('hidden');
-      input.classList.remove('hidden');
-      input.focus();
-      input.select();
-    });
-    el<HTMLInputElement>('doc-rename-input')?.addEventListener('keydown', async (e) => {
-      const input = e.currentTarget as HTMLInputElement;
-      const title = document.querySelector<HTMLElement>('main h1');
-      if (e.key === 'Escape') { input.classList.add('hidden'); title?.classList.remove('hidden'); return; }
-      if (e.key !== 'Enter') return;
-      const value = input.value.trim();
-      const id = currentActiveId();
-      if (!value || !id) return;
-      try {
-        const res = await fetch(`/api/doc/nodes/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: value }) });
-        if (!res.ok) throw new Error('标题保存失败');
-        writeNodes(patchNodes(readNodes(), [{ id, patch: { title: value } }]));
-        renderTree();
-        if (title) { title.textContent = value; title.classList.remove('hidden'); }
-        input.classList.add('hidden');
-      } catch { input.setCustomValidity('标题保存失败，请重试'); input.reportValidity(); input.setCustomValidity(''); }
+    document.addEventListener('article-title-saved', (event) => {
+      if (!document.querySelector('[data-article-domain="docs"]')) return;
+      const { id, title } = (event as CustomEvent<{ id: string; title: string }>).detail;
+      writeNodes(patchNodes(readNodes(), [{ id, patch: { title } }]));
+      for (const key of [...ARTICLE_HTML_CACHE.keys()]) if (key.startsWith(`${id}:`)) ARTICLE_HTML_CACHE.delete(key);
+      renderTree();
     });
 
     /** 打开节点弹窗：mode=create|edit；parentId 为创建时的所在目录 */

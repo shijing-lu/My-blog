@@ -69,7 +69,6 @@ const settingsArticle = {
     </Fragment>
     <Fragment slot="title-actions">
       <span id="home-publish-status" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">{article.published ? '已发布' : '草稿'}</span>
-      <button id="home-title-edit" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary">改标题</button>
       <button id="home-article-settings" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary">文章设置</button>
       <button id="doc-inline-edit" type="button" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>
       <ExportMenu mdUrl={`/api/export/article/${encodeURIComponent(article.slug)}`} class="mt-1.5" />
@@ -77,7 +76,7 @@ const settingsArticle = {
     <Fragment slot="editor"><DocInlineEditor client:load /></Fragment>
   </ArticleDetailShell>
   <HomeArticleSettings client:load article={settingsArticle} categories={categories} categoryId={articleFolder(article.id)} />
-  <div id="doc-detail-data" data-authed="1" data-active-node={article.id} data-nodes={JSON.stringify(nodes)} class="hidden" aria-hidden="true" />
+  <div id="doc-detail-data" data-authed="1" data-active-node={article.id} data-raw-title={article.title} data-nodes={JSON.stringify(nodes)} class="hidden" aria-hidden="true" />
   <dialog id="home-folder-dialog" class="m-auto w-[min(92vw,25rem)] rounded-lg border border-border bg-card p-5 text-foreground shadow-xl backdrop:bg-black/40">
     <h2 id="home-folder-dialog-title" class="font-display text-lg font-semibold">目录</h2>
     <label class="mt-4 block text-sm">目录名称<input id="home-folder-name" maxlength="30" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" /></label>
