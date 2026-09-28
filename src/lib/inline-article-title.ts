@@ -77,7 +77,7 @@ export function activateInlineArticleTitle(id: string, onError: (message: string
     if (event.key === 'Escape') {
       event.preventDefault();
       window.clearTimeout(timer);
-      heading.textContent = saved || '未命名文章';
+      heading.textContent = saved;
       heading.blur();
     }
   };
