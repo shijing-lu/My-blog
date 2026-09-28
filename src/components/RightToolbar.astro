@@ -4,7 +4,7 @@
  * Props: 无
  * Imports: 鉴权（管理入口按逐项权限可见：articles/settings/docs）
  * Logic: 首页 → 新建文章（房子图标下方，articles 权限）→ 站点设置（settings）
- *        →「编辑当前文章」（docs 权限且处于文档详情页 /doc/[id]；点击进入/退出就地编辑）→ 回到顶部
+ *        →「编辑当前文章」（文档详情或首页文章编辑页，点击进入/退出就地编辑）→ 回到顶部
  */
 import { permissionChecker } from '@/lib/admin-auth';
 
@@ -18,8 +18,9 @@ const { aiEnabled = false } = Astro.props;
 /* ===== Logic ===== */
 /* 单次身份判定（勿用旧 verifyRequest：不认 top_admin_session/user_session 新通道） */
 const can = await permissionChecker(Astro.cookies);
-/** 文档详情页（/doc/<bundleId>）才显示「编辑当前文章」；/doc 列表页等不显示 */
+/** 两种文章详情页显示同一个原位编辑入口。 */
 const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
+const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathname);
 ---
 <!-- ===== Template ===== -->
 <aside class="side-toolbar" aria-label="快捷工具栏">
@@ -51,9 +52,9 @@ const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
       </button>
     )
   }
-  <!-- 编辑当前文章（docs 权限 + 文档详情页：就地编辑入口，点击桥接打开/完成） -->
+  <!-- 编辑当前文章：文档与首页文章共用编辑器桥，点击切换编辑/完成 -->
   {
-    can('docs') && isDocDetail && (
+    ((can('docs') && isDocDetail) || (can('articles') && isHomeArticleDetail)) && (
       <button id="rt-doc-inline-edit" type="button" aria-label="编辑当前文章" title="编辑当前文章">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
