@@ -25,7 +25,7 @@ export function activateInlineArticleTitle(id: string, onError: (message: string
   heading.setAttribute('aria-multiline', 'false');
   heading.spellcheck = false;
 
-  const value = (): string => (heading.innerText ?? heading.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const value = (): string => (heading.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
   const flush = async (): Promise<boolean> => {
     window.clearTimeout(timer);
     while (!closed) {
