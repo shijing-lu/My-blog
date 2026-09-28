@@ -791,8 +791,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       {/* 编辑器区：panel 模式给卡片底色 + 横向留白；ghost 透明、宽度跟随宿主（正文同宽）。
           overflow-hidden：唯一滚动容器是 CM 的 .cm-scroller——外层再开 overflow-auto 会出现
           第二条滚动条（右侧"多余的上下滑块"就是它）。autoHeight 时高度=内容，同样不滚。 */}
-      <div className={ghost ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto bg-background px-4 lg:px-10'}>
-        <div ref={hostRef} className="h-full" />
+      <div className={ghost ? (autoHeight ? 'shrink-0 overflow-visible' : 'min-h-0 flex-1 overflow-hidden') : 'min-h-0 flex-1 overflow-auto bg-background px-4 lg:px-10'}>
+        <div ref={hostRef} className={ghost && autoHeight ? 'w-full' : 'h-full'} />
       </div>
     </div>
   );

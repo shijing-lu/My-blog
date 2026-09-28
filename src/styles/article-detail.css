@@ -170,7 +170,7 @@
     /* 就地编辑态下编辑器处于可点选状态，滚动条细而低调 */
     scrollbar-width: thin;
   }
-  .doc-ie-view .cm-editor { border-radius: var(--radius-md); }
+  .doc-ie-view .cm-editor { min-height: 3rem; border-radius: var(--radius-md); }
   .doc-ie-view .cm-scroller { scrollbar-width: thin; }
   /* 正文原位替换时去除 CM 的焦点外框（阅读正文无框，编辑态亦应无框） */
   .doc-ie-view .cm-editor.cm-focused { outline: none; }
