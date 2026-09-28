@@ -143,6 +143,21 @@ async function command(name: TreeCommand, target: TreeTarget): Promise<void> {
 function setup(): void {
   if (!document.querySelector('[data-article-domain="home"]')) return;
   setupArticleDetailRails();
+  const editorGrid = document.getElementById('doc-3col');
+  if (editorGrid && editorGrid.dataset.homeEditorFocusBound !== '1') {
+    editorGrid.dataset.homeEditorFocusBound = '1';
+    const focusVisibleEditor = (): void => {
+      if (!editing()) return;
+      requestAnimationFrame(() => {
+        if (!editing()) return;
+        document.querySelector<HTMLElement>('.doc-ie-view .cm-content')?.focus({ preventScroll: true });
+      });
+    };
+    const editorObserver = new MutationObserver(focusVisibleEditor);
+    editorObserver.observe(editorGrid, { attributes: true, attributeFilter: ['data-editing'] });
+    document.addEventListener('astro:before-swap', () => editorObserver.disconnect(), { once: true });
+    focusVisibleEditor();
+  }
   const tree = document.getElementById('doc-ltoc-inner');
   if (tree && tree.dataset.homeMenuBound !== '1') {
     tree.dataset.homeMenuBound = '1';
