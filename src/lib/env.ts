@@ -20,7 +20,7 @@ export function serverEnv(key: string, fallback = ''): string {
     const desktopValue = process.env[key];
     return desktopValue !== undefined && desktopValue !== '' ? desktopValue : fallback;
   }
-  const metaValue = (import.meta.env as Record<string, unknown>)[key];
+  const metaValue = (import.meta.env as Record<string, unknown> | undefined)?.[key];
   const fromMeta = typeof metaValue === 'string' ? metaValue : undefined;
   const fromProcess = process.env[key];
   const value = fromMeta && fromMeta !== '' ? fromMeta : fromProcess;
@@ -42,4 +42,4 @@ export function requireEnv(key: string): string {
 }
 
 /** 是否为生产构建（构建期由 Vite 注入） */
-export const isProd: boolean = import.meta.env.PROD;
+export const isProd: boolean = import.meta.env?.PROD ?? process.env.NODE_ENV === 'production';
