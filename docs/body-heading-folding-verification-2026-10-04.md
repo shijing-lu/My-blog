@@ -30,4 +30,11 @@
 
 ## 发布边界
 
-以上属于本地构建及浏览器验证。客户端安装更新、Git 推送和正式站部署结果在实际完成后追加；构建成功不等于已安装或已部署。本次无新增表或 schema 迁移，两个数据库继续保存和同步完整正文。
+本次无新增表或 schema 迁移，两个数据库继续保存和同步完整正文。
+
+- 功能提交 `ff859ce9577af8bad246b3cb6888ce1b2edf9495` 已推送 `origin/master`。
+- Vercel 部署 `dpl_7et8XT8YdMoYdoaKP8mtWMFGkQ7U` 为 READY，已提升为正式版本；`byqx-blog.online` 和 `www.byqx-blog.online` 均指向本次部署。
+- 构建时主库和备用库各 36 张表检查通过，无新增列；boolean/timestamp/CRUD、ORM 镜像读写、Cadence CAS 和主库失败后的回退读写检查通过。
+- 正式站现有管理员登录、编辑入口和权限回归通过。`scripts/verify-production-heading-folding.mjs` 对现有公开文章、文章编辑、文档阅读及编辑进行实际浏览器验证，折叠/展开均生效，没有浏览器运行错误，也没有发送文章 PATCH/PUT/DELETE；未改动生产正文。
+- 正式站完成标识：`PRODUCTION_READING_EDITOR_HEADING_FOLD_NO_WRITES_OK`。报告见忽略目录内的 `production-verification.json`。
+- 桌面更新包已准备在 `release/heading-fold-payload-20261004/`。当前客户端仍在运行，已请求确认保存状态，安装和重启等待该确认；不将已构建描述为已安装。
