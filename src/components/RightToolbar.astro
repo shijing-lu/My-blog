@@ -3,7 +3,7 @@
  * RightToolbar.astro —— 右侧竖向图标工具栏（d-d 式）
  * Props: 无
  * Imports: 鉴权（管理入口按逐项权限可见：articles/settings/docs）
- * Logic: 首页 → 新建文章（房子图标下方，articles 权限）→ 站点设置（settings）
+ * Logic: 首页 → 文章编辑（房子图标下方，articles 权限）→ 站点设置（settings）
  *        →「编辑当前文章」（文档详情或首页文章编辑页，点击进入/退出就地编辑）→ 回到顶部
  */
 import { isTopAdmin, permissionChecker } from '@/lib/admin-auth';
@@ -32,10 +32,10 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
       <path d="M5 9.5V21h14V9.5" />
     </svg>
   </a>
-  <!-- 新建文章（articles 权限，房子图标下方） -->
+  <!-- 文章编辑（articles 权限，房子图标下方） -->
   {
     can('articles') && (
-      <a href="/edit/new" aria-label="新建文章" title="新建文章">
+      <a href="/edit" aria-label="文章编辑" title="文章编辑">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>

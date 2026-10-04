@@ -3033,6 +3033,7 @@ const siteCssUpdatedAtText =
     const warnEl = document.getElementById('sync-warnings');
     const progressEl = document.getElementById('sync-progress');
     let pollTimer = 0;
+    let pollFailures = 0;
     const lifetime = new AbortController();
     document.addEventListener('astro:before-swap', () => {
       lifetime.abort();
@@ -3074,17 +3075,19 @@ const siteCssUpdatedAtText =
 
     async function poll(): Promise<void> {
       if (lifetime.signal.aborted || !btn.isConnected) return;
+      clearTimeout(pollTimer);
       try {
-        const res = await fetch('/api/desktop/sync', { signal: lifetime.signal });
+        const res = await fetch('/api/desktop/sync', { signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(10000)]) });
         if (!res.ok) {
-          setStatus('读取状态失败（HTTP ' + res.status + '）', 'text-xs text-destructive');
-          return;
+          throw new Error('HTTP ' + res.status);
         }
         const s = (await res.json()) as SyncStatusLike;
+        pollFailures = 0;
         if (cloudEl) {
           cloudEl.textContent = s.cloudConfigured ? '云端已配置' : '云端未配置：请在 config.json 填写 SYNC_DATABASE_URL';
         }
         if (s.running) {
+          btn.disabled = true;
           const p = s.progress;
           setStatus(
             p ? '同步中：' + p.table + '（' + (p.index + 1) + '/' + p.total + '）' : '同步中…',
@@ -3095,11 +3098,11 @@ const siteCssUpdatedAtText =
           return;
         }
         btn.disabled = false;
-        progress(s.lastReport && !s.lastError ? 1 : null);
+        progress(s.lastReport?.ok && !s.lastError ? 1 : null);
         if (s.lastError) {
           setStatus('失败：' + s.lastError, 'text-xs text-destructive');
         } else if (s.lastReport) {
-          setStatus('同步已完成', 'text-xs text-emerald-600');
+          setStatus(s.lastReport.ok ? '同步已完成' : '同步部分完成，请查看失败原因并重试', s.lastReport.ok ? 'text-xs text-emerald-600' : 'text-xs text-destructive');
           renderReport(s.lastReport);
         } else {
           setStatus('尚未同步过', 'text-xs text-muted-foreground');
@@ -3107,16 +3110,40 @@ const siteCssUpdatedAtText =
       } catch (err) {
         if (lifetime.signal.aborted) return;
         const msg = err instanceof Error ? err.message : String(err);
-        setStatus('读取状态失败：' + msg, 'text-xs text-destructive');
+        pollFailures += 1;
+        if (pollFailures <= 3) {
+          setStatus('状态读取暂时失败，正在重试（' + pollFailures + '/3）', 'text-xs text-muted-foreground');
+          pollTimer = window.setTimeout(() => void poll(), 1000);
+        } else {
+          btn.disabled = false;
+          progress(null);
+          setStatus('无法确认同步状态：' + msg + '。可点击立即同步重新检查，后台任务不会重复启动。', 'text-xs text-destructive');
+        }
       }
     }
 
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
+      clearTimeout(pollTimer);
+      pollFailures = 0;
       btn.disabled = true;
       progress(0);
       setStatus('正在启动…', 'text-xs text-muted-foreground');
-      // 启动失败也交给轮询兜底（例如上一轮仍在运行）
-      void fetch('/api/desktop/sync', { method: 'POST' }).then(() => poll(), () => poll());
+      try {
+        const res = await fetch('/api/desktop/sync', { method: 'POST', signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(10000)]) });
+        if (!res.ok) {
+          const result = await res.json().catch(() => null);
+          throw new Error(result?.error || 'HTTP ' + res.status);
+        }
+        await poll();
+      } catch (err) {
+        if (lifetime.signal.aborted) return;
+        btn.disabled = false;
+        progress(null);
+        const msg = err instanceof Error ? err.message : String(err);
+        setStatus('启动请求失败：' + msg + '，正在检查后台状态', 'text-xs text-destructive');
+        // A timed-out POST may already have started the task. Read before retrying.
+        pollTimer = window.setTimeout(() => void poll(), 1000);
+      }
     });
 
     void poll();

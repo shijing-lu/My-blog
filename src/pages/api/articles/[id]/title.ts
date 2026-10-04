@@ -17,7 +17,7 @@ export const PATCH: APIRoute = async ({ params, request, cookies }) => {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   if (!title || title.length > 200) return badRequest('标题应为 1–200 个字符');
   const rows = await db.update(articles)
-    .set({ title, updatedAt: new Date() })
+    .set({ title, published: true, updatedAt: new Date() })
     .where(eq(articles.id, id))
     .returning({ id: articles.id, title: articles.title, updatedAt: articles.updatedAt });
   return rows[0] ? json({ article: rows[0] }) : notFound('文章不存在');

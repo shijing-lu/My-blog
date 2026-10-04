@@ -1,3 +1,4 @@
+import { discardArticleField, flushPendingArticleSaves, pendingArticleField, rememberArticleSave, saveArticleSnapshot } from './pending-article-saves';
 /** 文档与首页文章共用的标题原位编辑。标题独立 PATCH，避免与正文自动保存互相覆盖。 */
 export interface InlineArticleTitleSession {
   flush(): Promise<boolean>;
@@ -10,6 +11,7 @@ export function activateInlineArticleTitle(id: string, onError: (message: string
   const heading = document.querySelector<HTMLElement>('main h1');
   if (!heading) return { flush: async () => true, close: () => {} };
   const home = document.querySelector('[data-article-domain="home"]') !== null;
+  const url = home ? `/api/articles/${encodeURIComponent(id)}/title` : `/api/doc/nodes/${encodeURIComponent(id)}`;
   const data = document.getElementById('doc-detail-data');
   let saved = home ? (data?.dataset.rawTitle ?? heading.textContent ?? '') : (heading.textContent ?? '');
   let timer = 0;
@@ -17,6 +19,8 @@ export function activateInlineArticleTitle(id: string, onError: (message: string
   let closed = false;
 
   if (home && !saved) heading.textContent = '';
+  const pendingTitle = pendingArticleField(url, 'title');
+  if (pendingTitle !== null) heading.textContent = pendingTitle;
   heading.dataset.inlineTitleEditing = 'true';
   heading.dataset.inlineTitlePlaceholder = '未命名文章';
   heading.contentEditable = 'plaintext-only';
@@ -36,16 +40,8 @@ export function activateInlineArticleTitle(id: string, onError: (message: string
       const title = value();
       if (title === saved) return true;
       if (!title) { onError('标题不能为空'); return false; }
-      const url = home
-        ? `/api/articles/${encodeURIComponent(id)}/title`
-        : `/api/doc/nodes/${encodeURIComponent(id)}`;
       pending = (async () => {
-        const response = await fetch(url, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ title }),
-        });
-        if (!response.ok) throw new Error('标题保存失败，请重试');
+        await saveArticleSnapshot(url, { title });
         saved = title;
         if (data && home) data.dataset.rawTitle = title;
         if (closed && heading.isConnected) heading.textContent = title;
@@ -70,6 +66,7 @@ export function activateInlineArticleTitle(id: string, onError: (message: string
       window.getSelection()?.removeAllRanges();
       window.getSelection()?.addRange(range);
     }
+    if (value()) rememberArticleSave(url, { title: value() });
     schedule();
   };
   const onKeydown = (event: KeyboardEvent): void => {
@@ -78,29 +75,32 @@ export function activateInlineArticleTitle(id: string, onError: (message: string
       event.preventDefault();
       window.clearTimeout(timer);
       heading.textContent = saved;
+      discardArticleField(url, 'title');
       heading.blur();
     }
   };
   const onBlur = (): void => { void flush(); };
-  const onBeforeUnload = (event: BeforeUnloadEvent): void => {
+  const onPageHide = (): void => {
     if (value() === saved && !pending) return;
-    event.preventDefault();
-    event.returnValue = '';
+    void flush();
+    void flushPendingArticleSaves(true);
   };
   heading.addEventListener('input', onInput);
   heading.addEventListener('keydown', onKeydown);
   heading.addEventListener('blur', onBlur);
-  window.addEventListener('beforeunload', onBeforeUnload);
+  window.addEventListener('pagehide', onPageHide);
+  if (pendingTitle !== null) schedule();
 
   return {
     flush,
-    close(): void {
+    close(discard = false): void {
       window.clearTimeout(timer);
+      if (discard) discardArticleField(url, 'title');
       closed = true;
       heading.removeEventListener('input', onInput);
       heading.removeEventListener('keydown', onKeydown);
       heading.removeEventListener('blur', onBlur);
-      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onPageHide);
       heading.removeAttribute('contenteditable');
       heading.removeAttribute('role');
       heading.removeAttribute('aria-multiline');

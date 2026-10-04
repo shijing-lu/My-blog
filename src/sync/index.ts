@@ -52,13 +52,12 @@ function cloudUrls(): { primary: string | null; fallback: string | null } {
 }
 
 /** 装配真实端点（本地 SQLite + 云端 PG/备库镜像） */
-function buildDeps(onProgress: (p: SyncProgress) => void) {
+function buildDeps(onProgress: (p: SyncProgress) => void, warnings: string[]) {
   const urls = cloudUrls();
   if (!urls.primary) {
     throw new Error('未配置 SYNC_DATABASE_URL（桌面端请在 %APPDATA%\\byqx-blog-desktop\\config.json 填写）');
   }
   state.cloudConfigured = true;
-  const warnings: string[] = [];
   return {
     local: new SqliteEndpoint(db as unknown as SqliteLikeDb, 'local'),
     cloud: new PgEndpoint({
@@ -98,9 +97,14 @@ export async function startSync(
     try {
       const deps = buildDeps((p) => {
         state.progress = p;
-      });
+      }, warnings);
       console.log('[sync] 云端端点已装配，开始逐表同步');
-      const report = await runSync({ ...deps, onProgress: deps.onProgress });
+      let report: SyncReport;
+      try {
+        report = await runSync({ ...deps, onProgress: deps.onProgress });
+      } finally {
+        await deps.cloud.close();
+      }
       const pulled = report.perTable.reduce((n, t) => n + t.pulled, 0);
       const pushed = report.perTable.reduce((n, t) => n + t.pushed, 0);
       const skipped = report.perTable.filter((t) => t.skipped).length;

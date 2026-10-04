@@ -10,7 +10,6 @@ export interface HomeSettingsArticle {
   tags: string[];
   encrypted: boolean;
   encryptHint: string;
-  published: boolean;
 }
 
 interface Props {
@@ -106,28 +105,6 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
     }
   };
 
-  const publish = async (): Promise<void> => {
-    if (busy) return;
-    if (document.getElementById('doc-3col')?.dataset.editing === 'true') {
-      setError('请先保存并退出正文编辑，再发布文章');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      const res = await fetch(`/api/articles/${encodeURIComponent(current.id)}/publish`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? '发布失败');
-      setCurrent((prev) => ({ ...prev, published: true }));
-      document.getElementById('home-publish-status')?.replaceChildren(document.createTextNode('已发布'));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '发布失败');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-
   return <dialog ref={dialogRef} className="m-auto w-[min(92vw,40rem)] rounded-xl border border-border bg-card p-0 text-foreground shadow-xl backdrop:bg-black/40">
     <form onSubmit={(event) => void save(event)} className="max-h-[85vh] overflow-y-auto p-6">
       <div className="flex items-center justify-between gap-3">
@@ -145,9 +122,9 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={encrypted} onChange={(event) => setEncrypted(event.target.checked)} />启用访问密码</label>
         {encrypted && <div className="mt-3 grid gap-3"><label className="text-sm">{current.encrypted ? '更换密码（留空保留原密码）' : '访问密码'}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" /></label><label className="text-sm">密码提示<input value={hint} onChange={(event) => setHint(event.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" /></label></div>}
       </div>
-      <div className="mt-4 flex items-center gap-3 text-sm"><span>状态：{current.published ? '已发布' : '草稿'}</span><a href="/admin/mindmaps" className="text-primary hover:underline">管理思维导图</a></div>
+      <div className="mt-4 flex items-center gap-3 text-sm"><a href="/admin/mindmaps" className="text-primary hover:underline">管理思维导图</a></div>
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
-      <div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => dialogRef.current?.close()} className="rounded-md border border-border px-4 py-2 text-sm">取消</button><button type="submit" disabled={busy} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">保存设置</button>{!current.published && <button type="button" disabled={busy} onClick={() => void publish()} className="rounded-md border border-primary px-4 py-2 text-sm text-primary disabled:opacity-50">发布文章</button>}</div>
+      <div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => dialogRef.current?.close()} className="rounded-md border border-border px-4 py-2 text-sm">取消</button><button type="submit" disabled={busy} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">保存设置</button></div>
     </form>
   </dialog>;
 }

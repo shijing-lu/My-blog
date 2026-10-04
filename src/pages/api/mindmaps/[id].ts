@@ -22,7 +22,7 @@ export const GET: APIRoute = async ({ params, cookies }) => {
     if (!map) return notFound('思维导图不存在');
     if (map.articleId && !(await canManage(cookies, 'articles'))) {
       const article = await getArticleById(map.articleId);
-      if (!article?.published) return notFound('思维导图不存在');
+      if (!article) return notFound('思维导图不存在');
     }
     return json({
       map: {

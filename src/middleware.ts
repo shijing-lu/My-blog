@@ -65,7 +65,9 @@ function withCachePolicy(response: Response, request: Request): Response {
   if (response.headers.get('cache-control')?.includes('no-store')) return response;
   const isPrefetch =
     request.headers.get('sec-purpose') === 'prefetch' || request.headers.get('purpose') === 'prefetch';
-  const target = isPrefetch ? 'private, max-age=60' : 'no-store, no-cache, must-revalidate';
+  const pathname = new URL(request.url).pathname;
+  const articlePage = pathname === '/' || pathname === '/edit' || pathname.startsWith('/edit/') || pathname.startsWith('/blog/');
+  const target = isPrefetch && !articlePage ? 'private, max-age=60' : 'no-store, no-cache, must-revalidate';
   if (response.headers.get('cache-control') === target) return response;
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', target);

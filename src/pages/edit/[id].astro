@@ -3,6 +3,7 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import ArticleDetailShell from '@/components/article/ArticleDetailShell.astro';
 import DocInlineEditor from '@/components/doc/DocInlineEditor';
 import HomeArticleSettings from '@/components/article/HomeArticleSettings';
+import HomeArticleFolderDialog from '@/components/article/HomeArticleFolderDialog.astro';
 import ExportMenu from '@/components/ExportMenu.astro';
 import { getArticleById, listAdminArticleMeta } from '@/lib/articles';
 import { articleCategoryMap, listArticleCategories } from '@/lib/article-categories';
@@ -52,7 +53,7 @@ const tocHtml = renderTocTreeHtml(rendered?.toc ?? []);
 const settingsArticle = {
   id: article.id, title: article.title, type: article.type,
   summary: article.summary, cover: article.cover ?? '', tags: article.tags,
-  encrypted: article.encrypted, encryptHint: article.encryptHint, published: article.published,
+  encrypted: article.encrypted, encryptHint: article.encryptHint,
 };
 ---
 
@@ -68,7 +69,7 @@ const settingsArticle = {
       <span id="home-folder-breadcrumb">{folderPath.map((part) => <><span class="mx-1">/</span><span>{part}</span></>)}</span>
     </Fragment>
     <Fragment slot="title-actions">
-      <span id="home-publish-status" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">{article.published ? '已发布' : '草稿'}</span>
+      <button id="home-create-article" type="button" class="mt-2 rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:text-primary">＋ 新建文章</button>
       <button id="home-article-settings" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary">文章设置</button>
       <button id="doc-inline-edit" type="button" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>
       <ExportMenu mdUrl={`/api/export/article/${encodeURIComponent(article.slug)}`} class="mt-1.5" />
@@ -77,12 +78,7 @@ const settingsArticle = {
   </ArticleDetailShell>
   <HomeArticleSettings client:load article={settingsArticle} categories={categories} categoryId={articleFolder(article.id)} />
   <div id="doc-detail-data" data-authed="1" data-active-node={article.id} data-raw-title={article.title} data-nodes={JSON.stringify(nodes)} class="hidden" aria-hidden="true" />
-  <dialog id="home-folder-dialog" class="m-auto w-[min(92vw,25rem)] rounded-lg border border-border bg-card p-5 text-foreground shadow-xl backdrop:bg-black/40">
-    <h2 id="home-folder-dialog-title" class="font-display text-lg font-semibold">目录</h2>
-    <label class="mt-4 block text-sm">目录名称<input id="home-folder-name" maxlength="30" class="mt-1 w-full rounded-md border border-input bg-background px-3 py-2" /></label>
-    <p id="home-folder-error" role="alert" class="mt-2 hidden text-sm text-destructive"></p>
-    <div class="mt-5 flex justify-end gap-2"><button id="home-folder-cancel" type="button" class="rounded-md border border-border px-3 py-1.5 text-sm">取消</button><button id="home-folder-save" type="button" class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground">保存</button></div>
-  </dialog>
+  <HomeArticleFolderDialog />
 </BaseLayout>
 
 <script>import '@/scripts/home-article-detail';</script>

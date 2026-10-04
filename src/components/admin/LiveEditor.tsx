@@ -89,8 +89,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   const [draft, setDraft] = useState<InitialDraft>(initial);
   const [list, setList] = useState<ArticleMeta[]>(articles);
   const [selectedId, setSelectedId] = useState<string | null>(initial.id);
-  const [publishing, setPublishing] = useState(false);
-  const [publishError, setPublishError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const saveMotionRef = useMotionFeedback<HTMLSpanElement>(saveStatus);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -220,29 +218,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
     }
   }, []);
 
-  const publishNow = useCallback(async (): Promise<void> => {
-    if (publishing) return;
-    setPublishError('');
-    if (!draftRef.current.title.trim() || !draftRef.current.content.trim()) {
-      setPublishError('请先填写标题和正文');
-      return;
-    }
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    setPublishing(true);
-    try {
-      if (!(await saveNow())) throw new Error('保存失败，请重试发布');
-      const res = await fetch(`/api/articles/${draftRef.current.id}/publish`, { method: 'POST' });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? '发布失败');
-      setDraft((current) => ({ ...current, published: true }));
-      setList((current) => current.map((item) => item.id === draftRef.current.id ? { ...item, published: true } : item));
-    } catch (error) {
-      setPublishError(error instanceof Error ? error.message : '发布失败');
-    } finally {
-      setPublishing(false);
-    }
-  }, [publishing, saveNow]);
-
   const scheduleSave = useCallback((): void => {
     setSaveStatus('dirty');
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
@@ -265,14 +240,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
     },
     [],
   );
-
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent): void => {
-      if (saveStatus === 'dirty' || saveStatus === 'saving') e.preventDefault();
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [saveStatus]);
 
   /** 导图面板：打开时加载该文章的思维导图（无则显示创建入口） */
   useEffect(() => {
@@ -414,7 +381,14 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   }, []);
 
   const newArticle = useCallback((): void => {
-    window.location.href = '/edit/new';
+    void (async () => {
+      try {
+        const response = await fetch('/api/articles', { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok || !result.id) throw new Error(result.error || '创建文章失败');
+        window.location.href = `/edit/${encodeURIComponent(result.id)}?edit=1`;
+      } catch (error) { window.alert(error instanceof Error ? error.message : '创建文章失败'); }
+    })();
   }, []);
 
   const removeArticle = useCallback(async (id: string): Promise<void> => {
@@ -690,7 +664,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
                               >
                                 {selectedId === a.id && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" />}
                                 <span className="min-w-0 flex-1 truncate">{a.title || '未命名'}</span>
-                                {!a.published && <span className="rounded bg-amber-500/10 px-1 text-[0.6rem] text-amber-600">草稿</span>}
                                 <span className="hidden shrink-0 items-center gap-1 group-hover/item:flex" onClick={(e) => e.stopPropagation()}>
                                   <select
                                     value={catMap[a.id] ?? ''}
@@ -1047,9 +1020,6 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
           ) : null}
 
           <div className="flex items-center gap-2 text-xs">
-            <span className={`rounded-md px-2 py-1 ${draft.published ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>{draft.published ? '已发布' : '草稿 · 仅管理员可见'}</span>
-            {!draft.published && <button type="button" onClick={() => void publishNow()} disabled={publishing} className="rounded-md bg-primary px-3 py-1 font-medium text-primary-foreground disabled:opacity-50">{publishing ? '发布中…' : '发布文章'}</button>}
-            {publishError && <span role="alert" className="text-destructive">{publishError}</span>}
             <div className="inline-flex rounded-md border border-border p-0.5" aria-label="编辑模式">
               <button type="button" aria-pressed={viewMode === 'edit'} onClick={() => { ++previewSeq.current; setViewMode('edit'); }} className={`rounded px-2.5 py-1 ${viewMode === 'edit' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>编辑</button>
               <button type="button" aria-pressed={viewMode === 'preview'} onClick={() => void showPreview()} className={`rounded px-2.5 py-1 ${viewMode === 'preview' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>预览</button>

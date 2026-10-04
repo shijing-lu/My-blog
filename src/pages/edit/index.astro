@@ -1,0 +1,28 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import ArticleDetailShell from '@/components/article/ArticleDetailShell.astro';
+import HomeArticleFolderDialog from '@/components/article/HomeArticleFolderDialog.astro';
+import { listAdminArticleMeta } from '@/lib/articles';
+import { articleCategoryMap, listArticleCategories } from '@/lib/article-categories';
+import { buildDocTree, renderDocTree, type DocTreeItem } from '@/lib/doc-tree-render';
+
+const [articles, categories, categoryMap] = await Promise.all([listAdminArticleMeta(), listArticleCategories(), articleCategoryMap()]);
+const root = '__home_uncategorized__';
+const categoryIds = new Set(categories.map(category => category.id));
+const nodes: DocTreeItem[] = [
+  ...categories.map(category => ({ id: category.id, parentId: category.parentId, kind: 'folder' as const, title: category.name, sort: category.sort })),
+  { id: root, parentId: null, kind: 'folder', title: '未分类', sort: Number.MAX_SAFE_INTEGER },
+  ...articles.map((article, index) => ({ id: article.id, parentId: categoryIds.has(categoryMap.get(article.id) || '') ? categoryMap.get(article.id)! : root, kind: 'article' as const, title: article.title || '未命名文章', sort: index, updatedAt: article.updatedAt })),
+];
+const treeHtml = renderDocTree(buildDocTree(nodes), { authed: true, bundleId: '', activeId: '', articlePath: 'home', virtualRootId: root });
+const parentId = Astro.url.searchParams.get('parent') || '';
+---
+<BaseLayout title="文章编辑" description="选择文章继续编辑，或新建文章。">
+  <ArticleDetailShell domain="home" authed={true} treeLabel="全部文章" treeHtml={treeHtml} title="文章编辑" articleHtml="<p class='text-muted-foreground'>从左侧选择文章继续编辑，或点击新建文章。</p>" tocHtml="" tocState="empty" emptyText="暂无文章。">
+    <Fragment slot="breadcrumb"><a href="/" class="hover:text-primary">首页文章</a><span class="mx-1">/</span><span>文章编辑</span></Fragment>
+    <Fragment slot="title-actions"><button id="home-create-article" data-parent={parentId} type="button" class="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90">＋ 新建文章</button></Fragment>
+  </ArticleDetailShell>
+  <div id="doc-detail-data" data-authed="1" data-active-node="" data-nodes={JSON.stringify(nodes)} class="hidden" aria-hidden="true" />
+  <HomeArticleFolderDialog />
+</BaseLayout>
+<script>import '@/scripts/home-article-detail';</script>

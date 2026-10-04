@@ -83,10 +83,19 @@ function askFolderName(title: string, initial = ''): Promise<string | null> {
 }
 
 async function command(name: TreeCommand, target: TreeTarget): Promise<void> {
-  if (editing()) { window.alert('请先完成当前文章的编辑，再操作目录。'); return; }
   const parentId = target.kind === 'folder' ? target.id : null;
   if (name === 'create-article') {
-    window.location.href = `/edit/new${parentId ? `?parent=${encodeURIComponent(parentId)}` : ''}`;
+    const buttons = document.querySelectorAll<HTMLButtonElement>('#home-create-article, #doc-add-root-article');
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+      const response = await fetch('/api/articles', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ parentId }) });
+      const result = await response.json();
+      if (!response.ok || !result.id) throw new Error(result.error || '创建文章失败');
+      window.location.href = `/edit/${encodeURIComponent(result.id)}?edit=1`;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '创建文章失败');
+      buttons.forEach(button => { button.disabled = false; });
+    }
     return;
   }
   if (name === 'create-folder') {
@@ -173,6 +182,11 @@ function setup(): void {
     rootArticle.dataset.bound = '1';
     rootArticle.addEventListener('click', () => void command('create-article', { id: null, kind: 'root', title: '' }));
   }
+  const newArticle = document.getElementById('home-create-article');
+  if (newArticle && !newArticle.dataset.bound) {
+    newArticle.dataset.bound = '1';
+    newArticle.addEventListener('click', () => void command('create-article', { id: newArticle.dataset.parent || null, kind: newArticle.dataset.parent ? 'folder' : 'root', title: '' }));
+  }
   const edit = document.getElementById('doc-inline-edit');
   if (edit && !edit.dataset.bound) {
     edit.dataset.bound = '1';
@@ -180,15 +194,6 @@ function setup(): void {
       if (editing()) window.__docInlineEditor?.saveAndClose?.();
       else window.__docInlineEditor?.open();
     });
-  }
-  const treeBody = document.querySelector<HTMLElement>('[data-doc-tree-root]');
-  if (treeBody && !treeBody.dataset.navigationBound) {
-    treeBody.dataset.navigationBound = '1';
-    treeBody.addEventListener('click', (event) => {
-      if (!editing() || !(event.target as HTMLElement).closest('[data-article-switch]')) return;
-      event.preventDefault();
-      window.alert('请先完成当前文章的编辑，再切换文章。');
-    }, true);
   }
   const toc = document.getElementById('doc-toc-rail');
   if (toc && !toc.dataset.bound) {

@@ -88,6 +88,7 @@ function createDrizzle(ep: DbEndpoint, index: number): BlogDb {
   if (articleColumns.length > 0 && !articleColumns.some((column) => column.name === 'published')) {
     client.exec('ALTER TABLE articles ADD COLUMN published integer NOT NULL DEFAULT 1');
   }
+  if (articleColumns.length > 0) client.exec('UPDATE articles SET published = 1 WHERE published = 0');
   const categoryColumns = client.pragma('table_info(article_categories)') as Array<{ name: string }>;
   if (categoryColumns.length > 0 && !categoryColumns.some((column) => column.name === 'parent_id')) {
     client.exec('ALTER TABLE article_categories ADD COLUMN parent_id text');

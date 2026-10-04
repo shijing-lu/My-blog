@@ -44,6 +44,7 @@ import type { MarkdownEditorHandle } from '@/components/admin/MarkdownEditor';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import { activateInlineArticleTitle, type InlineArticleTitleSession } from '@/lib/inline-article-title';
 import { createLatestSaveQueue } from '@/lib/latest-save-queue';
+import { discardArticleField, flushPendingArticleSaves, pendingArticleField, rememberArticleSave, saveArticleSnapshot } from '@/lib/pending-article-saves';
 import type { TocItem } from '@/lib/mdx-plugins';
 import { indexOfNthHeading, pickNearestViewAnchor } from '@/lib/view-anchor';
 import type { ViewAnchor } from '@/lib/view-anchor';
@@ -339,6 +340,7 @@ export default function DocInlineEditor(): ReactElement {
   const activeTocElRef = useRef<HTMLElement | null>(null);
   /** 最新正文（saveCore 直接读 ref，避免闭包陈旧内容覆盖新输入） */
   const contentRef = useRef('');
+  const saveSessionRef = useRef<{ id: string; url: string; content: string } | null>(null);
   /** 未保存标记（state 供 UI，ref 供异步保存逻辑） */
   const dirtyRef = useRef(false);
   /** 本会话是否成功保存过（决定关闭时是否需要补拉 render） */
@@ -395,37 +397,32 @@ export default function DocInlineEditor(): ReactElement {
 
   /** 统一保存：合并并发请求，并持续保存请求期间产生的新内容。 */
   const saveCore = useCallback(async (): Promise<boolean> => {
-    const id = nodeIdRef.current;
-    if (!id) return false;
+    const session = saveSessionRef.current;
+    if (!session) return false;
+    const { id, url: saveUrl } = session;
     if (!dirtyRef.current) return true;
     setPhase('saving');
     try {
       saveQueueRef.current ??= createLatestSaveQueue(
-        () => contentRef.current,
+        () => session.content,
         async (snapshot) => {
-          const nodeId = nodeIdRef.current;
-          const res = await fetch(articleApiUrl(nodeId), {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ content: snapshot }),
-          });
-          if (!res.ok) throw new Error('保存失败');
-          const saved = (await res.json().catch(() => ({}))) as { node?: { updatedAt?: string } };
-          syncNodeUpdatedAt(nodeId, saved.node?.updatedAt);
-          savedRef.current = true;
+          const saved = await saveArticleSnapshot(saveUrl, { content: snapshot }) as { node?: { updatedAt?: string } };
+          syncNodeUpdatedAt(id, saved.node?.updatedAt);
+          if (saveSessionRef.current === session) savedRef.current = true;
         },
       );
       const savedContent = await saveQueueRef.current.flush();
+      if (saveSessionRef.current !== session) return true;
       dirtyRef.current = contentRef.current !== savedContent;
       setDirty(dirtyRef.current);
       setError(null);
       setLastSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败');
+      if (saveSessionRef.current === session) setError(err instanceof Error ? err.message : '保存失败');
       return false; // dirty 保留：用户继续输入会再次触发自动保存
     } finally {
-      setPhase('idle');
+      if (saveSessionRef.current === session) setPhase('idle');
     }
   }, []);
 
@@ -445,6 +442,7 @@ export default function DocInlineEditor(): ReactElement {
       if (!opts?.discard && titleSessionRef.current && !(await titleSessionRef.current.flush())) return;
       titleSessionRef.current?.close(Boolean(opts?.discard));
       titleSessionRef.current = null;
+      if (opts?.discard && saveSessionRef.current) discardArticleField(saveSessionRef.current.url, 'content');
       clearAlignment();
       const exitScrollY = window.scrollY;
       const grid = document.getElementById('doc-3col');
@@ -541,6 +539,10 @@ export default function DocInlineEditor(): ReactElement {
     (v: string) => {
       // CodeMirror 持有实时正文；父岛只同步脏标记，避免每次按键重渲染整棵工具栏。
       contentRef.current = v;
+      if (saveSessionRef.current) {
+        saveSessionRef.current.content = v;
+        rememberArticleSave(saveSessionRef.current.url, { content: v });
+      }
       dirtyRef.current = true;
       setDirty(true);
       window.clearTimeout(saveTimer.current);
@@ -731,11 +733,15 @@ export default function DocInlineEditor(): ReactElement {
         setPhase('idle');
         return;
       }
+      const pendingContent = pendingArticleField(articleApiUrl(id), 'content');
+      if (pendingContent !== null) text = pendingContent;
+      saveQueueRef.current = null;
       contentRef.current = text;
+      saveSessionRef.current = { id, url: articleApiUrl(id), content: text };
       setContent(text);
       setVisualModule(readyVisualModule);
-      dirtyRef.current = false;
-      setDirty(false);
+      dirtyRef.current = pendingContent !== null;
+      setDirty(dirtyRef.current);
       savedRef.current = false;
       setLastSavedAt('');
       // 编辑视口高：短文 0 = 高度随内容（auto，无滚动条）；超长文取可用屏高（编辑器内滚动）
@@ -788,22 +794,33 @@ export default function DocInlineEditor(): ReactElement {
     () => () => {
       window.clearTimeout(saveTimer.current);
       window.clearTimeout(tocTimer.current);
-      titleSessionRef.current?.close(true);
+      if (dirtyRef.current) void saveCoreRef.current();
+      void titleSessionRef.current?.flush();
+      titleSessionRef.current?.close();
       titleSessionRef.current = null;
       clearAlignment();
     },
     [clearAlignment],
   );
 
-  /** 离页保护：有未保存改动时提示（自动保存不覆盖刷新/关页瞬间） */
+  /** Periodic autosave and silent navigation flush; pending snapshots survive a failed request. */
   useEffect(() => {
-    if (!open || !dirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
-      e.preventDefault();
+    if (!open) return;
+    const flush = (): void => {
+      if (dirtyRef.current) void saveCoreRef.current();
+      void titleSessionRef.current?.flush();
+      void flushPendingArticleSaves(true);
     };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [open, dirty]);
+    const timer = window.setInterval(flush, 3000);
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('astro:before-preparation', flush);
+    return () => {
+      flush();
+      window.clearInterval(timer);
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('astro:before-preparation', flush);
+    };
+  }, [open]);
 
   const saving = phase === 'saving';
   const showSaveFail = Boolean(error) && phase === 'idle';

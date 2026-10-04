@@ -421,6 +421,7 @@ async function triggerSync() {
   const origin = `http://127.0.0.1:${currentPort}`;
   const res = await fetch(`${origin}/api/desktop/sync`, {
     method: 'POST',
+    signal: AbortSignal.timeout(10000),
     headers: {
       ...(cookie ? { cookie } : {}),
       origin,
@@ -435,6 +436,7 @@ async function triggerSync() {
   }
   logLaunch(`POST /api/desktop/sync → HTTP ${res.status}${body ? ` body=${body}` : ''}｜cookie=${cookie ? '有' : '无'}`);
   if (res.status === 401) throw new Error('未登录：请先在应用窗口内登录管理端，再执行同步');
+  if (!res.ok) throw new Error(`启动同步失败：HTTP ${res.status}${body ? ` ${body}` : ''}`);
   return res.status === 202 || res.ok;
 }
 
@@ -443,11 +445,9 @@ async function waitForSyncDone(timeoutMs = 10 * 60 * 1000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const cookie = await localCookieHeader();
-    const res = await fetch(`http://127.0.0.1:${currentPort}/api/desktop/sync`, {
-      headers: cookie ? { cookie } : {},
-    });
-    if (res.ok) {
-      const s = await res.json();
+    const { readSyncState } = require('./sync-request.cjs');
+    {
+      const s = await readSyncState(`http://127.0.0.1:${currentPort}/api/desktop/sync`, cookie);
       if (!s.running) {
         logLaunch(
           `同步状态：running=false｜cloudConfigured=${s.cloudConfigured}｜lastError=${s.lastError ?? 'null'}｜有报告=${s.lastReport ? '是' : '否'}`,

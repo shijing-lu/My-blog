@@ -33,7 +33,7 @@ export const PATCH: APIRoute = async ({ params, request, cookies }) => {
   if (typeof body.content !== 'string') return badRequest('正文必须是字符串');
   try {
     const rows = await db.update(articles)
-      .set({ content: body.content, updatedAt: new Date() })
+      .set({ content: body.content, published: true, updatedAt: new Date() })
       .where(eq(articles.id, id))
       .returning({ updatedAt: articles.updatedAt });
     if (!rows[0]) return notFound('文章不存在');

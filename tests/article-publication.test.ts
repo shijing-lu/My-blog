@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 
-describe('文章草稿发布边界', () => {
-  it('新建草稿仅管理员可见，发布后公开详情可读取', async () => {
+describe('文章保存即生效', () => {
+  it('新建和修改都立即可读取，不需要发布操作', async () => {
     const dir = join(process.cwd(), '.diag', 'article-publication-test');
     mkdirSync(dir, { recursive: true });
     const dbPath = join(dir, `${crypto.randomUUID()}.db`);
@@ -21,18 +21,21 @@ describe('文章草稿发布边界', () => {
     process.env.DATABASE_URL = `file:${dbPath}`;
     process.env.DESKTOP_MODE = '1';
     delete process.env.DATABASE_URL_FALLBACK;
-    const { createArticleDraft, getArticleBySlug, listAdminArticleMeta, listArticleMeta, publishArticle, saveDraft } = await import('../src/lib/articles');
+    const { createArticle, getArticleBySlug, listAdminArticleMeta, listArticleMeta, saveDraft } = await import('../src/lib/articles');
 
-    const draft = await createArticleDraft();
+    const draft = await createArticle();
     expect((await getArticleBySlug('old'))?.published).toBe(true);
-    expect(draft.published).toBe(false);
-    expect((await listArticleMeta()).some((article) => article.id === draft.id)).toBe(false);
+    expect(draft.published).toBe(true);
+    expect((await listArticleMeta()).some((article) => article.id === draft.id)).toBe(true);
     expect((await listAdminArticleMeta()).some((article) => article.id === draft.id)).toBe(true);
-    expect(await getArticleBySlug(draft.slug)).toBeNull();
+    expect(await getArticleBySlug(draft.slug)).toMatchObject({ id: draft.id });
 
-    await saveDraft({ id: draft.id, title: '发布验收', content: '正文', type: 'tech', summary: '', cover: '', tags: [] });
-    const published = await publishArticle(draft.id);
-    expect(published?.published).toBe(true);
-    expect(await getArticleBySlug(published!.slug)).toMatchObject({ id: draft.id, published: true });
+    await saveDraft({ id: draft.id, title: '自动保存验收', content: '最新正文', type: 'tech', summary: '', cover: '', tags: [] });
+    expect(await getArticleBySlug(draft.slug)).toMatchObject({ id: draft.id, content: '最新正文', published: true });
+    const raw = new Database(dbPath);
+    raw.prepare('UPDATE articles SET published = 0 WHERE id = ?').run(draft.id);
+    raw.close();
+    expect(await getArticleBySlug(draft.slug)).toMatchObject({ id: draft.id, content: '最新正文' });
+    expect((await listArticleMeta()).some(article => article.id === draft.id)).toBe(true);
   });
 });
