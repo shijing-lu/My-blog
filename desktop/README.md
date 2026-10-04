@@ -18,13 +18,22 @@
 
 **关键结论**：改 Web 代码**不会**自动进桌面端（代码层面）；但**内容与配置**（文章、图片、设置、样式）会经同步引擎自动到达桌面端。
 
+### 桌面端认证配置
+
+配置文件位于 `%APPDATA%\byqx-blog-desktop\config.json`。旧配置无需迁移：如果没有设置 `TOP_ADMIN_PASSWORD`，管理弹窗会沿用现有的 `ADMIN_PASSWORD`。需要单独密码时才填写 `TOP_ADMIN_PASSWORD`。
+
+GitHub 登录需要在该配置中填写 `GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET`；如果还要用 GitHub 白名单直接登录站主账号，再填写 `ADMIN_GITHUB_LOGIN`。已有配置文件会原样保留，不会因升级被覆盖；首次生成的配置模板会包含这些可选字段。修改配置后重启桌面端生效。
+
 ---
 
 ## 二、目录结构与职责
 
 ```
 desktop/
-  main.cjs             Electron 壳：配置、窗口、托盘、同步触发、对象拦截、本地库自愈
+  main.cjs             Electron 壳：配置、窗口、托盘、同步触发、对象拦截
+  server-process.cjs   独立服务进程生命周期（超时、失败、退出清理）
+  server.cjs           独立进程入口：检查本地库，再启动 Astro 服务
+  local-db.cjs         本地库健康检查、损坏隔离与补表（只在服务进程执行）
   preload.cjs          仅暴露版本号（不暴露 Node 能力）
   assets/template.db   空库模板（33 张表）
   desktop-builder.yml  electron-builder（NSIS）配置
@@ -74,13 +83,15 @@ git push                                      # → Vercel 自动构建部署
 ### 桌面（发版级）
 ```bash
 pnpm run build:desktop            # DESKTOP=1 构建 dist/
-node scripts/make-desktop-bundle.mjs   # 组装自包含包 release/standalone/
-# 分发：打包 release/standalone/ 为 zip（或先用 electron-builder 出 NSIS 安装包）
+node scripts/make-desktop-bundle.mjs   # 组装并覆盖 release/portable/
+# 若标准便携版正运行，可设置 BYQX_DESKTOP_BUNDLE_DIR=portable-新版本名，
+# 将新包输出到 release/portable-新版本名，关闭旧实例后从新目录启动。
+# 分发：打包 release/portable/ 为 zip（或先用 electron-builder 出 NSIS 安装包）
 # 记得同步改 public/desktop-version.json 的版本号并 push
 ```
 
-产物 `release/standalone/` 是**自包含**的（Electron 运行时 + `resources/app/{dist,desktop,node_modules}`），
-拷到任何目录、甚至别的机器都能运行，**不依赖源码**。
+产物 `release/portable/` 是**自包含**的（Electron 运行时 + `resources/app/{dist,desktop,node_modules}`），
+拷到任何目录、甚至别的机器都能运行，**不依赖源码**。后续桌面更新都覆盖这个固定目录，不另建版本号目录。
 
 ---
 
@@ -90,13 +101,13 @@ node scripts/make-desktop-bundle.mjs   # 组装自包含包 release/standalone/
 
 | 目录 | 说明 | 用不用 |
 |---|---|---|
-| **`release/portable/白衣卿相.exe`** | `resources/app` 是指向**仓库**的目录联接 → **始终跑最新 `dist`**（重建后重启即是新版） | ✅ **开发期就用它** |
-| `release/standalone-<版本>/` | **自包含**快照：把当时的 `dist` + 依赖**复制**进去，删掉源码也能跑；但代码**冻在复制那一刻**，之后的重建它不会更新 | 仅用于对外分发（打包流程完成前视为实验产物） |
+| **`release/portable/白衣卿相.exe`** | 自包含便携包：运行时与构建产物均在目录内；每次桌面构建后覆盖这里 | ✅ **唯一使用与交付目录** |
+| `release/.portable-staging-*` | 构建期间临时组装目录，成功后自动替换为 `portable/` | ❌ 不要手动打开 |
 | `release/standalone.old-*` | 旧产物改名留档（沙箱禁止批量删除，改用改名） | ❌ 可手动删 |
 
 **判断你开的是哪一版**：看启动日志里的
 `服务端 bundle 构建于：…` —— 它记录本次运行实际加载的构建时间。
-若是 `portable/`，这个时间应等于最近一次 `build:desktop` 的时间。
+这个时间应等于最近一次 `build:desktop` 的时间。
 
 **铁律**：`build:desktop` 之前先**退出正在运行的应用**并**杀掉所有从 dist 启动的验证服务**
 （否则文件被锁会构建卡死；而运行中的实例会因资源被替换而 404 → 表现为"所有动效消失"）。

@@ -11,8 +11,11 @@
  * 文本内容，对重名标题、数学公式标题、中文 slug 差异全部免疫。
  * 文本（normHeadingText）只用于一致性校验告警。
  */
-import { syntaxTree } from '@codemirror/language';
-import type { EditorState } from '@codemirror/state';
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
+import type { EditorState, Text } from '@codemirror/state';
+
+// 同一文档移动光标/滚动时复用索引；语法树改变（含后台解析推进）时自动失效。
+const headingCache = new WeakMap<Text, { tree: ReturnType<typeof syntaxTree>; headings: HeadingHit[] }>();
 
 /** 语法树中的一个标题 */
 export interface HeadingHit {
@@ -45,9 +48,14 @@ function headingText(raw: string): string {
 }
 
 /** 扫描全文标题（文档顺序） */
-export function scanHeadings(state: EditorState): HeadingHit[] {
+export function scanHeadings(state: EditorState, complete = false): HeadingHit[] {
+  // 大文档的初始语法树通常只解析了开头。模式切换时必须把整篇标题索引补齐，
+  // 否则第 N 个标题会查不到，并退到误差很大的高度比例定位。
+  const tree = (complete ? ensureSyntaxTree(state, state.doc.length, 200) : null) ?? syntaxTree(state);
+  const cached = headingCache.get(state.doc);
+  if (cached?.tree === tree) return cached.headings;
   const out: HeadingHit[] = [];
-  syntaxTree(state).iterate({
+  tree.iterate({
     enter: (node) => {
       const m = HEADING_NODE.exec(node.name);
       if (!m) return;
@@ -58,18 +66,18 @@ export function scanHeadings(state: EditorState): HeadingHit[] {
       });
     },
   });
+  headingCache.set(state.doc, { tree, headings: out });
   return out;
 }
 
 /**
  * 取第 nth 个（0 起）level 级标题；越界返回 null。
- * 每次调用实时扫描：增量解析下扫描一遍是亚毫秒级，不缓存就免掉
- * 「编辑期间标题增删导致索引失效」的一致性维护。
+ * 索引由不可变文档与当前语法树共同缓存；标题增删或后台解析推进后重新扫描。
  */
 export function nthHeading(state: EditorState, level: number, nth: number): HeadingHit | null {
   let seen = -1;
   const found: HeadingHit[] = [];
-  for (const h of scanHeadings(state)) {
+  for (const h of scanHeadings(state, true)) {
     if (h.level !== level) continue;
     seen += 1;
     if (seen === nth) {

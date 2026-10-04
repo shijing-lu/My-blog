@@ -197,10 +197,10 @@ function formatShort(date?: Date): string {
       aria-label="站点统计"
     >
       <span>
-        <span class="stat-count text-primary" data-num={total}>0</span> ARTICLES
+        <span class="stat-count text-primary" data-num={total}>{total.toLocaleString()}</span> ARTICLES
       </span>
       <span>
-        <span class="stat-count text-primary" data-num={uniqueTags}>0</span> TAGS
+        <span class="stat-count text-primary" data-num={uniqueTags}>{uniqueTags.toLocaleString()}</span> TAGS
       </span>
       <span>
         UPDATED <span class="text-primary">{formatShort(lastUpdated)}</span>
@@ -366,8 +366,9 @@ function formatShort(date?: Date): string {
 </BaseLayout>
 
 <script>
-  /** 首页动效：Hero 进场序列 + 像素统计条数字滚动（GSAP，reduced-motion 时跳过） */
+  /** 首页动效：Hero 轻量入场序列 + 统计终值（原生动效，reduced-motion 时跳过） */
   import { heroIn, counterInView } from '@/lib/anim';
+  import { feedback, reducedMotion } from '@/lib/motion';
 
   const homeW = window as unknown as { __homeAnimsBound?: boolean };
   async function runHomeAnims(): Promise<void> {
@@ -387,7 +388,7 @@ function formatShort(date?: Date): string {
     const cue = (e.target as HTMLElement).closest<HTMLAnchorElement>('.scroll-cue');
     if (!cue) return;
     e.preventDefault();
-    document.getElementById('latest')?.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('latest')?.scrollIntoView({ behavior: reducedMotion() ? 'instant' : 'smooth' });
   });
 
   /** ================= 首页标签筛选（点击文章下方标签即时过滤） =================
@@ -397,6 +398,7 @@ function formatShort(date?: Date): string {
   let activeTag = '';
 
   function applyTagFilter(tag: string): void {
+    if (tag !== activeTag) void feedback(document.getElementById('post-grid'));
     activeTag = tag;
     const bar = document.getElementById('tag-filter-bar');
     const nameEl = document.getElementById('tag-filter-name');

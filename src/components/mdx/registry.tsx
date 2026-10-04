@@ -22,6 +22,7 @@ import Callout from './Callout';
 import Collapse, { CollapsePanel } from './Collapse';
 import Tabs, { Tab } from './Tabs';
 import Grid from './Grid';
+import { Columns, Column } from './Columns';
 import Spoiler from './Spoiler';
 import Pre from './Pre';
 import InlineCode from './InlineCode';
@@ -40,6 +41,8 @@ export const mdxComponents: MDXComponentMap = {
   Tabs,
   Tab,
   Grid,
+  Columns,
+  Column,
   Spoiler,
   pre: Pre,
   code: InlineCode,

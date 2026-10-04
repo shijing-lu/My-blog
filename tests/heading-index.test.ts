@@ -95,6 +95,13 @@ describe('nthHeading', () => {
     expect(hit).not.toBeNull();
     expect(st.doc.lineAt(hit!.pos).number).toBe(13);
   });
+
+  it('长文初始语法树未解析到末尾时仍能定位后面的标题', () => {
+    const section = '这是一段较长的正文，用来模拟包含大量公式与表格的文章。'.repeat(190);
+    const large = stateOf(Array.from({ length: 12 }, (_, i) => `## 第 ${i + 1} 节\n\n${section}\n`).join('\n'));
+    expect(nthHeading(large, 2, 8)?.text).toBe('第 9 节');
+    expect(scanHeadings(large, true).filter((h) => h.level === 2)).toHaveLength(12);
+  });
 });
 
 describe('normHeadingText', () => {
@@ -181,5 +188,17 @@ describe('真实文章 fixture：服务端 toc 与源码序列对齐', () => {
     const all = scanHeadings(st);
     expect(all.filter((h) => h.level >= 2 && h.level <= 4)).toHaveLength(toc.length);
     expect(all.filter((h) => h.level === 1)).toHaveLength(1);
+  });
+});
+
+
+describe('标题索引缓存', () => {
+  it('只移动光标时复用索引，编辑标题后立即更新', () => {
+    const state = stateOf('## 第一节\n正文\n## 第二节\n');
+    const first = scanHeadings(state);
+    expect(scanHeadings(state.update({ selection: { anchor: 8 } }).state)).toBe(first);
+    const edited = state.update({ changes: { from: 3, to: 6, insert: '新标题' } }).state;
+    expect(scanHeadings(edited)).not.toBe(first);
+    expect(scanHeadings(edited)[0]?.text).toBe('新标题');
   });
 });

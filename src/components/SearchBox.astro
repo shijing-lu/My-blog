@@ -57,6 +57,7 @@ const { total, categories = [] } = Astro.props;
 </p>
 
 <script>
+  import { feedback } from '@/lib/motion';
   /** 全站服务端搜索：输入防抖 200ms → GET /api/search → 渲染结果卡片
    *  - 关键词为空且分类为「全部」时回到服务端分页列表；
    *  - 分类筛选 = 自定义分类（写作台维护，服务端注入 data-cat-filter），替代旧内置类型按钮；
@@ -153,7 +154,7 @@ const { total, categories = [] } = Astro.props;
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('bad status'))))
       .then((data: { articles: Array<Parameters<typeof rowHtml>[0]>; total: number }) => {
         const results = el('search-results');
-        if (results) results.innerHTML = data.articles.map(rowHtml).join('');
+        if (results) { results.innerHTML = data.articles.map(rowHtml).join(''); void feedback(results); }
         if (count) count.textContent = `${data.total} 篇`;
         el('search-empty')?.classList.toggle('hidden', data.total > 0);
       })

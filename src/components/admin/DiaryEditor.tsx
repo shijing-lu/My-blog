@@ -50,6 +50,8 @@ export default function DiaryEditor({ initialContent, date }: DiaryEditorProps):
           contentRef.current = c;
         }}
         onSave={() => void save()}
+        wysiwyg
+        documentContextMenu
         className="h-[420px]"
       />
       <div className="flex items-center gap-3 px-3 py-2">

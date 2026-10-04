@@ -15,6 +15,7 @@ import { Heart, MessageSquare, ChevronDown, ChevronUp, Send, Trash2 } from 'luci
 import { confirmDanger } from '../../lib/confirm';
 import { getLikeFingerprint } from '../../lib/like-fingerprint';
 import LikeButton from './LikeButton';
+import { useMotionFeedback } from '@/components/ui/use-motion-feedback';
 
 /** 评论项（服务端返回形态） */
 interface CommentItem {
@@ -244,6 +245,7 @@ function CommentRow({
 /** 评论区主组件 */
 export default function Comments({ targetType, targetId, initialCount = 0 }: CommentsProps): React.ReactElement {
   const [items, setItems] = useState<CommentItem[]>([]);
+  const listMotionRef = useMotionFeedback<HTMLDivElement>(items);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(1);
@@ -542,7 +544,7 @@ export default function Comments({ targetType, targetId, initialCount = 0 }: Com
           )}
 
           {/* 评论列表 */}
-          <div className="mt-2">
+          <div ref={listMotionRef} className="mt-2">
             {loading && items.length === 0 ? (
               <p className="py-4 text-center text-xs text-muted-foreground">加载评论…</p>
             ) : items.length === 0 ? (

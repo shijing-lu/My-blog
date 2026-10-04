@@ -1,6 +1,10 @@
 /** 左侧文章目录的共用菜单；只处理呈现与输入，数据操作由页面适配器执行。 */
 export type TreeTarget = { id: string | null; kind: 'root' | 'folder' | 'article'; title: string };
 export type TreeCommand = 'create-article' | 'create-folder' | 'edit' | 'delete';
+interface MenuOptions {
+  label?: string;
+  resolveTarget?: (element: Element) => TreeTarget | null;
+}
 
 const COMMANDS: Record<TreeTarget['kind'], Array<{ id: TreeCommand; label: string }>> = {
   root: [{ id: 'create-article', label: '新建文章' }, { id: 'create-folder', label: '新建目录' }],
@@ -16,12 +20,13 @@ const COMMANDS: Record<TreeTarget['kind'], Array<{ id: TreeCommand; label: strin
 export function installTreeContextMenu(
   root: HTMLElement,
   onCommand: (command: TreeCommand, target: TreeTarget) => void | Promise<void>,
+  options: MenuOptions = {},
 ): () => void {
   const controller = new AbortController();
   const signal = controller.signal;
   const menu = document.createElement('div');
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', '目录操作');
+  menu.setAttribute('aria-label', options.label ?? '目录操作');
   menu.className = 'fixed z-[90] hidden min-w-40 max-h-[min(70vh,24rem)] overflow-y-auto rounded-lg border border-border bg-card p-1 text-sm text-foreground shadow-xl';
   document.body.append(menu);
   let current: TreeTarget | null = null;
@@ -41,6 +46,10 @@ export function installTreeContextMenu(
   const targetAt = (node: EventTarget | null): { value: TreeTarget; focus: HTMLElement } | null => {
     const element = node instanceof Element ? node : null;
     if (!element || !root.contains(element)) return null;
+    if (options.resolveTarget) {
+      const value = options.resolveTarget(element);
+      return value ? { value, focus: root } : null;
+    }
     const row = element.closest<HTMLElement>('[data-tree-node-id]');
     if (row && root.contains(row)) {
       return {
@@ -79,6 +88,7 @@ export function installTreeContextMenu(
   };
 
   root.addEventListener('contextmenu', (event) => {
+    if (event.defaultPrevented) return;
     const source = targetAt(event.target);
     if (!source) return;
     event.preventDefault();
@@ -164,4 +174,19 @@ export function installTreeContextMenu(
   };
   document.addEventListener('astro:before-swap', cleanup, { once: true, signal });
   return cleanup;
+}
+
+/** 阅读正文和编辑器外侧空白共用当前文章菜单；正文内部仍使用 Markdown 菜单。 */
+export function installArticleContextMenu(
+  root: HTMLElement,
+  readTarget: () => TreeTarget | null,
+  onCommand: (command: TreeCommand, target: TreeTarget) => void | Promise<void>,
+): () => void {
+  return installTreeContextMenu(root, onCommand, {
+    label: '文章操作',
+    resolveTarget: (element) => {
+      if (element.closest('.cm-content, .md-table-widget, .cm-visual-directive, .cm-columns-widget, input, textarea, select, [role="menu"]')) return null;
+      return readTarget();
+    },
+  });
 }

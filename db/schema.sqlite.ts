@@ -10,6 +10,16 @@ import { sqliteTable, text, integer, check, customType, unique, index, primaryKe
 import { sql } from 'drizzle-orm';
 import { isPostgres } from './dialect';
 
+/** Cadence 使用实体信封保留原始 schema，payload=null 是永久删除墓碑。 */
+export const cadenceRecords = sqliteTable('cadence_records', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  recordId: text('record_id').notNull(),
+  payload: text('payload'),
+  revision: text('revision').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 /**
  * 双方言时间戳列：读写映射 Date，存储按方言区分
  * - SQLite：毫秒整数（integer）
@@ -232,6 +242,16 @@ export const calendarEvents = sqliteTable('calendar_events', {
     .notNull()
     .$defaultFn(() => new Date()),
   /** 更新时间（同步引擎 LWW 依据；$onUpdate 自动维护，无需业务代码 set） */
+  updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
+});
+
+/** 随心录（站主私密记录） */
+export const quickNotes = sqliteTable('quick_notes', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull().default(''),
+  content: text('content').notNull().default(''),
+  tags: text('tags').notNull().default('[]'),
+  createdAt: timestampMs('created_at').notNull().$defaultFn(() => new Date()),
   updatedAt: timestampMs('updated_at').notNull().$defaultFn(() => new Date()).$onUpdate(() => new Date()),
 });
 

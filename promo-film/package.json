@@ -1,0 +1,35 @@
+{
+  "name": "promo-film",
+  "version": "1.0.0",
+  "description": "白衣卿相个人博客宣传片：把思考，变成自己的世界。",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.532",
+    "@remotion/fonts": "4.0.532",
+    "@remotion/media": "4.0.532",
+    "@remotion/renderer": "4.0.532",
+    "@remotion/transitions": "4.0.532",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.532"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.532",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.39.5",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio src/index.ts --no-open --port 3334",
+    "build": "remotion bundle",
+    "render": "remotion render src/index.ts Baiyi-Promo ../outputs/promo-20261002/baiyi-personal-world-1080p.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --audio-codec=aac --concurrency=2",
+    "poster": "remotion still src/index.ts Baiyi-Poster ../outputs/promo-20261002/poster.png",
+    "check": "tsc --noEmit",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc"
+  }
+}

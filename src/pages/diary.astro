@@ -1,0 +1,8 @@
+---
+import { isTopAdmin } from '@/lib/admin-auth';
+
+export const prerender = false;
+if (!(await isTopAdmin(Astro.cookies))) return Astro.redirect('/login?next=%2Fcalendar');
+Astro.response.headers.set('cache-control', 'private, no-store');
+return Astro.redirect('/calendar');
+---

@@ -24,9 +24,11 @@ import { fileURLToPath } from 'node:url';
  * - resolve.alias['@'] —— 指向 src，供 tsconfig 的 paths 同步使用。
  * - image.service —— 本地图片服务，避免依赖远程图片优化（个人博客无需）。
  */
-const isDesktop = process.env.DESKTOP === '1';
+const isAndroid = process.env.ANDROID_BUILD === '1';
+const isDesktop = process.env.DESKTOP === '1' || isAndroid;
 export default defineConfig({
   output: 'server',
+  ...(isAndroid ? { outDir: './.android-tools/dist/' } : {}),
   adapter: isDesktop ? node({ mode: 'standalone' }) : vercel(),
   integrations: [react()],
   // 预取收敛：仅显式标记的链接可预取（默认 false），悬停策略保留；

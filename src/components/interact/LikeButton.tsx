@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Heart } from 'lucide-react';
 import { getLikeFingerprint } from '../../lib/like-fingerprint';
+import { feedback } from '@/lib/motion';
+import { toastError } from '@/lib/toast';
 
 interface LikeButtonProps {
   /** 目标类型：article | moment */
@@ -40,6 +42,7 @@ export default function LikeButton({ targetType, targetId, initialCount = 0, siz
   const [split, setSplit] = useState<{ anonymous?: number; github?: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
+  const heartRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -83,12 +86,14 @@ export default function LikeButton({ targetType, targetId, initialCount = 0, siz
       if (mounted.current) {
         setLiked(data.liked);
         setTotal(data.count);
+        if (data.liked) void feedback(heartRef.current, 'success');
       }
     } catch {
       // 失败回滚
       if (mounted.current) {
         setLiked(prevLiked);
         setTotal(prevTotal);
+        toastError('点赞失败，请重试');
       }
     } finally {
       setBusy(false);
@@ -100,17 +105,20 @@ export default function LikeButton({ targetType, targetId, initialCount = 0, siz
   return (
     <button
       type="button"
+      disabled={busy}
+      aria-busy={busy}
       onClick={() => void toggle()}
       aria-pressed={liked}
       aria-label={liked ? '取消点赞' : '点赞'}
-      className={`group inline-flex items-center rounded-full border transition-all duration-150 active:scale-95 ${
+      className={`group inline-flex items-center rounded-full border transition-colors ${
         liked
           ? 'border-primary/60 bg-primary/10 text-primary shadow-[0_0_12px_-2px] shadow-primary/40'
           : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-primary hover:shadow-[0_0_10px_-3px] hover:shadow-primary/30'
       } ${sizeCls}`}
     >
       <Heart
-        className={`size-4 transition-transform duration-150 group-hover:scale-110 ${liked ? 'fill-current' : ''}`}
+        ref={heartRef}
+        className={`size-4 ${liked ? 'fill-current' : ''}`}
         aria-hidden="true"
       />
       <span className="tabular-nums">{formatCount(total)}</span>

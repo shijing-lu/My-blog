@@ -26,6 +26,8 @@
 import type { APIRoute } from 'astro';
 import { badJson, forbidden, json, readJson } from '@/lib/api';
 import { isManagerSession, isTopAdmin } from '@/lib/admin-auth';
+import { MAX_CHAT_MESSAGES, MAX_CHAT_MESSAGE_CHARS, sanitizeChatMessages } from '@/lib/ai-chat-context';
+import { readOpenAiDeltas } from '@/lib/ai-stream';
 import { ensureAiTables, readOwnerBond, type OwnerBondSnapshot } from '@/lib/ai-store';
 import { bumpBondOnMessage, levelBehaviorText } from '@/lib/ai-bond';
 import {
@@ -47,10 +49,6 @@ import {
 
 export const prerender = false;
 
-/** 消息条数上限 */
-const MAX_MESSAGES = 20;
-/** 单条内容字符上限 */
-const MAX_CONTENT_CHARS = 4000;
 /** 单 IP 每日请求上限（内存计数） */
 const GUEST_IP_DAILY_LIMIT = 50;
 
@@ -74,31 +72,20 @@ function checkIpLimit(ip: string): boolean {
   return rec.count <= GUEST_IP_DAILY_LIMIT;
 }
 
-interface IncomingMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-/** 消息结构校验与截断（非法返回 null） */
-function sanitizeMessages(raw: unknown): IncomingMessage[] | null {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_MESSAGES) return null;
-  const out: IncomingMessage[] = [];
-  for (const m of raw) {
-    if (typeof m !== 'object' || m === null) return null;
-    const o = m as Record<string, unknown>;
-    if (o.role !== 'user' && o.role !== 'assistant') return null;
-    if (typeof o.content !== 'string' || o.content.trim() === '') return null;
-    out.push({ role: o.role, content: o.content.slice(0, MAX_CONTENT_CHARS) });
-  }
-  return out;
-}
-
 export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   // 1. 身份与开关（主人=顶级管理员：站主会话或 role=top 的 GitHub 管理员；判定在服务端，不受前端传参影响）
   const [isManager, isOwner] = await Promise.all([isManagerSession(cookies), isTopAdmin(cookies)]);
   const cfg = await getAiConfig();
   if (!isAiReady(cfg)) return forbidden('AI 功能未启用或配置不完整');
   if (!isManager && !cfg.allowGuests) return forbidden('AI 功能仅对管理员开放');
+
+  // 3. 请求校验
+  const body = await readJson<{ messages?: unknown; conversationId?: unknown }>(request);
+  if (!body) return badJson();
+  const messages = sanitizeChatMessages(body.messages);
+  if (!messages) {
+    return json({ error: `消息不合法（1-${MAX_CHAT_MESSAGES} 条，每条需有内容且不超过 ${MAX_CHAT_MESSAGE_CHARS} 字）` }, 400);
+  }
 
   // 2. 游客双层限流（IP 内存计数 + 全局 DB 计数）
   if (!isManager) {
@@ -108,18 +95,10 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
     if (!usage.allowed) return json({ error: `今日使用已达上限（${usage.limit} 次）` }, 429);
   }
 
-  // 3. 请求校验
-  const body = await readJson<{ messages?: unknown; conversationId?: unknown }>(request);
-  if (!body) return badJson();
-  const messages = sanitizeMessages(body.messages);
-  if (!messages) {
-    return json({ error: `消息不合法（1-${MAX_MESSAGES} 条，每条需有内容且不超过 ${MAX_CONTENT_CHARS} 字）` }, 400);
-  }
-
   // 4. 转发上游（stream:true）。
   // ⚠️ 不能把 request.signal 直接传给上游 fetch：Astro 环境里该 signal 传入 undici
   // fetch 会立即 AbortError（dev 实证，signal.aborted 仍为 false 也抛）。客户端断开的
-  // 联动取消改由下方 ReadableStream.cancel() → upstreamController.abort() 完成。
+  // 通过事件桥接到独立 AbortController，同时在 ReadableStream.cancel() 中停止上游。
   const basePrompt = cfg.systemPrompt.trim() || DEFAULT_SYSTEM_PROMPT;
   // 差异化态度（身份由服务端判定，无法伪造）：主人亲昵高配合 / 访客礼貌克制
   const identityPrompt = isOwner
@@ -133,7 +112,7 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
       : '';
   const conversationId = isOwner ? incomingConversationId || newConversationId() : '';
   // 惰性建表：首次 AI 对话自动补齐 4 张表（失败 → 记忆降级为不可用，聊天不受影响）
-  const tablesReady = await ensureAiTables();
+  const tablesReady = isOwner && await ensureAiTables();
   let memoryBlock = '';
   let turnCount = 0;
   if (isOwner && conversationId && tablesReady) {
@@ -160,6 +139,13 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   const systemPrompt = basePrompt + identityPrompt + behaviorPrompt + memoryBlock;
 
   const upstreamController = new AbortController();
+  const abortUpstream = (): void => upstreamController.abort();
+  request.signal.addEventListener('abort', abortUpstream, { once: true });
+  const cleanup = (): void => request.signal.removeEventListener('abort', abortUpstream);
+  if (request.signal.aborted) {
+    cleanup();
+    return json({ error: '请求已取消' }, 499);
+  }
   let upstream: Response;
   try {
     upstream = await fetch(buildChatUrl(cfg.baseUrl), {
@@ -176,12 +162,16 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
       signal: AbortSignal.any([upstreamController.signal, AbortSignal.timeout(60_000)]),
     });
   } catch (err) {
+    cleanup();
+    if (upstreamController.signal.aborted) return json({ error: '请求已取消' }, 499);
     console.error('[api/ai/chat] upstream fetch failed:', err);
     return json({ error: 'AI 服务连接失败，请检查 API 地址' }, 502);
   }
 
   if (!upstream.ok || !upstream.body) {
     const text = (await upstream.text().catch(() => '')).slice(0, 300);
+    cleanup();
+    upstreamController.abort();
     console.error(`[api/ai/chat] upstream HTTP ${upstream.status}:`, text);
     const hint =
       upstream.status === 401
@@ -202,40 +192,19 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
     async start(controller) {
       // 首帧即下发 meta：前端在首字节到达时就能渲染昵称/等级/访客标识
       controller.enqueue(sse(JSON.stringify({ meta })));
-      const reader = upstream.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
       /** 累积本次助手回答（流结束后落库；客户端中途断开时也保留已生成部分） */
       let assistantText = '';
       let persisted = false;
       const persistAssistant = async (): Promise<void> => {
-        if (persisted || !isOwner || !conversationId || !assistantText.trim()) return;
+        if (persisted || !isOwner || !tablesReady || !conversationId || !assistantText.trim()) return;
         persisted = true;
         await appendMessage({ conversationId, role: 'assistant', content: assistantText });
       };
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? ''; // 末行可能是半行，留到下一块
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith('data:')) continue;
-            const payload = trimmed.slice(5).trim();
-            if (payload === '[DONE]') continue;
-            try {
-              const delta = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] })
-                .choices?.[0]?.delta?.content ?? '';
-              if (delta) {
-                assistantText += delta;
-                controller.enqueue(sse(JSON.stringify({ delta })));
-              }
-            } catch {
-              /* 单帧解析失败跳过（正常已被 buffer 半行逻辑避免） */
-            }
-          }
+        for await (const delta of readOpenAiDeltas(upstream.body!)) {
+          // 落库只保留已声明的 8000 字上限，仍完整转发回答。
+          if (assistantText.length < 8000) assistantText += delta.slice(0, 8000 - assistantText.length);
+          controller.enqueue(sse(JSON.stringify({ delta })));
         }
         await persistAssistant();
         controller.enqueue(
@@ -264,7 +233,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
         } catch {
           /* 已关闭 */
         }
-        reader.releaseLock();
+        cleanup();
+        upstreamController.abort();
       }
     },
     cancel() {

@@ -1,0 +1,9 @@
+{
+  "duration": 56,
+  "sample_rate": 48000,
+  "channels": 2,
+  "peak_dbfs": -1.21,
+  "rms_dbfs": -20.91,
+  "bpm": 120,
+  "source": "Original deterministic synthesis; no third-party music samples."
+}

@@ -14,7 +14,7 @@ import {
   listPhotosAlive,
 } from '@/lib/photos';
 import { badJson, badRequest, json, jsonCached, readJson } from '@/lib/api';
-import { photoStorageEnabled, uploadPhotoObject } from '@/lib/photo-storage';
+import { photoStorageReady, uploadPhotoObject } from '@/lib/photo-storage';
 import { ALLOWED_MIME } from '@/lib/images';
 
 export const prerender = false;
@@ -120,9 +120,9 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  // ---- 自动上传模式（R2） ----
-  if (!photoStorageEnabled) {
-    return json({ error: '未配置 Cloudflare R2，自动上传不可用，请使用 URL 导入' }, 503);
+  // ---- 自动上传模式（GitHub 图床优先 / R2 回落，与 /api/images 同口径） ----
+  if (!(await photoStorageReady())) {
+    return json({ error: '未配置 GitHub 图床或 Cloudflare R2，自动上传不可用，请使用 URL 导入' }, 503);
   }
 
   const mime = typeof body.mime === 'string' ? body.mime : '';

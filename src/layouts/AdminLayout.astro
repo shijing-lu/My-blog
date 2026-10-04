@@ -12,14 +12,13 @@ import '../styles/global.css';
 import ThemeHead from '@/components/ThemeHead.astro';
 import SiteTextStyles from '@/components/SiteTextStyles.astro';
 import { isManagerSession } from '@/lib/admin-auth';
-import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
+import { buildFontCss, getFontsByIds, getSiteFontState } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 
 /* ===== Logic ===== */
 const isAuthed = await isManagerSession(Astro.cookies);
 /** 手动字体设置（优先于主题；未设置则跟随主题）——与 BaseLayout 保持一致 */
-const hasManualFonts = await hasManualFontSettings();
-const fontSettings = await getSiteFonts();
+const { fonts: fontSettings, hasManualFonts } = await getSiteFontState();
 const customFontIds = [fontSettings.article, fontSettings.ui]
   .filter((f) => f.type === 'custom')
   .map((f) => f.value);
@@ -104,6 +103,8 @@ const siteTitle = await getSiteName();
 </html>
 
 <script>
+  import { initMotion } from '@/lib/motion';
+  initMotion();
   import { on } from '@/lib/dom';
   /** 退出登录：POST /api/logout 后回首页（委托绑定，防 SPA 后失效） */
   on('admin-logout', 'click', async () => {

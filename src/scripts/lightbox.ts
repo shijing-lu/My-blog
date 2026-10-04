@@ -16,6 +16,10 @@
  * 记录 touchstart/touchend 的横向位移，超过阈值即切换上一张/下一张。
  */
 
+import { feedback, reducedMotion, cancelMotion } from '@/lib/motion';
+
+let dismissCurrent: (() => void) | undefined;
+
 interface LightboxItem {
   src: string;
   caption: string;
@@ -42,9 +46,12 @@ function collectItems(grid: HTMLElement | null): LightboxItem[] {
 }
 
 function openLightbox(items: LightboxItem[], index: number, trigger: HTMLElement): void {
+  if (!items.length) return;
+  dismissCurrent?.();
   const single = items.length <= 1;
-  const overlay = document.createElement('div');
+  const overlay = document.createElement('dialog');
   overlay.className = 'lightbox-overlay';
+  overlay.setAttribute('aria-label', '图片预览');
   overlay.tabIndex = -1;
   overlay.innerHTML = `
     <button class="lightbox-close" type="button" aria-label="关闭">&times;</button>
@@ -62,6 +69,9 @@ function openLightbox(items: LightboxItem[], index: number, trigger: HTMLElement
   const caption = overlay.querySelector<HTMLElement>('.lightbox-view figcaption');
   const counter = overlay.querySelector<HTMLElement>('.lightbox-count');
   let current = index;
+  let closed = false;
+  const previousOverflow = document.body.style.overflow;
+  const ownerBody = document.body;
 
   const render = (): void => {
     if (!img || !caption) return;
@@ -73,31 +83,45 @@ function openLightbox(items: LightboxItem[], index: number, trigger: HTMLElement
     if (counter) counter.textContent = `${current + 1} / ${items.length}`;
   };
 
-  const close = (): void => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-    document.body.style.overflow = '';
+  const close = (restoreFocus = true, animate = true): void => {
+    if (closed) return;
+    closed = true;
+    if (img) cancelMotion(img);
+    overlay.close();
+    ownerBody.style.overflow = previousOverflow;
+    document.removeEventListener('astro:before-swap', onNavigate);
+    if (dismissCurrent === dismiss) dismissCurrent = undefined;
+    // close() 已同步释放原生焦点锁；支持 display 离散过渡的浏览器显示短暂退出。
+    if (animate && !reducedMotion()) window.setTimeout(() => overlay.remove(), 200);
+    else overlay.remove();
     // 焦点回归到触发图片，键盘用户不丢失位置
-    trigger.focus?.({ preventScroll: true });
+    if (restoreFocus && trigger.isConnected) trigger.focus?.({ preventScroll: true });
   };
+  const dismiss = (): void => close(false, false);
+  const onNavigate = (): void => close(false, false);
+  dismissCurrent = dismiss;
+  document.addEventListener('astro:before-swap', onNavigate);
   const go = (delta: number): void => {
     if (items.length <= 1) return;
     current = (current + delta + items.length) % items.length;
     render();
   };
   const onKey = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') close();
-    if (e.key === 'ArrowLeft') go(-1);
-    if (e.key === 'ArrowRight') go(1);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      go(e.key === 'ArrowLeft' ? -1 : 1);
+    }
   };
 
-  overlay.querySelector('.lightbox-close')?.addEventListener('click', close);
+  overlay.querySelector('.lightbox-close')?.addEventListener('click', () => close());
   overlay.querySelector('.lightbox-prev')?.addEventListener('click', () => go(-1));
   overlay.querySelector('.lightbox-next')?.addEventListener('click', () => go(1));
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close();
   });
-  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('keydown', onKey);
+  overlay.addEventListener('cancel', (event) => { event.preventDefault(); close(); });
+  img?.addEventListener('load', () => { if (!closed) void feedback(img, 'change'); });
 
   // 触屏左右滑动切换
   let touchStartX: number | null = null;
@@ -122,6 +146,7 @@ function openLightbox(items: LightboxItem[], index: number, trigger: HTMLElement
   );
 
   render();
+  overlay.showModal();
   (overlay.querySelector('.lightbox-close') as HTMLButtonElement | null)?.focus();
   document.body.style.overflow = 'hidden';
 }
@@ -134,4 +159,11 @@ document.addEventListener('click', (e) => {
   const items = collectItems(gridOf(fig));
   const index = items.findIndex((it) => it.el === fig);
   openLightbox(items, index < 0 ? 0 : index, fig);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  if (!(event.target instanceof HTMLElement) || !event.target.matches('[data-lightbox]')) return;
+  event.preventDefault();
+  event.target.click();
 });

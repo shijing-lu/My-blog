@@ -6,7 +6,8 @@
  * - 聚合视图 listDocTree() 供公共页渲染（不含文章 content，减载荷）；
  * - 搜索对 分类名/文档名/简介/文章标题/正文 做大小写不敏感 LIKE 匹配。
  */
-import { asc, eq, ilike, inArray, or } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, like, or, sql, type AnyColumn } from 'drizzle-orm';
+import { isPostgres } from '../../db/dialect';
 import { randomUUID } from 'node:crypto';
 import { docArticles, docBundles, docCategories, docNodes } from '../../db/schema.sqlite';
 import { db, dbWrite } from '../../db';
@@ -17,7 +18,6 @@ import type {
   DocCategory,
   DocCategoryView,
   DocNode,
-  DocNodeView,
   DocSearchResult,
 } from '../../db/types';
 
@@ -27,7 +27,10 @@ import type {
 export async function listDocTree(): Promise<DocCategoryView[]> {
   const cats = (await db.select().from(docCategories).orderBy(asc(docCategories.sort), asc(docCategories.createdAt))) as DocCategory[];
   const bundles = (await db.select().from(docBundles).orderBy(asc(docBundles.sort), asc(docBundles.createdAt))) as DocBundle[];
-  const articles = (await db.select().from(docArticles).orderBy(asc(docArticles.sort), asc(docArticles.createdAt))) as DocArticle[];
+  const articles = await db
+    .select({ id: docArticles.id, bundleId: docArticles.bundleId, title: docArticles.title, sort: docArticles.sort })
+    .from(docArticles)
+    .orderBy(asc(docArticles.sort), asc(docArticles.createdAt));
   // 节点统计（嵌套目录下的文章/目录数）
   const nodeRows = await db
     .select({ bundleId: docNodes.bundleId, kind: docNodes.kind })
@@ -47,10 +50,16 @@ export async function listDocTree(): Promise<DocCategoryView[]> {
     byBundle.set(a.bundleId, list);
   });
 
+  const bundlesByCategory = new Map<string, DocBundle[]>();
+  for (const bundle of bundles) {
+    const list = bundlesByCategory.get(bundle.categoryId) ?? [];
+    list.push(bundle);
+    bundlesByCategory.set(bundle.categoryId, list);
+  }
+
   return cats.map((c) => ({
     ...c,
-    bundles: bundles
-      .filter((b) => b.categoryId === c.id)
+    bundles: (bundlesByCategory.get(c.id) ?? [])
       .map((b) => {
         const stats = nodeStats.get(b.id) ?? { articleCount: 0, folderCount: 0 };
         return {
@@ -251,7 +260,13 @@ export async function deleteDocArticle(id: string): Promise<DocArticle | null> {
  * @param limit 每类最多返回条数
  */
 export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult> {
-  const query = `%${q}%`;
+  const term = q.trim();
+  if (!term) return { bundles: [], articles: [] };
+  const resultLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 20;
+  // 搜索框输入按字面匹配，避免 % / _ 被当作通配符扩大结果集。
+  const query = `%${term.replace(/[!%_]/g, (char) => '!' + char)}%`;
+  const contains = (column: AnyColumn) =>
+    sql`${isPostgres ? ilike(column, query) : like(column, query)} escape '!'`;
 
   // 命中文档（name/summary 匹配）→ 附带分类名
   const bundleRows = await db
@@ -265,8 +280,8 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     })
     .from(docBundles)
     .leftJoin(docCategories, eq(docBundles.categoryId, docCategories.id))
-    .where(or(ilike(docBundles.name, query), ilike(docBundles.summary, query)))
-    .limit(limit);
+    .where(or(contains(docBundles.name), contains(docBundles.summary), contains(docCategories.name)))
+    .limit(resultLimit);
   const bundles = bundleRows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -285,8 +300,8 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     })
     .from(docNodes)
     .leftJoin(docBundles, eq(docNodes.bundleId, docBundles.id))
-    .where(or(ilike(docNodes.title, query), ilike(docNodes.content, query)))
-    .limit(limit);
+    .where(and(eq(docNodes.kind, 'article'), or(contains(docNodes.title), contains(docNodes.content))))
+    .limit(resultLimit);
   const legacyArticleRows = await db
     .select({
       id: docArticles.id,
@@ -296,11 +311,12 @@ export async function searchDocs(q: string, limit = 20): Promise<DocSearchResult
     })
     .from(docArticles)
     .leftJoin(docBundles, eq(docArticles.bundleId, docBundles.id))
-    .where(or(ilike(docArticles.title, query), ilike(docArticles.content, query)))
-    .limit(limit);
+    .where(or(contains(docArticles.title), contains(docArticles.content)))
+    .limit(resultLimit);
   const seen = new Set<string>();
   const articles = [...nodeRows2, ...legacyArticleRows]
     .filter((r) => !seen.has(r.id) && (seen.add(r.id), true))
+    .slice(0, resultLimit)
     .map((r) => ({ id: r.id, title: r.title, bundleId: r.bundleId, bundleName: r.bundleName ?? '' }));
 
   return { bundles, articles };

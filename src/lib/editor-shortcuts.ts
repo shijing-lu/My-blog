@@ -8,8 +8,9 @@ import { eq } from 'drizzle-orm';
 import { settings } from '../../db/schema.sqlite';
 import { db, dbWrite } from '../../db';
 import {
-  DEFAULT_BINDINGS,
+  SHORTCUT_IDS,
   normalizeBinding,
+  resolveBindings,
   type ShortcutDef,
 } from './editor-shortcut-defs';
 
@@ -36,7 +37,7 @@ export async function getCustomBindings(): Promise<Record<string, string>> {
     const out: Record<string, string> = {};
     for (const [id, b] of Object.entries(parsed.custom as Record<string, unknown>)) {
       const norm = normalizeBinding(b);
-      if (norm && DEFAULT_BINDINGS[id]) out[id] = norm;
+      if (norm && SHORTCUT_IDS.has(id)) out[id] = norm;
     }
     return out;
   } catch {
@@ -49,11 +50,12 @@ export async function saveCustomBindings(input: unknown): Promise<Record<string,
   const custom: Record<string, string> = {};
   if (input && typeof input === 'object' && !Array.isArray(input)) {
     for (const [id, b] of Object.entries(input as Record<string, unknown>)) {
-      if (!DEFAULT_BINDINGS[id]) continue; // 未知 id 忽略
+      if (!SHORTCUT_IDS.has(id)) continue; // 未知 id 忽略
       const norm = normalizeBinding(b);
       if (norm) custom[id] = norm;
     }
   }
+  if (resolveBindings(custom).conflicts.length > 0) throw new Error('快捷键冲突');
   const now = new Date();
   const value = JSON.stringify({ custom });
   await dbWrite((d) =>

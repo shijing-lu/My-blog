@@ -29,6 +29,7 @@ let cancelBtn: HTMLButtonElement | null = null;
 function ensureDialog(): boolean {
   if (dialogEl && dialogEl.isConnected) return true;
   dialogEl = document.createElement('dialog');
+  dialogEl.setAttribute('aria-label', '操作确认');
   dialogEl.className = 'm-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40';
   dialogEl.innerHTML = `
     <h3 data-confirm-title class="text-sm font-medium"></h3>

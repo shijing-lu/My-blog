@@ -16,7 +16,7 @@ export default function LightboxImage({ alt = '', title, ...props }: ComponentPr
   const caption = (typeof title === 'string' && title.trim()) || alt;
 
   return (
-    <figure className="lightbox-figure" data-lightbox data-caption={caption}>
+    <figure className="lightbox-figure" data-lightbox data-caption={caption} tabIndex={0} role="button" aria-label={caption ? `查看大图：${caption}` : '查看大图'}>
       <img alt={alt} title={title} loading="lazy" {...props} />
       {caption ? <figcaption>{caption}</figcaption> : null}
     </figure>

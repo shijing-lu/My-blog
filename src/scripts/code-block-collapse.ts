@@ -11,6 +11,7 @@
  */
 
 /** 折叠态属性（存在即折叠；显式 "true" 便于 CSS 选择器表达） */
+import { feedback, reducedMotion } from '@/lib/motion';
 const COLLAPSED_ATTR = 'data-collapsed';
 
 document.addEventListener('click', (e) => {
@@ -32,9 +33,10 @@ document.addEventListener('click', (e) => {
   btn.querySelector('[data-icon="expand"]')?.classList.toggle('hidden', !next);
   const label = btn.querySelector('[data-toggle-text]');
   if (label) label.textContent = next ? '展开' : '收起';
+  if (!next) void feedback(block.querySelector('pre'));
 
   // 折叠后：块顶已滚出视口时带回视口顶部（内容骤缩会造成位置迷失）
   if (next && block.getBoundingClientRect().top < 0) {
-    block.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    block.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'instant' : 'smooth' });
   }
 });

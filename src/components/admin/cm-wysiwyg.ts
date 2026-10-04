@@ -16,16 +16,18 @@
  * - 装饰区间互斥：靠「行内 occupied 区间表」防止正则匹配互相重叠
  *   （例：`* *em*` 的斜体会撞上列表 marker widget），任何漏网重叠会令
  *   RangeSetBuilder 抛错 → safeBuild 兜底为空集（降级为纯源码显示，绝不白屏）；
- * - 性能决策：docChanged/selection 变化均全量重建（与生产写作台 cm-live-preview
- *   同策略，已在 243KB 级文章上验证流畅）；KaTeX 只在 widget 首次 toDOM 或
- *   内容变化时真正渲染（eq 复用 DOM），全量重建本身只是轻量对象分配。
+ * - 性能决策：按不可变文档缓存装饰基座；光标未跨渲染块时直接复用装饰集，
+ *   不重复扫描、排序或分配全文装饰；KaTeX 只在 widget 内容变化时渲染。
  */
 import { EditorView, Decoration, WidgetType } from '@codemirror/view';
 import type { DecorationSet } from '@codemirror/view';
-import { RangeSetBuilder, StateField } from '@codemirror/state';
+import { StateField } from '@codemirror/state';
+import { createPreviewDecorations } from './cm-preview-cache';
 import type { EditorState, Extension } from '@codemirror/state';
-import { makeClickToPos, selectionInside } from './cm-live-preview';
-import { isTableRow, isTableSeparator, TableWidget } from './cm-table';
+import { makeClickToPos } from './cm-live-preview';
+import { isTableRow, isTableSeparator, parseTable, TableWidget } from './cm-table';
+import { columnBlocks } from './cm-columns-state';
+import { scanVisualDirectives } from '../../lib/markdown-visual-directives';
 // katex 必须静态 import（勿改回 import('katex')）：
 // 1) vite build 会把 katex 并入本模块所属 chunk，随 MarkdownEditor 的动态 import 按需加载，
 //    写作台（非 wysiwyg 模式）不加载本模块 → 零 katex 负担；
@@ -38,7 +40,7 @@ const hide = Decoration.replace({});
 
 /** 行内标记正则（与 cm-live-preview 保持一致语义：粗/斜/码/删/链接/图片） */
 const inlineRe =
-  /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|(\*\*)([^*\n]+)\*\*|(\*)([^*\n]+)\*|(`)([^`\n]+)`|(~~)([^~\n]+)~~|\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|(\*\*)([^*\n]+)\*\*|(\*)([^*\n]+)\*|(`)([^`\n]+)`|(~~)([^~\n]+)~~|\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|<u>([^<\n]+)<\/u>|:spoiler\[([^\]\n]+)\]|:note\[([^\]\n]+)\]/g;
 
 /* ================= Widget ================= */
 
@@ -242,7 +244,40 @@ function scanInlineMath(
 
 /* ================= 装饰构建 ================= */
 
-type DecoItem = { from: number; to: number; deco: Decoration; reveal?: boolean };
+type DecoItem = {
+  from: number;
+  to: number;
+  deco: Decoration;
+  reveal?: boolean;
+  revealFrom?: number;
+  revealTo?: number;
+};
+
+const CALLOUT_LABELS: Record<string, string> = {
+  note: '笔记', info: '信息', tip: '提示', success: '成功', question: '问题',
+  warning: '警告', failure: '失败', danger: '危险', bug: '缺陷',
+  example: '示例', quote: '引用',
+};
+const CALLOUT_ALIASES: Record<string, string> = {
+  abstract: 'info', summary: 'info', tldr: 'info', todo: 'info',
+  hint: 'tip', important: 'tip', check: 'success', done: 'success',
+  help: 'question', faq: 'question', caution: 'warning', attention: 'warning',
+  fail: 'failure', missing: 'failure', error: 'danger', cite: 'quote',
+};
+
+class CalloutHeadWidget extends WidgetType {
+  constructor(readonly type: string, readonly hasTitle: boolean, readonly fold: string) { super(); }
+  eq(other: CalloutHeadWidget): boolean {
+    return this.type === other.type && this.hasTitle === other.hasTitle && this.fold === other.fold;
+  }
+  toDOM(): HTMLElement {
+    const label = document.createElement('span');
+    label.className = 'cm-wy-callout-badge';
+    label.textContent = `${this.fold ? '▸ ' : '✦ '}${this.hasTitle ? '' : (CALLOUT_LABELS[this.type] ?? this.type)}`;
+    label.title = '点击本行编辑提示块类型与标题';
+    return label;
+  }
+}
 
 /** 按 doc 计算装饰基座（与选区无关的部分 + 可回显块登记）
  *  性能关键：此函数只依赖 doc —— 以 doc 为键做记忆化，
@@ -260,6 +295,12 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
 
   /** 被块级结构（代码围栏 / $$ 数学块）占用的行：行内 pass 跳过 */
   const blocked = new Set<number>();
+  for (const block of columnBlocks(doc)) {
+    for (let line = doc.lineAt(block.from).number; line <= doc.lineAt(block.to).number; line += 1) blocked.add(line - 1);
+  }
+  for (const block of scanVisualDirectives(doc.toString())) {
+    for (let line = doc.lineAt(block.from).number; line <= doc.lineAt(block.to).number; line += 1) blocked.add(line - 1);
+  }
   /** 行首装饰（标题/引用 hide、列表 marker widget）占用的区间：行内 pass 防重叠 */
   const rowOccupied = new Map<number, Array<[number, number]>>();
   const occupy = (idx: number, from: number, to: number): void => {
@@ -271,6 +312,7 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
   /* ---- Pass 1: 代码围栏 → 代码块 Widget（光标进入回显源码） ---- */
   let i = 0;
   while (i < lines.length) {
+    if (blocked.has(i)) { i += 1; continue; }
     const line = lines[i]!;
     const fence = line.text.match(/^```([\w+-]*)\s*$/);
     if (fence) {
@@ -287,12 +329,12 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
       }
       if (close >= 0) {
         const from = line.from;
-        const to = lines[close]!.to + 1;
+        const to = Math.min(doc.length, lines[close]!.to + 1);
         items.push({
           from,
           to,
           deco: Decoration.replace({
-            widget: new CodeBlockWidget(fence[1] ?? '', body.join('\n')),
+            widget: new CodeBlockWidget(fence[1] ?? '', body.join('\n'), from),
           }),
           reveal: true,
         });
@@ -320,8 +362,10 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
         body.push(lines[j]!.text);
         j += 1;
       }
+      // 非法列数或不完整表格仍保留源码，避免只显示一个不可编辑的原始文本 widget。
+      if (!parseTable(body)) { i += 1; continue; }
       const from = line.from;
-      const to = lines[j - 1]!.to + 1;
+      const to = Math.min(doc.length, lines[j - 1]!.to + 1);
       // 表格自身承担编辑（contenteditable 单元格），不做"光标进入回显源码"
       items.push({
         from,
@@ -398,24 +442,57 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
   }
 
   /* ---- Pass 3: 标题 / 引用 / 列表 marker（行首结构） ---- */
+  const calloutLineType = new Map<number, string>();
+  for (let first = 0; first < lines.length;) {
+    if (blocked.has(first) || !/^\s*>\s?/.test(lines[first]!.text)) { first += 1; continue; }
+    let last = first + 1;
+    while (last < lines.length && !blocked.has(last) && /^\s*>\s?/.test(lines[last]!.text)) last += 1;
+    const head = lines[first]!.text.match(/^\s*>\s?\[!([A-Za-z][\w-]*)\][+-]?(?:\s|$)/);
+    if (head) {
+      const rawType = head[1]!.toLowerCase();
+      const type = CALLOUT_ALIASES[rawType] ?? rawType;
+      for (let k = first; k < last; k += 1) calloutLineType.set(k, type);
+    }
+    first = last;
+  }
   lines.forEach((line, idx) => {
     if (blocked.has(idx)) return;
     const head = line.text.match(/^(\s*)(#{1,6})\s+(.*)$/);
     if (head) {
       const level = head[2]!.length;
       const markerEnd = line.from + (head[1]?.length ?? 0) + level + 1;
-      items.push({ from: line.from, to: markerEnd, deco: hide });
+      items.push({ from: line.from, to: markerEnd, deco: hide, reveal: true, revealFrom: line.from, revealTo: line.to });
       items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: `cm-lp-heading cm-lp-h${level}` }) });
       occupy(idx, line.from, markerEnd);
       return;
     }
     const quote = line.text.match(/^(\s*)>\s?(.*)$/);
     if (quote) {
-      const markerEnd = line.from + (quote[1]?.length ?? 0) + 1;
-      items.push({ from: line.from, to: markerEnd, deco: hide });
-      // Callout（> [!type]）与普通引用同等对待：保留源码文本，不做徽章/配色渲染
-      items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: 'cm-lp-quote-text' }) });
+      const markerEnd = line.from + line.text.length - quote[2]!.length;
+      const type = calloutLineType.get(idx);
+      const safeType = type && /^[a-z][\w-]*$/.test(type) ? type : 'note';
+      items.push({
+        from: line.from,
+        to: line.from,
+        deco: Decoration.line({ attributes: { class: type ? `cm-wy-quote-line cm-wy-callout-line cm-wy-callout-${safeType}` : 'cm-wy-quote-line' } }),
+      });
+      items.push({ from: line.from, to: markerEnd, deco: hide, reveal: true, revealFrom: line.from, revealTo: Math.min(doc.length + 1, line.to + 1) });
       occupy(idx, line.from, markerEnd);
+      const head = quote[2]!.match(/^\[!([A-Za-z][\w-]*)\]([+-]?)([ \t]*)(.*)$/);
+      if (type && head) {
+        const prefixEnd = markerEnd + head[0].length - head[4]!.length;
+        items.push({
+          from: markerEnd,
+          to: prefixEnd,
+          deco: Decoration.replace({ widget: new CalloutHeadWidget(safeType, head[4]!.trim().length > 0, head[2]!) }),
+          reveal: true,
+          revealFrom: line.from,
+          revealTo: Math.min(doc.length + 1, line.to + 1),
+        });
+        occupy(idx, markerEnd, prefixEnd);
+      } else if (markerEnd < line.to) {
+        items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: 'cm-lp-quote-text' }) });
+      }
       return;
     }
     // 无序列表：marker 字符 → 圆点 widget；可选任务 checkbox
@@ -473,6 +550,7 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
   }
 
   /* ---- Pass 4: 行内标记（所有未 blocked 行，含标题/引用/列表行内的公式/粗斜体） ---- */
+  const inlineOccupied = new Map<number, Array<[number, number]>>();
   lines.forEach((line, idx) => {
     if (blocked.has(idx)) return;
     const occupied: Array<[number, number]> = [...(rowOccupied.get(idx) ?? [])];
@@ -488,37 +566,45 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
 
       // 图片 ![alt](url)
       if (m[1] !== undefined && m[2] !== undefined) {
-        items.push({ from: base, to: fullTo, deco: Decoration.replace({ widget: new InlineImageWidget(m[2] ?? '', m[1] ?? '') }), reveal: true });
+        items.push({ from: base, to: fullTo, deco: Decoration.replace({ widget: new InlineImageWidget(m[2] ?? '', m[1] ?? '', base) }), reveal: true });
         revealable.push({ from: base, to: fullTo });
         occupied.push([base, fullTo]);
         continue;
       }
       if (m[3] !== undefined) {
-        items.push({ from: base, to: base + 2, deco: hide });
+        items.push({ from: base, to: base + 2, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 2, to: base + fullLen - 2, deco: Decoration.mark({ class: 'cm-lp-strong' }) });
-        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[5] !== undefined) {
-        items.push({ from: base, to: base + 1, deco: hide });
+        items.push({ from: base, to: base + 1, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 1, to: base + fullLen - 1, deco: Decoration.mark({ class: 'cm-lp-em' }) });
-        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[7] !== undefined) {
-        items.push({ from: base, to: base + 1, deco: hide });
+        items.push({ from: base, to: base + 1, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 1, to: base + fullLen - 1, deco: Decoration.mark({ class: 'cm-lp-inline-code' }) });
-        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[9] !== undefined) {
-        items.push({ from: base, to: base + 2, deco: hide });
+        items.push({ from: base, to: base + 2, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 2, to: base + fullLen - 2, deco: Decoration.mark({ class: 'cm-lp-del' }) });
-        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[11] !== undefined && m[12] !== undefined) {
         const textLen = m[11]!.length;
-        const urlLen = m[12]!.length;
-        items.push({ from: base, to: base + 1, deco: hide });
+        items.push({ from: base, to: base + 1, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({
           from: base + 1,
           to: base + 1 + textLen,
           deco: Decoration.mark({ class: 'cm-lp-link', attributes: { 'data-href': m[12]! } }),
         });
-        items.push({ from: base + 1 + textLen, to: base + 1 + textLen + urlLen + 2, deco: hide });
+        items.push({ from: base + 1 + textLen, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
+      } else if (m[13] !== undefined) {
+        items.push({ from: base, to: base + 3, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
+        items.push({ from: base + 3, to: fullTo - 4, deco: Decoration.mark({ class: 'cm-wy-underline' }) });
+        items.push({ from: fullTo - 4, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
+      } else if (m[14] !== undefined || m[15] !== undefined) {
+        const prefixLength = m[14] !== undefined ? 9 : 6;
+        items.push({ from: base, to: base + prefixLength, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
+        items.push({ from: base + prefixLength, to: fullTo - 1, deco: Decoration.mark({ class: m[14] !== undefined ? 'cm-wy-spoiler' : 'cm-wy-inline-note' }), reveal: m[14] !== undefined, revealFrom: base, revealTo: fullTo });
+        items.push({ from: fullTo - 1, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       }
       occupied.push([base, fullTo]);
     }
@@ -529,23 +615,26 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
       revealable.push({ from, to });
       occupied.push([from, to]);
     });
+    inlineOccupied.set(idx, occupied);
   });
 
   /* ---- Pass 5: 高亮 ==文本== + 脚注 [^n]（引用上标 / 定义行） ---- */
   lines.forEach((line, idx) => {
     if (blocked.has(idx)) return;
-    const occupied: Array<[number, number]> = [...(rowOccupied.get(idx) ?? [])];
+    const occupied: Array<[number, number]> = [...(inlineOccupied.get(idx) ?? rowOccupied.get(idx) ?? [])];
 
     // 高亮 ==文本==：隐藏等号，内容加荧光底
-    const hlRe = /==([^=\n]+)==/g;
+    const hlRe = /==(?:(primary|secondary|tertiary|error|tip):)?([^=\n]+)==(?:\{\.(primary|secondary|tertiary|error|tip)\})?/g;
     let hm: RegExpExecArray | null = null;
     while ((hm = hlRe.exec(line.text))) {
       const base = line.from + hm.index;
       const fullTo = base + hm[0].length;
       if (overlapsAny(occupied, base, fullTo)) continue;
-      items.push({ from: base, to: base + 2, deco: hide });
-      items.push({ from: base + 2, to: fullTo - 2, deco: Decoration.mark({ class: 'cm-lp-hl' }) });
-      items.push({ from: fullTo - 2, to: fullTo, deco: hide });
+      const prefixLength = 2 + (hm[1] ? hm[1].length + 1 : 0);
+      const suffixLength = 2 + (hm[3] ? hm[3].length + 3 : 0);
+      items.push({ from: base, to: base + prefixLength, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
+      items.push({ from: base + prefixLength, to: fullTo - suffixLength, deco: Decoration.mark({ class: `cm-lp-hl cm-lp-hl-${hm[3] ?? hm[1] ?? 'primary'}` }) });
+      items.push({ from: fullTo - suffixLength, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       occupied.push([base, fullTo]);
     }
 
@@ -585,45 +674,13 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
     if (blocked.has(idx)) return;
     if (!/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line.text)) return;
     if (idx > 0 && lines[idx - 1]!.text.trim() !== '') return;
-    items.push({ from: line.from, to: line.to, deco: Decoration.replace({ widget: new HrWidget() }) });
+    items.push({ from: line.from, to: line.to, deco: Decoration.replace({ widget: new HrWidget(line.from) }), reveal: true });
   });
 
   return { items, revealable };
 }
 
-/** doc → 装饰基座 的记忆化缓存（CM 的 doc 为不可变对象，可作缓存键）。
- *  选区移动是最高频操作：缓存命中时 O(1)，不再全文档正则重建（实测卡顿主因）。 */
-const baseCache: {
-  doc: EditorState['doc'] | null;
-  items: DecoItem[];
-  revealable: Array<{ from: number; to: number }>;
-} = { doc: null, items: [], revealable: [] };
-
-function buildDecorations(state: EditorState): DecorationSet {
-  const doc = state.doc;
-  if (!baseCache.doc || !baseCache.doc.eq(doc)) {
-    try {
-      const base = computeBase(doc);
-      baseCache.doc = doc;
-      baseCache.items = base.items;
-      baseCache.revealable = base.revealable;
-    } catch (err) {
-      baseCache.doc = null;
-      console.error('[cm-wysiwyg] 装饰基座构建失败，回退纯源码', err);
-      return Decoration.none;
-    }
-  }
-  // 选区在"可回显块"内 → 该块回显源码（不 push 其 widget 项）
-  const head = state.selection.main.head;
-  const active = baseCache.revealable.find((r) => r.from <= head && head <= r.to);
-  const final = active
-    ? baseCache.items.filter((it) => !(it.reveal && it.from === active.from && it.to === active.to))
-    : baseCache.items;
-  const sorted = [...final].sort((a, b) => a.from - b.from || a.to - b.to);
-  const builder = new RangeSetBuilder<Decoration>();
-  for (const item of sorted) builder.add(item.from, item.to, item.deco);
-  return builder.finish();
-}
+const buildDecorations = createPreviewDecorations((doc) => computeBase(doc).items);
 
 /* ---- 代码块 / 行内图片 Widget（本地实现，点击回显走动态 posAtDOM） ---- */
 
@@ -631,12 +688,13 @@ class CodeBlockWidget extends WidgetType {
   constructor(
     readonly lang: string,
     readonly code: string,
+    readonly pos: number,
   ) {
     super();
   }
 
   eq(other: CodeBlockWidget): boolean {
-    return other.lang === this.lang && other.code === this.code;
+    return other.lang === this.lang && other.code === this.code && other.pos === this.pos;
   }
 
   toDOM(): HTMLElement {
@@ -653,7 +711,7 @@ class CodeBlockWidget extends WidgetType {
     code.textContent = this.code;
     pre.appendChild(code);
     wrap.appendChild(pre);
-    makeClickToPos(wrap, 0);
+    makeClickToPos(wrap, this.pos);
     return wrap;
   }
 
@@ -666,12 +724,13 @@ class InlineImageWidget extends WidgetType {
   constructor(
     readonly src: string,
     readonly alt: string,
+    readonly pos: number,
   ) {
     super();
   }
 
   eq(other: InlineImageWidget): boolean {
-    return other.src === this.src && other.alt === this.alt;
+    return other.src === this.src && other.alt === this.alt && other.pos === this.pos;
   }
 
   toDOM(): HTMLElement {
@@ -687,7 +746,7 @@ class InlineImageWidget extends WidgetType {
       cap.textContent = this.alt;
       fig.appendChild(cap);
     }
-    makeClickToPos(fig, 0);
+    makeClickToPos(fig, this.pos);
     return fig;
   }
 
@@ -702,18 +761,16 @@ class InlineImageWidget extends WidgetType {
 function safeBuild(state: EditorState): DecorationSet {
   try {
     return buildDecorations(state);
-  } catch {
-    baseCache.doc = null;
-  return Decoration.none;
+  } catch (error) {
+    console.error('[wysiwyg] decoration build failed', error);
+    return Decoration.none;
   }
 }
 
 /**
  * WYSIWYG 装饰字段（StateField 提供——跨行 replace 的硬性要求，见文件头注释）
  *
- * 更新策略（全量重建）：
- * docChanged / selection → 全量重建（与生产 cm-live-preview 同策略，实测流畅；
- * KaTeX 渲染只在 widget eq 变化时发生，重建本身是轻量对象分配）。
+ * 内容变化重建基座；选区变化只在选中的渲染块改变时更新装饰集。
  */
 const wysiwygField = StateField.define<DecorationSet>({
   create: (state) => safeBuild(state),
@@ -785,11 +842,13 @@ class FootnoteDefChipWidget extends WidgetType {
 
 /** 水平线 Widget */
 class HrWidget extends WidgetType {
+  constructor(readonly pos: number) { super(); }
   toDOM(): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'cm-lp-hr';
     const hr = document.createElement('hr');
     wrap.appendChild(hr);
+    makeClickToPos(wrap, this.pos);
     return wrap;
   }
   ignoreEvent(): boolean {
@@ -806,6 +865,14 @@ function ensureLpStyles(): void {
   const style = document.createElement('style');
   style.textContent = `
 .cm-lp-hl { background: rgba(250, 204, 21, 0.35); border-radius: 2px; }
+.cm-lp-hl-secondary { background: rgba(125, 170, 220, 0.28); }
+.cm-lp-hl-tertiary { background: rgba(180, 140, 210, 0.28); }
+.cm-lp-hl-error { background: rgba(225, 100, 100, 0.27); }
+.cm-lp-hl-tip { background: rgba(100, 180, 120, 0.27); }
+.cm-wy-underline { text-decoration: underline; text-underline-offset: 0.15em; }
+.cm-wy-spoiler { background: var(--color-text-secondary, #666); color: transparent; border-radius: 2px; }
+.cm-wy-spoiler:hover { color: var(--color-text-primary, #222); }
+.cm-wy-inline-note { border-bottom: 1px dotted currentColor; color: var(--color-primary, #3b82f6); }
 .cm-lp-fnref { color: var(--color-primary, #3b82f6); cursor: pointer; font-size: 0.78em; font-weight: 600; }
 .cm-lp-fndef-chip { display: inline-block; min-width: 20px; text-align: center; padding: 0 5px; margin-right: 6px;
   border-radius: 4px; background: rgba(128,128,128,0.14); font-size: 0.72em; font-weight: 600;

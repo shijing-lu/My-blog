@@ -176,6 +176,13 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
     errorP.classList.remove('hidden');
   }
 
+  /** 指针用点击位置揭幕，键盘激活用控件中心，避免 clientX=0 落到左上角。 */
+  function transitionOrigin(event: MouseEvent, element: HTMLElement): { x: number; y: number } {
+    if (event.detail !== 0) return { x: event.clientX, y: event.clientY };
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
   /** 导入主题文件 */
   async function importFile(file: File): Promise<void> {
     document.getElementById('theme-import-error')?.classList.add('hidden');
@@ -238,7 +245,7 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
       removeCustomTheme(id);
       if (state.themeId === id) {
         clearCustomThemeCss();
-        writeState({ ...state, themeId: '' });
+        writeState({ ...state, themeId: '' }, { origin: transitionOrigin(e, del) });
       }
       renderCustomThemes();
       render();
@@ -254,7 +261,7 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
         const custom = getCustomThemes().find((t) => t.id === id);
         if (custom) injectCustomThemeCss(custom);
       }
-      writeState({ ...readState(), themeId: id });
+      writeState({ ...readState(), themeId: id }, { origin: transitionOrigin(e, card) });
       render();
       return;
     }
@@ -262,7 +269,7 @@ const MODES: ReadonlyArray<{ value: 'light' | 'dark' | 'system'; label: string }
     // 外观模式三态
     const modeBtn = target.closest<HTMLElement>('[data-mode-btn]');
     if (modeBtn) {
-      writeState({ ...readState(), mode: modeBtn.dataset.modeBtn as ThemeMode });
+      writeState({ ...readState(), mode: modeBtn.dataset.modeBtn as ThemeMode }, { origin: transitionOrigin(e, modeBtn) });
       render();
       return;
     }

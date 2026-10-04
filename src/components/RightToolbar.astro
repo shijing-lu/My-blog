@@ -6,7 +6,7 @@
  * Logic: 首页 → 新建文章（房子图标下方，articles 权限）→ 站点设置（settings）
  *        →「编辑当前文章」（文档详情或首页文章编辑页，点击进入/退出就地编辑）→ 回到顶部
  */
-import { permissionChecker } from '@/lib/admin-auth';
+import { isTopAdmin, permissionChecker } from '@/lib/admin-auth';
 
 /* ===== Props ===== */
 interface Props {
@@ -18,6 +18,7 @@ const { aiEnabled = false } = Astro.props;
 /* ===== Logic ===== */
 /* 单次身份判定（勿用旧 verifyRequest：不认 top_admin_session/user_session 新通道） */
 const can = await permissionChecker(Astro.cookies);
+const canQuickNotes = await isTopAdmin(Astro.cookies);
 /** 两种文章详情页显示同一个原位编辑入口。 */
 const isDocDetail = /^\/doc\/[^/]+\/?$/.test(Astro.url.pathname);
 const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathname);
@@ -74,6 +75,16 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
       </button>
     )
   }
+  {
+    canQuickNotes && (
+      <button id="rt-quick-notes" type="button" aria-label="打开随心录" title="随心录 · 快速记录">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
+          <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21z" />
+          <path d="M4 5.5V19a2.5 2.5 0 0 1 2.5-2.5H20M8 7h8M8 10h5" />
+        </svg>
+      </button>
+    )
+  }
   <!-- 回到顶部 -->
   <button id="to-top" type="button" aria-label="回到顶部" title="回到顶部">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
@@ -84,6 +95,14 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
 </aside>
 
 <script>
+  import { setDocArticleLoading } from '@/lib/doc-viewport';
+
+  document.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('#rt-quick-notes')) return;
+    (window as unknown as { __quickNotePending?: { id?: string } }).__quickNotePending = {};
+    window.dispatchEvent(new CustomEvent('quick-notes:open'));
+  });
+
   /**
    * 小卿入口：派发自定义事件，由 AiChatFloat 岛接收后打开「固定在右侧」的面板。
    * 用事件而不是直接调用岛内方法：工具栏是静态 HTML，岛水合时机不确定（client:idle），
@@ -113,14 +132,16 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
   /** 回到顶部（平滑滚动）；document 委托，View Transitions 后无需重绑 */
   document.addEventListener('click', (e) => {
     if (!(e.target as HTMLElement).closest('#to-top')) return;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   });
 
   /**
    * 「编辑当前文章」（仅文档详情页渲染该按钮）：
    * - 未编辑 → 打开就地编辑；
    * - 已在编辑态 → 保存并退出。
-   * 岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s，避免点击无响应。
+   * 岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s —— 但**同时给出即时反馈**
+   * （正文降透明 + 顶部进度条），否则用户把「等水合」当成点击无响应而连点。
+   * 悬停/聚焦按钮即预取正文（页面脚本侧绑定，不依赖水合）。
    *
    * 轮询定时器统一由 bridgeTimer 持有：重复点击 / 页面切换都会取消上一个，
    * 避免悬挂定时器在导航后仍然触发（访问已卸载页面的 DOM）。
@@ -141,18 +162,27 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
     if (!(e.target as HTMLElement).closest('#rt-doc-inline-edit')) return;
     const grid = document.getElementById('doc-3col');
     const editing = grid?.dataset.editing === 'true';
+    const bridge = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
+    cancelBridgeWait();
+    if (bridge) {
+      if (editing && bridge.saveAndClose) bridge.saveAndClose();
+      else bridge.open();
+      return;
+    }
+    // 岛尚未水合：立刻给反馈再轮询等桥就位（桥就位后 open 会接管 loading 态）
+    setDocArticleLoading(true);
     let tries = 0;
     const tryBridge = (): void => {
-      const bridge = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
-      if (!bridge) {
+      const b = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
+      if (!b) {
         if (tries++ < 20) bridgeTimer = window.setTimeout(tryBridge, 100);
+        else setDocArticleLoading(false); // 水合超时：撤掉反馈，别让正文一直半透明
         return;
       }
       bridgeTimer = 0;
-      if (editing && bridge.saveAndClose) bridge.saveAndClose();
-      else bridge.open();
+      if (editing && b.saveAndClose) b.saveAndClose();
+      else b.open();
     };
-    cancelBridgeWait();
     tryBridge();
   });
 </script>

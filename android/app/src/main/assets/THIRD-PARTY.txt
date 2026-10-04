@@ -1,0 +1,14 @@
+Node.js Mobile 24.20.0-0 (Node.js, MIT license and bundled third-party notices)
+Source recipe and release: https://github.com/digidem/nodejs-mobile/tree/v24.20.0-0
+Upstream notices: https://github.com/nodejs/node/blob/v24.20.0/LICENSE
+
+better-sqlite3 13.0.3 (MIT), mobile prebuilds (MIT)
+https://github.com/WiseLibs/better-sqlite3
+https://github.com/digidem/better-sqlite3-nodejs-mobile/releases/tag/13.0.3
+
+sharp 0.35.4 WebAssembly (Apache-2.0 AND LGPL-3.0-or-later AND MIT)
+https://github.com/lovell/sharp/tree/v0.35.4
+https://github.com/libvips/libvips
+Package license notices are retained in runtime.zip/node_modules.
+
+Remaining JavaScript dependencies retain their package LICENSE/NOTICE files in runtime.zip.

@@ -57,7 +57,7 @@ function jumpToBlock(
   blockMap: Record<string, BlockInfo>,
 ): boolean {
   const flash = (el: HTMLElement): void => {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center' });
     el.classList.add('mind-anchor-flash');
     window.setTimeout(() => el.classList.remove('mind-anchor-flash'), 2200);
   };

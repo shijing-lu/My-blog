@@ -1,0 +1,167 @@
+/* Cadence 的语义颜色全部映射到博客主题。没有独立主题和全局 reset。 */
+
+.cadence-root {
+  --radius-hand-sm: var(--radius-sm);
+  --radius-hand-md: var(--radius-lg);
+  --radius-hand-lg: var(--radius-lg);
+  --radius-hand-pill: var(--radius-md);
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 250ms;
+  --ease-standard: ease;
+  --ease-decelerate: ease-out;
+  --paper-shadow: transparent;
+  --paper-shadow-strong: rgb(0 0 0 / 12%);
+  --scrim: rgb(0 0 0 / 40%);
+  --z-sticky: 30;
+  --z-drawer: 5100;
+  --z-modal: 5200;
+  --z-toast: 5400;
+  --z-tooltip: 5500;
+  --tex-app: none;
+  --tex-card: none;
+  --motion-scale: 1;
+  color: var(--foreground);
+}
+.cadence-root .surface-card,
+.cadence-root .sticky-surface {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background-color: var(--card);
+}
+.cadence-root .surface-paper {
+  background-color: var(--card);
+}
+.cadence-root .surface-inset {
+  background-color: var(--muted);
+}
+.cadence-root .surface-card-hover:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.cadence-root .craft-transition,
+.cadence-root .craft-transition-fast {
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    opacity 140ms ease;
+}
+.cadence-root .numeric {
+  font-variant-numeric: tabular-nums;
+}
+.cadence-root .watercolor-blot {
+  display: none;
+}
+.cadence-root .hand-underline {
+  display: none;
+}
+.cadence-root h2,
+.cadence-root h3,
+.cadence-root .font-serif {
+  font-family: var(--font-display);
+}
+.cadence-root h2 {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.cadence-root button:not(:disabled),
+.cadence-root a {
+  cursor: pointer;
+}
+.cadence-root :focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.cadence-root textarea,
+.cadence-root input,
+.cadence-root select {
+  color: var(--foreground);
+}
+.cadence-root .hand-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.cadence-root .sync-comparison {
+  max-height: 18rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+}
+.cadence-root .cadence-shell-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+.cadence-root .cadence-sidebar {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+  max-height: calc(100dvh - 88px);
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+}
+@media (min-width: 1024px) {
+  .cadence-root .cadence-shell-layout {
+    grid-template-columns: 152px minmax(0, 1fr);
+  }
+}
+.cadence-root .cadence-overview {
+  container-type: inline-size;
+}
+.cadence-root .cadence-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 280px);
+  gap: 16px;
+  align-items: start;
+}
+@container (min-width: 460px) {
+  .cadence-root .cadence-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 280px));
+  }
+}
+@container (min-width: 700px) {
+  .cadence-root .cadence-overview-grid {
+    grid-template-columns: repeat(3, minmax(0, 280px));
+  }
+}
+.cadence-root .cadence-overview-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: 1;
+  padding: 14px;
+  gap: 10px;
+}
+.cadence-root .cadence-card-heading {
+  flex: 0 0 auto;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.cadence-root .cadence-card-scroll {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.cadence-root .cadence-card-footer {
+  flex: 0 0 auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cadence-root *,
+  .cadence-root *::before,
+  .cadence-root *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

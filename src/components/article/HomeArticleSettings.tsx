@@ -127,6 +127,7 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
     }
   };
 
+
   return <dialog ref={dialogRef} className="m-auto w-[min(92vw,40rem)] rounded-xl border border-border bg-card p-0 text-foreground shadow-xl backdrop:bg-black/40">
     <form onSubmit={(event) => void save(event)} className="max-h-[85vh] overflow-y-auto p-6">
       <div className="flex items-center justify-between gap-3">

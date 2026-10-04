@@ -14,6 +14,8 @@
  */
 import type { APIRoute } from 'astro';
 import { getImage } from '@/lib/images';
+import { getImageBedConfig, imageBedCdnUrl } from '@/lib/image-bed';
+import { serverEnv } from '@/lib/env';
 import { isTransformableInput, normalizeWidth, transformImage } from '@/lib/image-transform';
 
 export const prerender = false;
@@ -33,8 +35,16 @@ export const GET: APIRoute = async ({ params, url }) => {
   // - 请求小宽度(<=600)且有缩略图 → 用缩略图（600px webp）
   // - 其余（无 w 或大宽度，如 Hero 1920）→ 用全图（1920px webp）
   if (!image.data && (image.url || image.thumbUrl)) {
-    const target =
+    let target: string | null =
       w !== undefined && w <= 600 && image.thumbUrl ? image.thumbUrl : (image.url ?? image.thumbUrl);
+    // 图床图片（url 为站内反代 /img/…）的可用性分环境：
+    //   线上站 → 服务端（Vercel 海外）回源 raw.githubusercontent.com，正常，且有边缘缓存；
+    //   桌面端 → 本机直连 raw 被 DNS 污染（实测超时），必然失败 → 改走 jsDelivr CDN。
+    // 2026-09-23 修复「图床上传成功但影集不回显」。
+    if (target?.startsWith('/img/') && serverEnv('DESKTOP_MODE') === '1') {
+      const cdn = imageBedCdnUrl(await getImageBedConfig(), target);
+      if (cdn) target = cdn;
+    }
     if (target) {
       return new Response(null, {
         status: 307,

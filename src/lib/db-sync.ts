@@ -8,29 +8,15 @@
  * - 供 scripts/sync-databases.mts 与受保护 API /api/sync-databases 共用
  */
 import postgres from 'postgres';
+import { getTableColumns, getTableName, isTable } from 'drizzle-orm';
+import * as schema from '../../db/schema.pg';
 
 /** 需要同步的表（应用侧全部业务表） */
-export const SYNC_TABLES = [
-  'articles',
-  'images',
-  'photos',
-  'moments',
-  'doc_nodes',
-  'doc_categories',
-  'doc_bundles',
-  'doc_articles',
-  'settings',
-  'fonts',
-  'mindmaps',
-  'web_categories',
-  'websites',
-  'todos',
-  'diary_entries',
-  'calendar_events',
-  'comments',
-  'likes',
-  'github_users',
-];
+const BUSINESS_TABLES = Object.values(schema).filter(isTable);
+export const SYNC_TABLES = BUSINESS_TABLES.map(getTableName);
+const PRIMARY_KEYS = new Map<string, string | undefined>(BUSINESS_TABLES.map(table => [
+  getTableName(table), Object.values(getTableColumns(table)).find(column => column.primary)?.name,
+]));
 
 export interface SyncTableResult {
   table: string;
@@ -47,9 +33,9 @@ async function upsertRows(
   table: string,
   colNames: string[],
   rows: Record<string, unknown>[],
+  idCol: string,
 ): Promise<void> {
   if (rows.length === 0) return;
-  const idCol = 'id';
   const cols = colNames.filter((c) => c !== idCol);
   const insertCols = [`"${idCol}"`, ...cols.map((c) => `"${c}"`)].join(', ');
   const setClause = cols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ');
@@ -71,8 +57,9 @@ async function lightRows(
   sql: ReturnType<typeof postgres>,
   table: string,
   timeCol: string | null,
+  idCol: string,
 ): Promise<Array<Record<string, unknown>>> {
-  const cols = timeCol ? `id, "${timeCol}"` : 'id';
+  const cols = timeCol ? `"${idCol}" AS id, "${timeCol}"` : `"${idCol}" AS id`;
   return (await sql.unsafe(`SELECT ${cols} FROM "${table}"`)) as Record<string, unknown>[];
 }
 
@@ -82,6 +69,7 @@ async function fullRows(
   table: string,
   colNames: string[],
   ids: string[],
+  idCol: string,
 ): Promise<Map<string, Record<string, unknown>>> {
   const map = new Map<string, Record<string, unknown>>();
   if (ids.length === 0) return map;
@@ -89,8 +77,8 @@ async function fullRows(
   for (let i = 0; i < ids.length; i += CHUNK) {
     const chunk = ids.slice(i, i + CHUNK);
     const ph = chunk.map((_, k) => `$${k + 1}`).join(', ');
-    const rows = (await sql.unsafe(`SELECT ${selectCols} FROM "${table}" WHERE id IN (${ph})`, chunk)) as Record<string, unknown>[];
-    for (const r of rows) map.set(String(r.id), r);
+    const rows = (await sql.unsafe(`SELECT ${selectCols} FROM "${table}" WHERE "${idCol}" IN (${ph})`, chunk)) as Record<string, unknown>[];
+    for (const r of rows) map.set(String(r[idCol]), r);
   }
   return map;
 }
@@ -100,24 +88,27 @@ async function syncTable(
   p: ReturnType<typeof postgres>,
   f: ReturnType<typeof postgres>,
   table: string,
+  apply: boolean,
 ): Promise<SyncTableResult> {
   const base = { table, toFallback: 0, toPrimary: 0 };
   try {
     const cols = await p.unsafe(
-      `SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`,
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`,
       [table],
     );
     if (cols.length === 0) return { ...base, skipped: '主库无此表' };
-    const colNames = cols.map((c) => c.column_name as string);
-    if (!colNames.includes('id')) return { ...base, skipped: '无 id 主键' };
+    const idCol = PRIMARY_KEYS.get(table);
+    if (!idCol) return { ...base, skipped: '无单列主键' };
+    // Parameter order must match the INSERT column order, including settings.key.
+    const colNames = [idCol, ...cols.map((c) => c.column_name as string).filter(name => name !== idCol)];
     const timeCol = colNames.includes('updated_at')
       ? 'updated_at'
       : colNames.includes('created_at')
         ? 'created_at'
         : null;
 
-    const pLight = await lightRows(p, table, timeCol);
-    const fLight = await lightRows(f, table, timeCol);
+    const pLight = await lightRows(p, table, timeCol, idCol);
+    const fLight = await lightRows(f, table, timeCol, idCol);
     const pById = new Map(pLight.map((r) => [String(r.id), r]));
     const fById = new Map(fLight.map((r) => [String(r.id), r]));
 
@@ -135,13 +126,17 @@ async function syncTable(
       if (timeCol) return newer(r[timeCol], ex[timeCol]);
       return true; // 无时间列：保守地全量同步（数据量小）
     });
-    const needToPrimary = fLight.filter((r) => !pById.has(String(r.id)));
+    const needToPrimary = fLight.filter((r) => {
+      const ex = pById.get(String(r.id));
+      return !ex || (timeCol !== null && newer(r[timeCol], ex[timeCol]));
+    });
 
     if (needToFallback.length === 0 && needToPrimary.length === 0) return base;
+    if (!apply) return { table, toFallback: needToFallback.length, toPrimary: needToPrimary.length };
 
     // 拉全量（仅需要的行）
-    const pFull = await fullRows(p, table, colNames, needToFallback.map((r) => String(r.id)));
-    const fFull = await fullRows(f, table, colNames, needToPrimary.map((r) => String(r.id)));
+    const pFull = await fullRows(p, table, colNames, needToFallback.map((r) => String(r.id)), idCol);
+    const fFull = await fullRows(f, table, colNames, needToPrimary.map((r) => String(r.id)), idCol);
     const fbRows = needToFallback
       .map((r) => pFull.get(String(r.id)))
       .filter((r): r is Record<string, unknown> => !!r);
@@ -150,8 +145,8 @@ async function syncTable(
       .filter((r): r is Record<string, unknown> => !!r);
 
     console.log(`[${table}] 主→备 ${fbRows.length} 行 · 备→主 ${prRows.length} 行`);
-    await upsertRows(f, table, colNames, fbRows);
-    await upsertRows(p, table, colNames, prRows);
+    await upsertRows(f, table, colNames, fbRows, idCol);
+    await upsertRows(p, table, colNames, prRows, idCol);
     return { table, toFallback: fbRows.length, toPrimary: prRows.length };
   } catch (e) {
     return { ...base, skipped: (e as Error).message };
@@ -169,9 +164,9 @@ export async function syncDatabases(opts: {
   try {
     const results: SyncTableResult[] = [];
     for (const table of SYNC_TABLES) {
-      const r = await syncTable(p, f, table);
+      const r = await syncTable(p, f, table, opts.apply);
       results.push(r);
-      if (r.toFallback > 0 || r.toPrimary > 0) console.log(`  已完成 ${table}`);
+      if (r.toFallback > 0 || r.toPrimary > 0) console.log(`  ${opts.apply ? '已完成' : '预览'} ${table}`);
     }
     return results;
   } finally {

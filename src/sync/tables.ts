@@ -17,14 +17,17 @@ import type { SyncPolicy, SyncRow } from './core/types';
 export const LOCAL_ONLY_TABLES = ['sync_mirror', 'sync_log', 'sync_conflicts'] as const;
 
 /**
- * 30 张业务表的同步策略
+ * 业务表的同步策略
  * 说明：union 表不需要 updated_at（按主键并集合并），lww 表必须有 updated_at
  *      —— D4-W1 已为 14 张 lww 表补齐该列。
  */
 export const SYNC_POLICIES: SyncPolicy[] = [
+  // Cadence 浏览器副本经自己的 CAS API 直接同步配置的云库，避免旧 LWW 引擎再次覆盖。
+  { table: 'cadence_records', pk: ['id'], role: 'local-only', changeBy: 'hash', note: 'Cadence 专用三方同步管理' },
   // ── 站主内容（LWW）─────────────────────────────────────────────────
   { table: 'articles', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: '文章正文与元数据' },
   { table: 'diary_entries', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: '日记' },
+  { table: 'quick_notes', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: '随心录' },
   { table: 'moments', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: '动态' },
   { table: 'mindmaps', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: '思维导图' },
   { table: 'study_tasks', pk: ['id'], role: 'lww', changeBy: 'updated_at', note: '学习任务' },

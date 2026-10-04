@@ -23,12 +23,20 @@ import { searchKeymap } from '@codemirror/search';
 import { livePreview } from './cm-live-preview';
 import { buildMdKeymap, mdKeymap } from './md-keymap';
 import { compressImageForUpload } from '../../lib/client-image-upload';
-import { countChars } from '../../lib/reading';
+import { characterCount } from './cm-character-count';
+import { pickNearestViewAnchor } from '../../lib/view-anchor';
+import type { ViewAnchor } from '../../lib/view-anchor';
+import { columnsExtension } from './cm-columns';
+import { columnTarget, setColumnTarget } from './cm-columns-state';
+import { MarkdownContextMenu } from './cm-context-menu';
+import { setVisualSource, visualDirectivesExtension } from './cm-visual-directives';
 
 /** 对外暴露的编辑器句柄 */
 export interface MarkdownEditorHandle {
   /** 在光标处插入文本（无焦点时追加到末尾） */
   insertAtCursor(text: string): void;
+  /** 在当前行之后插入表格、引用等块级 Markdown。 */
+  insertBlock(snippet: string): void;
   /** 跳转到指定行（0 起，用于目录定位） */
   jumpToLine(line: number): void;
   /**
@@ -47,10 +55,29 @@ export interface MarkdownEditorHandle {
    * 同步用：编辑态退出时据此把阅读视口定位到同一小节）。
    */
   getViewHeading(): { level: number; text: string; nth: number } | null;
+  /**
+   * 视口锚点：距视口顶最近的 h2–h4 标题 + 该标题距**编辑器视口顶**的像素
+   * 偏移（正 = 在视口顶下方）。
+   *
+   * 用途：模式切换时用「标题锚点 + 段内偏移」表达阅读位置，替代「渲染像素比例 ×
+   * 源码高度」的映射——渲染密度与源码密度差异极大（KaTeX / 图片 / 表格 / 代码块），
+   * 比例映射必然偏移；标题锚点则在小节内才可能漂移，且可被对侧原样复现。
+   */
+  getViewportAnchor(): ViewAnchor | null;
+  /**
+   * 把第 nth 个（0 起）level 级标题放到编辑器视口顶下方 offsetPx 处
+   * （offsetPx 可为负 = 标题落在视口顶上方）。返回是否命中。
+   *
+   * 两步定位：先按高度图粗定位，再用真实屏幕坐标闭环收敛——抗「未测量区域的
+   * 估算高度」与「widget 异步回流」，不做像素比例换算。
+   */
+  scrollHeadingToOffset(level: number, nth: number, offsetPx: number): boolean;
   /** 获取当前选中的文本（无选区返回空串；供「加入导图引用」用） */
   getSelectionText(): string;
   /** 聚焦编辑器（就地编辑进入时把光标交还给用户） */
   focus(): void;
+  /** 宿主把隐藏编辑器显示出来后，重新计算可视块和视口几何。 */
+  refreshVisualLayout(): void;
 }
 
 /** 组件 Props */
@@ -71,6 +98,10 @@ interface MarkdownEditorProps {
    * - 与 livePreview 互斥：两者都提供 decorations，叠加会装饰重叠。
    */
   wysiwyg?: boolean;
+  /** 文档就地编辑预先加载的模块：首帧直接装入可视扩展。 */
+  initialWysiwyg?: typeof import('./cm-wysiwyg');
+  /** 文档文章编辑器的三级 Markdown 右键菜单。 */
+  documentContextMenu?: boolean;
   /**
    * 视觉变体：
    * - 'panel'（默认）：写作台卡片式外观（`--color-card` 面板背景 + 内容限宽
@@ -92,6 +123,7 @@ interface MarkdownEditorProps {
    * 曾被用户误判为「打开编辑栏是白板」（2026-09-21）。
    */
   onReady?: () => void;
+  onLoadError?: (error: Error) => void;
   /**
    * 视口标题跟踪（可选，目录高亮联动用）：视口/几何变化时回调「视口顶部之上
    * 最后一个标题」（含同 level 序号 nth，与目录项序列对齐）。不传则不注册
@@ -191,6 +223,19 @@ function buildTheme(dark: boolean, ghost: boolean, autoHeight = false): Extensio
   return dark ? [oneDark] : [lightChrome, syntaxHighlighting(lightHighlight)];
 }
 
+/** 已渲染行的真实视口位置；视口外返回 null，交由 CodeMirror 高度图粗定位。 */
+function measuredLineTop(view: EditorView, pos: number): number | null {
+  try {
+    const { node } = view.domAtPos(pos);
+    const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+    const line = element?.closest('.cm-line');
+    if (!line || !view.dom.contains(line)) return null;
+    return line.getBoundingClientRect().top - view.scrollDOM.getBoundingClientRect().top;
+  } catch {
+    return null;
+  }
+}
+
 function codeLanguages(info: string): Language | null {
   const lang = info.trim().toLowerCase();
   if (['ts', 'typescript'].includes(lang)) return javascript({ typescript: true }).language;
@@ -216,12 +261,13 @@ function nameFromUrl(url: string): string {
  * 可复用所见即所得编辑器
  */
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { initialContent, onChange, onSave, className, wysiwyg = false, variant = 'panel', autoHeight = false, onViewportHeading, onReady },
+  { initialContent, onChange, onSave, className, wysiwyg = false, initialWysiwyg, documentContextMenu = false, variant = 'panel', autoHeight = false, onViewportHeading, onReady, onLoadError },
   ref,
 ): ReactElement {
   const ghost = variant === 'ghost';
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const contextMenuRef = useRef<MarkdownContextMenu | null>(null);
   const themeCompartment = useRef(new Compartment());
   /** wysiwyg 装饰扩展的注入位：模块动态加载完成后 reconfigure（见初始化 effect） */
   const wysiwygCompartment = useRef(new Compartment());
@@ -231,10 +277,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const onSaveRef = useRef<(() => void) | undefined>(undefined);
   /** 就绪回调 ref（避免初始化 effect 捕获陈旧闭包） */
   const onReadyRef = useRef<(() => void) | undefined>(undefined);
+  const onLoadErrorRef = useRef<((error: Error) => void) | undefined>(undefined);
   const onPasteRef = useRef<(e: ClipboardEvent) => boolean>(() => false);
   const onDropRef = useRef<(e: DragEvent) => void>(() => {});
   const contentRef = useRef(initialContent);
-  contentRef.current = initialContent;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   /** 状态栏节点（DOM 直写字数/行数/光标位置，避免每次输入触发 React 重渲染） */
@@ -244,15 +290,15 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   onChangeRef.current = (v) => onChange?.(v);
   onSaveRef.current = onSave;
   onReadyRef.current = onReady;
+  onLoadErrorRef.current = onLoadError;
 
   /** 写入状态栏（字数 / 行数 / 光标 行:列）；DOM 直写，不进 React 状态 */
   writeStatsRef.current = (state: EditorState): void => {
     const el = statRef.current;
     if (!el) return;
-    const text = state.doc.toString();
     const head = state.selection.main.head;
     const line = state.doc.lineAt(head);
-    el.textContent = `${countChars(text)} 字 · ${state.doc.lines} 行 · ${line.number}:${head - line.from + 1}`;
+    el.textContent = `${state.field(characterCount)} 字 · ${state.doc.lines} 行 · ${line.number}:${head - line.from + 1}`;
   };
 
   /** 上传本地图片 → /api/images → URL（自动压缩避免超 Vercel 4.5MB 限制） */
@@ -271,7 +317,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   /** 在光标处插入文本 */
   const insertAtCursor = useCallback((text: string): void => {
-    const view = viewRef.current;
+    const view = columnTarget(viewRef.current);
     if (!view) {
       contentRef.current = `${contentRef.current}${text}`;
       return;
@@ -284,7 +330,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   /* ---- 格式化（工具条按钮）：对当前选区/行做 Markdown 包裹与行首前缀切换 ----
    * 说明：统一走 view.dispatch 的单次事务，撤销（Ctrl/Cmd-Z）可一步回退。 */
   const wrapSelection = useCallback((before: string, after: string, placeholder: string): void => {
-    const view = viewRef.current;
+    const view = columnTarget(viewRef.current);
     if (!view) return;
     const { from, to } = view.state.selection.main;
     const selected = view.state.sliceDoc(from, to);
@@ -314,7 +360,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   /** 行首前缀切换（- 列表 / > 引用 / # 标题）：已在则升级或去掉 */
   const toggleLinePrefix = useCallback((prefixes: string[], fallbackEmpty: string): void => {
-    const view = viewRef.current;
+    const view = columnTarget(viewRef.current);
     if (!view) return;
     const { from } = view.state.selection.main;
     const line = view.state.doc.lineAt(from);
@@ -337,7 +383,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   /** 插入块级片段（代码块 / 表格） */
   const insertBlock = useCallback((snippet: string): void => {
-    const view = viewRef.current;
+    const view = columnTarget(viewRef.current);
     if (!view) return;
     const { from } = view.state.selection.main;
     const line = view.state.doc.lineAt(from);
@@ -400,6 +446,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const onViewportHeadingRef = useRef(onViewportHeading);
   onViewportHeadingRef.current = onViewportHeading;
   const vpRafRef = useRef(0);
+  const headingScrollRafRef = useRef(0);
 
   /** 视口小节计算的纯函数形态（getViewHeading 直接返回值，不走回调） */
   const computeViewportHeading = useCallback((): { level: number; text: string; nth: number } | null => {
@@ -436,6 +483,75 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const scheduleViewportHeadingRef = useRef(scheduleViewportHeading);
   scheduleViewportHeadingRef.current = scheduleViewportHeading;
 
+  /**
+   * 视口锚点（模式切换定位用）。
+   *
+   * 与 computeViewportHeading 的区别：那个用 lineBlockAtHeight(scrollTop + 2) 取近似
+   * 顶部行（够目录高亮用）；这里要的是**真实屏幕偏移**——用 coordsAtPos 量出标题距
+   * 编辑器视口顶的像素距离，供对侧原样复现同一屏内位置。
+   * 判定规则（哪个标题算「当前」、同 level 第几个）与阅读态共用 src/lib/view-anchor.ts。
+   */
+  /**
+   * 视口锚点（模式切换定位用）。
+   *
+   * 量的是「**行块顶**」距编辑器视口顶的像素距离（`lineBlockAt` 走高度图），刻意不用
+   * `coordsAtPos`，两个理由都实测过：
+   *
+   *  1. **坐标系必须和阅读侧一致**。阅读侧量的是 `h.getBoundingClientRect().top`，即
+   *     标题元素的 border-box 顶；`coordsAtPos` 给的是**文本矩形顶**，与块顶差一个半行距
+   *     （大字号标题实测差 16px）→ 两模式之间恒定错位，怎么调都差这一点。
+   *  2. **视口外的行量不到坐标**。`coordsAtPos` 最终走 `DocView.coordsAt → tile.resolveBlock()`，
+   *     渲染范围外的位置被解析成 BlockGapWidget，直接 `return null`。而锚点按定义就包含
+   *     视口外的标题（第一个标题往往在视口上方很远）—— 旧实现 `if (!c) break` 会让整个
+   *     锚点丢失，调用方静默回落到像素比例，往返偏差上百像素（实测 112–190px）。
+   *
+   * 判定规则（哪个标题算「当前」、同 level 第几个）与阅读态共用 src/lib/view-anchor.ts。
+   */
+  const getViewportAnchor = useCallback((): ViewAnchor | null => {
+    const view = viewRef.current;
+    if (!view) return null;
+    const scrollTop = view.scrollDOM.scrollTop;
+    const list: { level: number; top: number }[] = [];
+    for (const h of scanHeadings(view.state, true)) {
+      list.push({ level: h.level, top: measuredLineTop(view, h.pos) ?? view.lineBlockAt(h.pos).top - scrollTop });
+    }
+    return pickNearestViewAnchor(list);
+  }, []);
+
+  /**
+   * 把第 nth 个 level 级标题放到编辑器视口顶下方 offsetPx 处（坐标系 = 行块顶，
+   * 与 getViewportAnchor 严格同一套，否则两方向各自差一个常量）。
+   *
+   * scrollTop 可以直接设定，所以「粗定位」一步就到位；真正需要跨帧的是**收敛**：
+   * widget（KaTeX / 图片 / 代码块）异步撑高会改高度图与上方占位高度，目标随之漂移。
+   * 每帧按同一坐标系量一次残差并消掉，收敛（<1px）或超时（8 帧 ≈ 130ms）即停。
+   */
+  const scrollHeadingToOffset = useCallback((level: number, nth: number, offsetPx: number): boolean => {
+    const view = viewRef.current;
+    if (!view) return false;
+    const hit = nthHeading(view.state, level, nth);
+    if (!hit) return false;
+    const scroller = view.scrollDOM;
+    const doc = view.state.doc;
+    cancelAnimationFrame(headingScrollRafRef.current);
+    let budget = 8;
+    const correct = (): void => {
+      headingScrollRafRef.current = 0;
+      if (viewRef.current !== view || !view.dom.isConnected || view.state.doc !== doc) return;
+      // 高度图只用于粗定位：WYSIWYG widget 的实测高度可能尚未写回高度图，
+      // 这时 lineBlockAt 给出的残差接近 0，但真正的标题 DOM 仍会差上千像素。
+      const measured = measuredLineTop(view, hit.pos);
+      const dy = (measured ?? view.lineBlockAt(hit.pos).top - scroller.scrollTop) - offsetPx;
+      if (measured !== null && Math.abs(dy) < 1) return;
+      if (Math.abs(dy) >= 1) scroller.scrollTop = Math.max(0, scroller.scrollTop + dy);
+      if (--budget > 0) headingScrollRafRef.current = requestAnimationFrame(correct);
+    };
+    // 先粗定位，再由单条 rAF 链收敛；不要同时启动两条互相抢滚动位置的链。
+    scroller.scrollTop = Math.max(0, view.lineBlockAt(hit.pos).top - offsetPx);
+    headingScrollRafRef.current = requestAnimationFrame(correct);
+    return true;
+  }, []);
+
   /** 当前源码中的 h2–h4 标题（文档顺序；目录实时刷新用） */
   const getHeadings = useCallback((): { level: number; text: string }[] => {
     const view = viewRef.current;
@@ -444,37 +560,51 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       .filter((h) => h.level >= 2 && h.level <= 4)
       .map((h) => ({ level: h.level, text: h.text }));
   }, []);
+  const refreshVisualLayout = useCallback((): void => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: setVisualSource.of(false) });
+    view.requestMeasure();
+  }, []);
 
   useImperativeHandle(
     ref,
     () => ({
       insertAtCursor,
+      insertBlock,
       jumpToLine,
       jumpToHeading,
       getHeadings,
       emitViewportHeading: emitViewportHeading,
       getViewHeading: computeViewportHeading,
+      getViewportAnchor,
+      scrollHeadingToOffset,
       getSelectionText,
       focus: focusEditor,
+      refreshVisualLayout,
     }),
-    [insertAtCursor, jumpToLine, jumpToHeading, getHeadings, emitViewportHeading, computeViewportHeading, getSelectionText, focusEditor],
+    [insertAtCursor, insertBlock, jumpToLine, jumpToHeading, getHeadings, emitViewportHeading, computeViewportHeading, getViewportAnchor, scrollHeadingToOffset, getSelectionText, focusEditor, refreshVisualLayout],
   );
 
   /** 上传图片并插入 Markdown */
   const handleImageFile = useCallback(
     async (file: File): Promise<void> => {
+      const target = columnTarget(viewRef.current);
+      if (!target) return;
       setUploading(true);
       try {
         const url = await uploadFile(file);
         const name = (file.name.replace(/\.[^.]+$/, '') || 'image').replace(/["\[\]]/g, '');
-        insertAtCursor(`![${name}](${url})\n`);
+        if (!target.dom.isConnected) throw new Error('原编辑位置已关闭，请重新插入图片');
+        const { from, to } = target.state.selection.main;
+        target.dispatch({ changes: { from, to, insert: `![${name}](${url})\n` }, userEvent: 'input.paste' });
       } catch (err) {
         window.alert(err instanceof Error ? err.message : '图片上传失败');
       } finally {
         setUploading(false);
       }
     },
-    [uploadFile, insertAtCursor],
+    [uploadFile],
   );
 
   /** 插入网络图片：输入 URL → Markdown */
@@ -518,7 +648,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       const normalized = text.replace(/[\uFF40\u02CB\u2035]/g, '`');
       if (normalized !== text) {
         event.preventDefault();
-        const view = viewRef.current;
+        const view = columnTarget(viewRef.current);
         if (view) {
           view.dispatch({
             changes: { from: view.state.selection.main.from, to: view.state.selection.main.to, insert: normalized },
@@ -561,6 +691,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const host = hostRef.current;
     if (!host) return;
     const ghostMode = ghost;
+    const visualExtensions = (preview: Extension): Extension[] => [preview, visualDirectivesExtension({
+      onSave: () => onSaveRef.current?.(),
+      onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
+    }), columnsExtension({
+      preview, onSave: () => onSaveRef.current?.(), onPaste: (event) => onPasteRef.current(event),
+      onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
+    })];
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -573,7 +710,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           ...(wysiwyg ? [] : [lineNumbers()]),
           drawSelection(),
           history(),
+          characterCount,
+          shortcutsCompartment.current.of(mdKeymap),
           keymap.of([
+            { key: 'Shift-F10', run: (target) => { if (!contextMenuRef.current) return false; contextMenuRef.current.openAtCaret(target); return true; } },
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
@@ -586,12 +726,14 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               },
             },
           ]),
-          shortcutsCompartment.current.of(mdKeymap),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+            if (update.docChanged) {
+              contentRef.current = update.state.doc.toString();
+              onChangeRef.current(contentRef.current);
+            }
             // 状态栏走 **DOM 直写**（不走 setState）：打字/移动光标时不触发 React 重渲染，
             // 避免长文输入时的额外渲染开销（这是"打字流畅度"的关键一处）。
-            writeStatsRef.current?.(update.state);
+            if (update.docChanged || update.selectionSet) writeStatsRef.current?.(update.state);
           }),
           // 视口标题跟踪（可选）：视口移动/几何变化 → rAF 节流回调当前小节
           ...(onViewportHeading
@@ -604,6 +746,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               ]
             : []),
           EditorView.domEventHandlers({
+            contextmenu: (event, target) => contextMenuRef.current?.open(event, target) ?? false,
+            focus: (event, view) => { if (event.target === view.contentDOM) setColumnTarget(view); return false; },
             paste: (event) => onPasteRef.current(event),
             beforeinput: (event, v) => {
               const e = event as InputEvent;
@@ -622,14 +766,20 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           markdown({ base: markdownLanguage, codeLanguages }),
           // 装饰扩展互斥：wysiwyg 模块动态加载后注入（见下方 import('./cm-wysiwyg')），
           // 写作台等非 wysiwyg 场景零 katex 负担；livePreview 为写作台轻量版
-          wysiwyg ? wysiwygCompartment.current.of([]) : livePreview(),
+          wysiwyg ? wysiwygCompartment.current.of(initialWysiwyg ? visualExtensions(initialWysiwyg.wysiwygPreview()) : []) : [livePreview(), columnsExtension({
+            preview: livePreview(), onSave: () => onSaveRef.current?.(), onPaste: (event) => onPasteRef.current(event),
+            onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
+          })],
           themeCompartment.current.of(buildTheme(editorIsDark(), ghostMode, autoHeight && ghostMode)),
         ],
       }),
     });
     viewRef.current = view;
-    // 通知宿主编辑器已就绪（撤下加载骨架覆盖层）
-    onReadyRef.current?.();
+    if (documentContextMenu) contextMenuRef.current = new MarkdownContextMenu();
+    writeStatsRef.current?.(view.state);
+    // 所见即所得扩展会异步注入；此时通知宿主会先展示源码，再突然切成
+    // Widget，原位编辑入口因此出现一次可见的布局跳动。
+    if (!wysiwyg || initialWysiwyg) onReadyRef.current?.();
 
     // 编辑器快捷键：拉取用户自定义（设置页可改），热替换键位；失败保持 Obsidian 默认
     void (async () => {
@@ -638,9 +788,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
         if (!res.ok) return;
         const data = (await res.json()) as { bindings?: Record<string, string> };
         if (!data.bindings) return;
-        viewRef.current?.dispatch({
-          effects: shortcutsCompartment.current.reconfigure(buildMdKeymap(data.bindings)),
-        });
+        if (viewRef.current === view) {
+          view.dispatch({ effects: shortcutsCompartment.current.reconfigure(buildMdKeymap(data.bindings)) });
+        }
       } catch {
         /* 离线/未登录：保持默认键位 */
       }
@@ -648,20 +798,23 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
     // 视口跟踪启用时：布局稳定后先 emit 一次初始小节
     if (onViewportHeading) {
-      requestAnimationFrame(() => emitViewportHeading());
+      scheduleViewportHeading();
     }
 
     // WYSIWYG：懒加载 cm-wysiwyg 模块（内含静态 import katex，构建进独立 chunk）→
     // reconfigure 注入装饰扩展，公式/列表/行内标记即刻渲染。勿改回静态 import 或
     // import('katex')：前者让写作台（非 wysiwyg）也拉 katex，后者在 vite dev 下挂起。
-    if (wysiwyg) {
+    if (wysiwyg && !initialWysiwyg) {
       void import('./cm-wysiwyg')
         .then((m) => {
-          if (!viewRef.current) return;
-          viewRef.current.dispatch({ effects: wysiwygCompartment.current.reconfigure(m.wysiwygPreview()) });
+          if (viewRef.current !== view) return;
+          view.dispatch({ effects: wysiwygCompartment.current.reconfigure(visualExtensions(m.wysiwygPreview())) });
+          onReadyRef.current?.();
         })
-        .catch(() => {
-          /* wysiwyg 模块加载失败：保持源码模式（最坏等价于无装饰，绝不白屏） */
+        .catch((error: unknown) => {
+          if (viewRef.current !== view) return;
+          if (onLoadErrorRef.current) onLoadErrorRef.current(error instanceof Error ? error : new Error(String(error)));
+          else onReadyRef.current?.();
         });
     }
 
@@ -681,8 +834,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     host.addEventListener('dragleave', onDragLeave);
     host.addEventListener('drop', onDrop);
 
+    let dark = editorIsDark();
     const observer = new MutationObserver(() => {
-      view.dispatch({ effects: themeCompartment.current.reconfigure(buildTheme(editorIsDark(), ghostMode)) });
+      const next = editorIsDark();
+      if (next === dark) return;
+      dark = next;
+      view.dispatch({ effects: themeCompartment.current.reconfigure(buildTheme(dark, ghostMode, autoHeight && ghostMode)) });
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
@@ -695,7 +852,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
         cancelAnimationFrame(vpRafRef.current);
         vpRafRef.current = 0;
       }
+      cancelAnimationFrame(headingScrollRafRef.current);
+      headingScrollRafRef.current = 0;
       view.destroy();
+      contextMenuRef.current?.destroy();
+      contextMenuRef.current = null;
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -705,16 +866,15 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const current = view.state.doc.toString();
-    if (current !== initialContent) {
-      view.dispatch({ changes: { from: 0, to: current.length, insert: initialContent } });
+    if (contentRef.current !== initialContent) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: initialContent } });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialContent]);
 
   return (
     <div className={`flex min-h-0 flex-col ${className ?? ''}`}>
-      {/* 工具条：图片上传 + 网络图片（ghost 就地编辑隐藏——图片走粘贴/拖拽） */}
+      {/* 格式化与图片工具条；原位编辑可用键盘快捷键和粘贴图片。 */}
       {!ghost && (
         <div className="shrink-0 border-b bg-background">
           {/* 第一行：格式化（点击即对选区生效，再点一次取消） */}

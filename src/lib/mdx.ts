@@ -35,12 +35,16 @@ export interface RenderOptions {
  *   （原先的 djb2 仅 32 bit，理论上两字符即可碰撞；长文档在百条缓存下概率约 2.3e-6）
  * - 关键约束：写入与失效必须走**同一套** key 计算，即 normalizeSource() + cacheKey()。
  *   早期版本失效用 djb2(raw source)、写入用 djb2(normalized)，两者永不相等 → 失效彻底 no-op。
- * - 容量 100 条；Map 按插入顺序，超限驱逐最旧
+ * - 容量 100 条、估算字符串体积 32 MiB；Map 按插入顺序，超限驱逐最旧
+ * - 相同源码的并发请求共享编译，失败后可重试
  * - 仅在无自定义 components 时生效（自定义组件会改变渲染结果）
  * - 单 Vercel Function 实例；冷启动清空
  * ======================================================= */
 const RENDER_CACHE_MAX = 100;
-const RENDER_CACHE = new Map<string, RenderedMdx>();
+const RENDER_CACHE_BYTES_MAX = 32 * 1024 * 1024;
+const RENDER_CACHE = new Map<string, { result: RenderedMdx; size: number }>();
+const RENDER_PENDING = new Map<string, Promise<RenderedMdx>>();
+let renderCacheBytes = 0;
 
 /** 渲染期 TOC 回传 token 的自增序号（每次渲染唯一，保证并发渲染互不干扰） */
 let TOC_TOKEN_SEQ = 0;
@@ -61,16 +65,26 @@ function cacheGet(key: string): RenderedMdx | null {
   // 命中后提升到队尾（LRU 语义）
   RENDER_CACHE.delete(key);
   RENDER_CACHE.set(key, hit);
-  return hit;
+  return hit.result;
+}
+
+function cacheDelete(key: string): void {
+  const entry = RENDER_CACHE.get(key);
+  if (entry) renderCacheBytes -= entry.size;
+  RENDER_CACHE.delete(key);
 }
 
 function cacheSet(key: string, value: RenderedMdx): void {
-  if (RENDER_CACHE.has(key)) RENDER_CACHE.delete(key);
-  RENDER_CACHE.set(key, value);
-  while (RENDER_CACHE.size > RENDER_CACHE_MAX) {
+  // 限制估算的字符串字节量，避免含大量公式的 HTML 仅靠条目数限制而撑爆内存。
+  const size = 2 * (value.html.length + JSON.stringify(value.toc).length + JSON.stringify(value.blockMap).length);
+  cacheDelete(key);
+  if (size > RENDER_CACHE_BYTES_MAX) return;
+  RENDER_CACHE.set(key, { result: value, size });
+  renderCacheBytes += size;
+  while (RENDER_CACHE.size > RENDER_CACHE_MAX || renderCacheBytes > RENDER_CACHE_BYTES_MAX) {
     const oldest = RENDER_CACHE.keys().next().value;
     if (oldest === undefined) break;
-    RENDER_CACHE.delete(oldest);
+    cacheDelete(oldest);
   }
 }
 
@@ -81,12 +95,16 @@ function cacheSet(key: string, value: RenderedMdx): void {
  * 保证这里的 key 与写入时的 key 一致（否则失效是 no-op）。
  */
 export function invalidateRenderCache(source: string): void {
-  RENDER_CACHE.delete(cacheKey(normalizeSource(source)));
+  const key = cacheKey(normalizeSource(source));
+  cacheDelete(key);
+  RENDER_PENDING.delete(key);
 }
 
 /** 清空全部渲染缓存（删除/批量操作等场景使用，LRU 也会自然驱逐） */
 export function clearRenderCache(): void {
   RENDER_CACHE.clear();
+  RENDER_PENDING.clear();
+  renderCacheBytes = 0;
 }
 
 /**
@@ -184,12 +202,14 @@ export function normalizeMathFences(source: string): string {
     //   即由 `=={.tip} … `255.255.255.192` … ==` 触发，`{` 裸露）。
     // 因此按行内代码边界分段：代码区原样，非代码区走正常安全化。
     // ⚠️ 仍不在此处拆 `$$`（保持原设计），但必须尊重跨行 display 数学状态：
-    //   处于公式块内的行只做 `<` 安全化，转义花括号会破坏 KaTeX 参数边界。
+    //   处于公式块内的行**整段原样透传**（不转义花括号、也不转义 `<`）——
+    //   花括号是 KaTeX 参数边界；`<` 转义成 `\<` 会被 KaTeX 当未定义控制词渲染成红字。
+    //   数学区内的 `<` 由 micromark 的 math tokenizer 原样收走，不经 JSX 解析，本就安全。
     if (t.includes('`')) {
       out.push(
         mapOutsideInlineCode(t, (chunk) =>
           inDisplayMath
-            ? encodeMathEq(escapeBareLt(chunk), true)
+            ? encodeMathEq(chunk, true)
             : encodeMathEq(escapeBareBraces(escapeBareLt(chunk))),
         ),
       );
@@ -249,23 +269,25 @@ export function normalizeMathFences(source: string): string {
     //    `:::collapse` 内「恰好一个列表」校验失败 → 整个折叠面板静默消失）。
     if (!sawFence) {
       // 行内无 `$$`：先看是否正处于 display 数学块内 —— 是则本行是公式内容，
-      // 只做 `<` 安全化，**绝不能转义花括号**（`\frac{n}{2}` 的 `{` 是 KaTeX 参数边界，
-      // 转义后变字面 `{n}{2}` 甚至 `Mismatch` 报错）。
-      // 仅在数学区**外**才走 escapeBareBraces 转义裸花括号（防 acorn 崩）。
+      // 整段原样透传：**既不转义花括号，也不转义 `<`**
+      // （`\frac{n}{2}` 的 `{` 是 KaTeX 参数边界，转义后变字面 `{n}{2}` 甚至 `Mismatch` 报错；
+      //  `<` 转义成 `\<` 会被 KaTeX 当未定义控制词渲染成红字）。
+      // 仅在数学区**外**才走 escapeBareBraces 转义裸花括号（防 acorn 崩）；
+      // 数学区外的 `<` 由 escapeBareLt 处理（其内部再按行内 `$…$` 区间让路）。
       // 两条分支都追加 encodeMathEq：数学区内的 `=` 换成哨兵，使 `==` 不再被
       // mark 正则识别（修复「公式里写荧光高亮 → 公式被静默污染」，见 MATH_EQ 注释）。
       out.push(
         inDisplayMath
-          ? encodeMathEq(escapeBareLt(t), true)
+          ? encodeMathEq(t, true)
           : encodeMathEq(escapeBareBraces(escapeBareLt(t))),
       );
     } else if (segs.length === 1 && segs[0]?.text === '$$' && /^\s*\$\$\s*$/.test(content)) {
       out.push(t); // 已是标准独立 fence 行：保持原样（含缩进/尾空格）
     } else {
       // 每段回添引用前缀（`$$` 段与文本段都要带，保持在同一 blockquote 内）。
-      // ⚠️ 数学段（isMath）只做 `<` 安全化、**不转义花括号** —— 该段会成为
+      // ⚠️ 数学段（isMath）整段原样透传、**既不转义花括号也不转义 `<`** —— 该段会成为
       //    display 数学内容，`\frac{n}{2}` 的 `{` 是 KaTeX 的参数边界；
-      //    转义后 KaTeX 会输出字面 `{n}{2}`（实测回归）。
+      //    转义后 KaTeX 会输出字面 `{n}{2}`（实测回归）；`<` 转义成 `\<` 则变红字。
       //    非数学段（isMath=false）的花括号落在数学区外 → 必须转义，
       //    否则暴露给 MDX 表达式解析 → acorn「Could not parse expression」。
       //    两段都追加 encodeMathEq（数学段整段、非数学段按其内部 `$…$` 判定）。
@@ -273,7 +295,7 @@ export function normalizeMathFences(source: string): string {
         out.push(
           prefix +
             (s.isMath
-              ? encodeMathEq(escapeBareLt(s.text), true)
+              ? encodeMathEq(s.text, true)
               : encodeMathEq(escapeBareBraces(escapeBareLt(s.text)))),
         );
       }
@@ -335,18 +357,112 @@ function splitQuotePrefix(line: string): { prefix: string; content: string } {
  * 但对**合法 JSX** 就完全不同了 —— 转义会让 `<Tex>` 变成可见文本 `<Tex>`，
  * 组件彻底失效。因此必须用白名单精确区分，不能一刀切。
  *
+ * ## 为什么公式区内不能转义（2026-09-23 修正，此前注释写反了）
+ *
+ * 旧注释声称「即便公式内出现 `<0` 被转义，KaTeX 也会把 `\<` 渲染为 `<`
+ * （LaTeX 中 `\<` 是合法转义），视觉无差异」——**这是错的**，实测（katex@0.18.5）：
+ *   - `\sin x<0`  → 正常渲染，黑色；
+ *   - `\sin x\<0` → `\<` 是 KaTeX 的**未定义控制词**，`throwOnError:false` 下
+ *     整段标红输出 `\<`（`.katex-error`）。
+ * 于是「$I_1<I_2<I_3$」这类比较式全部变成 `I_1\<I_2`，用户看到多出来的红色反斜杠
+ * （2026-09-23 用户报障：数一/数二真题的选项行、解析行大面积复现）。
+ * LaTeX 里确实有 `\<`，但 KaTeX 不实现它；`<` 在 KaTeX 数学模式下本来就是合法字符，
+ * 直接原样传入即可。
+ *
  * ## 边界
  *
  * - 已转义序列（`\<`）原样保留（幂等，重复调用不叠加反斜杠）；
  * - 行内代码（反引号）与围栏代码由调用方 `normalizeMathFences` 提前跳过
  *   （含反引号的行整体透传），本函数不重复判断；
- * - `$…$` 公式区内的 `<`（如 `$a < b$`）不受影响：公式走 math 节点，
- *   不经 JSX 解析；且成对 `$` 内的 `<` 后通常跟空格或字母，多被白名单放过。
- *   为实现简单与幂等，本函数不追踪 math 状态，仅按字符判据转义 —— 即便
- *   公式内出现 `<0` 被转义，KaTeX 也会把 `\<` 渲染为 `<`（LaTeX 中 `\<`
- *   是合法转义），视觉无差异。
+ * - **公式区内的 `<` 不转义**（见上）；display 数学（`$$…$$`）的区段由调用方
+ *   按已知的 `inDisplayMath` / `isMath` 状态直接跳过本函数；
+ * - 行内 `$…$` 的区间由 `findInlineMathRanges` 判定，且**只在区间闭合时才认定是公式**。
  */
+/**
+ * 扫描单行内的**行内数学区间** `$…$` / `$$…$$`，返回 `[start, end)` 列表
+ * （start 指向开区间 `$`，end 指向闭区间 `$` 之后一位）。
+ *
+ * 存在的唯一理由：`escapeBareLt` 必须知道「这个 `<` 是不是落在公式里」。
+ * 公式里的 `<` 要原样交给 KaTeX —— 转义成 `\<` 会渲染成红字（见 escapeBareLt 注释）。
+ *
+ * ## 配对规则来源（不凭记忆，照抄实现）
+ *
+ * `micromark-extension-math@3.1.0/lib/math-text.js`：
+ *   - `sequenceOpen` 吃掉整段连续 `$`，开区间长度 N = 该串长度；
+ *   - 闭合要求**等长**的 `$` 串（`size === sizeOpen`）；不等长的串降级为公式内容
+ *     （`token.type = 'mathTextData'`）后继续找；
+ *   - `previous()` 要求开区间 `$` 前面不是 `$` —— 吃掉整串后天然满足；
+ *   - `\$` 是 character-escape，不开区间。
+ * 故「找到下一个等长 `$` 串」即可精确复刻配对结果。
+ *
+ * ## 保守取向（fail-safe，勿放宽）
+ *
+ * **只在区间成功闭合时才认定是公式**。落单的 `$`（如「价格 $5 到 $10」）不构成区间，
+ * 该处仍按普通文本转义 `<`。这样最坏情况只是「公式里的 `<` 被多转义一次」
+ * （即今天这个显示缺陷），而绝不会反过来把裸 `<` 漏给 JSX 解析器
+ * —— 那会让整篇 evaluate 失败（/render 500）。
+ *
+ * @param line 单行文本（调用方已排除代码围栏与行内代码行）
+ * @returns 区间列表，按 start 升序、互不重叠
+ */
+function findInlineMathRanges(line: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+    // `\x` 转义序列整体跳过：`\$` 不参与配对，`\\` 也不会误判成转义下一个 `$`
+    if (ch === '\\' && i + 1 < line.length) {
+      i += 2;
+      continue;
+    }
+    if (ch !== '$') {
+      i += 1;
+      continue;
+    }
+    // 量出开区间 `$` 串的长度
+    let openEnd = i;
+    while (line[openEnd] === '$') openEnd += 1;
+    const size = openEnd - i;
+    // 找下一个「等长」的 `$` 串作为闭区间
+    let j = openEnd;
+    let closeAt = -1;
+    while (j < line.length) {
+      if (line[j] === '\\') {
+        j += 2;
+        continue;
+      }
+      if (line[j] !== '$') {
+        j += 1;
+        continue;
+      }
+      let runEnd = j;
+      while (line[runEnd] === '$') runEnd += 1;
+      if (runEnd - j === size) {
+        closeAt = j;
+        break;
+      }
+      j = runEnd;
+    }
+    if (closeAt < 0) {
+      // 未闭合 → 不是公式。跳过整段开区间，继续往后找（后面的 `$` 仍可能与更后的配对）
+      i = openEnd;
+      continue;
+    }
+    ranges.push([i, closeAt + size]);
+    i = closeAt + size;
+  }
+  return ranges;
+}
+
 function escapeBareLt(line: string): string {
+  const mathRanges = findInlineMathRanges(line);
+  // 单调游标：逐字符推进，避免每个字符都做一次区间查找
+  let rangeIdx = 0;
+  const inMathAt = (idx: number): boolean => {
+    while (rangeIdx < mathRanges.length && mathRanges[rangeIdx]![1] <= idx) rangeIdx += 1;
+    const cur = mathRanges[rangeIdx];
+    return cur !== undefined && idx >= cur[0] && idx < cur[1];
+  };
   let out = '';
   for (let i = 0; i < line.length; ) {
     const ch = line[i];
@@ -357,6 +473,12 @@ function escapeBareLt(line: string): string {
       continue;
     }
     if (ch === '<') {
+      // 公式区内的 `<` 必须原样交给 KaTeX（详见本函数注释「为什么公式区内不能转义」）
+      if (inMathAt(i)) {
+        out += ch;
+        i += 1;
+        continue;
+      }
       const next = line[i + 1] ?? '';
       // 闭合标签 `</Name>` 与闭合 fragment `</>`：需看 `/` 之后的字符，
       // 否则会把 `</Tex>` 的 `/` 误判为裸字符而转义成 `<\</Tex>`（破坏标签）。
@@ -1426,45 +1548,54 @@ export function normalizeSource(source: string): string {
  * @returns { html, toc, blockMap }
  */
 export async function renderMdx(source: string, options: RenderOptions = {}): Promise<RenderedMdx> {
-  const merged: MDXComponentMap = { ...mdxComponents, ...(options.components ?? {}) };
-  // 预处理细节见 normalizeSource() 注释
   const normalized = normalizeSource(source);
-  // 仅缓存默认组件映射场景；自定义 components 会改变渲染结果。
-  // key 只算一次，查与写复用同一个，避免两次计算不一致导致缓存永不命中。
-  const cacheable = !options.components;
-  const key = cacheable ? cacheKey(normalized) : '';
-  if (cacheable) {
-    const hit = cacheGet(key);
-    if (hit) return hit;
+  const merged: MDXComponentMap = { ...mdxComponents, ...(options.components ?? {}) };
+  if (options.components) return compileMdx(normalized, merged);
+  const key = cacheKey(normalized);
+  const hit = cacheGet(key);
+  if (hit) return hit;
+  const pending = RENDER_PENDING.get(key);
+  if (pending) return pending;
+
+  // 同一源码的并发请求共享编译；失效期间完成的旧任务不能重新填回缓存。
+  const task = compileMdx(normalized, merged).then((result) => {
+    if (RENDER_PENDING.get(key) === task) cacheSet(key, result);
+    return result;
+  }).finally(() => {
+    if (RENDER_PENDING.get(key) === task) RENDER_PENDING.delete(key);
+  });
+  RENDER_PENDING.set(key, task);
+  return task;
+}
+
+async function compileMdx(normalized: string, merged: MDXComponentMap): Promise<RenderedMdx> {
+  const tocToken = 'toc-' + (TOC_TOKEN_SEQ += 1);
+  try {
+    const { default: Content } = await evaluate(normalized, {
+      jsx,
+      jsxs,
+      Fragment,
+      remarkPlugins,
+      // token 交给 rehypeTocCollector：主流水线顺手收集目录（零额外成本），
+      // 免去对同一份源码再跑一遍完整管线（实测 182KB 文档省 5.6s）
+      rehypePlugins: buildRehypePlugins(tocToken),
+      development: false,
+      useMDXComponents: (provided: MDXComponentMap | undefined) => ({
+        ...mdxComponents,
+        ...(provided ?? {}),
+      }),
+    } as Parameters<typeof evaluate>[1]);
+
+    const html = renderToString(createElement(Content as ComponentType<{ components?: MDXComponentMap }>, { components: merged }));
+    // 目录：优先取渲染期回传；仅在回传缺失（异常路径）时才跑独立管线兜底
+    const toc = takeCollectedToc(tocToken) ?? (await extractToc(normalized));
+    const blockMap = collectBlockMapFromHtml(html);
+
+    return { html, toc, blockMap };
+  } finally {
+    // 编译或 React 渲染失败时也释放插件寄存的目录，失败任务允许下次重试。
+    takeCollectedToc(tocToken);
   }
-
-  // 每次渲染唯一的 TOC 回传 token（模块级单调递增；并发渲染互不干扰）
-  const tocToken = `toc-${(TOC_TOKEN_SEQ += 1)}`;
-  const { default: Content } = await evaluate(normalized, {
-    jsx,
-    jsxs,
-    Fragment,
-    remarkPlugins,
-    // token 交给 rehypeTocCollector：主流水线顺手收集目录（零额外成本），
-    // 免去对同一份源码再跑一遍完整管线（实测 182KB 文档省 5.6s）
-    rehypePlugins: buildRehypePlugins(tocToken),
-    development: false,
-    useMDXComponents: (provided: MDXComponentMap | undefined) => ({
-      ...mdxComponents,
-      ...(provided ?? {}),
-    }),
-  } as Parameters<typeof evaluate>[1]);
-
-  const html = renderToString(createElement(Content as ComponentType<{ components?: MDXComponentMap }>, { components: merged }));
-  // 目录：优先取渲染期回传；仅在回传缺失（异常路径）时才跑独立管线兜底
-  const toc = takeCollectedToc(tocToken) ?? (await extractToc(normalized));
-  const blockMap = collectBlockMapFromHtml(html);
-
-  const result: RenderedMdx = { html, toc, blockMap };
-  if (cacheable) {
-    cacheSet(key, result);
-  }
-  return result;
 }
 
 export { mdxComponents };

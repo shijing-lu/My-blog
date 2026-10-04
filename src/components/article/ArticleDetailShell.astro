@@ -65,11 +65,11 @@ const { domain, authed, treeLabel, treeHtml, title, articleHtml = '', tocHtml, t
       </main>
     </div>
 
-    <aside id="doc-toc-aside" class="hidden lg:block">
-      <div id="doc-toc-panel" class="fixed top-20 right-0 z-30 flex max-h-[calc(100vh-6rem)] w-[340px] flex-col border-l border-y border-border bg-card/95 shadow-lg backdrop-blur">
+    <aside id="doc-toc-aside" data-collapsed="true" aria-label="当前文章目录">
+      <div id="doc-toc-panel" tabindex="-1" class="fixed right-0 z-30 flex flex-col border-l border-y border-border bg-card/95 shadow-lg backdrop-blur">
         <div class="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
           <p data-toc-label class="font-pixel text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">目录 / TOC</p>
-          <button id="doc-toc-toggle" type="button" title="收起目录" aria-label="收起目录" aria-controls="doc-toc-list" aria-expanded="true" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-primary">
+          <button id="doc-toc-toggle" type="button" title="收起目录" aria-label="收起目录" aria-controls="doc-toc-panel" aria-expanded="false" class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:border-primary/50 hover:text-primary">
             <svg data-toc-icon-collapse class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
             <svg data-toc-icon-expand class="hidden h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
           </button>
@@ -78,10 +78,10 @@ const { domain, authed, treeLabel, treeHtml, title, articleHtml = '', tocHtml, t
           <div id="doc-toc-list" data-toc-label class="flex flex-col gap-1.5" set:html={tocState === 'ready' && tocHtml ? tocHtml : `<p class="mt-2 text-xs text-muted-foreground">${tocState === 'loading' ? '正在加载目录…' : '无目录'}</p>`} />
         </div>
       </div>
-      <button id="doc-toc-fab" type="button" title="展开目录" aria-label="展开目录" aria-controls="doc-toc-list" aria-expanded="false" class="fixed top-20 right-3 z-30 hidden h-9 w-9 items-center justify-center rounded-full border border-border bg-card/95 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:border-primary/50 hover:text-primary">
-        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
+      <button id="doc-toc-fab" type="button" title="展开当前文章目录" aria-label="展开当前文章目录" aria-controls="doc-toc-panel" aria-expanded="false" class="fixed right-3 z-30 hidden h-11 w-11 items-center justify-center rounded-full border border-border bg-card/95 text-muted-foreground shadow-lg backdrop-blur transition-colors hover:border-primary/50 hover:text-primary">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12M3 6h.01M3 12h.01M3 18h.01" /></svg>
       </button>
     </aside>
-    <div id="doc-toc-overlay" class="fixed inset-0 z-20 hidden bg-black/30 backdrop-blur-[1px]" aria-hidden="true" />
+    <div id="doc-toc-overlay" class="fixed inset-x-0 bottom-0 z-20 hidden bg-black/30 backdrop-blur-[1px]" aria-hidden="true" />
   </div>
 </section>

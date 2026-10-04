@@ -171,9 +171,9 @@ describe('renderDocTree', () => {
     expect(html).not.toContain('bg-primary/10');
   });
 
-  it('登录态渲染管理按钮与 draggable', () => {
+  it('登录态渲染树菜单与 draggable', () => {
     const html = renderDocTree(buildDocTree([node({ id: 'art1' })]), opts);
-    for (const sel of ['data-node-edit', 'data-node-del', 'data-node-move']) {
+    for (const sel of ['data-tree-menu-trigger', 'data-tree-node-id="art1"', 'data-tree-node-kind="article"']) {
       expect(html).toContain(sel);
     }
     expect(html).toContain('draggable="true"');
@@ -191,12 +191,13 @@ describe('renderDocTree', () => {
     expect(html).not.toContain('data-doc-folder-target');
   });
 
-  it('目录行渲染 ＋文 / ＋目，文章行不渲染', () => {
+  it('目录和文章菜单保留节点类型，目录保留移入落点', () => {
     const folderHtml = renderDocTree(buildDocTree([node({ id: 'f', kind: 'folder' })]), opts);
-    expect(folderHtml).toContain('data-node-add-article="f"');
-    expect(folderHtml).toContain('data-node-add-folder="f"');
+    expect(folderHtml).toContain('data-tree-node-kind="folder"');
+    expect(folderHtml).toContain('data-doc-folder-target="f"');
     const artHtml = renderDocTree(buildDocTree([node({ id: 'art1' })]), opts);
-    expect(artHtml).not.toContain('data-node-add-article');
+    expect(artHtml).toContain('data-tree-node-kind="article"');
+    expect(artHtml).not.toContain('data-doc-folder-target');
   });
 
   it('标题被转义（防注入）', () => {
@@ -208,9 +209,9 @@ describe('renderDocTree', () => {
     expect(html).toContain('&lt;img');
   });
 
-  it('data-node-name 属性里的引号被转义（否则属性会被截断）', () => {
+  it('data-tree-node-title 属性里的引号被转义（否则属性会被截断）', () => {
     const html = renderDocTree(buildDocTree([node({ id: 'x', title: 'a"b' })]), opts);
-    expect(html).toContain('data-node-name="a&quot;b"');
+    expect(html).toContain('data-tree-node-title="a&quot;b"');
   });
 
   it('嵌套层级渲染出缩进容器', () => {

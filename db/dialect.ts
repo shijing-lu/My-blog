@@ -41,7 +41,7 @@ const isDesktopMode = process.env.DESKTOP_MODE === '1';
 export function readDatabaseUrl(): string {
   const fromEnv = process.env.DATABASE_URL?.trim();
   const fromFile = readEnvFileValue('DATABASE_URL')?.trim();
-  return (isDesktopMode ? fromEnv || fromFile : fromFile || fromEnv) || 'file:./data/blog.db';
+  return (isDesktopMode ? fromEnv : fromFile || fromEnv) || 'file:./data/blog.db';
 }
 
 /**
@@ -51,7 +51,7 @@ export function readDatabaseUrl(): string {
 export function readFallbackDatabaseUrl(): string {
   const fromEnv = process.env.DATABASE_URL_FALLBACK?.trim();
   const fromFile = readEnvFileValue('DATABASE_URL_FALLBACK')?.trim();
-  return (isDesktopMode ? fromEnv || fromFile : fromFile || fromEnv) || '';
+  return (isDesktopMode ? fromEnv : fromFile || fromEnv) || '';
 }
 
 /** 是否为 PostgreSQL（生产） */

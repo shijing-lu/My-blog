@@ -1,0 +1,126 @@
+/*
+ * 全站动效基础令牌。这个文件保持纯 CSS，不引入 JS 或运行时依赖。
+ * 普通控件优先 transform / opacity；需要新增较重特效时必须测量实际设备。
+ */
+:root {
+  --motion-duration-instant: 90ms;
+  --motion-duration-fast: 160ms;
+  --motion-duration-base: 240ms;
+  --motion-duration-slow: 360ms;
+  --motion-duration-emphasis: 520ms;
+
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  --motion-distance-1: 4px;
+  --motion-distance-2: 8px;
+  --motion-distance-3: 16px;
+  /* 兼容现有路由过渡引用；新代码统一用 motion 前缀。 */
+  --dur-fast: var(--motion-duration-fast);
+  --dur-base: var(--motion-duration-base);
+  --ease-out-soft: var(--motion-ease-standard);
+}
+
+/* The theme state is committed inside a same-document View Transition. */
+html[data-theme-transition='active']::view-transition-old(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html[data-theme-transition='active']::view-transition-new(root) {
+  animation: motion-theme-reveal var(--motion-duration-emphasis) var(--motion-ease-standard) both;
+  mix-blend-mode: normal;
+}
+
+/* 常驻 header/footer 一起随 root 揭幕；离开主题转场后 Astro 名称自动恢复。 */
+html[data-theme-transition='active'] * { view-transition-name: none !important; }
+html[data-theme-transition='active']::view-transition { pointer-events: none; }
+html[data-theme-transition='active']::view-transition-image-pair(root) { isolation: isolate; }
+
+/* 不补间尺寸/阴影/焦点环。独立 scale 不覆盖工具栏、灯箱按钮原有定位 transform。 */
+body :where(button, [role='button'], input, textarea, select) {
+  transition-property: background-color, border-color, color, opacity, scale;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease-standard);
+}
+@media (prefers-reduced-motion: no-preference) {
+  body :is(button, [role='button']):not(:disabled):not([aria-disabled='true']):not([data-motion='none']):active {
+    scale: 0.98;
+  }
+}
+/* 编辑器内按键和拖拽控件保持直接响应，文字/光标永远不做入场。 */
+.cm-editor button { scale: none !important; }
+
+dialog[open], .motion-panel { animation: motion-panel-in var(--motion-duration-base) var(--motion-ease-enter); }
+dialog::backdrop { animation: motion-fade-in var(--motion-duration-fast) var(--motion-ease-enter); }
+@keyframes motion-panel-in { from { opacity: 0; translate: 0 4px; } to { opacity: 1; translate: 0 0; } }
+@keyframes motion-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes motion-fade-out { to { opacity: 0; } }
+/* 原生 close() 立即恢复焦点；浏览器支持离散过渡时负责保留退出画面。 */
+@supports (transition-behavior: allow-discrete) {
+  dialog {
+    opacity: 0;
+    transition: opacity var(--motion-duration-fast) var(--motion-ease-standard),
+      display var(--motion-duration-fast) allow-discrete, overlay var(--motion-duration-fast) allow-discrete;
+  }
+  dialog[open] { opacity: 1; animation: none; }
+  @starting-style { dialog[open] { opacity: 0; } }
+}
+
+body .byqx-toast {
+  max-width: min(32rem, calc(100vw - 2rem));
+  overflow-wrap: anywhere;
+  animation: motion-panel-in var(--motion-duration-base) var(--motion-ease-enter);
+}
+body .byqx-toast--out { animation: motion-fade-out var(--motion-duration-fast) var(--motion-ease-exit) forwards; }
+body .byqx-toast-host { bottom: max(28px, env(safe-area-inset-bottom)); }
+body :is([data-slot='dialog-content'], [data-slot='dialog-overlay'], [data-slot='select-content'],
+  [data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content']) {
+  animation-duration: var(--motion-duration-fast);
+  animation-timing-function: var(--motion-ease-standard);
+}
+[data-slot='tabs-content'][data-state='active'] { animation: motion-fade-in var(--motion-duration-fast) var(--motion-ease-enter); }
+.motion-progress { height: 3px; border-radius: 2px; background: var(--muted); overflow: hidden; }
+.motion-progress > span {
+  display: block; height: 100%; background: var(--primary); transform-origin: left;
+  transform: scaleX(var(--motion-progress, 0));
+  transition: transform var(--motion-duration-base) var(--motion-ease-standard);
+}
+dialog.lightbox-overlay {
+  width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; border: 0;
+  backdrop-filter: none;
+}
+dialog.lightbox-overlay:not([open]) { display: none; }
+dialog.lightbox-overlay::backdrop { background: transparent; }
+.photo-wrap { background: var(--muted); }
+body [role='alert']:not(:empty) { animation: motion-fade-in var(--motion-duration-fast) var(--motion-ease-enter); }
+
+@keyframes motion-theme-reveal {
+  from {
+    clip-path: circle(0 at var(--motion-origin-x, 50vw) var(--motion-origin-y, 50vh));
+  }
+  to {
+    clip-path: circle(var(--motion-origin-radius, 150vmax) at var(--motion-origin-x, 50vw) var(--motion-origin-y, 50vh));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+  .ghost-text, .stardust, .scroll-cue { animation: none !important; }
+}

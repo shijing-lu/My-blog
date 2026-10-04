@@ -33,6 +33,30 @@ export interface ImageBedConfig {
 /** 仓库内目录前缀（固定值）：路径 <PREFIX>/<yyyy>/<mm>/<hash10>.<ext>，与站点 URL /img/... 1:1 映射 */
 export const IMAGE_BED_PREFIX = 'img';
 
+/**
+ * 图床图片的 **jsDelivr CDN 直链**（站内反代 `/img/<path>` 的替代输出）。
+ *
+ * ## 为什么需要（2026-09-23 实测确认）
+ * 站内反代 `/img/<path>`（`src/pages/img/[...path].ts`）由**服务端回源
+ * `raw.githubusercontent.com`** 取图 —— 线上站靠 Vercel 海外节点回源，稳定；
+ * 但**桌面端在本机直连**，该域名在国内被 DNS 污染（实测 fetch 超时 8s 失败，
+ * 而 jsDelivr 可达 676ms）→ 表现为「图床上传成功、图片却不显示」。
+ * 因此：**桌面端**（`DESKTOP_MODE=1`）把 `/img/...` 换成 jsDelivr 直链；
+ * 线上站保持走站内反代（边缘缓存已优化，不改变既有行为）。
+ *
+ * @param config 图床配置（owner/repo/branch）
+ * @param sitePath 站内路径，形如 `/img/2026/09/ab12cd34ef.jpg`
+ * @returns CDN 直链；配置缺失或非 `/img/` 路径时返回 null（调用方回落原逻辑）
+ */
+export function imageBedCdnUrl(config: ImageBedConfig, sitePath: string): string | null {
+  if (!config.owner || !config.repo) return null;
+  if (!sitePath.startsWith(`/${IMAGE_BED_PREFIX}/`)) return null;
+  const rel = sitePath.slice(IMAGE_BED_PREFIX.length + 2); // 去掉 "/img/"
+  // 分支名可能含斜杠（如 release/v1）→ 编码为单一路径段，避免被 jsDelivr 误解析
+  const branch = encodeURIComponent(config.branch || 'main');
+  return `https://cdn.jsdelivr.net/gh/${config.owner}/${config.repo}@${branch}/${IMAGE_BED_PREFIX}/${rel}`;
+}
+
 /** 未配置时的默认值（图床关闭） */
 export const DEFAULT_IMAGE_BED: ImageBedConfig = {
   enabled: false,

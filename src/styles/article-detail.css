@@ -5,6 +5,17 @@
   /* 左栏折叠态：只留按钮条 */
   #doc-3col[data-ltoc-collapsed='true'] { --toc-lw: 44px; }
 
+  #doc-toc-aside { --article-toc-top: 5rem; }
+  #doc-toc-panel, #doc-toc-fab { top: var(--article-toc-top); }
+  #doc-toc-panel {
+    z-index: 52;
+    width: min(340px, calc(100vw - 24px));
+    max-height: calc(100vh - var(--article-toc-top) - 1rem);
+    max-height: calc(100dvh - var(--article-toc-top) - max(1rem, env(safe-area-inset-bottom)));
+  }
+  #doc-toc-overlay { top: var(--article-toc-overlay-top, 3.5rem); z-index: 51; }
+  #doc-toc-fab { right: max(.75rem, env(safe-area-inset-right)); z-index: 51; }
+
   /* —— TOC 悬浮面板三态（状态属性挂在 #doc-toc-aside 上，由 setupTocRail 维护） ——
      ① data-collapsed='false' + data-auto='false'（≥1320px）：悬浮展开，贴视口右缘不遮正文
      ② data-collapsed='true'：收起为贴右浮钮（fab）
@@ -12,8 +23,8 @@
   #doc-toc-aside[data-collapsed='true'] #doc-toc-panel { display: none; }
   #doc-toc-aside[data-collapsed='true'] #doc-toc-fab { display: inline-flex; }
   #doc-toc-aside[data-collapsed='false'][data-auto='true'] ~ #doc-toc-overlay { display: block; }
-  /* 浮层模式下面板抬升层级（高于遮罩 z-20） */
-  #doc-toc-aside[data-auto='true'][data-collapsed='false'] #doc-toc-panel { z-index: 40; }
+  /* 目录在快捷工具栏 z-50 与遮罩之上，顶部网站导航不被遮罩覆盖。 */
+  #doc-toc-aside[data-auto='true'][data-collapsed='false'] #doc-toc-panel { z-index: 52; }
 
   /* 左栏折叠动画：inner 向左滑出（纯合成器动画），列宽由 data-* 瞬切（单次 reflow）。
      旧实现把 opacity 过渡挂在 #doc-3col 上导致正文整段淡出 + 巨型合成层卡顿，已废弃。 */
@@ -177,13 +188,18 @@
   /* ghost 编辑器首行/末尾对齐阅读正文间距 */
   .doc-ie-view .cm-content { padding-top: 0.375rem; }
 
+  /* 编辑模式由鼠标滚轮滚动页面或 CodeMirror；隐藏窗口最右侧的原生滚动条。
+     留出原滚动条宽度，避免隐藏时正文变宽、换行导致位置跳动。 */
+  html:has(#doc-3col[data-editing='true']) { scrollbar-width: none; }
+  html:has(#doc-3col[data-editing='true'])::-webkit-scrollbar { display: none; }
+  html:has(#doc-3col[data-editing='true']) body { padding-right: var(--doc-edit-scrollbar-gutter, 0px); }
+
   /* 标题旁入口按钮：编辑态 →「完成」高亮（primary 色） */
   #doc-inline-edit.doc-entry-active {
     border-color: var(--color-primary);
     color: var(--color-primary);
     background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
-
   main h1[data-inline-title-editing='true'] {
     min-width: 4ch;
     overflow-wrap: anywhere;

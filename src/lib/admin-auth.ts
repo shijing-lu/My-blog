@@ -29,7 +29,7 @@ import { serverEnv, isProd } from './env';
 import { saveProfile } from './profile';
 import {
   signPayload,
-  verifySignedPayload,
+  readVerifiedPayload,
   verifyRequest,
   getCurrentUserId,
   isAllowedGitHubLogin,
@@ -79,35 +79,29 @@ export const DEFAULT_ADMIN_PERMISSIONS: string[] = [];
 /** 顶级管理员会话 Cookie 名 */
 export const TOP_ADMIN_SESSION_COOKIE = 'top_admin_session';
 
-/** 站主密码：优先环境变量 TOP_ADMIN_PASSWORD，未配置回落到内置站主密码 */
+/** 独立站主密码；未配置时禁用该登录通道，不使用任何内置默认密码。 */
 export function topAdminPassword(): string {
-  return serverEnv('TOP_ADMIN_PASSWORD') || '2640477581a';
+  return serverEnv('TOP_ADMIN_PASSWORD');
 }
 
 /** 站主密码比对（timing-safe，与 auth.checkPassword 同模式） */
 export function checkTopPassword(input: string): boolean {
+  const expected = topAdminPassword();
+  if (!expected || !input) return false;
   const a = createHash('sha256').update(input).digest();
-  const b = createHash('sha256').update(topAdminPassword()).digest();
+  const b = createHash('sha256').update(expected).digest();
   return timingSafeEqual(a, b);
 }
 
 /** 签发顶级管理员会话令牌（复用 auth 的 HMAC 签名链路） */
 export function signTopSession(): string {
-  return signPayload({ role: 'top', exp: Date.now() + SESSION_TTL_MS });
+  return signPayload({ purpose: 'top-admin-session', role: 'top', exp: Date.now() + SESSION_TTL_MS });
 }
 
 /** 校验顶级管理员会话令牌 */
 export function verifyTopSessionToken(token: string | undefined | null): boolean {
-  if (!token) return false;
-  if (!verifySignedPayload(token)) return false;
-  try {
-    const [payload] = token.split('.');
-    if (!payload) return false;
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { role?: unknown };
-    return data.role === 'top';
-  } catch {
-    return false;
-  }
+  const payload = readVerifiedPayload(token);
+  return payload?.purpose === 'top-admin-session' && payload.role === 'top';
 }
 
 /** 设置顶级管理员会话 Cookie */

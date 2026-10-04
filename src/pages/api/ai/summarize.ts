@@ -16,7 +16,10 @@ import { isTopAdmin } from '@/lib/admin-auth';
 import { badJson, forbidden, json, readJson } from '@/lib/api';
 import { buildChatUrl, getAiConfig, isAiReady } from '@/lib/ai-config';
 import { ensureAiTables } from '@/lib/ai-store';
+import { buildSummaryTranscript } from '@/lib/ai-chat-context';
 import {
+  markSummarized,
+  readConversation,
   insertMemories,
   listConversationMessages,
   listMemories,
@@ -50,7 +53,7 @@ const SUMMARY_PROMPT = [
 ].join('\n');
 
 /** 参与摘要的最大消息条数（够用即可，控制成本） */
-const MAX_TRANSCRIPT_MESSAGES = 60;
+const summarizing = new Set<string>();
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   if (!(await isTopAdmin(cookies))) return forbidden('记忆功能仅对站主开放');
@@ -64,16 +67,19 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   }
   const conversationId = body.conversationId.trim();
 
+  if (summarizing.has(conversationId)) return json({ ok: true, added: 0, promoted: 0, note: '摘要处理中' });
+  summarizing.add(conversationId);
+  try {
   // 表可能尚未建好（首次对话刚建）：失败则本次不摘要，不抛错
   if (!(await ensureAiTables())) return json({ ok: false, error: '数据层不可用' }, 503);
 
+  const snapshot = await readConversation(conversationId);
+  if (!snapshot) return json({ ok: false, error: '会话不可用' }, 404);
+  if (snapshot.summarized) return json({ ok: true, added: 0, promoted: 0, note: '会话未变化，无需重复摘要' });
   const messages = await listConversationMessages(conversationId);
   if (messages.length < 2) return json({ ok: true, added: 0, promoted: 0, note: '会话太短，无需摘要' });
 
-  const transcript = messages
-    .slice(-MAX_TRANSCRIPT_MESSAGES)
-    .map((m) => `${m.role === 'user' ? '用户' : '小卿'}：${m.content.slice(0, 1500)}`)
-    .join('\n');
+  const transcript = buildSummaryTranscript(messages);
 
   let raw = '';
   try {
@@ -104,12 +110,20 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   }
 
   const drafts = parseSummaryJson(raw);
-  if (drafts.length === 0) return json({ ok: true, added: 0, promoted: 0, note: '本次未提取到新信息' });
+  if (drafts.length === 0) {
+    // 空摘要也是成功结果；新消息会清除此标记，失败请求则仍可重试。
+    await markSummarized(conversationId, snapshot.messageCount);
+    return json({ ok: true, added: 0, promoted: 0, note: '本次未提取到新信息' });
+  }
 
   const existing = await listMemories();
   const { fresh, dup } = mergeDrafts(existing, drafts);
   const added = await insertMemories(fresh, conversationId);
   await promoteMemories(dup);
+  await markSummarized(conversationId, snapshot.messageCount);
 
   return json({ ok: true, added, promoted: dup.length, total: existing.length + added });
+  } finally {
+    summarizing.delete(conversationId);
+  }
 };

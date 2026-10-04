@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/motion';
 /**
  * Callout（阅读模式引用块）复制按钮 —— 原生 JS，无依赖
  *
@@ -40,6 +41,7 @@ function setIcon(btn: HTMLButtonElement, name: 'copy' | 'check' | 'error'): void
 function flash(btn: HTMLButtonElement): void {
   setIcon(btn, 'check');
   btn.classList.add('copied');
+  void feedback(btn.querySelector('[data-icon=check]'), 'success');
   scheduleReset(btn, () => {
     setIcon(btn, 'copy');
     btn.classList.remove('copied');

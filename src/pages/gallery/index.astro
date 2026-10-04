@@ -144,6 +144,7 @@ const photoTags = await getPhotoTags();
                                 class="photo-wrap overflow-hidden"
                                 style={p.width && p.height ? `aspect-ratio: ${p.width} / ${p.height}` : undefined}
                                 data-lightbox
+                                tabindex="0" role="button" aria-label={p.title ? `查看大图：${p.title}` : '查看大图'}
                                 data-caption={p.title}
                               >
                                 <img
@@ -199,6 +200,7 @@ const photoTags = await getPhotoTags();
 </BaseLayout>
 
 <script>
+  import { revealWithin } from '@/lib/motion';
   /** 相册交互：瀑布流列分配 / 加载更多 / 时间线定位（原生 JS，document 委托兼容 View Transitions） */
   const PAGE_SIZE = 30;
   /** 首屏已渲染照片数 / 总数（init 时从 #masonry 的 data-* 读取） */
@@ -295,7 +297,7 @@ const photoTags = await getPhotoTags();
     const date = p.takenAt.slice(0, 10);
     const ratioStyle = p.width && p.height ? `style="aspect-ratio: ${p.width} / ${p.height}"` : '';
     return `<figure class="photo-card group relative overflow-hidden" data-date="${esc(date)}" data-photo-id="${esc(p.id)}">
-      <div class="photo-wrap overflow-hidden" ${ratioStyle} data-lightbox data-caption="${esc(p.title)}">
+      <div class="photo-wrap overflow-hidden" ${ratioStyle} data-lightbox data-caption="${esc(p.title)}" tabindex="0" role="button" aria-label="查看大图">
         <img src="${esc(p.thumbUrl ?? p.url)}" alt="${esc(p.title)}" loading="lazy" decoding="async" class="block w-full cursor-zoom-in object-cover" />
       </div>
       ${p.title ? `<figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">${esc(p.title)}</figcaption>` : ''}
@@ -372,6 +374,8 @@ const photoTags = await getPhotoTags();
     const heights = heightsOf(masonry, columns);
     const min = shortestIndex(heights);
     columns[min]!.insertAdjacentHTML('beforeend', html);
+    const inserted = columns[min]!.lastElementChild;
+    if (inserted) revealWithin(inserted);
     heights[min] = heights[min]! + colWidth * ratio;
   }
 
@@ -498,7 +502,7 @@ const photoTags = await getPhotoTags();
     while (guard < 200) {
       const target = document.querySelector<HTMLElement>(`[data-date="${CSS.escape(date)}"]`);
       if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
         return;
       }
       if (!(await loadMore())) return;

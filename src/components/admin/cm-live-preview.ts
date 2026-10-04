@@ -17,8 +17,11 @@
  */
 import { EditorView, Decoration, WidgetType } from '@codemirror/view';
 import type { DecorationSet } from '@codemirror/view';
-import { RangeSetBuilder, StateField } from '@codemirror/state';
+import { StateField } from '@codemirror/state';
+import { createPreviewDecorations } from './cm-preview-cache';
+import type { PreviewDecoration } from './cm-preview-cache';
 import type { EditorState, Extension } from '@codemirror/state';
+import { columnBlocks } from './cm-columns-state';
 
 /** 隐藏范围（replace 为空，不占视觉空间，仍可编辑） */
 const hide = Decoration.replace({});
@@ -126,11 +129,8 @@ export function selectionInside(ranges: ReadonlyArray<readonly [number, number]>
 }
 
 /** 构建全部装饰 */
-function buildDecorations(state: EditorState): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>();
-  const doc = state.doc;
-  const sel = state.selection.ranges.map((r) => [r.from, r.to] as const);
-  const items: Array<{ from: number; to: number; deco: Decoration }> = [];
+function computeBase(doc: EditorState['doc']): PreviewDecoration[] {
+  const items: PreviewDecoration[] = [];
 
   const lines: Array<{ from: number; to: number; text: string }> = [];
   for (let i = 1; i <= doc.lines; i += 1) {
@@ -140,12 +140,16 @@ function buildDecorations(state: EditorState): DecorationSet {
 
   // 被代码块占用的行（行内/标题 pass 跳过）
   const blockedLines = new Set<number>();
+  for (const block of columnBlocks(doc)) {
+    for (let line = doc.lineAt(block.from).number; line <= doc.lineAt(block.to).number; line += 1) blockedLines.add(line - 1);
+  }
   // 已做行级隐藏/样式的行（行内 pass 跳过）
   const noInline = new Set<number>();
 
   // ---- 代码围栏 → 代码块 Widget ----
   let i = 0;
   while (i < lines.length) {
+    if (blockedLines.has(i)) { i += 1; continue; }
     const line = lines[i]!;
     const fence = line.text.match(/^```([\w+-]*)\s*$/);
     if (fence) {
@@ -162,10 +166,8 @@ function buildDecorations(state: EditorState): DecorationSet {
       }
       if (close >= 0) {
         const from = line.from;
-        const to = lines[close]!.to + 1;
-        if (!selectionInside(sel, from, to)) {
-          items.push({ from, to, deco: Decoration.replace({ widget: new CodeWidget(fence[1] ?? '', body.join('\n'), from) }) });
-        }
+        const to = Math.min(doc.length, lines[close]!.to + 1);
+        items.push({ from, to, deco: Decoration.replace({ widget: new CodeWidget(fence[1] ?? '', body.join('\n'), from) }), reveal: true });
         for (let k = i; k <= close; k += 1) blockedLines.add(k);
         i = close + 1;
         continue;
@@ -181,7 +183,7 @@ function buildDecorations(state: EditorState): DecorationSet {
     if (head) {
       const level = head[2]!.length;
       const markerEnd = line.from + (head[1]?.length ?? 0) + level + 1;
-      items.push({ from: line.from, to: markerEnd, deco: hide });
+      items.push({ from: line.from, to: markerEnd, deco: hide, reveal: true, revealFrom: line.from, revealTo: line.to });
       items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: `cm-lp-heading cm-lp-h${level}` }) });
       noInline.add(idx);
       return;
@@ -189,7 +191,7 @@ function buildDecorations(state: EditorState): DecorationSet {
     const quote = line.text.match(/^(\s*)>\s?(.*)$/);
     if (quote) {
       const markerEnd = line.from + (quote[1]?.length ?? 0) + 1;
-      items.push({ from: line.from, to: markerEnd, deco: hide });
+      items.push({ from: line.from, to: markerEnd, deco: hide, reveal: true, revealFrom: line.from, revealTo: line.to });
       items.push({ from: markerEnd, to: line.to, deco: Decoration.mark({ class: 'cm-lp-quote-text' }) });
       noInline.add(idx);
     }
@@ -209,45 +211,39 @@ function buildDecorations(state: EditorState): DecorationSet {
 
       // 图片 ![alt](url)
       if (m[1] !== undefined && m[2] !== undefined) {
-        if (!selectionInside(sel, base, fullTo)) {
-          items.push({ from: base, to: fullTo, deco: Decoration.replace({ widget: new ImageWidget(m[2] ?? '', m[1] ?? '', base) }) });
-        }
+        items.push({ from: base, to: fullTo, deco: Decoration.replace({ widget: new ImageWidget(m[2] ?? '', m[1] ?? '', base) }), reveal: true });
         continue;
       }
 
       if (m[3] !== undefined) {
-        items.push({ from: base, to: base + 2, deco: hide });
+        items.push({ from: base, to: base + 2, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 2, to: base + fullLen - 2, deco: Decoration.mark({ class: 'cm-lp-strong' }) });
-        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[5] !== undefined) {
-        items.push({ from: base, to: base + 1, deco: hide });
+        items.push({ from: base, to: base + 1, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 1, to: base + fullLen - 1, deco: Decoration.mark({ class: 'cm-lp-em' }) });
-        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[7] !== undefined) {
-        items.push({ from: base, to: base + 1, deco: hide });
+        items.push({ from: base, to: base + 1, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 1, to: base + fullLen - 1, deco: Decoration.mark({ class: 'cm-lp-inline-code' }) });
-        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 1, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[9] !== undefined) {
-        items.push({ from: base, to: base + 2, deco: hide });
+        items.push({ from: base, to: base + 2, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 2, to: base + fullLen - 2, deco: Decoration.mark({ class: 'cm-lp-del' }) });
-        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide });
+        items.push({ from: base + fullLen - 2, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       } else if (m[11] !== undefined && m[12] !== undefined) {
         const textLen = m[11]!.length;
-        const urlLen = m[12]!.length;
-        items.push({ from: base, to: base + 1, deco: hide });
+        items.push({ from: base, to: base + 1, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
         items.push({ from: base + 1, to: base + 1 + textLen, deco: Decoration.mark({ class: 'cm-lp-link', attributes: { 'data-href': m[12]! } }) });
-        items.push({ from: base + 1 + textLen, to: base + 1 + textLen + urlLen + 2, deco: hide });
+        items.push({ from: base + 1 + textLen, to: fullTo, deco: hide, reveal: true, revealFrom: base, revealTo: fullTo });
       }
     }
   });
 
-  // ---- 排序写入（保证非重叠） ----
-  items.sort((a, b) => a.from - b.from || a.to - b.to);
-  for (const item of items) {
-    builder.add(item.from, item.to, item.deco);
-  }
-  return builder.finish();
+  return items;
 }
+
+const buildDecorations = createPreviewDecorations(computeBase);
 
 /** 安全构建装饰（异常兜底为空集，绝不冻结编辑器） */
 function safeBuild(state: EditorState): DecorationSet {

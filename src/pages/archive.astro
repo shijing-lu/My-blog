@@ -173,6 +173,7 @@ const categoryFacets = aggregateCategories(categories, catMap);
 </BaseLayout>
 
 <script>
+  import { feedback } from '@/lib/motion';
   /**
    * 归档页交互：点击标签/分类 → **当前页内即时过滤**（无请求、无刷新）。
    *
@@ -209,6 +210,7 @@ const categoryFacets = aggregateCategories(categories, catMap);
    * @param category 分类 id；空串表示不按分类筛
    */
   function applyFilter(tag: string, category: string): void {
+    if (tag !== activeTag || category !== activeCategory) void feedback(document.querySelector('.archive-timeline'));
     activeTag = tag;
     activeCategory = category;
 

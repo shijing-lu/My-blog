@@ -688,6 +688,7 @@ const siteCssUpdatedAtText =
           立即同步
         </button>
         <span id="sync-status" class="text-xs text-muted-foreground" role="status"></span>
+        <div id="sync-progress" class="motion-progress w-full" role="progressbar" aria-label="同步进度" aria-valuemin="0" aria-valuemax="100" hidden><span></span></div>
       </div>
 
       <div id="sync-report" class="mt-4 hidden">
@@ -1108,6 +1109,16 @@ const siteCssUpdatedAtText =
             class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
           ></textarea>
         </label>
+      </div>
+
+      <div class="mt-4 rounded-md border border-border p-3">
+        <label for="ai-diary-style" class="block text-xs font-medium text-muted-foreground">日记生成风格</label>
+        <select id="ai-diary-style" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring sm:w-64">
+          <option value="concise">简洁客观</option>
+          <option value="personal">第一人称日记</option>
+          <option value="quotes">原文摘录为主</option>
+        </select>
+        <p class="mt-2 text-xs text-muted-foreground">仅影响之后生成的日记；已有内容与聊天风格不变。</p>
       </div>
 
       <div class="mt-4 rounded-md border border-border p-3">
@@ -1848,6 +1859,7 @@ const siteCssUpdatedAtText =
           systemPrompt: string;
           allowGuests: boolean;
           guestDailyLimit: number;
+          diaryStyle: 'concise' | 'personal' | 'quotes';
           hasApiKey: boolean;
         }
         let aiCfg: PublicAiCfg = {
@@ -1859,6 +1871,7 @@ const siteCssUpdatedAtText =
           systemPrompt: '',
           allowGuests: true,
           guestDailyLimit: 100,
+          diaryStyle: 'concise',
           hasApiKey: false,
         };
         try {
@@ -1874,6 +1887,7 @@ const siteCssUpdatedAtText =
         const aiTemperature = document.getElementById('ai-temperature') as HTMLInputElement | null;
         const aiMaxTokens = document.getElementById('ai-maxtokens') as HTMLInputElement | null;
         const aiSysPrompt = document.getElementById('ai-sysprompt') as HTMLTextAreaElement | null;
+        const aiDiaryStyle = document.getElementById('ai-diary-style') as HTMLSelectElement | null;
         const aiGuests = document.getElementById('ai-guests') as HTMLInputElement | null;
         const aiGuestLimit = document.getElementById('ai-guest-limit') as HTMLInputElement | null;
         const aiErr = document.getElementById('ai-err');
@@ -1891,6 +1905,7 @@ const siteCssUpdatedAtText =
         if (aiTemperature) aiTemperature.value = String(aiCfg.temperature);
         if (aiMaxTokens) aiMaxTokens.value = String(aiCfg.maxTokens);
         if (aiSysPrompt) aiSysPrompt.value = aiCfg.systemPrompt;
+        if (aiDiaryStyle) aiDiaryStyle.value = aiCfg.diaryStyle;
         if (aiGuests) aiGuests.checked = aiCfg.allowGuests;
         if (aiGuestLimit) aiGuestLimit.value = String(aiCfg.guestDailyLimit);
         applyKeyPlaceholder();
@@ -1939,6 +1954,7 @@ const siteCssUpdatedAtText =
             temperature: Number.isFinite(tempNum) ? tempNum : undefined,
             maxTokens: Number.isFinite(maxNum) ? maxNum : undefined,
             systemPrompt: aiSysPrompt?.value.trim() ?? '',
+            diaryStyle: aiDiaryStyle?.value ?? 'concise',
             allowGuests: aiGuests?.checked ?? false,
             guestDailyLimit: Number.isFinite(limitNum) ? limitNum : undefined,
           };
@@ -1956,6 +1972,7 @@ const siteCssUpdatedAtText =
               baseUrl: payload.baseUrl,
               model: payload.model,
               systemPrompt: payload.systemPrompt,
+              diaryStyle: payload.diaryStyle as PublicAiCfg['diaryStyle'],
               allowGuests: payload.allowGuests,
               hasApiKey: d.hasApiKey ?? aiCfg.hasApiKey,
             };
@@ -2977,6 +2994,7 @@ const siteCssUpdatedAtText =
 
 <!-- 云端同步分区交互（仅桌面端渲染该分区；脚本对不存在时自动跳过） -->
 <script>
+  import { feedback } from '@/lib/motion';
   /** 同步报告的单表计数（与 src/sync/core/types.ts 的 TableReport 对齐） */
   interface SyncTableStat {
     table: string;
@@ -3013,9 +3031,24 @@ const siteCssUpdatedAtText =
     const reportEl = document.getElementById('sync-report');
     const bodyEl = document.getElementById('sync-report-body');
     const warnEl = document.getElementById('sync-warnings');
+    const progressEl = document.getElementById('sync-progress');
+    let pollTimer = 0;
+    const lifetime = new AbortController();
+    document.addEventListener('astro:before-swap', () => {
+      lifetime.abort();
+      clearTimeout(pollTimer);
+    }, { once: true, signal: lifetime.signal });
+    function progress(value: number | null): void {
+      if (!progressEl) return;
+      progressEl.hidden = value === null;
+      if (value === null) return;
+      progressEl.setAttribute('aria-valuenow', String(Math.round(value * 100)));
+      progressEl.style.setProperty('--motion-progress', String(value));
+    }
 
     function setStatus(text: string, cls: string): void {
       if (!statusEl) return;
+      if (statusEl.textContent !== text) void feedback(statusEl);
       statusEl.textContent = text;
       statusEl.className = cls;
     }
@@ -3035,12 +3068,14 @@ const siteCssUpdatedAtText =
         bodyEl.appendChild(tr);
       }
       reportEl.classList.remove('hidden');
+      void feedback(reportEl);
       if (warnEl) warnEl.textContent = (report.warnings || []).join('；');
     }
 
     async function poll(): Promise<void> {
+      if (lifetime.signal.aborted || !btn.isConnected) return;
       try {
-        const res = await fetch('/api/desktop/sync');
+        const res = await fetch('/api/desktop/sync', { signal: lifetime.signal });
         if (!res.ok) {
           setStatus('读取状态失败（HTTP ' + res.status + '）', 'text-xs text-destructive');
           return;
@@ -3055,10 +3090,12 @@ const siteCssUpdatedAtText =
             p ? '同步中：' + p.table + '（' + (p.index + 1) + '/' + p.total + '）' : '同步中…',
             'text-xs text-muted-foreground',
           );
-          setTimeout(() => void poll(), 800);
+          progress(p && p.total > 0 ? Math.min(1, p.index / p.total) : null);
+          pollTimer = window.setTimeout(() => void poll(), 800);
           return;
         }
         btn.disabled = false;
+        progress(s.lastReport && !s.lastError ? 1 : null);
         if (s.lastError) {
           setStatus('失败：' + s.lastError, 'text-xs text-destructive');
         } else if (s.lastReport) {
@@ -3068,6 +3105,7 @@ const siteCssUpdatedAtText =
           setStatus('尚未同步过', 'text-xs text-muted-foreground');
         }
       } catch (err) {
+        if (lifetime.signal.aborted) return;
         const msg = err instanceof Error ? err.message : String(err);
         setStatus('读取状态失败：' + msg, 'text-xs text-destructive');
       }
@@ -3075,6 +3113,7 @@ const siteCssUpdatedAtText =
 
     btn.addEventListener('click', () => {
       btn.disabled = true;
+      progress(0);
       setStatus('正在启动…', 'text-xs text-muted-foreground');
       // 启动失败也交给轮询兜底（例如上一轮仍在运行）
       void fetch('/api/desktop/sync', { method: 'POST' }).then(() => poll(), () => poll());

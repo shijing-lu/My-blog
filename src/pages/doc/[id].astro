@@ -208,11 +208,12 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     type DocTreeItem,
   } from '@/lib/doc-tree-render';
   import type { TocItem } from '@/lib/mdx-plugins';
-  import { installTreeContextMenu } from '@/lib/tree-context-menu';
+  import { instantScrollTo, warmDocEditEntry } from '@/lib/doc-viewport';
+  import { installTreeContextMenu, installArticleContextMenu, type TreeCommand, type TreeTarget } from '@/lib/tree-context-menu';
   import { setupArticleDetailRails } from '@/lib/article-detail-rails';
 
-  const DATA = document.getElementById('doc-detail-data');
-  const IS_AUTHED = DATA?.dataset.authed === '1';
+  const isAuthed = (): boolean => document.querySelector('[data-article-domain="docs"]') !== null
+    && document.getElementById('doc-detail-data')?.dataset.authed === '1';
   /** View Transitions（SPA 切换）下页面数据会随 DOM 更换，禁止模块级缓存 —— 每次按需读取最新 bundle/nodes/folders */
   function readBundle(): { id: string; name: string; icon: string | null; summary: string | null } {
     const d = document.getElementById('doc-detail-data');
@@ -270,7 +271,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     if (!root) return;
     const closed = snapshotTreeCollapsed();
     root.innerHTML = renderDocTree(buildDocTree(readNodes() as DocTreeItem[]), {
-      authed: IS_AUTHED === true,
+      authed: isAuthed(),
       bundleId: readBundle().id,
       activeId: currentActiveId(),
     });
@@ -379,7 +380,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     u.hash = '';
     const curIndex = typeof history.state?.index === 'number' ? history.state.index : 0;
     history.pushState({ index: curIndex + 1, scrollX: 0, scrollY: 0 }, '', u);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   }
 
   document.addEventListener(
@@ -397,7 +398,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     if (!id) return;
     setActiveArticle(id);
     if (id === currentActiveId()) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
       return;
     }
 
@@ -515,20 +516,35 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
   /* ================= 正文就地编辑（无跳转；滚动保持由岛内部完成） =================
      标题旁「编辑/完成」按钮：未编辑 → 打开就地编辑；编辑态再点 = 保存并退出。
-     岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s，避免点击无响应。 */
+     岛用 client:idle，首屏可能尚未水合：轮询等待最多 ~2s —— 但**必须同时给出即时
+     反馈**（正文降透明 + 顶部进度条），否则用户把「等水合」当成点击无响应而连点。
+     悬停/聚焦按钮即预取正文（页面脚本不依赖水合，比岛内绑定更早生效）。 */
+  const EDIT_ENTRY_IDS = ['doc-inline-edit', 'rt-doc-inline-edit'] as const;
+  warmDocEditEntry(EDIT_ENTRY_IDS, currentActiveId);
+  document.addEventListener('astro:page-load', () => warmDocEditEntry(EDIT_ENTRY_IDS, currentActiveId));
+
   document.addEventListener('click', (e) => {
+    if (!isAuthed()) return;
     if (!(e.target as HTMLElement).closest('#doc-inline-edit')) return;
     const grid = document.getElementById('doc-3col');
     const editing = grid?.dataset.editing === 'true';
-    let tries = 0;
-    const tryBridge = (): void => {
-      const bridge = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
-      if (!bridge) {
-        if (tries++ < 20) window.setTimeout(tryBridge, 100);
-        return;
-      }
+    const bridge = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
+    if (bridge) {
       if (editing && bridge.saveAndClose) bridge.saveAndClose();
       else bridge.open();
+      return;
+    }
+    // 岛尚未水合：保持阅读正文稳定，桥就位后由编辑器原位接管。
+    let tries = 0;
+    const tryBridge = (): void => {
+      const b = (window as unknown as { __docInlineEditor?: { open: () => void; saveAndClose?: () => void } }).__docInlineEditor;
+      if (!b) {
+        if (tries++ < 20) window.setTimeout(tryBridge, 100);
+        else console.warn('[doc] 编辑器尚未就绪，请稍后再试');
+        return;
+      }
+      if (editing && b.saveAndClose) b.saveAndClose();
+      else b.open();
     };
     tryBridge();
   });
@@ -764,7 +780,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
   document.addEventListener('dragstart', (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>(DOC_DRAG_INACTIVE);
-    if (!row || IS_AUTHED !== true) return;
+    if (!row || !isAuthed()) return;
     // 编辑态禁止拖拽：drop 后 reload 会丢失编辑器内容
     if (document.getElementById('doc-3col')?.getAttribute('data-editing') === 'true') {
       e.preventDefault();
@@ -862,7 +878,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     art?.classList.add('toc-nav-rendering');
     // 强制同步 layout：估算高 → 真实高
     void (art ?? document.body).offsetHeight;
-    target.scrollIntoView({ behavior: 'auto', block: 'start' });
+    // instant（非 'auto'）：全站 html{scroll-behavior:smooth} 会让 'auto' 变成平滑动画，
+    // 而下面还有 rAF / 350ms / 900ms 三次重复对齐 —— 动画会互相打断，落点不可预测
+    target.scrollIntoView({ behavior: 'instant', block: 'start' });
     let cancelled = false;
     const cancel = (): void => {
       cancelled = true;
@@ -870,7 +888,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     window.addEventListener('wheel', cancel, { once: true, passive: true });
     window.addEventListener('touchmove', cancel, { once: true, passive: true });
     const align = (): void => {
-      if (!cancelled) target.scrollIntoView({ behavior: 'auto', block: 'start' });
+      if (!cancelled) target.scrollIntoView({ behavior: 'instant', block: 'start' });
     };
     requestAnimationFrame(() => {
       art?.classList.remove('toc-nav-rendering');
@@ -888,10 +906,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     void art.offsetHeight;
     const rect = art.getBoundingClientRect();
     const clamped = Math.min(1, Math.max(0, ratio));
-    window.scrollTo({
-      top: Math.max(0, rect.top + window.scrollY + clamped * Math.max(0, rect.height)),
-      behavior: 'auto',
-    });
+    // instant：全站 html{scroll-behavior:smooth} 会让 behavior:'auto' 变成平滑动画
+    instantScrollTo(rect.top + window.scrollY + clamped * Math.max(0, rect.height));
     requestAnimationFrame(() => art.classList.remove('toc-nav-rendering'));
   }
   window.__docScrollToProgress = scrollToProgress;
@@ -924,7 +940,10 @@ const folderOptionsJson = JSON.stringify(folderOptions);
         if (!target) return;
         stableScrollTo(target);
         try {
-          window.history.pushState(null, '', href);
+          // 保留 ClientRouter 的历史索引，否则从其他页面返回此章节时只改 URL、不恢复页面。
+          const state = window.history.state ?? {};
+          const index = typeof state.index === 'number' ? state.index : 0;
+          window.history.pushState({ ...state, index: index + 1, scrollX: window.scrollX, scrollY: window.scrollY }, '', href);
         } catch {
           /* 特殊环境（沙箱预览等）下忽略地址栏更新 */
         }
@@ -934,10 +953,11 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   }
 
   /* ================= 节点 CRUD（登录） ================= */
-  if (IS_AUTHED) {
+  {
     let creatingArticle = false;
     /** 新建文章即时入库；跳转后由编辑桥接自动打开可视化编辑。 */
     async function createBlankArticle(parentId: string | null): Promise<void> {
+      if (!isAuthed()) return;
       if (creatingArticle) return;
       creatingArticle = true;
       const status = el<HTMLElement>('doc-create-status');
@@ -958,6 +978,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     }
 
     function enterEditAfterCreate(): void {
+      if (!isAuthed()) return;
       const url = new URL(window.location.href);
       if (url.searchParams.get('edit') !== '1') return;
       url.searchParams.delete('edit');
@@ -989,6 +1010,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       parentId?: string | null;
       nodeId?: string | null;
     }): void {
+      if (!isAuthed()) return;
       const dlg = el<HTMLDialogElement>('doc-node-dialog');
       if (!dlg) return;
       const titleInput = el<HTMLInputElement>('doc-node-title');
@@ -1172,7 +1194,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
     // 删除命令：文档域沿用级联删除，菜单确认前明确提示影响范围。
     async function deleteNode(delId: string, name: string): Promise<void> {
-      if (!delId) return;
+      if (!isAuthed() || !delId) return;
       const affected = collectSubtreeIds(readNodes(), delId).length;
       if (!(await confirmDanger(`确定删除「${name}」？将一并删除 ${affected} 个目录或文章节点。`))) return;
       const res = await fetch(`/api/doc/nodes/${delId}`, { method: 'DELETE' });
@@ -1197,8 +1219,13 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       }
     }
 
-    const treeRoot = el<HTMLElement>('doc-ltoc-inner');
-    if (treeRoot) installTreeContextMenu(treeRoot, async (command, target) => {
+    const onTreeCommand = async (command: TreeCommand, target: TreeTarget): Promise<void> => {
+      if (!isAuthed()) return;
+      if (document.getElementById('doc-3col')?.dataset.editing === 'true') {
+        if (command === 'edit' && target.id === currentActiveId()) return;
+        window.alert('请先完成当前文章的编辑，再操作目录或删除文章。');
+        return;
+      }
       const parentId = target.kind === 'folder' ? target.id : null;
       if (command === 'create-article') return createBlankArticle(parentId);
       if (command === 'create-folder') return openNodeDialog({ mode: 'create', kind: 'folder', parentId });
@@ -1208,9 +1235,35 @@ const folderOptionsJson = JSON.stringify(folderOptions);
         openNodeDialog({ mode: 'edit', nodeId: target.id });
       } else if (command === 'edit') {
         const loaded = target.id === currentActiveId() || await loadArticleById(target.id, 'message');
-        if (loaded) window.__docInlineEditor?.open();
+        if (loaded) {
+          if (document.getElementById('doc-3col')?.dataset.editing === 'true') return;
+          // client:idle 水合可能尚未完成，复用有等待逻辑的编辑入口。
+          el<HTMLButtonElement>('doc-inline-edit')?.click();
+        }
       }
-    });
+    };
+    const boundMenus = new WeakSet<HTMLElement>();
+    function setupDocMenus(): void {
+      if (!isAuthed()) return;
+      const treeRoot = el<HTMLElement>('doc-ltoc-inner');
+      if (treeRoot && !boundMenus.has(treeRoot)) {
+        boundMenus.add(treeRoot);
+        const cleanup = installTreeContextMenu(treeRoot, onTreeCommand);
+        document.addEventListener('astro:before-swap', () => { cleanup(); boundMenus.delete(treeRoot); }, { once: true });
+      }
+      const main = document.querySelector<HTMLElement>('[data-article-domain="docs"] #doc-3col > main');
+      if (main && !boundMenus.has(main)) {
+        boundMenus.add(main);
+        const cleanup = installArticleContextMenu(main, () => {
+          if (!isAuthed()) return null;
+          const node = readNodes().find((item) => item.id === currentActiveId() && item.kind === 'article');
+          return node ? { id: node.id, kind: 'article', title: node.title } : null;
+        }, onTreeCommand);
+        document.addEventListener('astro:before-swap', () => { cleanup(); boundMenus.delete(main); }, { once: true });
+      }
+    }
+    setupDocMenus();
+    document.addEventListener('astro:page-load', setupDocMenus);
 
     // 文档编辑（沿用旧接口）
     document.addEventListener('click', (e) => {

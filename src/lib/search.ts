@@ -36,7 +36,7 @@ export function stripMarkdown(source: string): string {
 export function extractSnippet(source: string, q: string, radius = 60): string | null {
   const query = q.trim().toLowerCase();
   if (!query) return null;
-  const text = stripMarkdown(source).toLowerCase();
+  const text = stripMarkdownCached(source);
   const idx = text.indexOf(query);
   if (idx < 0) return null;
   const start = Math.max(0, idx - radius);

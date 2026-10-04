@@ -11,124 +11,8 @@
  */
 import { defineMiddleware } from 'astro:middleware';
 import type { AstroCookies } from 'astro';
-import { hasAnyPermission, isOwnerSession, isTopAdmin, type PermissionKey } from '@/lib/admin-auth';
-
-/**
- * `/api/admin-auth/*` 中显式公开的端点（其余一律按「仅顶级管理员」处理）
- *
- * 背景（P2-27）：这段路由原先完全不在中间件视野内，靠每个文件各自记得自校验。
- * 一旦新增端点忘了加 `isTopAdmin` 就直接裸奔。改为**默认拒绝 + 显式放行**：
- * 新增端点默认受保护，要公开必须在此登记并写明理由。
- * - login：登录本身，必然公开（否则无法登录）；
- * - me：自身身份探针，只回读调用者自己的会话信息；
- * - applications POST：访客提交自己的申请，端点内部已校验 GitHub 登录态。
- */
-const PUBLIC_ADMIN_AUTH: Array<{ path: string; method?: string }> = [
-  { path: '/api/admin-auth/login', method: 'POST' },
-  { path: '/api/admin-auth/me' },
-  { path: '/api/admin-auth/applications', method: 'POST' },
-];
-
-/** 该 admin-auth 端点是否在公开名单内 */
-function isPublicAdminAuth(pathname: string, method: string): boolean {
-  return PUBLIC_ADMIN_AUTH.some((e) => e.path === pathname && (e.method === undefined || e.method === method));
-}
-
-/**
- * 受保护 API → 所需权限键（返回 null = 非保护 API，直接放行；返回 'top' = 仅顶级管理员）。
- * 行为与原 verifyRequest 版本完全等价（站主全通过），仅增加 GitHub 管理员分支。
- */
-function requiredApiPermission(pathname: string, method: string): PermissionKey[] | 'top' | null {
-  // 动态：读公开、写需 moments 权限
-  if (pathname === '/api/moments' || pathname.startsWith('/api/moments/')) {
-    return ['POST', 'PATCH', 'DELETE'].includes(method) ? ['moments'] : null;
-  }
-  // 文章/草稿：管理员写
-  if (pathname === '/api/save-draft' || pathname === '/api/articles' || pathname.startsWith('/api/articles/')) {
-    return ['articles'];
-  }
-  // 图片上传：编辑器/动态/影集共用，任一内容权限即可
-  if (pathname === '/api/images' && method === 'POST') return ['articles', 'moments', 'photos'];
-  // 影集：读公开、写需 photos 权限
-  if (pathname === '/api/photos' || pathname.startsWith('/api/photos/')) {
-    return ['POST', 'PATCH', 'DELETE'].includes(method) ? ['photos'] : null;
-  }
-  // 待办/日记为私密内容：全部方法需 calendar 权限
-  if (pathname === '/api/todos' || pathname.startsWith('/api/todos/') || pathname === '/api/diary' || pathname.startsWith('/api/diary/')) {
-    return ['calendar'];
-  }
-  // 重要日期：读公开、写需 calendar 权限
-  if (pathname === '/api/calendar-events' || pathname.startsWith('/api/calendar-events/')) {
-    return ['POST', 'PATCH', 'DELETE'].includes(method) ? ['calendar'] : null;
-  }
-  // 文档系统：分类/文档/文章/预览的写方法需 docs 权限；树/单篇/搜索 GET 公开
-  if (pathname.startsWith('/api/doc/')) {
-    if ((pathname === '/api/doc' || pathname === '/api/doc/search') && method === 'GET') return null;
-    if (pathname.startsWith('/api/doc/articles/') && method === 'GET') return null;
-    return method !== 'GET' ? ['docs'] : null;
-  }
-  // 导航：分类/子分类/网站的写方法需 nav 权限（GET 聚合数据公开）
-  if (pathname.startsWith('/api/nav/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    return ['nav'];
-  }
-  // 站点设置类（个人中心之外的站点级配置）：写需 settings 权限
-  if (
-    (pathname === '/api/quote-settings' ||
-      pathname === '/api/background' ||
-      pathname === '/api/landing' ||
-      pathname === '/api/site-name' ||
-      pathname === '/api/editor-shortcuts') &&
-    method === 'PUT'
-  ) {
-    return ['settings'];
-  }
-  if (
-    (pathname === '/api/sync-databases' ||
-      pathname === '/api/migrate-photos-tags' ||
-      pathname === '/api/migrate-article-crypto' ||
-      pathname === '/api/migrate-article-categories' ||
-      pathname === '/api/migrate-ai-memory') &&
-    method === 'POST'
-  ) {
-    return ['settings'];
-  }
-  // 个人中心：写需 profile 权限
-  if (pathname === '/api/profile' && method === 'PUT') return ['profile'];
-  // 桌面端同步（/api/desktop/sync、/api/desktop/object/*）：
-  // ⚠️ 白名单式登记——不在此处返回权限数组即等于"不保护"（端点裸奔）
-  // 对象缓存路由例外：返回的是 R2 上本就公开的对象（暴露面与原 publicUrl 一致），
-  // 放行以便桌面端未登录时也能显示图片
-  if (pathname.startsWith('/api/desktop/object/')) return null;
-  if (pathname.startsWith('/api/desktop/')) return ['settings'];
-  // 网盘对接（含 /api/netdisk-settings 与 /api/netdisk-test 与 /api/netdisk/*）：
-  // 列目录/取直链也含网盘结构信息，统一按 netdisk 权限收紧
-  if (pathname === '/api/netdisk-settings' || pathname === '/api/netdisk-test' || pathname.startsWith('/api/netdisk/')) {
-    return ['netdisk'];
-  }
-  // 授权管理类：默认仅顶级管理员（见 PUBLIC_ADMIN_AUTH 注释）
-  if (pathname.startsWith('/api/admin-auth/')) {
-    return isPublicAdminAuth(pathname, method) ? null : 'top';
-  }
-  return null;
-}
-
-/**
- * 受保护页面 → 所需权限键（返回 null = 非保护页面，或页面自校验）。
- * `/admin/auth` 返回 null：授权管理页自身做顶级管理员校验（非顶级渲染「无权」）。
- */
-function pagePermission(pathname: string): PermissionKey[] | null {
-  if (pathname === '/admin/auth') return null;
-  if (pathname === '/admin/settings') return ['settings'];
-  if (pathname === '/admin/nav') return ['nav'];
-  // 网盘管理页（须在 /admin/* 兜底之前，否则会被要求 articles 权限）
-  if (pathname === '/admin/netdisk' || pathname.startsWith('/admin/netdisk/')) return ['netdisk'];
-  if (pathname === '/admin/mindmaps' || pathname.startsWith('/admin/mindmaps/')) return ['articles'];
-  if (pathname === '/admin' || pathname.startsWith('/admin/')) return ['articles'];
-  if (pathname === '/edit' || pathname.startsWith('/edit/')) return ['articles'];
-  if (pathname === '/gallery/upload' || pathname === '/gallery/manage-cards') return ['photos'];
-  if (pathname === '/calendar/diary' || pathname.startsWith('/calendar/diary/')) return ['calendar'];
-  return null;
-}
+import { hasAnyPermission, isOwnerSession, isTopAdmin } from '@/lib/admin-auth';
+import { pagePermission, requiredApiPermission } from '@/lib/route-permissions';
 
 /** 中间件 */
 export const onRequest = defineMiddleware(async (context, next) => {
@@ -146,7 +30,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     if (await isTopAdmin(cookies)) return withCachePolicy(await next(), context.request);
     return new Response(JSON.stringify({ error: '无权操作' }), {
       status: 403,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'cache-control': 'private, no-store' },
     });
   }
   // GitHub 授权管理员：按组权限判定
@@ -177,6 +61,8 @@ function withCachePolicy(response: Response, request: Request): Response {
   // P3-3：先按 content-type 过滤（非 HTML 直接原样返回，不做任何克隆），
   // 再按请求类型算出目标值；与现有值一致时连 Headers 都不复制，省掉整次重建。
   if (!type.includes('text/html')) return response;
+  // 私密页面明确声明 no-store 时，不用预取缓存规则覆盖它。
+  if (response.headers.get('cache-control')?.includes('no-store')) return response;
   const isPrefetch =
     request.headers.get('sec-purpose') === 'prefetch' || request.headers.get('purpose') === 'prefetch';
   const target = isPrefetch ? 'private, max-age=60' : 'no-store, no-cache, must-revalidate';

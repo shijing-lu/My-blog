@@ -232,6 +232,7 @@ export async function appendMessage(params: {
         .update(aiConversations)
         .set({
           messageCount: sql`${aiConversations.messageCount} + 1`,
+          summarized: false,
           updatedAt: new Date(),
         })
         .where(eq(aiConversations.id, params.conversationId));
@@ -259,20 +260,9 @@ export async function listRecentMessages(conversationId: string, limit = RECENT_
   }
 }
 
-/** 读会话全部消息（摘要用；上限 200 条防爆） */
+/** 摘要只读最近 60 条，避免长会话被最早 200 条截断而永远遗漏新内容。 */
 export async function listConversationMessages(conversationId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
-  try {
-    const rows = await db
-      .select({ role: aiMessages.role, content: aiMessages.content })
-      .from(aiMessages)
-      .where(eq(aiMessages.conversationId, conversationId))
-      .orderBy(aiMessages.createdAt)
-      .limit(200);
-    return rows.map((r) => ({ role: r.role === 'assistant' ? 'assistant' : 'user', content: r.content }));
-  } catch (err) {
-    console.error('[ai-memory] listConversationMessages 失败:', (err as Error).message);
-    return [];
-  }
+  return listRecentMessages(conversationId, 60);
 }
 
 /** 会话内的用户消息条数（判断是否到摘要阈值） */
@@ -381,13 +371,13 @@ export async function clearMemories(): Promise<boolean> {
 }
 
 /** 标记会话已摘要（避免重复烧 token） */
-export async function markSummarized(conversationId: string): Promise<void> {
+export async function markSummarized(conversationId: string, messageCount: number): Promise<void> {
   try {
     await dbWrite(async (d) => {
       await d
         .update(aiConversations)
         .set({ summarized: true, updatedAt: new Date() })
-        .where(eq(aiConversations.id, conversationId));
+        .where(and(eq(aiConversations.id, conversationId), eq(aiConversations.messageCount, messageCount)));
     });
   } catch (err) {
     console.error('[ai-memory] markSummarized 失败:', (err as Error).message);

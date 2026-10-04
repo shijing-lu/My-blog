@@ -107,7 +107,7 @@ export default function EditorShortcutsSettings() {
     [custom, save],
   );
 
-  const groups = ['格式', '标题', '块结构'] as const;
+  const groups = ['格式', '标题', '块结构', '插入与扩展'] as const;
 
   const row = (def: ShortcutDef) => {
     const isCustom = Boolean(custom[def.id]);
@@ -136,7 +136,7 @@ export default function EditorShortcutsSettings() {
             }`}
             title={isCustom ? '已自定义（点击重新录制）' : '默认（点击录制自定义）'}
           >
-            {recording === def.id ? '按下组合键…' : pretty(binding)}
+            {recording === def.id ? '按下组合键…' : binding ? pretty(binding) : '未设置'}
           </button>
           {isCustom ? (
             <button
@@ -157,7 +157,7 @@ export default function EditorShortcutsSettings() {
       <header>
         <h2 className="text-lg font-medium text-foreground">编辑器快捷键</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          与 Obsidian 一致的 Markdown 格式快捷键；点「录制」后按下新组合键即可改绑，Esc 取消。
+          为项目支持的 Markdown 语法设置快捷键。点击键位即可录制，按 Esc 取消。
         </p>
       </header>
 

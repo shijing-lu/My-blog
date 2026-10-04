@@ -1,3 +1,4 @@
+import { useMotionFeedback } from '@/components/ui/use-motion-feedback';
 /**
  * LiveEditor.tsx —— Obsidian 式写作工作区
  *
@@ -91,6 +92,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const saveMotionRef = useMotionFeedback<HTMLSpanElement>(saveStatus);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   /**
@@ -1053,7 +1055,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
               <button type="button" aria-pressed={viewMode === 'preview'} onClick={() => void showPreview()} className={`rounded px-2.5 py-1 ${viewMode === 'preview' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>预览</button>
             </div>
             <span
-              role="status"
+              ref={saveMotionRef} role="status"
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 ${
                 saveStatus === 'saved'
                   ? 'bg-emerald-500/10 text-emerald-600'

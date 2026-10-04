@@ -11,10 +11,14 @@ import {
 } from '../src/lib/md-commands';
 import {
   DEFAULT_BINDINGS,
+  EDITOR_SHORTCUT_DEFS,
   bindingFromEvent,
   normalizeBinding,
   resolveBindings,
 } from '../src/lib/editor-shortcut-defs';
+import { MD_COMMANDS, buildMdKeymap } from '../src/components/admin/md-keymap';
+import { EditorState } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 
 describe('标题行计算（headingLine）', () => {
   it('正文 → 指定级别', () => {
@@ -95,6 +99,27 @@ describe('代码块围栏（fencedBlock）', () => {
 });
 
 describe('快捷键绑定（normalize / resolve）', () => {
+  it('设置页的每个语法命令都有可执行处理器；无默认键可录制', () => {
+    expect(EDITOR_SHORTCUT_DEFS.every((def) => Boolean(MD_COMMANDS[def.id]))).toBe(true);
+    expect(DEFAULT_BINDINGS.table).toBeUndefined();
+    expect(resolveBindings({ table: 'Mod-Alt-t' }).bindings.table).toBe('mod-alt-t');
+    expect(buildMdKeymap({ table: 'Mod-Alt-t' })).toBeDefined();
+  });
+
+  it.each(EDITOR_SHORTCUT_DEFS.map((def) => def.id))('%s 在主编辑器执行后修改 Markdown', (id) => {
+    let state = EditorState.create({ doc: '正文', selection: { anchor: 0 } });
+    const view = {
+      get state() { return state; },
+      dispatch: (spec: Parameters<EditorView['dispatch']>[0]) => { state = state.update(spec).state; },
+    } as unknown as EditorView;
+    expect(MD_COMMANDS[id]!(view)).toBe(true);
+    expect(state.doc.toString()).not.toBe('正文');
+  });
+
+  it('Shift+标点录制使用物理键名，与 CodeMirror 绑定一致', () => {
+    const event = { key: '>', code: 'Period', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true } as KeyboardEvent;
+    expect(bindingFromEvent(event)).toBe('mod-shift-.');
+  });
   it('ctrl/cmd 统一归并为 mod，修饰键顺序固定', () => {
     expect(normalizeBinding('Ctrl-Shift-X')).toBe('mod-shift-x');
     expect(normalizeBinding('cmd-b')).toBe('mod-b');

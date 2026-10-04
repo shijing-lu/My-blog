@@ -76,7 +76,7 @@ const profileJson = JSON.stringify(profile);
   {
     isAuthed && (
       <div id="profile-edit" class="hidden pt-4">
-        <div class="flex items-center gap-3">
+        <div class="flex flex-col items-center gap-3">
           {avatarSrc ? (
             <img id="profile-avatar-preview" src={avatarSrc} alt="" class="size-16 rounded-full border border-border object-cover" />
           ) : (
@@ -84,12 +84,12 @@ const profileJson = JSON.stringify(profile);
               {nickname.slice(0, 1)}
             </span>
           )}
-          <div class="min-w-0 flex-1">
+          <div class="w-full min-w-0">
             <input
               id="profile-avatar"
               type="text"
               placeholder="头像 URL"
-              class="w-full rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring"
+              class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring"
             />
             <div class="mt-1.5 flex items-center gap-2">
               <input id="profile-avatar-file" type="file" accept="image/*" class="hidden" />
@@ -100,11 +100,11 @@ const profileJson = JSON.stringify(profile);
             </div>
           </div>
         </div>
-        <div class="mt-4 space-y-2">
-          <input id="profile-nickname" type="text" maxlength="30" placeholder="昵称" class="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
-          <input id="profile-motto" type="text" maxlength="100" placeholder="座右铭" class="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
-          <textarea id="profile-bio" rows="2" maxlength="500" placeholder="简介" class="w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
-          <input id="profile-location" type="text" maxlength="100" placeholder="位置" class="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+        <div class="mt-4 grid gap-2">
+          <input id="profile-nickname" type="text" maxlength="30" placeholder="昵称" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+          <input id="profile-motto" type="text" maxlength="100" placeholder="座右铭" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+          <textarea id="profile-bio" rows="2" maxlength="500" placeholder="简介" class="block w-full min-w-0 resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+          <input id="profile-location" type="text" maxlength="100" placeholder="位置" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
         </div>
         <div class="mt-4 flex justify-end gap-2">
           <button id="profile-cancel" type="button" class="rounded-md border border-border px-4 py-1.5 text-sm transition-colors hover:bg-accent">取消</button>

@@ -8,6 +8,12 @@
 import { pgTable, text, timestamp, jsonb, integer, boolean, check, unique, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
+/** 与 SQLite 一致；CAS revision 防止两设备覆盖同一实体。 */
+export const cadenceRecords = pgTable('cadence_records', {
+  id: text('id').primaryKey(), kind: text('kind').notNull(), recordId: text('record_id').notNull(),
+  payload: text('payload'), revision: text('revision').notNull(), updatedAt: text('updated_at').notNull(),
+});
+
 /** articles 表（PostgreSQL 方言） */
 export const articles = pgTable(
   'articles',
@@ -196,6 +202,16 @@ export const calendarEvents = pgTable('calendar_events', {
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
+});
+
+/** 随心录（站主私密记录） */
+export const quickNotes = pgTable('quick_notes', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull().default(''),
+  content: text('content').notNull().default(''),
+  tags: text('tags').notNull().default('[]'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
 /** 动态（动态圈，公开浏览；评论/点赞预留，后续独立表） */

@@ -39,3 +39,28 @@ scripts/_diag-*.png
 # 桌面端打包产物
 release/
 desktop/assets/template.db
+
+# Android 本机工具、编译资源与签名（含私密迁移数据）
+.android-tools/
+android/.gradle/
+android/.cxx/
+android/**/.cxx/
+android/**/build/
+android/app/src/main/assets/runtime.zip
+android/app/src/main/assets/runtime-id.txt
+android/app/src/main/jniLibs/
+android/app/libnode/
+android/local.properties
+android/signing/
+
+# 本地验收结果、助手附件和临时诊断（可能含私有页面或认证数据）
+outputs/
+.codex-remote-attachments/
+.workbuddy-ai/
+.verify*
+.repro*
+.scan-blast.cjs
+.smoke.txt
+showcase-site/*.tar.gz
+promo-film/out/
+promo-film/rendered/

@@ -60,7 +60,7 @@ _一个功能完整的综合型个人博客 —— 技术教程 · 学习笔记 
 - 阅读量按「每次访问 +1」统计（`article_views` 表，客户端上报避免预取污染）
 
 ### 🧩 更多模块
-- 导航站 `/nav`（分类/子分类/网址收录与扫描）· 说说 `/moments` · 日历 `/calendar` · 思维导图 · 练字字帖 · 点赞（指纹去重）
+- 导航站 `/nav`（分类/子分类/网址收录与扫描）· 说说 `/moments` · 随心录 `/quick-notes`（私密卡片、标签与时间线）· 日历 `/calendar` · 思维导图 · 练字字帖 · 点赞（指纹去重）
 
 ### 🎨 主题系统
 - 编译期 TS 插件 + 运行时 JSON 导入双轨机制，设置面板右上角调色盘即点即换
@@ -80,6 +80,7 @@ _一个功能完整的综合型个人博客 —— 技术教程 · 学习笔记 
 | `/doc` · `/doc/[id]` | 数学讲义 | 公开 |
 | `/gallery` | 影集 | 公开 |
 | `/moments` | 说说 | 公开 |
+| `/quick-notes` | 随心录（快速记录与回看） | 顶级管理员 |
 | `/archive` | 归档（时间线） | 公开 |
 | `/nav` | 导航站 | 公开 |
 | `/calendar` | 日历 | 公开 |
@@ -120,6 +121,7 @@ pnpm dev
 | 变量 | 说明 | 示例 |
 | --- | --- | --- |
 | `ADMIN_PASSWORD` | 后台登录口令（生产务必修改） | `change-me-please` |
+| `AUTH_SECRET` | 会话 Cookie 签名密钥（≥ 32 字节随机串，缺失时拒绝签发/验证会话） | 自行生成随机密钥 |
 | `DATABASE_URL` | 数据库连接串。生产以 `postgres://` 开头 | `file:./data/blog.db` |
 | `PUBLIC_SITE_URL` | 站点完整地址（RSS 与 SEO canonical，生产必填） | `https://your-domain.com` |
 
@@ -128,12 +130,14 @@ pnpm dev
 | 变量 | 说明 |
 | --- | --- |
 | `DATABASE_URL_FALLBACK` | 备用 PostgreSQL，主库故障自动切换（60s 冷却 + 自动回切；主 Neon 从 Supabase，需用连接池串） |
-| `AUTH_SECRET` | 会话 Cookie 签名密钥（≥ 32 字节随机串，缺省由 ADMIN_PASSWORD 派生） |
+| `TOP_ADMIN_PASSWORD` | 可选的独立站主密码；未配置时禁用此登录通道，不提供默认密码 |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth App（Callback: `https://你的域名/api/auth/github/callback`） |
 | `ADMIN_GITHUB_LOGIN` | 允许登录后台的 GitHub 用户名白名单（不区分大小写） |
 | `PUBLIC_TWIKOO_ENV_ID` | Twikoo 评论后端地址；未配置时评论区自动隐藏 |
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_PUBLIC_BASE_URL` | Cloudflare R2 对象存储（免费 10GB、零出网费）；未配置时图片自动上传降级为仅 URL 导入 |
 | `R2_S3_ENDPOINT` | R2 S3 端点，默认按 ACCOUNT_ID 推导 |
+
+认证升级说明：会话与 OAuth state 按用途隔离。升级前签发的管理员、站主与用户会话将失效，需重新登录；进行中的 GitHub 授权需重新发起。原有文章解锁状态保留。
 
 ## 🗄️ 数据与存储
 

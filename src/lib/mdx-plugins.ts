@@ -33,6 +33,7 @@ import { footnoteDef, footnoteRef, textNode, type MdxDirectiveNode } from './mdx
 import { remarkCallout } from './mdx/callout';
 import { remarkCollapse } from './mdx/collapse';
 import { remarkTabs } from './mdx/tabs';
+import { remarkColumns } from './mdx/columns';
 import { remarkSpoiler } from './mdx/spoiler';
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
 
@@ -338,8 +339,9 @@ const SENT = '\uE000';
 const SENT2 = '\uE001';
 
 /** 支持的语义色角色（对齐 M3E：primary / secondary / tertiary / error / tip） */
-export const MARK_VARIANTS = ['primary', 'secondary', 'tertiary', 'error', 'tip'] as const;
-export type MarkVariant = (typeof MARK_VARIANTS)[number];
+export { MARK_VARIANTS } from './markdown-format-catalog';
+export type { MarkVariant } from './markdown-format-catalog';
+import type { MarkVariant } from './markdown-format-catalog';
 
 /** 变体别名归一（warn/caution/danger → error；success/info/note → tip；…） */
 const MARK_VARIANT_ALIASES: Record<string, MarkVariant> = {
@@ -984,6 +986,7 @@ export const remarkPlugins = [
   remarkMath,
   remarkDirective,
   remarkDirectiveToJsx,
+  remarkColumns,
   // `:spoiler[内容]` 行内黑幕 → <Spoiler>（须在 remarkDirective 之后，textDirective 已解析成型；
   //   放在容器插件之前：容器转换时会把已生成的 Spoiler JSX 节点随 children 原样携带）
   remarkSpoiler,

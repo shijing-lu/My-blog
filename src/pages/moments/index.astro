@@ -214,6 +214,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
 </BaseLayout>
 
 <script>
+  import { revealWithin } from '@/lib/motion';
   import { compressImageForUpload } from '../../lib/client-image-upload';
   import { confirmDanger } from '@/lib/confirm';
   import { on } from '@/lib/dom';
@@ -498,7 +499,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       tpl.innerHTML = html;
       const cards = tpl.content.querySelectorAll('.moment-card').length;
       const stream = el('moment-stream');
-      if (stream) stream.appendChild(tpl.content);
+      if (stream) { stream.appendChild(tpl.content); revealWithin(stream); }
       offset += cards;
       done = cards < PAGE_SIZE;
       if (done) el('moment-more-wrap')?.classList.add('hidden');
@@ -542,6 +543,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     // 首屏空态不是卡片；不清掉的话它会残留在新卡上方
     if (stream.querySelectorAll('.moment-card').length === 0) stream.innerHTML = '';
     stream.prepend(card);
+    revealWithin(card);
     // 分页偏移 +1：否则「更多」会从旧偏移再拉一次，把这条重复渲染一遍
     const next = Number(stream.dataset.offset ?? 0) + 1;
     stream.dataset.offset = String(next);

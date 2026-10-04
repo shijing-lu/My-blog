@@ -1,0 +1,15 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import CadenceRoot from '@/cadence/CadenceRoot';
+import { getAdminIdentity } from '@/lib/admin-auth';
+export const prerender = false;
+Astro.response.headers.set('cache-control', 'private, no-store');
+if ((await getAdminIdentity(Astro.cookies)).kind !== 'top') {
+  return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+}
+---
+<BaseLayout title="日程" description="计划、执行与复盘，记录自己的时间" indexable={false}>
+  <CadenceRoot client:only="react">
+    <div slot="fallback" class="mx-auto max-w-6xl px-4 py-10 text-muted-foreground" role="status">正在打开日程…</div>
+  </CadenceRoot>
+</BaseLayout>

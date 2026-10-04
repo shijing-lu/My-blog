@@ -1,0 +1,31 @@
+/* Content shrinks with its container rather than its longest formula. */
+.prose, .callout, .callout-body, .callout-title-text { min-width: 0; max-width: 100%; }
+.callout-title-text, .callout-body { overflow-wrap: anywhere; }
+@media (max-width: 767px) {
+  #doc-3col { grid-template-columns: minmax(0, 1fr); }
+  #doc-3col > *, #doc-ltoc-inner { min-width: 0; max-width: 100%; }
+  #doc-3col main > header > div { flex-wrap: wrap; }
+  #doc-3col main h1 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 1.5rem; }
+  .prose, .prose :is(h1,h2,h3,h4,h5,h6) { overflow-wrap: anywhere; }
+  .prose .callout { box-sizing: border-box; padding: .75rem; }
+  .prose .callout-title { min-width: 0; align-items: flex-start; }
+  .prose .callout-title-text { white-space: normal; }
+  .prose :is(img,video,iframe) { max-width: 100%; }
+  /* Preserve KaTeX's internal nowrap/vlist; scroll only the outer formula. */
+  .prose .katex:not(.katex-display > .katex) {
+    display: inline-block;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    vertical-align: middle;
+    padding-block: .3em;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .prose .katex:not(.katex-display > .katex)::-webkit-scrollbar { display: none; }
+  .prose .katex-display { max-width: 100%; text-align: left; overscroll-behavior-x: contain; }
+  .prose .katex-display > .katex { text-align: left; }
+  .prose pre { min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+  .prose p > code { overflow-wrap: anywhere; white-space: normal; }
+}

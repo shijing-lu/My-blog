@@ -23,6 +23,7 @@ const {
 import '../styles/global.css';
 import '../styles/print.css'; // 「导出 PDF」打印样式表（@media print，零屏显开销）
 import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
+import '@/styles/mobile-reading.css';
 // KaTeX 关键字体预热：?url 取打包后哈希 URL，head 里 preload（见模板）。
 // 国内网络下 KaTeX 字体加载失败会导致公式 vlist 行盒塌缩、糊成一团（诊断结论），
 // preload 提前并行拉取 + 页面脚本检测失败后切 MathML 兜底（.katex-font-fallback）。
@@ -40,12 +41,13 @@ import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
 import ManageDialog from '@/components/ManageDialog.astro';
 import SettingsModal from '@/components/admin/SettingsModal.astro';
-import { canManage } from '@/lib/admin-auth';
+import { canManage, isTopAdmin } from '@/lib/admin-auth';
 import { isUserGitHubConfigured } from '@/lib/auth';
 import AiChatFloat from '@/components/ai/AiChatFloat';
+import QuickNoteFloat from '@/components/quick-notes/QuickNoteFloat';
 import { getAiConfig, isAiReady } from '@/lib/ai-config';
 import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
-import { buildFontCss, getFontsByIds, getSiteFonts, hasManualFontSettings } from '@/lib/fonts';
+import { buildFontCss, getFontsByIds, getSiteFontState } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 import { getHeroQuoteSettings } from '@/lib/quote-settings';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
@@ -53,6 +55,7 @@ import SiteTextStyles from '@/components/SiteTextStyles.astro';
 
 /** 站点名称（管理员可在 /admin/settings 自定义，默认「白衣卿相」） */
 const siteTitle = await getSiteName();
+const isDesktop = serverEnv('DESKTOP_MODE') === '1';
 /** 文档标题：无页面标题或与站名相同时只显示站名，否则「页面标题 · 站名」 */
 const pageTitle = title === '' || title === siteTitle ? siteTitle : `${title} · ${siteTitle}`;
 
@@ -80,6 +83,7 @@ const footerQuote =
 const isAuthed = await canManage(Astro.cookies, 'articles');
 /** 是否具备站点设置权限（设置弹窗仅对管理端渲染，游客零输出） */
 const canSettings = await canManage(Astro.cookies, 'settings');
+const canQuickNotes = await isTopAdmin(Astro.cookies);
 /** AI 助手是否就绪（SSR 判定；未配置时岛不渲染交互 UI） */
 const aiReady = isAiReady(await getAiConfig());
 /** 全站背景配置（统一背景 / 按页面独立，设置页可配） */
@@ -87,8 +91,7 @@ const bg = await getSiteBackground();
 /** 当前页面应渲染的背景（null = 不渲染） */
 const resolvedBg = resolveBackgroundForPath(bg, Astro.url.pathname);
 /** 全局字体设置：手动设置过 → 注入覆盖（优先于主题）；从未设置 → 不注入，跟随主题字体 */
-const hasManualFonts = await hasManualFontSettings();
-const fontSettings = await getSiteFonts();
+const { fonts: fontSettings, hasManualFonts } = await getSiteFontState();
 const customFontIds = [fontSettings.article, fontSettings.ui]
   .filter((f) => f.type === 'custom')
   .map((f) => f.value);
@@ -113,12 +116,13 @@ const needsKatexFonts =
   pathname.startsWith('/doc/') ||
   // 动态列表/详情：2026-09-20 起动态与文章/文档共用 renderMdx 管线，同样可能出现公式
   pathname.startsWith('/moments') ||
+  pathname.startsWith('/quick-notes') ||
   pathname === '/demo';
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
 <!-- data-desktop：桌面端（Electron）标记 —— 用于启用"启动入场"等桌面专属动效 -->
-<html lang="zh-CN" data-desktop={serverEnv('DESKTOP_MODE') === '1' ? '' : undefined}>
+<html lang="zh-CN" data-desktop={isDesktop ? '' : undefined}>
   <head>
     <meta charset="utf-8" />
     <!--
@@ -275,16 +279,28 @@ const needsKatexFonts =
     {
       bg.stardust && <div class="stardust" transition:persist="stardust" aria-hidden="true" />
     }
-    <header transition:persist="site-header" class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
+    <header id="site-header" transition:persist="site-header" class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
       <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
-        <a
-          href="/"
-          data-site-name
-          class="font-pixel text-sm tracking-wider text-primary glow-text transition-opacity duration-200 hover:opacity-80"
-        >
-          {siteTitle}
-        </a>
-        <nav class="flex items-center gap-1 text-sm" aria-label="主导航">
+        <div class="flex shrink-0 items-center gap-1">
+          {isDesktop && (
+            <button type="button" data-desktop-back aria-label="后退" title="后退" disabled class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+            </button>
+          )}
+          <a
+            href="/"
+            data-site-name
+            class="shrink-0 font-pixel text-sm tracking-wider text-primary glow-text transition-opacity duration-200 hover:opacity-80"
+          >
+            {siteTitle}
+          </a>
+          {isDesktop && (
+            <button type="button" data-desktop-forward aria-label="前进" title="前进" disabled class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+            </button>
+          )}
+        </div>
+        <nav class="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm" aria-label="主导航">
           <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             首页
           </a>
@@ -300,12 +316,16 @@ const needsKatexFonts =
           <a href="/calendar" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             日历
           </a>
+          <a href="/schedule" aria-current={Astro.url.pathname.startsWith('/schedule') ? 'page' : undefined} class:list={['rounded-md px-3 py-1.5 transition-colors duration-200 hover:bg-accent hover:text-foreground', Astro.url.pathname.startsWith('/schedule') ? 'bg-accent text-foreground' : 'text-muted-foreground']}>
+            日程
+          </a>
           <a href="/moments" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             动态
           </a>
           <a href="/archive" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             归档
           </a>
+          {canQuickNotes && <a href="/quick-notes" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">随心录</a>}
           <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <ThemeToggle />
           <ThemeSettings />
@@ -324,7 +344,7 @@ const needsKatexFonts =
       <slot />
     </main>
 
-    <footer transition:persist="site-footer" class="border-t">
+    <footer id="site-footer" transition:persist="site-footer" class="border-t">
       <div class="mx-auto w-full max-w-6xl px-4 py-6">
         <div class="pixel-divider mb-4" />
         <p class="text-center text-sm text-muted-foreground">
@@ -359,7 +379,8 @@ const needsKatexFonts =
     </svg>
 
     <!-- AI 助手「小卿」：选中文本右键 → 悬浮对话（全站，client:idle 惰性水合） -->
-    <AiChatFloat client:idle enabled={aiReady} />
+    {aiReady && !Astro.url.pathname.startsWith('/schedule') && <AiChatFloat client:idle enabled={true} />}
+    {canQuickNotes && <QuickNoteFloat client:load />}
 
     <!-- 公开页交互：代码块折叠 + 代码复制（块级/行内） + Callout 复制按钮 + 图片灯箱 + 选项卡组 + 黑幕开关（document 委托，View Transitions 下依然有效） -->
     <script>
@@ -370,10 +391,14 @@ const needsKatexFonts =
       import '@/scripts/tabs';
       import '@/scripts/spoiler';
     </script>
+    <script>
+      import '@/scripts/desktop-navigation';
+    </script>
 
     <!-- 全局动效：滚动进度条 + 卡片入场动画 + GSAP 分割线展开 -->
     <script>
-      import { initReveals } from '@/lib/anim';
+      import { initMotion } from '@/lib/motion';
+      initMotion();
       import { restoreTheme, readState, isDark, initSystemThemeWatcher } from '@/lib/theme';
       import { getCustomThemes, injectCustomThemeCss } from '@/lib/custom-theme';
 
@@ -392,149 +417,33 @@ const needsKatexFonts =
       window.addEventListener('resize', updateProgress);
       updateProgress();
 
-      /** 卡片入场动画：进入视口渐入上浮（同级错位，形成自然的级联节奏） */
-      const revealObserver = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting) {
-              const el = entry.target as HTMLElement;
-              // 错位延迟按"在父容器中的序号"注入；上限 6 个，避免长列表尾项等太久
-              const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
-              const idx = Math.max(0, siblings.indexOf(el));
-              el.style.setProperty('--reveal-delay', `${Math.min(idx, 6) * 55}ms`);
-              el.classList.add('revealed');
-              revealObserver.unobserve(el);
-            }
-          });
-        },
-        { threshold: 0.06 },
-      );
-
-      /**
-       * 错误提示抖动：任意 [role="alert"] 文本变化时抖动一次
-       *
-       * 用 observer 而不是逐处改代码：全站上百个错误提示（表单/网盘/AI/主题导入…）
-       * 都能自动获得同一反馈，且新增提示无需重复接线。
-       */
-      if (document.body.dataset.shakeBound !== '1') {
-        document.body.dataset.shakeBound = '1';
-        const shakeObserver = new MutationObserver((mutations) => {
-          for (const m of mutations) {
-            const node = m.target.nodeType === 1 ? (m.target as HTMLElement) : m.target.parentElement;
-            const alert = node?.closest?.('[role="alert"]') as HTMLElement | null;
-            if (!alert || !alert.textContent?.trim()) continue;
-            alert.classList.remove('motion-shake');
-            void alert.offsetWidth; // 强制回流以重启动画
-            alert.classList.add('motion-shake');
-            window.setTimeout(() => alert.classList.remove('motion-shake'), 520);
-          }
-        });
-        shakeObserver.observe(document.body, { subtree: true, childList: true, characterData: true });
-      }
-
-      /** 全局导航加载指示：点击立即出现转圈+进度条，覆盖 fetch 与 DOM 交换全过程，
-       *  交换完成(after-swap)后至少再显示 250ms 才淡出——转圈作为过渡遮罩，
-       *  让用户明确感知"在加载"，掩盖突兀的页面替换 */
-      const navLoader = document.getElementById('nav-loader');
-      const navProgress = document.getElementById('nav-progress');
-      const MIN_LOADER_MS = 250;
-      const MAX_LOADER_MS = 1200; // 转圈绝对上限：无论导航是否完成，超时即隐藏（避免长时间卡圈）
-      let minHideTimer = 0;
-      let staleTimer = 0;
-      let maxTimer = 0;
-      let progressDoneTimer = 0;
-      const hideLoaderImmediate = (): void => {
-        navLoader?.classList.remove('show');
-        navProgress?.classList.remove('active', 'done');
-      };
-      const showLoader = (): void => {
-        window.clearTimeout(minHideTimer);
-        window.clearTimeout(staleTimer);
-        window.clearTimeout(maxTimer);
-        if (navLoader) navLoader.dataset.shownAt = String(Date.now());
-        navLoader?.classList.add('show');
-        navProgress?.classList.remove('done');
-        navProgress?.classList.add('active');
-        // 兜底：1.5s 内无导航事件（误触/同页链接）则强制隐藏
-        staleTimer = window.setTimeout(hideLoaderImmediate, 1500);
-        // 绝对上限：1.2s 后即使页面还没换完也隐藏转圈，避免用户等待感过长
-        maxTimer = window.setTimeout(hideLoaderImmediate, MAX_LOADER_MS);
-      };
+      /** 进度由真实导航事件驱动；短导航不闪遮罩，也不强制等待最短动画时长。 */
+      let loaderTimer = 0;
+      let progressTimer = 0;
+      let navigationVersion = 0;
       const hideLoader = (): void => {
-        window.clearTimeout(staleTimer);
-        window.clearTimeout(maxTimer);
-        window.clearTimeout(progressDoneTimer);
-        const shownAt = Number(navLoader?.dataset.shownAt ?? 0);
-        const elapsed = shownAt ? Date.now() - shownAt : 0;
-        const remain = Math.max(0, MIN_LOADER_MS - elapsed);
-        minHideTimer = window.setTimeout(() => {
-          navLoader?.classList.remove('show');
-        }, remain);
-        // 进度条填满后淡出
-        if (navProgress?.classList.contains('active')) {
-          navProgress.classList.add('done');
-          progressDoneTimer = window.setTimeout(() => {
-            navProgress.classList.remove('active', 'done');
-          }, 400);
-        }
+        window.clearTimeout(loaderTimer);
+        document.getElementById('nav-loader')?.classList.remove('show');
+        const progress = document.getElementById('nav-progress');
+        if (!progress?.classList.contains('active')) return;
+        progress.classList.add('done');
+        window.clearTimeout(progressTimer);
+        progressTimer = window.setTimeout(() => progress.classList.remove('active', 'done'), 240);
       };
-      // 导航开始（fetch 前）→ 显示；DOM 交换完成 → 至少转满 250ms 后淡出
-      document.addEventListener('astro:before-preparation', showLoader);
+      document.addEventListener('astro:before-preparation', (event) => {
+        const version = ++navigationVersion;
+        window.clearTimeout(loaderTimer);
+        window.clearTimeout(progressTimer);
+        const progress = document.getElementById('nav-progress');
+        progress?.classList.remove('done');
+        progress?.classList.add('active');
+        loaderTimer = window.setTimeout(() => document.getElementById('nav-loader')?.classList.add('show'), 180);
+        const signal = (event as Event & { signal?: AbortSignal }).signal;
+        signal?.addEventListener('abort', () => { if (version === navigationVersion) hideLoader(); }, { once: true });
+      });
       document.addEventListener('astro:after-swap', hideLoader);
       document.addEventListener('astro:page-load', hideLoader);
 
-      // 兜底：点击同源导航链接立即显示加载指示（即使 ClientRouter 事件未触发，
-      // 也能在 SPA 导航期间可靠出现转圈/进度条）
-      document.addEventListener('click', (e) => {
-        const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
-        if (!link) return;
-        // 日历日期格子/月份按钮、文档目录/文章锚点、注脚跳转是页内/局部跳转（不换页），不触发转圈
-        if (link.closest('.cal-cell, .cal-nav-btn, [data-doc-anchor], [data-article-switch], [data-footnote-ref], [data-footnote-backref]')) return;
-        const target = new URL(link.href, location.href);
-        if (target.origin !== location.origin) return;
-        if (link.hasAttribute('download')) return;
-        const linkTarget = link.target;
-        if (linkTarget && linkTarget !== '_self') return;
-        showLoader();
-      }, true);
-      /**
-       * 是否首次加载
-       *
-       * 用途：astro:page-load 在**首次加载与 ClientRouter 转场后都会触发**。
-       * 原实现无条件把卡片标记为"已显示"，导致首次加载也不播进场动画
-       * （实测：卡片从未拿到 .reveal、--reveal-delay 也没写入 → 错位进场完全不可见）。
-       * 现在：首次加载交给 observeReveals 播错位进场；转场后仍直接显示（避免转场淡入 + 卡片上浮双重动画）。
-       */
-      let isFirstLoad = true;
-
-      function observeReveals(): void {
-        document.querySelectorAll<HTMLElement>('.post-card, .post-row, .moment-card, .photo-card, .activity-heatmap').forEach((el) => {
-          if (el.classList.contains('revealed')) return;
-          if (!el.classList.contains('reveal')) el.classList.add('reveal');
-          // 错位延迟在这里就写入（不依赖 IntersectionObserver 回调）
-          const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
-          const idx = Math.max(0, siblings.indexOf(el));
-          const delayMs = Math.min(idx, 6) * 55;
-          el.style.setProperty('--reveal-delay', `${delayMs}ms`);
-
-          // ⚠️ 实测：本环境下 IntersectionObserver 的首轮回调未按预期触发，
-          //    卡片会一直 opacity:0 直到 1.2s 兜底才被"直接显示"（内容空白 1.2 秒）。
-          //    因此首屏元素不再依赖 IO，直接按错位延迟播放；视口外交给 IO 处理。
-          const rect = el.getBoundingClientRect();
-          const inViewport = rect.top < window.innerHeight && rect.bottom > 0;
-          if (inViewport) {
-            window.setTimeout(() => el.classList.add('revealed'), delayMs);
-          } else {
-            revealObserver.observe(el);
-          }
-          // 兜底：1.2s 内未触发 revealed 也强制显示（防 IO 失效导致内容隐藏）
-          window.setTimeout(() => {
-            if (el.classList.contains('reveal') && !el.classList.contains('revealed')) {
-              el.classList.add('revealed');
-            }
-          }, 1200);
-        });
-      }
       /**
        * 主题无闪烁恢复（关键修复）：
        * Astro View Transitions 的 swap 会用新文档（SSR 输出，无主题属性的
@@ -565,34 +474,6 @@ const needsKatexFonts =
         } catch (e) { /* 失败则回落 after-swap/page-load 兜底，不影响导航 */ }
       });
 
-      /**
-       * 动效能力自检（输出到控制台 → 由主进程转发进 launch.log）
-       *
-       * 用途：用户反馈"没有任何动效"时，一次性看清渲染层真实环境：
-       * 是否支持 View Transitions、是否被系统 reduced-motion 压制、
-       * 桌面标记是否注入、令牌是否生效、卡片是否拿到错位延迟。
-       */
-      const motionSelfCheck = (): void => {
-        try {
-          const styles = getComputedStyle(document.documentElement);
-          const card = document.querySelector<HTMLElement>('.post-row, .post-card, .photo-card, .moment-card');
-          console.info(
-            '[motion] 自检 ' +
-              JSON.stringify({
-                支持视图过渡: typeof document.startViewTransition === 'function',
-                系统减弱动效: matchMedia('(prefers-reduced-motion: reduce)').matches,
-                桌面标记: document.documentElement.dataset.desktop ?? '(未设置)',
-                令牌时长: styles.getPropertyValue('--dur-slower').trim() || '(缺失)',
-                令牌缓动: styles.getPropertyValue('--ease-out-soft').trim() || '(缺失)',
-                卡片数: document.querySelectorAll('.post-row, .post-card, .photo-card, .moment-card').length,
-                首卡延迟: card ? card.style.getPropertyValue('--reveal-delay') || '(未设置)' : '(无卡片)',
-              }),
-          );
-        } catch (e) {
-          console.info('[motion] 自检失败 ' + String(e));
-        }
-      };
-
       document.addEventListener('astro:page-load', () => {
         // View Transition 后恢复主题（data-theme / 暗色 / 自定义主题 CSS 会被新 head 替换丢失）
         // 注意：主题的「无闪烁恢复」已由 astro:before-swap 提前到 swap 前处理；
@@ -608,117 +489,8 @@ const needsKatexFonts =
           initSystemThemeWatcher();
         } catch (e) { /* 主题恢复失败不影响页面 */ }
         updateProgress();
-        // View Transition 切换后的页面：卡片直接显示，不再叠加播放入场动画
-        // （避免「转场淡入 + 卡片上浮」双重动画造成闪烁）——首次加载例外，那次要播错位进场
-        if (!isFirstLoad) {
-          document
-            .querySelectorAll<HTMLElement>('.post-card, .post-row, .moment-card, .photo-card, .activity-heatmap')
-            .forEach((el) => {
-              el.classList.remove('reveal');
-              el.classList.add('revealed');
-            });
-        }
-        isFirstLoad = false;
-      });
-      observeReveals();
-      // GSAP：全站像素分割线滚动展开（仅初始加载播放；转场后静态显示避免闪）
-      void initReveals();
-
-      /** 按钮点击波纹（document 委托，View Transitions 后依然有效） */
-      document.addEventListener('click', (e) => {
-        const btn = (e.target as HTMLElement).closest<HTMLElement>('button, .ripple');
-        if (!btn) return;
-        const rect = btn.getBoundingClientRect();
-        const size = Math.max(rect.width, rect.height);
-        const span = document.createElement('span');
-        span.className = 'ripple-wave';
-        span.style.width = span.style.height = `${size}px`;
-        span.style.left = `${e.clientX - rect.left - size / 2}px`;
-        span.style.top = `${e.clientY - rect.top - size / 2}px`;
-        btn.appendChild(span);
-        span.addEventListener('animationend', () => span.remove());
       });
 
-      /** 流星划过 / 点击烟花 / 滑动流星特效（prefers-reduced-motion 时关闭） */
-      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        const PARTICLE_COLORS = ['var(--color-primary)', 'var(--color-chart-3)', 'var(--color-chart-4)', '#ffffff'];
-        /* P2-1：mousemove 粒子原先每 40ms 无条件创建 3 个节点（≈75 节点/秒），
-           长时间移动鼠标会持续制造 DOM churn。改为三重收敛：
-           ① 节流放宽到 90ms；② 单次只生成 2 颗；③ 同屏粒子数上限 40（用计数器而非
-           查 DOM，避免每帧 querySelectorAll 的开销）。命中上限时直接跳过本次生成。 */
-        const MAX_LIVE_PARTICLES = 40;
-        let liveParticles = 0;
-
-        /** 生成一颗流星点（fixed 定位，0.6s 后自动清除） */
-        function spawnMeteor(x: number, y: number, drift: number): void {
-          if (liveParticles >= MAX_LIVE_PARTICLES) return;
-          liveParticles += 1;
-          const span = document.createElement('span');
-          span.className = 'meteor';
-          const size = 4 + Math.random() * 5;
-          span.style.width = `${size}px`;
-          span.style.height = `${size}px`;
-          span.style.left = `${x + (Math.random() - 0.5) * 8}px`;
-          span.style.top = `${y + (Math.random() - 0.5) * 8}px`;
-          span.style.setProperty('--dx', `${drift * (Math.random() - 0.5) * 2}px`);
-          span.style.setProperty('--dy', `${drift * (Math.random() - 0.5) * 2}px`);
-          span.style.background = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)]!;
-          document.body.appendChild(span);
-          span.addEventListener('animationend', () => {
-            liveParticles -= 1;
-            span.remove();
-          });
-        }
-
-        /** 鼠标划过：流星拖尾（90ms 节流，每次 2 颗；同屏上限见 MAX_LIVE_PARTICLES） */
-        let lastMeteor = 0;
-        document.addEventListener('mousemove', (e) => {
-          const now = performance.now();
-          if (now - lastMeteor < 90) return;
-          lastMeteor = now;
-          for (let i = 0; i < 2; i += 1) spawnMeteor(e.clientX, e.clientY, 22);
-        });
-
-        /** 点击：烟花散开（每次点击固定 12 颗，属用户主动触发，不受 mousemove 节流约束） */
-        document.addEventListener('click', (e) => {
-          for (let i = 0; i < 12; i += 1) {
-            if (liveParticles >= MAX_LIVE_PARTICLES) break;
-            liveParticles += 1;
-            const span = document.createElement('span');
-            span.className = 'firework-particle';
-            const size = 3 + Math.random() * 3;
-            span.style.width = `${size}px`;
-            span.style.height = `${size}px`;
-            span.style.left = `${e.clientX}px`;
-            span.style.top = `${e.clientY}px`;
-            const angle = (Math.PI * 2 * i) / 12 + (Math.random() - 0.5) * 0.3;
-            const dist = 30 + Math.random() * 40;
-            span.style.setProperty('--dx', `${Math.cos(angle) * dist}px`);
-            span.style.setProperty('--dy', `${Math.sin(angle) * dist}px`);
-            span.style.background = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)]!;
-            document.body.appendChild(span);
-            span.addEventListener('animationend', () => {
-              liveParticles -= 1;
-              span.remove();
-            });
-          }
-        });
-
-        /** 滑动（滚动）页面：视口内随机散落流星 */
-        let lastScrollFx = 0;
-        document.addEventListener(
-          'scroll',
-          () => {
-            const now = performance.now();
-            if (now - lastScrollFx < 130) return; // 130ms 节流
-            lastScrollFx = now;
-            for (let i = 0; i < 2; i += 1) {
-              spawnMeteor(Math.random() * window.innerWidth, Math.random() * window.innerHeight, 30);
-            }
-          },
-          { passive: true },
-        );
-      }
       }
     </script>
   </body>

@@ -4,19 +4,25 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { buildMonthGrid, countdownText, dateKey, nextOccurrence } from '@/lib/calendar';
+import { buildMonthGrid, countdownText, nextOccurrence } from '@/lib/calendar';
 import { getDiaryByDate, listDiaryDates, listEvents, listTodos } from '@/lib/calendar-data';
-import { canManage } from '@/lib/admin-auth';
+import { canManage, isTopAdmin } from '@/lib/admin-auth';
+import CalendarDiaryDialog from '@/components/admin/CalendarDiaryDialog';
+import { shanghaiDateKey } from '@/lib/diary-log';
 
 /* ===== Logic ===== */
 const isAuthed = await canManage(Astro.cookies, 'calendar');
+const canDiary = await isTopAdmin(Astro.cookies);
+if (canDiary) Astro.response.headers.set('cache-control', 'private, no-store');
 const now = new Date();
-const todayKey = dateKey(now);
+const todayKey = shanghaiDateKey(now);
+const [todayYear, todayMonth, todayDay] = todayKey.split('-').map(Number);
+const gridToday = new Date(todayYear!, todayMonth! - 1, todayDay!);
 
 /** 解析 URL 参数：month（默认当前月）、date（默认今天） */
 const rawMonth = Astro.url.searchParams.get('month') ?? '';
-let year = now.getFullYear();
-let month = now.getMonth() + 1;
+let year = todayYear!;
+let month = todayMonth!;
 if (/^\d{4}-\d{2}$/.test(rawMonth)) {
   year = Number(rawMonth.slice(0, 4));
   month = Number(rawMonth.slice(5, 7));
@@ -27,13 +33,13 @@ const selectedKey = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayKey;
 /** 数据（重要日期公开；待办/日记仅登录） */
 const events = await listEvents();
 const todos = isAuthed ? await listTodos() : [];
-const diaryDates = isAuthed ? new Set(await listDiaryDates()) : new Set<string>();
+const diaryDates = canDiary ? new Set(await listDiaryDates()) : new Set<string>();
 
 /** 月网格 */
-const grid = buildMonthGrid(year, month, { today: now, todos, events, diaryDates });
+const grid = buildMonthGrid(year, month, { today: gridToday, todos, events, diaryDates });
 /** 选中日 */
 const selectedDay = grid.weeks.flat().find((d) => d.date === selectedKey);
-const selectedDiary = isAuthed && selectedKey ? await getDiaryByDate(selectedKey) : null;
+const selectedDiary = canDiary && selectedKey ? await getDiaryByDate(selectedKey) : null;
 
 /** 上下月链接（Date 自动处理跨年） */
 const prevMonth = new Date(year, month - 2, 1);
@@ -66,10 +72,15 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       </div>
       <div class="flex items-center gap-2">
         <a href={`/calendar?month=${prevKey}`} class="cal-nav-btn" aria-label="上个月">←</a>
-        <a href={`/calendar?month=${dateKey(now).slice(0, 7)}&date=${todayKey}`} class="cal-nav-btn">今天</a>
+        <a href={`/calendar?month=${todayKey.slice(0, 7)}&date=${todayKey}`} class="cal-nav-btn">今天</a>
         <a href={`/calendar?month=${nextKey}`} class="cal-nav-btn" aria-label="下个月">→</a>
       </div>
     </div>
+    {canDiary && <div class="mt-5 flex flex-wrap items-center gap-2">
+      <button type="button" data-diary-generate="all" class="rounded-md border border-border bg-card px-3 py-1.5 text-sm hover:border-primary hover:text-primary">生成以前所有日期</button>
+      <button type="button" data-diary-generate="today" class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:opacity-90">生成当日</button>
+      <span id="diary-generate-status" role="status" aria-live="polite" class="text-xs text-muted-foreground"></span>
+    </div>}
     <div class="pixel-divider mt-5" />
 
     <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -113,14 +124,14 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
         </div>
         <p class="mt-2 text-xs text-muted-foreground">
           <span class="inline-flex items-center gap-1"><i class="cal-mark cal-mark-todo" /> 待办</span>
-          <span class="ml-3 inline-flex items-center gap-1"><i class="cal-mark cal-mark-diary" /> 日记</span>
+          {canDiary && <span class="ml-3 inline-flex items-center gap-1"><i class="cal-mark cal-mark-diary" /> 日记</span>}
           <span class="ml-3 inline-flex items-center gap-1"><i class="cal-mark cal-mark-event" /> 重要日期</span>
           <span class="ml-3 text-muted-foreground">悬停任意日期可预览</span>
         </p>
       </div>
 
       <!-- 日期悬浮预览卡 -->
-      <div id="cal-tooltip" class="cal-tooltip hidden" role="tooltip" data-authed={isAuthed ? '1' : '0'}></div>
+      <div id="cal-tooltip" class="cal-tooltip hidden" role="tooltip" data-authed={isAuthed ? '1' : '0'} data-diary={canDiary ? '1' : '0'}></div>
 
       <!-- 右侧：选中日详情 + 即将到来 -->
       <aside class="space-y-4">
@@ -144,13 +155,14 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 
           <!-- 日记入口（管理员） -->
           {
-            isAuthed && (
-              <a
-                href={`/calendar/diary?date=${selectedKey}`}
+            canDiary && (
+              <button
+                type="button"
+                data-diary-open={selectedKey}
                 class="mt-3 block rounded-md border border-border px-3 py-1.5 text-center text-sm transition-colors hover:border-primary hover:text-primary"
               >
-                {selectedDiary ? '查看 / 编辑当日日记' : '写当日日记'}
-              </a>
+                {selectedDiary ? '打开当日日记' : '新建当日日记'}
+              </button>
             )
           }
 
@@ -300,9 +312,11 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     </div>
     <div id="all-events-list" class="max-h-[60vh] overflow-y-auto p-5"></div>
   </dialog>
+  {canDiary && <CalendarDiaryDialog client:load />}
 </BaseLayout>
 
 <script>
+  import { feedback } from '@/lib/motion';
   /** 日历交互：日期悬浮预览（停留 2s 显示当日信息，管理员含日记）+ 待办/事件管理 */
   import { confirmDanger } from '@/lib/confirm';
 
@@ -316,6 +330,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
   /* ---- 日期悬浮预览 ---- */
   const calTooltip = document.getElementById('cal-tooltip');
   const tooltipAuthed = calTooltip?.dataset.authed === '1';
+  const tooltipCanDiary = calTooltip?.dataset.diary === '1';
   let tooltipTimer: number | null = null;
   /** 上一次 tooltip 日记请求的中止器：快速划过多个格子时取消在途请求，
    *  避免旧请求后到覆盖新格子的内容（竞态 → 显示错日期的日记） */
@@ -362,7 +377,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     if (festivals) parts.push(`<p class="cal-tip-festival">🎉 ${esc(festivals)}</p>`);
     if (events) parts.push(`<p class="cal-tip-event">◆ ${esc(events)}</p>`);
     let diaryHtml = '';
-    if (tooltipAuthed && date) {
+    if (tooltipCanDiary && date) {
       // 每次构建前先取消上一格的请求；signal 也用于本格被快速离开时中止
       const ac = new AbortController();
       tooltipAbort?.abort();
@@ -473,8 +488,10 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     html += `<p>${esc(sel.ganZhi)}年 · 属${esc(sel.shengXiao)}</p>`;
     if (sel.festivals.length) html += `<p class="text-primary">${esc(sel.festivals.join('、'))}</p>`;
     html += '</div>';
+    if (tooltipCanDiary) {
+      html += `<button type="button" data-diary-open="${sel.date}" class="mt-3 block rounded-md border border-border px-3 py-1.5 text-center text-sm transition-colors hover:border-primary hover:text-primary">${sel.hasDiary ? '打开当日日记' : '新建当日日记'}</button>`;
+    }
     if (authed) {
-      html += `<a href="/calendar/diary?date=${sel.date}" class="mt-3 block rounded-md border border-border px-3 py-1.5 text-center text-sm transition-colors hover:border-primary hover:text-primary">${sel.hasDiary ? '查看 / 编辑当日日记' : '写当日日记'}</a>`;
       html += '<div class="mt-4 border-t border-border pt-3"><p class="pixel-chip mb-2 text-muted-foreground">待办 / TODO</p>';
       html += '<ul id="todo-list" class="space-y-1">';
       for (const t of sel.todos) html += todoLi(t);
@@ -597,13 +614,11 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  /** 本地时区的"今天"（YYYY-MM-DD）。服务器（Vercel UTC）算的今天可能与用户差一天，
-   *  故"今天"相关一律用浏览器本地日期 */
+  /** 日记统一按上海时区归日，日历高亮与“今天”按钮使用同一日期。 */
   function localDateKey(d = new Date()): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+    const field = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+    return `${field('year')}-${field('month')}-${field('day')}`;
   }
 
   /** 更新上/下月、"今天"按钮的 href（"今天"用本地时区，避免服务器 UTC 差一天） */
@@ -634,6 +649,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const gridEl = document.getElementById('cal-grid');
     if (gridEl) {
       gridEl.innerHTML = data.grid.map((d) => cellHtml(d, data.selected.date)).join('');
+      void feedback(gridEl);
     }
     const selEl = document.getElementById('cal-selected-panel');
     if (selEl) selEl.innerHTML = selectedPanelHtml(data.selected, tooltipAuthed);
@@ -756,6 +772,33 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     return document.querySelector<HTMLElement>('#todo-add-form')?.dataset.date ?? '';
   }
 
+  let dayClickTimer: number | null = null;
+  let generating = false;
+  let generationController: AbortController | null = null;
+  const openDiary = (date: string) => {
+    if (!tooltipCanDiary || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const detail = { date };
+    (window as typeof window & { __diaryPending?: { date: string } }).__diaryPending = detail;
+    window.dispatchEvent(new CustomEvent('diary:open', { detail }));
+  };
+  const diaryStatus = (message: string) => {
+    const node = document.getElementById('diary-generate-status');
+    if (node) node.textContent = message;
+  };
+  const diaryJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
+    const response = await fetch(url, { cache: 'no-store', ...init });
+    const value = await response.json().catch(() => ({})) as T & { error?: string };
+    if (!response.ok) throw new Error(value.error || `请求失败（${response.status}）`);
+    return value;
+  };
+  const generateDay = (date: string, mode: 'missing' | 'replace', signal: AbortSignal) => diaryJson<{ status: 'generated' | 'skipped' | 'no-source' }>('/api/diary/generate', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ date, mode }), signal,
+  });
+  window.addEventListener('diary:changed', () => {
+    if (location.pathname === '/calendar') void navigateCalendar(location.href, false);
+  });
+  window.addEventListener('pagehide', () => generationController?.abort());
+
   // 注意：以下监听均用捕获阶段（第三个参数 true），先于 ClientRouter 的
   // document 冒泡监听执行 —— 导航类点击/表单提交在此 preventDefault 后，
   // ClientRouter 看到 defaultPrevented 即跳过，不会触发整页转场。
@@ -792,6 +835,53 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
   // 待办删除 / 事件删除（局部移除）+ 导航（点日期/月份/今天 → 局部更新）
   document.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
+    if (location.pathname !== '/calendar') return;
+    const openButton = target.closest<HTMLElement>('[data-diary-open]');
+    if (openButton?.dataset.diaryOpen) {
+      e.preventDefault();
+      openDiary(openButton.dataset.diaryOpen);
+      return;
+    }
+    const generateButton = target.closest<HTMLButtonElement>('[data-diary-generate]');
+    if (generateButton && !generating) {
+      e.preventDefault();
+      generating = true;
+      generationController = new AbortController();
+      const signal = generationController.signal;
+      document.querySelectorAll<HTMLButtonElement>('[data-diary-generate]').forEach((button) => { button.disabled = true; button.classList.add('opacity-50'); });
+      try {
+        const source = await diaryJson<{ today: string; dates: string[] }>('/api/diary/source-dates', { signal });
+        if (generateButton.dataset.diaryGenerate === 'today') {
+          diaryStatus(`正在生成 ${source.today} 的日记…`);
+          const result = await generateDay(source.today, 'replace', signal);
+          diaryStatus(result.status === 'no-source' ? '今天还没有动态或随心录。' : '当日日记已生成。');
+        } else {
+          if (!source.dates.length) diaryStatus('所有有记录的历史日期都已有日记。');
+          let done = 0; let skipped = 0; const failed: string[] = [];
+          for (const [index, day] of source.dates.entries()) {
+            if (signal.aborted || location.pathname !== '/calendar') break;
+            diaryStatus(`正在处理 ${index + 1}/${source.dates.length}：${day} · 成功 ${done}，跳过 ${skipped}，失败 ${failed.length}`);
+            try {
+              const result = await generateDay(day, 'missing', signal);
+              if (result.status === 'generated') done++;
+              else skipped++;
+            } catch (error) {
+              if (signal.aborted) break;
+              failed.push(`${day}（${error instanceof Error ? error.message : '失败'}）`);
+            }
+          }
+          if (!signal.aborted && source.dates.length) diaryStatus(`完成：成功 ${done}，跳过 ${skipped}，失败 ${failed.length}${failed.length ? `；失败日期：${failed.join('、')}` : ''}`);
+        }
+        if (!signal.aborted) void navigateCalendar(location.href, false);
+      } catch (error) {
+        if (!signal.aborted) diaryStatus(error instanceof Error ? error.message : '生成失败');
+      } finally {
+        generating = false;
+        generationController = null;
+        document.querySelectorAll<HTMLButtonElement>('[data-diary-generate]').forEach((button) => { button.disabled = false; button.classList.remove('opacity-50'); });
+      }
+      return;
+    }
     const todoDel = target.closest<HTMLElement>('[data-todo-del]');
     if (todoDel) {
       if (!(await confirmDanger('删除这条待办？'))) return;
@@ -843,6 +933,20 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
     const nav = target.closest<HTMLElement>('.cal-cell, .cal-nav-btn');
     if (nav && nav.getAttribute('href')) {
       e.preventDefault();
+      if (nav.classList.contains('cal-cell') && tooltipCanDiary && e instanceof MouseEvent && e.detail > 0) {
+        if (dayClickTimer !== null) window.clearTimeout(dayClickTimer);
+        const date = nav.getAttribute('aria-label') ?? '';
+        if (e.detail >= 2) {
+          dayClickTimer = null;
+          openDiary(date);
+        } else {
+          dayClickTimer = window.setTimeout(() => {
+            dayClickTimer = null;
+            void navigateCalendar(nav.getAttribute('href') as string);
+          }, 260);
+        }
+        return;
+      }
       // "今天"按钮：用客户端本地今天（时区修正），不依赖按钮 href（可能陈旧/UTC）
       if (nav.textContent.trim() === '今天') {
         const today = localDateKey();

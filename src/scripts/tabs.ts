@@ -33,6 +33,7 @@
  */
 
 /** 选项卡组容器选择器 */
+import { feedback } from '@/lib/motion';
 const GROUP_SEL = '.md-tabs';
 
 /** 当前全局绑定标记（View Transition 重执行脚本时避免重复绑定） */
@@ -81,6 +82,7 @@ function selectInGroup(group: HTMLElement, index: number): void {
   const tabs = Array.from(group.querySelectorAll<HTMLButtonElement>(':scope > .md-tabs-nav [role="tab"]'));
   const panels = Array.from(group.querySelectorAll<HTMLElement>(':scope > [role="tabpanel"]'));
   if (index < 0 || index >= tabs.length) return;
+  if (tabs[index]?.getAttribute('aria-selected') === 'true') return;
 
   tabs.forEach((tab, i) => {
     const on = i === index;
@@ -94,6 +96,7 @@ function selectInGroup(group: HTMLElement, index: number): void {
 
   // 让选中的选项卡在卡栏内可见（只动卡栏 scrollLeft，不碰页面滚动）
   scrollTabIntoView(group.querySelector<HTMLElement>(':scope > .md-tabs-nav'), tabs[index]);
+  void feedback(panels[index] ?? null);
 }
 
 /** 读取组内的选中序号 */

@@ -7,6 +7,9 @@
  */
 import type { Node, Root, RootContent } from 'mdast';
 import { jsxAttr, jsxFlow, patched, type MdxDirectiveNode, type MdxJsxAttr } from './nodes';
+import type { CalloutType } from '../markdown-format-catalog';
+export { CALLOUT_TYPES } from '../markdown-format-catalog';
+export type { CalloutType } from '../markdown-format-catalog';
 
 /** 便捷别名：容器插件里统一按 DirectiveNode 书写 */
 type DirectiveNode = MdxDirectiveNode;
@@ -14,13 +17,6 @@ type DirectiveNode = MdxDirectiveNode;
 /* ============================================================================
  * Obsidian 风格 Callout：`> [!type] 标题` / `> [!type]-` 折叠
  * ==========================================================================*/
-
-/** 支持的 callout 类型（对齐 Obsidian 全量内置类型） */
-export const CALLOUT_TYPES = [
-  'note', 'info', 'tip', 'success', 'question',
-  'warning', 'failure', 'danger', 'bug', 'example', 'quote',
-] as const;
-export type CalloutType = (typeof CALLOUT_TYPES)[number];
 
 /**
  * Obsidian 内置类型的**别名 → 规范名**映射。

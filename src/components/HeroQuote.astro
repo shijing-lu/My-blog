@@ -106,11 +106,18 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
   }
 
   function play(): void {
+    clearTimers();
+    if (document.hidden) return;
     const el = document.getElementById('hero-quote');
     if (!el || currentSettings.quotes.length === 0) return;
     clearTimers();
 
     const quote = currentSettings.quotes[current]!;
+    // 减少动态偏好下保留静态语录，不逐字播报，也不继续自动轮播内容。
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.textContent = quote.text;
+      return;
+    }
     const chars = Array.from(quote.text);
     el.textContent = '';
 
@@ -165,4 +172,7 @@ const settingsJson = JSON.stringify(serializeSettings(settings));
   });
   syncCurrentFromDom();
   play();
+  document.addEventListener('astro:before-preparation', clearTimers);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimers(); else play(); });
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', play);
 </script>

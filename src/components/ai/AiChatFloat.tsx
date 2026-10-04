@@ -18,7 +18,9 @@
  *
  * SSE 帧格式（服务端 /api/ai/chat 重帧）：data: {"delta":"…"} / {"error":"…"} / {"done":true}
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { boundChatContext, MAX_CHAT_MESSAGE_CHARS, type ChatMessage } from '@/lib/ai-chat-context';
+import { readSseData } from '@/lib/ai-stream';
 import { Brain, MessageCircle, Send, Square, Trash2, X } from 'lucide-react';
 import XiaoQingFox from './XiaoQingFox';
 import { LEVEL_NAMES } from '@/lib/ai-bond-levels';
@@ -39,11 +41,6 @@ function triggerSummarize(conversationId: string): void {
 interface Props {
   /** SSR 判定 AI 是否就绪（enabled + baseUrl/apiKey/model 齐全）；false 时组件不渲染任何 UI */
   enabled: boolean;
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
 }
 
 /** 服务端在首帧下发的会话元信息（站主含等级/昵称/亲密度；访客仅身份） */
@@ -191,6 +188,11 @@ function renderMarkdown(md: string): string {
   return DOMPurify.sanitize(html, { ADD_TAGS: [...KATEX_ALLOWED_TAGS] });
 }
 
+/** 历史回答内容不变时不重复解析 Markdown、公式和消毒 HTML。 */
+const AssistantMarkdown = memo(function AssistantMarkdown({ content }: { content: string }) {
+  return <div className="ai-md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />;
+});
+
 /** 主人身份（顶级管理员）模块级缓存：页面生命周期内只请求一次 /api/admin-auth/me */
 let ownerBadgeCache: boolean | null = null;
 
@@ -250,9 +252,6 @@ export default function AiChatFloat({ enabled }: Props) {
     restoreFocusRef.current = null;
     if (target && document.contains(target)) target.focus();
   }, [open]);
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
   /**
    * 工具栏 AI 图标唤起：
    * - 首次点击 → 切到「固定右侧」模式并清掉选区上下文（自由聊天）；
@@ -261,16 +260,16 @@ export default function AiChatFloat({ enabled }: Props) {
    */
   const iconModeRef = useRef(false);
   useEffect(() => {
+    if (!enabled) return;
     document.documentElement.dataset.xqReady = '1';
     const onOpen = (): void => {
       setMenu(null);
       if (iconModeRef.current) {
-        iconModeRef.current = false;
-        setOpen(false);
-        setDocked(false);
+        closeRef.current?.();
         return;
       }
       iconModeRef.current = true;
+      restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setSelectionCtx(null);
       setDocked(true);
       setOpen(true);
@@ -280,7 +279,7 @@ export default function AiChatFloat({ enabled }: Props) {
       window.removeEventListener('xiaoqing:open', onOpen);
       delete document.documentElement.dataset.xqReady;
     };
-  }, []);
+  }, [enabled]);
 
   /** 当前浏览者是主人（顶级管理员）→ 浮窗显示徽标；仅 UI 展示，服务端独立判定不受此处影响 */
   const [isOwner, setIsOwner] = useState(false);
@@ -289,7 +288,7 @@ export default function AiChatFloat({ enabled }: Props) {
   useEffect(() => {
     if (!enabled) return;
     if (ownerBadgeCache !== null) {
-      if (ownerBadgeCache) setIsOwner(true);
+      setIsOwner(ownerBadgeCache);
       return;
     }
     let alive = true;
@@ -299,11 +298,7 @@ export default function AiChatFloat({ enabled }: Props) {
         if (!d) return;
         const owner = d.identity === 'top' || (d.identity === 'github' && d.account?.role === 'top');
         ownerBadgeCache = owner;
-        if (alive && owner) {
-          setIsOwner(true);
-          // 站主的会话 id 持久化：关系是连续的，跨页面/重启都延续同一段记忆
-          setConvId((v) => v || localStorage.getItem('ai_conversation_id_v1') || `conv-${crypto.randomUUID()}`);
-        }
+        if (alive) setIsOwner(owner);
       })
       .catch(() => {});
     return () => {
@@ -314,6 +309,16 @@ export default function AiChatFloat({ enabled }: Props) {
   /** ref 同步：回调（closeFloat 等）里读取，避免依赖数组膨胀 */
   useEffect(() => {
     isOwnerRef.current = isOwner;
+    if (!isOwner || convIdRef.current) return;
+    let saved = '';
+    try {
+      saved = localStorage.getItem('ai_conversation_id_v1') ?? '';
+    } catch {
+      /* 隐私模式仍可使用本次会话 */
+    }
+    const id = /^[a-zA-Z0-9-]{8,64}$/.test(saved) ? saved : 'conv-' + crypto.randomUUID();
+    convIdRef.current = id;
+    setConvId(id);
   }, [isOwner]);
   useEffect(() => {
     convIdRef.current = convId;
@@ -361,56 +366,55 @@ export default function AiChatFloat({ enabled }: Props) {
 
   /* ---------- 流式消费 SSE ---------- */
   const consumeStream = useCallback(async (res: Response, controller: AbortController) => {
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error('响应无内容');
-    const decoder = new TextDecoder();
-    let buffer = '';
-    const appendDelta = (delta: string): void => {
-      setMessages((prev) => {
-        if (prev.length === 0) return prev;
-        const last = prev[prev.length - 1]!;
-        if (last.role !== 'assistant') return prev;
-        const next = [...prev];
-        next[next.length - 1] = { role: 'assistant', content: last.content + delta };
-        return next;
-      });
+    if (!res.body) throw new Error('响应无内容');
+    let pending = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = (): void => {
+      clearTimeout(timer);
+      timer = undefined;
+      const delta = pending;
+      pending = '';
+      if (!delta || abortRef.current !== controller) return;
+      const previous = messagesRef.current;
+      const last = previous.at(-1);
+      if (last?.role !== 'assistant') return;
+      const next = [...previous.slice(0, -1), { role: 'assistant' as const, content: last.content + delta }];
+      messagesRef.current = next;
+      setMessages(next);
     };
-    while (true) {
-      if (controller.signal.aborted) {
-        reader.cancel().catch(() => {});
-        break;
-      }
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() ?? '';
-      for (const frame of frames) {
-        const line = frame.trim();
-        if (!line.startsWith('data:')) continue;
-        try {
-          const payload = JSON.parse(line.slice(5).trim()) as {
-            delta?: string;
-            error?: string;
-            done?: boolean;
-            meta?: ChatMeta;
-            conversationId?: string;
-            turnCount?: number;
-            suggestSummarize?: boolean;
-          };
-          if (payload.meta) setMeta(payload.meta);
-          if (payload.done && payload.conversationId) setConvId(payload.conversationId);
-          if (payload.done && payload.suggestSummarize && convIdRef.current) {
-            triggerSummarize(convIdRef.current); // fire-and-forget：失败静默
-          }
-          if (typeof payload.delta === 'string' && payload.delta !== '' && !controller.signal.aborted) appendDelta(payload.delta);
-          if (payload.error) throw new Error(payload.error);
-          // done 帧无需处理：随后 read() 自然 done
-        } catch (e) {
-          if (e instanceof SyntaxError) continue; // 半帧跳过
-          throw e;
+    // 取消时同步刷新已收到的字，下一次 send 读取到的历史不会丢失最后几个分片。
+    controller.signal.addEventListener('abort', flush, { once: true });
+    try {
+      for await (const event of readSseData(res.body)) {
+        if (controller.signal.aborted || abortRef.current !== controller) break;
+        let payload: {
+          delta?: string; error?: string; done?: boolean; meta?: ChatMeta;
+          conversationId?: string; suggestSummarize?: boolean;
+        };
+        try { payload = JSON.parse(event); } catch { continue; }
+        if (!payload || typeof payload !== 'object') continue;
+        if (payload.meta) {
+          setMeta(payload.meta);
+          setIsOwner(payload.meta.isOwner);
+        }
+        if (payload.done && payload.conversationId) {
+          convIdRef.current = payload.conversationId;
+          setConvId(payload.conversationId);
+        }
+        if (typeof payload.delta === 'string' && payload.delta) {
+          pending += payload.delta;
+          // 每 50ms 合并分片，避免每个 token 触发整段公式重排。
+          timer ??= setTimeout(flush, 50);
+        }
+        if (payload.error) throw new Error(payload.error);
+        if (payload.done) {
+          if (payload.suggestSummarize && convIdRef.current) triggerSummarize(convIdRef.current);
+          break;
         }
       }
+    } finally {
+      controller.signal.removeEventListener('abort', flush);
+      flush();
     }
   }, []);
 
@@ -419,7 +423,7 @@ export default function AiChatFloat({ enabled }: Props) {
     async (content: string) => {
       const outgoing = content.trim();
       if (outgoing === '') return;
-      if (streaming) abortRef.current?.abort(); // 回答中发送 → 终止旧流，立即开始新回答
+      abortRef.current?.abort(); // 回答中发送 → 终止旧流，立即开始新回答
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -442,7 +446,7 @@ export default function AiChatFloat({ enabled }: Props) {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            messages: next.slice(0, -1),
+            messages: boundChatContext(next.slice(0, -1)),
             ...(convIdRef.current ? { conversationId: convIdRef.current } : {}),
           }),
           signal: controller.signal,
@@ -453,7 +457,7 @@ export default function AiChatFloat({ enabled }: Props) {
         }
         await consumeStream(res, controller);
       } catch (err) {
-        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        if (abortRef.current === controller && !controller.signal.aborted) {
           const msg = err instanceof Error ? err.message : '请求失败';
           setMessages((prev) => {
             if (prev.length === 0) return prev;
@@ -472,7 +476,7 @@ export default function AiChatFloat({ enabled }: Props) {
         }
       }
     },
-    [streaming, consumeStream],
+    [consumeStream],
   );
 
   /* ---------- F2：捕获阶段 contextmenu，全站任意位置选区 → 自绘菜单（屏蔽原生菜单） ---------- */
@@ -534,6 +538,7 @@ export default function AiChatFloat({ enabled }: Props) {
   const openFloat = useCallback(
     (m: MenuState) => {
       setMenu(null);
+      iconModeRef.current = false;
       setDocked(false); // F2 浮窗模式（跟随鼠标），与图标唤起的右侧固定模式互斥
       restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       resetConversation();
@@ -607,7 +612,7 @@ export default function AiChatFloat({ enabled }: Props) {
     const body = bodyRef.current;
     if (!body) return;
     suppressScrollRef.current = true;
-    if (smooth) body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+    if (smooth) body.scrollTo({ top: body.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
     else body.scrollTop = body.scrollHeight;
     // smooth 滚动持续多帧，延迟解除；instant 下一帧解除即可
     window.setTimeout(
@@ -675,6 +680,7 @@ export default function AiChatFloat({ enabled }: Props) {
   /* 关闭浮窗：视为结束本次对话，下次选词提问重新开始 */
   const closeFloat = useCallback(() => {
     setOpen(false);
+    setDocked(false);
     iconModeRef.current = false; // 关闭后复位，下一次图标点击仍是"打开"
     // 会话结束收尾：站主且聊得够多 → 触发一次收尾摘要，然后开启新会话
     if (isOwnerRef.current && messagesRef.current.length >= 4 && convIdRef.current) {
@@ -682,7 +688,7 @@ export default function AiChatFloat({ enabled }: Props) {
       rollConversation();
     }
     resetConversation();
-  }, [resetConversation]);
+  }, [resetConversation, rollConversation]);
   closeRef.current = closeFloat;
 
   const clearChat = useCallback(() => {
@@ -708,20 +714,18 @@ export default function AiChatFloat({ enabled }: Props) {
 
   const delMem = useCallback((id: string): void => {
     fetch(`/api/ai/memory?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
-      .then(() => setMemList((prev) => prev.filter((m) => m.id !== id)))
+      .then((response) => { if (response.ok) setMemList((prev) => prev.filter((m) => m.id !== id)); })
       .catch(() => {});
   }, []);
 
   const clearAllMem = useCallback((): void => {
     fetch('/api/ai/memory?all=1', { method: 'DELETE' })
-      .then(() => setMemList([]))
+      .then((response) => { if (response.ok) setMemList([]); })
       .catch(() => {});
   }, []);
 
   /* ---------- 渲染 ---------- */
   if (!enabled) return null;
-
-  const lastIsStreamingAssistant = streaming && messages[messages.length - 1]?.role === 'assistant';
 
   return (
     <>
@@ -843,8 +847,8 @@ export default function AiChatFloat({ enabled }: Props) {
           aria-labelledby="ai-chat-float-title"
           className={
             docked
-              ? 'fixed right-16 top-20 bottom-4 z-[80] flex w-[380px] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl max-md:inset-x-2 max-md:top-auto max-md:bottom-2 max-md:h-[72vh] max-md:w-auto'
-              : 'fixed z-[80] flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl'
+              ? 'motion-panel fixed right-16 top-20 bottom-4 z-[80] flex w-[380px] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl max-md:inset-x-2 max-md:top-auto max-md:bottom-2 max-md:h-[72vh] max-md:w-auto'
+              : 'motion-panel fixed z-[80] flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl'
           }
           style={docked ? undefined : { left: `${pos.x}px`, top: `${pos.y}px`, width: `${size.w}px`, height: `${size.h}px` }}
         >
@@ -928,7 +932,7 @@ export default function AiChatFloat({ enabled }: Props) {
                     }
                   >
                     {isAssistant && m.content !== '' ? (
-                      <div className="ai-md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                      <AssistantMarkdown content={m.content} />
                     ) : (
                       m.content
                     )}
@@ -953,6 +957,7 @@ export default function AiChatFloat({ enabled }: Props) {
               <textarea
                 ref={inputRef}
                 rows={2}
+                maxLength={MAX_CHAT_MESSAGE_CHARS}
                 aria-label="追问内容"
                 className="max-h-24 min-h-0 flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring"
                 placeholder="继续追问…（Enter 发送，Shift+Enter 换行）"

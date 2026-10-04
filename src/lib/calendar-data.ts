@@ -5,7 +5,7 @@
  * - 日记按日期唯一（一人一天一篇，upsert）。
  */
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { todos, diaryEntries, calendarEvents } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import type { Todo, DiaryEntry, CalendarEvent } from '../../db/types';
@@ -58,6 +58,15 @@ export async function listDiaryDates(): Promise<string[]> {
   return rows.map((r) => r.date);
 }
 
+/** 日志时间轴分页；日期唯一，按日倒序。 */
+export async function listDiaryPage(limit: number, offset: number): Promise<{ entries: DiaryEntry[]; total: number }> {
+  const [rows, counts] = await Promise.all([
+    db.select().from(diaryEntries).orderBy(desc(diaryEntries.date)).limit(limit).offset(offset),
+    db.select({ count: sql<number>`count(*)` }).from(diaryEntries),
+  ]);
+  return { entries: rows as DiaryEntry[], total: Number(counts[0]?.count ?? 0) };
+}
+
 /** 按日期 upsert 日记 */
 export async function upsertDiary(date: string, title: string, content: string): Promise<DiaryEntry> {
   const now = new Date();
@@ -75,6 +84,16 @@ export async function upsertDiary(date: string, title: string, content: string):
     .values({ id: randomUUID(), date, title, content, createdAt: now, updatedAt: now })
     .returning();
   return rows[0] as DiaryEntry;
+}
+
+/** 全量生成使用原子插入，避免并行页面或手工编辑发生竞态时覆盖现有内容。 */
+export async function createDiaryIfMissing(date: string, title: string, content: string): Promise<boolean> {
+  const now = new Date();
+  const rows = await db.insert(diaryEntries)
+    .values({ id: randomUUID(), date, title, content, createdAt: now, updatedAt: now })
+    .onConflictDoNothing({ target: diaryEntries.date })
+    .returning({ id: diaryEntries.id });
+  return rows.length > 0;
 }
 
 /* ---------------- 重要日期 ---------------- */

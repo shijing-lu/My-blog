@@ -10,6 +10,7 @@
  */
 import { keymap } from '@codemirror/view';
 import type { Command, EditorView, KeyBinding } from '@codemirror/view';
+import { EditorSelection } from '@codemirror/state';
 import type { ChangeSpec } from '@codemirror/state';
 import {
   allLinesHavePrefix,
@@ -18,6 +19,8 @@ import {
   wrapText,
 } from '../../lib/md-commands';
 import { DEFAULT_BINDINGS, resolveBindings } from '../../lib/editor-shortcut-defs';
+import { calloutTemplate, collapseTemplate, columnsTemplate, galleryTemplate, tableTemplate, tabsTemplate } from '../../lib/markdown-context-templates';
+import type { MarkdownTemplate } from '../../lib/markdown-context-templates';
 
 type View = EditorView;
 
@@ -57,22 +60,22 @@ function collectLines(view: View): string[] {
 /** 行内标记 toggle（多选区：从后往前处理，保证偏移量正确） */
 function toggleWrap(pre: string, suf: string): Command {
   return (view) => {
-    const sel = view.state.selection;
-    const ranges = [...sel.ranges].sort((a, b) => b.from - a.from);
-    const changes: ChangeSpec[] = [];
-    let mainAnchor = sel.main.anchor;
-    let mainHead = sel.main.head;
-    for (const r of ranges) {
-      const line = view.state.doc.lineAt(r.from);
-      const text = view.state.sliceDoc(line.from, line.to);
-      const res = wrapText(text, pre, suf, r.from - line.from, r.to - line.from);
-      changes.push({ from: line.from, to: line.to, insert: res.text });
-      if (r === sel.main) {
-        mainAnchor = line.from + res.from;
-        mainHead = line.from + res.to;
+    const spec = view.state.changeByRange((range) => {
+      const selected = view.state.sliceDoc(range.from, range.to);
+      const before = view.state.sliceDoc(Math.max(0, range.from - pre.length), range.from);
+      const after = view.state.sliceDoc(range.to, Math.min(view.state.doc.length, range.to + suf.length));
+      if (!range.empty && before === pre && after === suf) {
+        const from = range.from - pre.length;
+        const to = range.to + suf.length;
+        return { changes: { from, to, insert: selected }, range: EditorSelection.range(from, from + selected.length) };
       }
-    }
-    view.dispatch({ changes, selection: { anchor: mainAnchor, head: mainHead }, userEvent: 'md.wrap' });
+      const result = wrapText(selected, pre, suf, 0, selected.length);
+      return {
+        changes: { from: range.from, to: range.to, insert: result.text },
+        range: EditorSelection.range(range.from + result.from, range.from + result.to),
+      };
+    });
+    view.dispatch({ ...spec, userEvent: 'md.wrap' });
     return true;
   };
 }
@@ -171,13 +174,68 @@ const codeBlock: Command = (view) => {
 /** 链接：选中 → [text](url) 且选中 url；无选区 → 插入 [](url)，光标在 url 上 */
 const link: Command = (view) => {
   const sel = view.state.selection.main;
-  const text = view.state.sliceDoc(sel.from, sel.to);
-  const res = wrapText(text, '[', '](url)', sel.from - sel.from, sel.to - sel.from);
+  const text = view.state.sliceDoc(sel.from, sel.to) || '链接文字';
+  const insert = `[${text}](url)`;
+  const urlFrom = sel.from + text.length + 3;
   view.dispatch({
-    changes: { from: sel.from, to: sel.to, insert: res.text },
-    selection: { anchor: sel.from + res.from + 1, head: sel.from + res.from + 4 },
+    changes: { from: sel.from, to: sel.to, insert },
+    selection: { anchor: urlFrom, head: urlFrom + 3 },
     userEvent: 'md.link',
   });
+  return true;
+};
+
+/** 插入行内模板；选中的单行文字可作为内容，空选区选中占位文本。 */
+function insertInline(before: string, placeholder: string, after: string): Command {
+  return (view) => {
+    const { from, to } = view.state.selection.main;
+    const selected = view.state.sliceDoc(from, to);
+    if (selected.includes('\n')) return false;
+    const content = selected || placeholder;
+    const insert = `${before}${content}${after}`;
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor: from + before.length, head: from + before.length + content.length },
+      userEvent: 'md.inline',
+    });
+    return true;
+  };
+}
+
+/** 独立块模板插入在光标处，现有文本绝不被模板覆盖。 */
+function insertBlock(block: MarkdownTemplate): Command {
+  return (view) => {
+    const selection = view.state.selection.main;
+    if (!selection.empty) return false;
+    const pos = selection.head;
+    const doc = view.state.doc;
+    const prev = pos > 0 ? doc.sliceString(pos - 1, pos) : '';
+    const next = pos < doc.length ? doc.sliceString(pos, pos + 1) : '';
+    const prefix = pos === 0 ? '' : prev === '\n' ? '\n' : '\n\n';
+    const suffix = pos === doc.length ? '' : next === '\n' ? '\n' : '\n\n';
+    const start = pos + prefix.length;
+    view.dispatch({
+      changes: { from: pos, insert: `${prefix}${block.source}${suffix}` },
+      selection: { anchor: start + block.focusFrom, head: start + block.focusTo },
+      userEvent: 'md.block',
+    });
+    return true;
+  };
+}
+
+const footnote: Command = (view) => {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const source = view.state.doc.toString();
+  let n = 1;
+  while (source.includes(`[^${n}]`)) n += 1;
+  const marker = `[^${n}]`;
+  const definition = `\n\n${marker}: 脚注内容`;
+  const end = view.state.doc.length;
+  const changes: ChangeSpec[] = end === sel.head
+    ? [{ from: end, insert: marker + definition }]
+    : [{ from: sel.head, insert: marker }, { from: end, insert: definition }];
+  view.dispatch({ changes, selection: { anchor: sel.head + marker.length }, userEvent: 'md.footnote' });
   return true;
 };
 
@@ -189,6 +247,23 @@ export const MD_COMMANDS: Record<string, Command> = {
   inlineCode: toggleWrap('`', '`'),
   link: link as Command,
   codeBlock: codeBlock,
+  underline: toggleWrap('<u>', '</u>'),
+  highlight: toggleWrap('==', '=='),
+  spoiler: toggleWrap(':spoiler[', ']'),
+  image: insertInline('![', '图片描述', '](图片地址)'),
+  horizontalRule: insertBlock({ source: '---', focusFrom: 3, focusTo: 3 }),
+  table: insertBlock(tableTemplate()),
+  footnote,
+  inlineMath: toggleWrap('$', '$'),
+  blockMath: insertBlock({ source: '$$\n公式\n$$', focusFrom: 3, focusTo: 5 }),
+  callout: insertBlock(calloutTemplate('note')),
+  admonition: insertBlock({ source: ':::note\n提示内容\n:::', focusFrom: 8, focusTo: 12 }),
+  inlineNote: insertInline(':note[', '提示内容', ']'),
+  tabs: insertBlock(tabsTemplate(2)),
+  collapse: insertBlock(collapseTemplate(false, false)),
+  gallery: insertBlock(galleryTemplate({ columns: 3, aspect: '4/3', fit: 'cover' })),
+  columns2: insertBlock(columnsTemplate(2)),
+  columns3: insertBlock(columnsTemplate(3)),
   heading1: setHeading(1),
   heading2: setHeading(2),
   heading3: setHeading(3),

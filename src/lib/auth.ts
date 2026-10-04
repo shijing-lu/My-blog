@@ -83,28 +83,40 @@ export function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ba, bb);
 }
 
-/** 校验签名令牌（HMAC 恒定时间比较 + 过期检查；导出供扩展令牌复用） */
-export function verifySignedPayload(token: string | undefined | null): boolean {
-  if (!token) return false;
-  const [payload, sig] = token.split('.');
-  if (!payload || !sig) return false;
-  if (!safeEqual(sig, hmac(payload))) return false;
+/**
+ * 验证签名、结构及过期时间后读取载荷。该结果本身不授予任何身份；
+ * 会话/OAuth 调用方还必须核对 purpose，避免公开签发的令牌被当作管理员凭证。
+ */
+export function readVerifiedPayload(token: string | undefined | null): Record<string, unknown> | null {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
+  if (!payload || !sig || !safeEqual(sig, hmac(payload))) return null;
   try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { exp?: unknown };
-    return typeof data.exp === 'number' && data.exp > Date.now();
+    const data: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+    const result = data as Record<string, unknown>;
+    if (typeof result.exp !== 'number' || !Number.isFinite(result.exp) || result.exp <= Date.now()) return null;
+    return result;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** 签发会话令牌 */
-export function signSession(): string {
-  return signPayload({ exp: Date.now() + SESSION_TTL_MS });
+/** 校验通用签名令牌；资源调用方仍需核对自己的用途/资源标识。 */
+export function verifySignedPayload(token: string | undefined | null): boolean {
+  return readVerifiedPayload(token) !== null;
 }
 
-/** 校验会话令牌 */
+/** 签发管理员会话。无 purpose 的旧会话必须重新登录，不能兼容接受。 */
+export function signSession(): string {
+  return signPayload({ purpose: 'admin-session', exp: Date.now() + SESSION_TTL_MS });
+}
+
+/** 只接受管理员会话，拒绝用户会话、OAuth state 与文章解锁令牌。 */
 export function verifySessionToken(token: string | undefined | null): boolean {
-  return verifySignedPayload(token);
+  return readVerifiedPayload(token)?.purpose === 'admin-session';
 }
 
 /** 设置会话 Cookie（HttpOnly；生产 Secure） */
@@ -132,27 +144,15 @@ export function verifyRequest(cookies: AstroCookies): boolean {
 
 /** 签发用户会话令牌（载荷含本站 github_user id） */
 export function signUserSession(githubUserId: string): string {
-  return signPayload({ uid: githubUserId, exp: Date.now() + SESSION_TTL_MS });
+  return signPayload({ purpose: 'user-session', uid: githubUserId, exp: Date.now() + SESSION_TTL_MS });
 }
 
 /** 校验用户会话令牌，返回本站 github_user id；无效返回 null */
 export function verifyUserSessionToken(token: string | undefined | null): string | null {
-  if (!token) return null;
-  const [payload, sig] = token.split('.');
-  if (!payload || !sig) return null;
-  // ⚠️ 必须用 safeEqual（恒定时间）：`!==` 会在首个不同字符处短路，
-  //    泄漏「签名前缀匹配长度」→ 时序侧信道可逐字节爆破（P1-4）。
-  if (!safeEqual(sig, hmac(payload))) return null;
-  try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
-      uid?: unknown;
-      exp?: unknown;
-    };
-    if (typeof data.uid !== 'string' || typeof data.exp !== 'number' || data.exp <= Date.now()) return null;
-    return data.uid;
-  } catch {
-    return null;
-  }
+  const payload = readVerifiedPayload(token);
+  return payload?.purpose === 'user-session' && typeof payload.uid === 'string' && payload.uid.length > 0
+    ? payload.uid
+    : null;
 }
 
 /** 从请求 Cookie 获取当前 GitHub 用户 id（未登录返回 null） */
@@ -222,6 +222,7 @@ export function safeNextPath(raw: string | null | undefined, fallback: string = 
 /** 签发 OAuth state（防 CSRF；可选携带登录后跳转路径 next） */
 export function createOAuthState(next?: string): string {
   const payload: Record<string, unknown> = {
+    purpose: 'oauth-state',
     nonce: randomBytes(16).toString('hex'),
     exp: Date.now() + STATE_TTL_MS,
   };
@@ -229,27 +230,22 @@ export function createOAuthState(next?: string): string {
   return signPayload(payload);
 }
 
-/** 校验 OAuth state */
-export function verifyOAuthState(state: string | undefined | null): boolean {
-  return verifySignedPayload(state);
+/** 校验 OAuth 专用用途与随机 nonce，拒绝其它有效签名凭证。 */
+function readOAuthState(state: string | undefined | null): Record<string, unknown> | null {
+  const payload = readVerifiedPayload(state);
+  return payload?.purpose === 'oauth-state' && typeof payload.nonce === 'string' && /^[a-f0-9]{32}$/.test(payload.nonce)
+    ? payload
+    : null;
 }
 
-/** 解析 OAuth state 携带的 next（校验签名+过期；无效返回 null） */
+export function verifyOAuthState(state: string | undefined | null): boolean {
+  return readOAuthState(state) !== null;
+}
+
+/** 解析已校验的 OAuth state 携带的 next；无效令牌返回 null。 */
 export function getOAuthStateNext(state: string | undefined | null): string | null {
-  if (!state) return null;
-  const [payload, sig] = state.split('.');
-  // 恒定时间比较（P1-4）：同 `verifyUserSessionToken`，勿改回 `!==`。
-  if (!payload || !sig || !safeEqual(sig, hmac(payload))) return null;
-  try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
-      next?: unknown;
-      exp?: unknown;
-    };
-    if (typeof data.exp !== 'number' || data.exp <= Date.now()) return null;
-    return typeof data.next === 'string' ? data.next : null;
-  } catch {
-    return null;
-  }
+  const payload = readOAuthState(state);
+  return typeof payload?.next === 'string' ? payload.next : null;
 }
 
 /** 生成 GitHub 授权地址（管理员登录） */

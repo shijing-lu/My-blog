@@ -62,15 +62,15 @@ const peakTotal = data.monthly[peakIdx]?.total ?? 0;
   <div class="flex flex-wrap items-baseline gap-x-10 gap-y-2">
     <div class="flex items-baseline gap-2">
       <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Posts</span>
-      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.posts}>0</span>
+      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.posts}>{data.stats.posts.toLocaleString()}</span>
     </div>
     <div class="flex items-baseline gap-2">
       <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Days</span>
-      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.days}>0</span>
+      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.days}>{data.stats.days.toLocaleString()}</span>
     </div>
     <div class="flex items-baseline gap-2">
       <span class="font-pixel text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">Words</span>
-      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.words}>0</span>
+      <span class="stat-num font-display text-3xl font-semibold leading-none" data-num={data.stats.words}>{data.stats.words.toLocaleString()}</span>
     </div>
     {
       peakTotal > 0 && (
@@ -145,43 +145,9 @@ const peakTotal = data.monthly[peakIdx]?.total ?? 0;
 </div>
 
 <script>
-  /** 统计数字滚动（GSAP） + 热力格逐个点亮 + 月度折线描边 */
-  import { counterInView, loadGsap, prefersReducedMotion } from '@/lib/anim';
-
-  // 数字 0 → 目标值（进入视口触发）
-  void counterInView('.stat-num');
-
-  (async () => {
-    if (prefersReducedMotion()) return;
-    const gsap = await loadGsap(true);
-    const container = document.querySelector('.activity-heatmap');
-    if (!container) return;
-    const trigger = { trigger: container as HTMLElement, start: 'top 85%', once: true };
-
-    // 热力格（有数据的）逐个点亮：scale/opacity
-    gsap.fromTo(
-      '.heat-cell:not(.heat-0)',
-      { scale: 0.3, opacity: 0 },
-      { scale: 1, opacity: 1, duration: 0.4, ease: 'back.out(2)', stagger: 0.008, scrollTrigger: trigger },
-    );
-
-    // 月度折线描边（draw 效果）+ 填充区域淡入
-    const stroke = container.querySelector<SVGPathElement>('.line-stroke');
-    if (stroke) {
-      const len = stroke.getTotalLength();
-      gsap.set(stroke, { strokeDasharray: len, strokeDashoffset: len });
-      gsap.to(stroke, {
-        strokeDashoffset: 0,
-        duration: 1.6,
-        ease: 'power2.inOut',
-        scrollTrigger: { trigger: container as HTMLElement, start: 'top 85%', once: true },
-      });
-    }
-    gsap.from('.line-area', {
-      opacity: 0,
-      duration: 1.2,
-      ease: 'power2.out',
-      scrollTrigger: { trigger: container as HTMLElement, start: 'top 85%', once: true },
-    });
-  })();
+  import { counterInView } from '@/lib/anim';
+  // 热力图整体由全局揭示观察器处理，不给数百个格子分别建动画。
+  const syncStats = (): void => { void counterInView('.stat-num'); };
+  document.addEventListener('astro:page-load', syncStats);
+  syncStats();
 </script>

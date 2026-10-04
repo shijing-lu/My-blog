@@ -1,3 +1,4 @@
+import { feedback } from '@/lib/motion';
 /**
  * 代码块复制按钮（原生 JS，无依赖）
  *
@@ -42,6 +43,7 @@ function flash(btn: HTMLButtonElement): void {
   copyIcon?.classList.add('hidden');
   checkIcon?.classList.remove('hidden');
   btn.classList.add('copied');
+  void feedback(btn.querySelector('[data-icon=check]'), 'success');
   scheduleReset(btn, () => {
     copyIcon?.classList.remove('hidden');
     checkIcon?.classList.add('hidden');

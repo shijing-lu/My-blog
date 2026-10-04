@@ -94,7 +94,8 @@ const { githubEnabled } = Astro.props;
 
   <!-- anonymous：未登录 -->
   <div id="manage-anonymous" class="hidden py-4">
-    <div>
+    <div class="manage-login-grid">
+      <div class="manage-github-login">
       <p class="text-sm font-medium">GitHub 登录</p>
       <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">
         与评论区登录一致：登录后可用 GitHub 身份评论、点赞，并可申请管理员权限。
@@ -115,11 +116,11 @@ const { githubEnabled } = Astro.props;
           <p class="mt-2 text-xs text-destructive">GitHub 登录未配置（需要 GITHUB_CLIENT_ID 等环境变量）。</p>
         )
       }
-    </div>
-    <div class="mt-5 border-t border-border pt-4">
+      </div>
+      <div class="manage-owner-login">
       <p class="text-sm font-medium">站主登录</p>
       <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">站主即顶级管理员，登录后进入授权管理页。</p>
-      <form id="manage-top-login-form" class="mt-2 space-y-2">
+      <form id="manage-top-login-form" class="manage-owner-form mt-2">
         <input
           id="manage-top-login-password"
           type="password"
@@ -136,6 +137,7 @@ const { githubEnabled } = Astro.props;
         </button>
         <p id="manage-top-login-error" class="hidden text-xs text-destructive" role="alert"></p>
       </form>
+      </div>
     </div>
   </div>
 
@@ -150,6 +152,46 @@ const { githubEnabled } = Astro.props;
     </button>
   </div>
 </dialog>
+
+<style>
+  /* 桌面端在一个完整宽度的管理面板中并排展示两种登录方式；窄屏自动堆叠。 */
+  .manage-login-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+  .manage-login-grid > div { min-width: 0; }
+  .manage-owner-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .manage-owner-form > input,
+  .manage-owner-form > button {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .manage-owner-login {
+    margin-top: 0;
+    border-top: 0;
+    border-left: 1px solid var(--color-border);
+    padding-top: 0;
+    padding-left: 1.5rem;
+  }
+  @media (max-width: 640px) {
+    .manage-login-grid { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    .manage-owner-login {
+      margin-top: 0.5rem;
+      border-top: 1px solid var(--color-border);
+      border-left: 0;
+      padding-top: 1rem;
+      padding-left: 0;
+    }
+  }
+</style>
 
 <script>
   /* ===== 管理弹窗：打开时拉取身份并渲染对应分支（document 委托，兼容 View Transitions） ===== */

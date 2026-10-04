@@ -17,11 +17,11 @@
  *   - 配置文件含数据库凭据与站主密码，存 %APPDATA%/byqx-blog-desktop（用户级 ACL）
  *   - preload 不暴露任何 Node 能力（contextIsolation）
  */
-const { app, BrowserWindow, Tray, Menu, dialog, nativeImage, session, shell } = require('electron');
-const { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, copyFileSync, appendFileSync, renameSync, statSync } = require('node:fs');
+const { app, BrowserWindow, Tray, Menu, dialog, nativeImage, session, shell, ipcMain, utilityProcess } = require('electron');
+const { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, appendFileSync, statSync } = require('node:fs');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
 const net = require('node:net');
+const { startServerProcess } = require('./server-process.cjs');
 
 /** 应用根：dev = 仓库根（desktop/..）；打包 = resources/app（desktop/..） */
 const APP_ROOT = path.join(__dirname, '..');
@@ -36,6 +36,10 @@ const OPTIONAL_PASSTHROUGH = [
   'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET',
   'R2_PUBLIC_BASE_URL', 'R2_S3_ENDPOINT', 'BLOB_READ_WRITE_TOKEN',
   'PUBLIC_TWIKOO_ENV_ID',
+  // GitHub OAuth（访客登录）与管理员白名单登录。
+  'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'ADMIN_GITHUB_LOGIN',
+  // 可选的独立站主密码；未提供时沿用 ADMIN_PASSWORD，兼容已有桌面配置。
+  'TOP_ADMIN_PASSWORD',
   // 同步引擎读写云端用（桌面端运行时 DATABASE_URL 指向本地 SQLite，云端另有连接串）
   'SYNC_DATABASE_URL', 'SYNC_DATABASE_URL_FALLBACK',
 ];
@@ -129,10 +133,12 @@ function loadOrCreateConfig() {
     const template = {
       SYNC_DATABASE_URL: 'postgres://用户名:密码@主机:5432/库名',
       ADMIN_PASSWORD: '你的站主密码（与 Web 版一致）',
+      TOP_ADMIN_PASSWORD: '',
       AUTH_SECRET: randomSecret(),
       R2_ACCOUNT_ID: '', R2_ACCESS_KEY_ID: '', R2_SECRET_ACCESS_KEY: '',
       R2_BUCKET: '', R2_PUBLIC_BASE_URL: '', R2_S3_ENDPOINT: '',
       BLOB_READ_WRITE_TOKEN: '', PUBLIC_TWIKOO_ENV_ID: '',
+      GITHUB_CLIENT_ID: '', GITHUB_CLIENT_SECRET: '', ADMIN_GITHUB_LOGIN: '',
       PORT: '43217',
     };
     writeFileSync(CONFIG_FILE, JSON.stringify(template, null, 2), 'utf8');
@@ -187,69 +193,69 @@ function templateDbPath() {
   return found;
 }
 
-/**
- * 本地库健康检查（PRAGMA quick_check）
- *
- * 为什么需要：SQLite 库与它的 `-wal` / `-shm` 是一体的。实测踩坑——
- * 单独替换 `blog-local.db` 而留下旧 `-wal` 会导致
- * `database disk image is malformed`，页面全部 500，用户看到的是"应用坏了"。
- */
-function isLocalDbHealthy(localDbPath) {
-  try {
-    const Database = require('better-sqlite3');
-    const db = new Database(localDbPath, { readonly: true });
-    const row = db.prepare('PRAGMA quick_check').get();
-    db.close();
-    const ok = row && Object.values(row)[0] === 'ok';
-    if (!ok) logLaunch(`本地库 quick_check 异常：${JSON.stringify(row)}`);
-    return !!ok;
-  } catch (err) {
-    logLaunch(`本地库不可用（${err && err.message ? err.message : err}）：将备份并重建`);
-    return false;
-  }
-}
-
-/** 把本地库及其 -wal / -shm 一起移走（SQLite 三者必须同进同出） */
-function quarantineLocalDb(localDbPath) {
-  const stamp = Date.now();
-  for (const suffix of ['', '-wal', '-shm']) {
-    const from = localDbPath + suffix;
-    if (!existsSync(from)) continue;
-    try {
-      renameSync(from, `${localDbPath}.bad-${stamp}${suffix}`);
-    } catch (err) {
-      logLaunch(`移走 ${path.basename(from)} 失败：${err && err.message ? err.message : err}`);
-    }
-  }
-}
-
-/**
- * 确保本地库可用：缺失 → 用模板创建；损坏 → 备份重建
- *
- * 重建后的库是空的，用户下次同步会重新拉全量（本地优先架构下这是可接受的恢复路径）。
- */
-function ensureLocalDb(localDbPath) {
-  mkdirSync(path.dirname(localDbPath), { recursive: true });
-  const tpl = templateDbPath();
-
-  if (existsSync(localDbPath) && isLocalDbHealthy(localDbPath)) return;
-
-  if (existsSync(localDbPath)) {
-    quarantineLocalDb(localDbPath); // 损坏：留档后重建，绝不让应用变砖
-    logLaunch('本地库已隔离重建（原文件保留为 .bad-<时间戳>）');
-  }
-  if (tpl) copyFileSync(tpl, localDbPath);
-  else logLaunch('未找到模板库，本地库将由服务端首次迁移创建');
-}
-
 let mainWindow = null;
 let tray = null;
+let localServer = null;
+app.on('before-quit', () => { globalThis.__quitting = true; });
+app.on('will-quit', () => localServer?.stop());
 /** 本地服务端口（托盘/启动拉取调用本地 API 用） */
 let currentPort = 0;
 /** 本地服务根址（Ctrl+N 新开窗口用；main() 起服务后赋值） */
 let siteBaseUrl = '';
 /** 应用窗口集合（Ctrl+N 多开）：主窗口关闭→隐藏到托盘，副窗口关闭即销毁 */
 const appWindows = new Set();
+
+/** 导航 IPC 只作用于发送请求的本站窗口。 */
+function navigationWindow(sender) {
+  const win = BrowserWindow.fromWebContents(sender);
+  return win && appWindows.has(win) && !win.isDestroyed() ? win : null;
+}
+
+function isLocalPage(url) {
+  try {
+    return Boolean(siteBaseUrl) && new URL(url).origin === new URL(siteBaseUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function navigationState(win) {
+  if (!win || win.isDestroyed() || !isLocalPage(win.webContents.getURL())) {
+    return { canGoBack: false, canGoForward: false };
+  }
+  const history = win.webContents.navigationHistory;
+  return { canGoBack: history.canGoBack(), canGoForward: history.canGoForward() };
+}
+
+function publishNavigationState(win) {
+  // 同页 pushState 的事件可能早于历史栈更新；下一轮事件循环再读取最终状态。
+  setImmediate(() => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('desktop:navigation-state', navigationState(win));
+    }
+  });
+}
+
+function openExternalPage(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      void shell.openExternal(parsed.href).catch(() => {});
+    }
+  } catch { /* 非 URL 目标不交给系统打开 */ }
+}
+
+ipcMain.handle('desktop:navigation-state', (event) => navigationState(navigationWindow(event.sender)));
+ipcMain.handle('desktop:navigation-back', (event) => {
+  const win = navigationWindow(event.sender);
+  if (win && navigationState(win).canGoBack) win.webContents.navigationHistory.goBack();
+  if (win) publishNavigationState(win);
+});
+ipcMain.handle('desktop:navigation-forward', (event) => {
+  const win = navigationWindow(event.sender);
+  if (win && navigationState(win).canGoForward) win.webContents.navigationHistory.goForward();
+  if (win) publishNavigationState(win);
+});
 
 const OFFLINE_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>离线</title></head>
@@ -279,6 +285,18 @@ function createWindow(url, { primary = false } = {}) {
     },
   });
   appWindows.add(win);
+  win.webContents.on('did-navigate', () => publishNavigationState(win));
+  win.webContents.on('did-navigate-in-page', () => publishNavigationState(win));
+  win.webContents.on('will-navigate', (event) => {
+    if (isLocalPage(event.url)) return;
+    event.preventDefault();
+    openExternalPage(event.url);
+  });
+  win.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    if (isLocalPage(targetUrl)) createWindow(targetUrl, { primary: false });
+    else openExternalPage(targetUrl);
+    return { action: 'deny' };
+  });
   win.loadURL(url).catch(() => win.loadURL(OFFLINE_HTML));
   win.webContents.on('did-fail-load', (_e, _code, _desc, _url, isMainFrame) => {
     if (isMainFrame) win.loadURL(OFFLINE_HTML).catch(() => {});
@@ -289,7 +307,10 @@ function createWindow(url, { primary = false } = {}) {
   win.webContents.on('did-finish-load', () => {
     logLaunch('页面加载完成');
     if (!win.isVisible()) win.show();
+    publishNavigationState(win);
   });
+  win.on('unresponsive', () => logLaunch('窗口未响应'));
+  win.on('responsive', () => logLaunch('窗口恢复响应'));
   // 渲染进程 → 主进程日志转发：**所有窗口**统一转发（副窗口里的报错同样必须可见）
   win.webContents.on('console-message', (...args) => {
     // Electron 44：新签名为 (event, details)，旧签名为 (event, level, message)
@@ -622,15 +643,19 @@ async function main() {
   currentPort = port;
   setupObjectInterceptor(config.R2_PUBLIC_BASE_URL);
   const localDbPath = config.LOCAL_DB_PATH || path.join(CONFIG_DIR, 'blog-local.db');
-  ensureLocalDb(localDbPath);
 
   // ---- env 注入（必须先于 import 服务产物：db/index.ts 在模块加载时读方言） ----
   process.env.DATABASE_URL = `file:${localDbPath}`;
+  // 云端主备只供显式同步使用，不能混入本地 ORM 的读写端点。
+  delete process.env.DATABASE_URL_FALLBACK;
   process.env.HOST = '127.0.0.1';
   process.env.PORT = String(port);
   process.env.PUBLIC_SITE_URL = `http://127.0.0.1:${port}`;
   process.env.AUTH_SECRET = config.AUTH_SECRET || randomSecret();
   process.env.ADMIN_PASSWORD = config.ADMIN_PASSWORD ?? '';
+  // 历史桌面 config.json 只有 ADMIN_PASSWORD；保留原来的站主登录体验。
+  // 显式设置 TOP_ADMIN_PASSWORD 时仍优先使用独立密码。
+  process.env.TOP_ADMIN_PASSWORD = config.TOP_ADMIN_PASSWORD || config.ADMIN_PASSWORD || '';
   process.env.ASTRO_TELEMETRY_DISABLED = '1';
   // 桌面端标记：设置页据此显示「云端同步」分区（Web 端不显示）
   process.env.DESKTOP_MODE = '1';
@@ -664,11 +689,26 @@ async function main() {
   } catch {
     /* 检查失败不阻断启动 */
   }
-  await import(pathToFileURL(entryPath).href);
+  const serviceStarted = performance.now();
+  localServer = startServerProcess({
+    fork: (...args) => utilityProcess.fork(...args),
+    modulePath: path.join(__dirname, 'server.cjs'),
+    args: [entryPath, localDbPath, templateDbPath() || ''],
+    env: { ...process.env },
+    cwd: APP_ROOT,
+    log: logLaunch,
+    onExit: (code) => {
+      logLaunch(`本地服务异常退出：${code}`);
+      for (const win of appWindows) {
+        if (!win.isDestroyed()) void win.loadURL(OFFLINE_HTML).catch(() => {});
+      }
+    },
+  });
+  await localServer.started;
   const siteUrl = `http://127.0.0.1:${port}`;
   siteBaseUrl = siteUrl; // Ctrl+N 新开窗口用
   await waitForServer(siteUrl);
-  logLaunch(`本地服务就绪：${siteUrl}`);
+  logLaunch(`本地服务就绪：${siteUrl}（独立进程，${Math.round(performance.now() - serviceStarted)}ms）`);
   // 记录本次运行的服务端 bundle 构建时间 —— 排查"改完没生效"时一眼看出跑的是哪版
   try {
     const entry = path.join(APP_ROOT, 'dist', 'server', 'entry.mjs');
@@ -712,7 +752,6 @@ async function main() {
     }
   }, 10000);
   app.on('activate', () => mainWindow?.show());
-  app.on('before-quit', () => { globalThis.__quitting = true; });
 
   // ---- 自截图验收模式：BYQX_CAPTURE=<png路径> → 渲染完成后截屏并退出 ----
   if (capturePath) {

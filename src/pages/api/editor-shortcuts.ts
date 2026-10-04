@@ -33,6 +33,7 @@ export const PUT: APIRoute = async ({ request }) => {
     const { bindings, conflicts } = resolveBindings(custom);
     return json({ custom, bindings, conflicts });
   } catch (err) {
+    if (err instanceof Error && err.message === '快捷键冲突') return json({ error: err.message }, 400);
     console.error('[api/editor-shortcuts]', err);
     return json({ error: '保存失败' }, 500);
   }

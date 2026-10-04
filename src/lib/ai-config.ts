@@ -36,7 +36,12 @@ export interface AiConfig {
   allowGuests: boolean;
   /** 游客每日全局请求上限（0 = 不限） */
   guestDailyLimit: number;
+  /** 日记生成口吻；不影响聊天或已保存的日记。 */
+  diaryStyle: DiaryStyle;
 }
+
+export const DIARY_STYLES = ['concise', 'personal', 'quotes'] as const;
+export type DiaryStyle = (typeof DIARY_STYLES)[number];
 
 /** 未配置时的默认值 */
 export const DEFAULT_AI_CONFIG: AiConfig = {
@@ -49,6 +54,7 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   systemPrompt: '',
   allowGuests: true,
   guestDailyLimit: 100,
+  diaryStyle: 'concise',
 };
 
 /** 内置系统提示词（systemPrompt 留空时使用） */
@@ -87,6 +93,9 @@ function normalizeConfig(input: Partial<AiConfig>, base: AiConfig): AiConfig {
     systemPrompt: cleanText(input.systemPrompt, 2000),
     allowGuests: typeof input.allowGuests === 'boolean' ? input.allowGuests : base.allowGuests,
     guestDailyLimit: cleanNumber(input.guestDailyLimit, 0, 100000, base.guestDailyLimit),
+    diaryStyle: input.diaryStyle === undefined
+      ? base.diaryStyle
+      : DIARY_STYLES.includes(input.diaryStyle as DiaryStyle) ? input.diaryStyle as DiaryStyle : 'concise',
   };
 }
 

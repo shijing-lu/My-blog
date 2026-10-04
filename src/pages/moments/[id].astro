@@ -1,0 +1,26 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import MomentCard from '@/components/moments/MomentCard.astro';
+import { canManage } from '@/lib/admin-auth';
+import { getMoment, toMomentView } from '@/lib/moments';
+import { getProfile } from '@/lib/profile';
+import { countLikesByTargets } from '@/lib/likes';
+
+export const prerender = false;
+Astro.response.headers.set('cache-control', 'private, no-store');
+const id = Astro.params.id ?? '';
+const raw = id ? await getMoment(id) : null;
+const isAuthed = await canManage(Astro.cookies, 'moments');
+if (!raw || (raw.visibility === 'private' && !isAuthed)) return Astro.redirect('/404');
+const [moment, profile, likes] = await Promise.all([
+  toMomentView(raw), getProfile(), countLikesByTargets('moment', [id]),
+]);
+---
+<BaseLayout title="动态" description="查看动态原文" indexable={raw.visibility !== 'private'}>
+  <section class="mx-auto w-full max-w-3xl px-4 py-10">
+    <a href="/moments" class="text-sm text-muted-foreground hover:text-primary">← 返回动态</a>
+    <div class="mt-6">
+      <MomentCard m={moment} avatarSrc={profile.avatar || ''} nickname={profile.nickname || '博主'} isAuthed={isAuthed} now={new Date()} likeCount={likes[id] ?? 0} showActions={false} />
+    </div>
+  </section>
+</BaseLayout>

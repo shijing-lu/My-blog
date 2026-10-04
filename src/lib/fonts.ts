@@ -5,7 +5,7 @@
  * - 全局字体设置：settings 表 `site_fonts` 键（JSON：文章字体 + 其他字体），
  *   BaseLayout 读取后注入 @font-face 与 CSS 变量覆盖。
  */
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { fonts, settings } from '../../db/schema.sqlite';
 import { db, dbWrite } from '../../db';
@@ -64,15 +64,23 @@ function normalize(input: Partial<SiteFonts> | null): SiteFonts {
 }
 
 /** 读取全局字体设置 */
-export async function getSiteFonts(): Promise<SiteFonts> {
+export async function getSiteFontState(): Promise<{ fonts: SiteFonts; hasManualFonts: boolean }> {
   try {
-    const rows = await db.select().from(settings).where(eq(settings.key, SETTINGS_KEY)).limit(1);
-    const raw = rows[0]?.value;
-    if (!raw) return DEFAULT_FONTS;
-    return normalize(JSON.parse(raw) as Partial<SiteFonts>);
+    const rows = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, SETTINGS_KEY)).limit(1);
+    const hasManualFonts = rows.length > 0;
+    try {
+      const raw = rows[0]?.value;
+      return { fonts: raw ? normalize(JSON.parse(raw) as Partial<SiteFonts>) : DEFAULT_FONTS, hasManualFonts };
+    } catch {
+      return { fonts: DEFAULT_FONTS, hasManualFonts };
+    }
   } catch {
-    return DEFAULT_FONTS;
+    return { fonts: DEFAULT_FONTS, hasManualFonts: false };
   }
+}
+
+export async function getSiteFonts(): Promise<SiteFonts> {
+  return (await getSiteFontState()).fonts;
 }
 
 /** 保存字体设置 */
@@ -95,12 +103,7 @@ export async function saveSiteFonts(input: Partial<SiteFonts>): Promise<SiteFont
  * （主题通过 html[data-theme] 覆盖 --font-sans-family / --font-display-family）。
  */
 export async function hasManualFontSettings(): Promise<boolean> {
-  try {
-    const rows = await db.select().from(settings).where(eq(settings.key, SETTINGS_KEY)).limit(1);
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
+  return (await getSiteFontState()).hasManualFonts;
 }
 
 /** 清除手动字体设置（恢复跟随主题字体） */
@@ -163,11 +166,15 @@ export async function getFontById(id: string): Promise<BlogFont | null> {
   return (rows[0] as BlogFont | undefined) ?? null;
 }
 
-/** 批量取字体（供 BaseLayout 注入 @font-face） */
+/** 批量取 CSS 所需字体信息（保留 Blob URL，省略 base64 字节） */
 export async function getFontsByIds(ids: string[]): Promise<BlogFont[]> {
   if (ids.length === 0) return [];
   const { inArray } = await import('drizzle-orm');
-  const rows = await db.select().from(fonts).where(inArray(fonts.id, ids));
+  // CSS 仅需要 Blob URL 或字体 API 地址；base64 字节不应在每次 SSR 时传回应用。
+  const rows = await db.select({
+    id: fonts.id, familyName: fonts.familyName, mime: fonts.mime, size: fonts.size, createdAt: fonts.createdAt,
+    data: sql<string>`case when substr(${fonts.data}, 1, 4) = 'http' then ${fonts.data} else '' end`,
+  }).from(fonts).where(inArray(fonts.id, [...new Set(ids)]));
   return rows as BlogFont[];
 }
 

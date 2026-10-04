@@ -13,9 +13,10 @@
  */
 import type { APIRoute } from 'astro';
 import { badRequest, json } from '@/lib/api';
-import { canManage } from '@/lib/admin-auth';
-import { buildMonthGrid, countdownText, dateKey, nextOccurrence } from '@/lib/calendar';
+import { canManage, isTopAdmin } from '@/lib/admin-auth';
+import { buildMonthGrid, countdownText, nextOccurrence } from '@/lib/calendar';
 import { getDiaryByDate, listDiaryDates, listEvents, listTodos } from '@/lib/calendar-data';
+import { shanghaiDateKey } from '@/lib/diary-log';
 
 export const prerender = false;
 
@@ -40,6 +41,7 @@ function serializeDay(
     events: unknown[];
   },
   authed: boolean,
+  canDiary: boolean,
 ) {
   return {
     date: d.date,
@@ -53,7 +55,7 @@ function serializeDay(
     ganZhi: d.ganZhi,
     shengXiao: d.shengXiao,
     // 待办/日记标记仅登录用户可见（未登录一律 false，与 SSR 行为一致）
-    hasDiary: authed && d.hasDiary,
+    hasDiary: canDiary && d.hasDiary,
     hasTodo: authed && d.todos.length > 0,
     hasEvent: d.events.length > 0,
     // 悬浮预览 data-events 需要的事件标题（含"每年"标记）
@@ -68,12 +70,14 @@ function serializeDay(
 export const GET: APIRoute = async ({ url, cookies }) => {
   // 待办/日记为私密内容：仅具备 calendar 权限者可见（勿用旧 verifyRequest——不认新会话通道）
   const isAuthed = await canManage(cookies, 'calendar');
+  const canDiary = await isTopAdmin(cookies);
   const now = new Date();
-  const todayKey = dateKey(now);
+  const todayKey = shanghaiDateKey(now);
+  const [todayYear, todayMonth, todayDay] = todayKey.split('-').map(Number);
 
   const rawMonth = url.searchParams.get('month') ?? '';
-  let year = now.getFullYear();
-  let month = now.getMonth() + 1;
+  let year = todayYear!;
+  let month = todayMonth!;
   if (MONTH_RE.test(rawMonth)) {
     year = Number(rawMonth.slice(0, 4));
     month = Number(rawMonth.slice(5, 7));
@@ -86,17 +90,17 @@ export const GET: APIRoute = async ({ url, cookies }) => {
   const [events, todos, diaryDates] = await Promise.all([
     listEvents(),
     isAuthed ? listTodos() : Promise.resolve([]),
-    isAuthed ? listDiaryDates() : Promise.resolve([]),
+    canDiary ? listDiaryDates() : Promise.resolve([]),
   ]);
 
   const grid = buildMonthGrid(year, month, {
-    today: now,
+    today: new Date(todayYear!, todayMonth! - 1, todayDay!),
     todos,
     events,
     diaryDates: new Set(diaryDates),
   });
   const selectedDay = grid.weeks.flat().find((d) => d.date === selectedKey);
-  const selectedDiary = isAuthed && selectedKey ? await getDiaryByDate(selectedKey) : null;
+  const selectedDiary = canDiary && selectedKey ? await getDiaryByDate(selectedKey) : null;
 
   const upcoming = events
     .map((e) => ({ ...e, next: nextOccurrence(e.date, e.repeat, now, e.lunar ? e.lunarDate : null) }))
@@ -129,7 +133,7 @@ export const GET: APIRoute = async ({ url, cookies }) => {
     month: `${year}-${String(month).padStart(2, '0')}`,
     monthTitle: `${year} 年 ${month} 月`,
     today: todayKey,
-    grid: grid.weeks.flat().map((d) => serializeDay(d, isAuthed)),
+    grid: grid.weeks.flat().map((d) => serializeDay(d, isAuthed, canDiary)),
     selected: {
       date: selectedKey,
       lunarFull: selectedDay?.lunarFull ?? '',
@@ -137,8 +141,8 @@ export const GET: APIRoute = async ({ url, cookies }) => {
       ganZhi: selectedDay?.ganZhi ?? '',
       shengXiao: selectedDay?.shengXiao ?? '',
       festivals: selectedDay?.festivals ?? [],
-      hasDiary: isAuthed && !!selectedDiary,
-      diaryTitle: isAuthed ? (selectedDiary?.title ?? '') : '',
+      hasDiary: canDiary && !!selectedDiary,
+      diaryTitle: canDiary ? (selectedDiary?.title ?? '') : '',
       todos: isAuthed
         ? (selectedDay?.todos ?? []).map((t) => ({ id: t.id, text: t.text, done: t.done }))
         : [],
@@ -158,5 +162,5 @@ export const GET: APIRoute = async ({ url, cookies }) => {
       countdown: countdownText(e.next!.days),
     })),
     allEvents,
-  });
+  }, { headers: { 'cache-control': 'private, no-store' } });
 };

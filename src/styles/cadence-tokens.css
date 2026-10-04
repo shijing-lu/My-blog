@@ -1,0 +1,29 @@
+@theme inline {
+  --color-paper-base: var(--background);
+  --color-paper-1: var(--card);
+  --color-paper-2: var(--muted);
+  --color-paper-line: var(--border);
+  --color-paper-mark: var(--accent);
+  --color-ink-1: var(--foreground);
+  --color-ink-2: var(--foreground);
+  --color-ink-3: var(--muted-foreground);
+  --color-ink-4: var(--muted-foreground);
+  --color-amber-soft: color-mix(in srgb, var(--primary) 12%, var(--card));
+  --color-amber-base: var(--primary);
+  --color-amber-deep: var(--primary);
+  --color-clay-soft: color-mix(in srgb, var(--destructive) 10%, var(--card));
+  --color-clay-base: var(--destructive);
+  --color-clay-deep: var(--destructive);
+  --color-forest-soft: color-mix(in srgb, var(--primary) 8%, var(--card));
+  --color-forest-base: var(--primary);
+  --color-forest-deep: var(--primary);
+  --color-craft-soft: var(--accent);
+  --color-craft-base: var(--primary);
+  --color-craft-deep: var(--primary);
+  --color-fabric-soft: color-mix(in srgb, var(--primary) 10%, var(--card));
+  --color-fabric-base: var(--primary);
+  --color-fabric-deep: var(--primary);
+  --color-ochre-soft: var(--muted);
+  --color-ochre-base: var(--muted-foreground);
+  --color-ochre-deep: var(--muted-foreground);
+}

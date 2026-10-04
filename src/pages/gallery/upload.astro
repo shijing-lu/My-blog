@@ -5,7 +5,7 @@
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import { listPhotosAlive } from '@/lib/photos';
-import { photoStorageEnabled } from '@/lib/photo-storage';
+import { photoStorageReady } from '@/lib/photo-storage';
 /* 管理卡片标记与「客户端取回单张卡」的接口共用同一实现（见 lib/photo-card-render.ts
    顶部注释）：URL 导入成功后客户端向 /gallery/manage-cards 取回 HTML 就地插入，
    标记必须与首屏完全一致，故这里不再手写一遍卡片模板。 */
@@ -20,6 +20,10 @@ const isEmpty = photos.length === 0;
 /** 首屏卡片 HTML（与客户端片段 manage-cards.astro 同源） */
 const manageCardsHtml = renderManageCards(photos);
 const todayStr = photoDateKey(new Date());
+/** 自动上传是否可用：**GitHub 图床或 R2 任一就绪**（与 /api/images、/api/photos 同口径）。
+ *  ⚠️ 2026-09-23 修正：原先只看 R2，配了图床但没配 R2 的环境会被误判为不可用，
+ *  导致上传区整块隐藏、用户点进来只剩一片空白。判定是异步的（图床配置在 settings 表）。 */
+const storageReady = await photoStorageReady();
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="影集上传">
@@ -68,18 +72,22 @@ const todayStr = photoDateKey(new Date());
       </label>
 
       {
-        photoStorageEnabled ? (
+        storageReady ? (
           <>
             <div
               id="drop-zone"
-              class="mt-4 cursor-pointer rounded-lg border-2 border-dashed border-border p-8 text-center transition-colors duration-200 hover:border-primary"
+              tabindex="0"
+              role="button"
+              aria-label="选择照片，或在此处按 Ctrl+V 粘贴图片"
+              aria-describedby="upload-hint"
+              class="mt-4 cursor-pointer rounded-lg border-2 border-dashed border-border p-8 text-center outline-none transition-colors duration-200 hover:border-primary focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring"
             >
               <input id="file-input" type="file" multiple accept="image/*" class="hidden" />
               <p class="text-sm text-muted-foreground">
-                点击选择 或 拖拽多张照片到这里
+                点击选择、拖拽照片，或在此处按 Ctrl+V 粘贴图片
               </p>
-              <p class="mt-1 text-xs text-muted-foreground">
-                单张自动压缩（宽 ≤2048px，约 ≤3MB）并生成缩略图
+              <p id="upload-hint" class="mt-1 text-xs text-muted-foreground">
+                鼠标停在框内即可粘贴（Mac：⌘V）· 单张自动压缩并生成缩略图
               </p>
             </div>
 
@@ -95,13 +103,35 @@ const todayStr = photoDateKey(new Date());
               >
                 开始上传
               </button>
-              <span id="upload-status" class="text-xs text-muted-foreground">选择照片后开始上传</span>
+              <span id="upload-status" role="status" aria-live="polite" class="text-xs text-muted-foreground">选择或粘贴照片后开始上传</span>
             </div>
           </>
         ) : (
-          <div class="mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
-            未配置 Cloudflare R2（<code class="font-mono">R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET</code>），自动上传不可用 ——
-            请使用下方「URL 导入」添加照片（PicGo / GitHub 图床工作流）。
+          /* 未配置 R2 时的空态：原实现只有一句"未配置 R2"，用户点进来看到整块空白
+             （上传区被条件跳过），不知道该怎么恢复上传能力 —— 2026-09-23 报障修复。
+             这里给出：① 明确结论 ② 配置文件位置 ③ 需要填的字段 ④ 生效方式 ⑤ 无需 R2 的降级路径。 */
+          <div class="mt-4 space-y-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3.5">
+            <p class="text-sm font-medium text-amber-700 dark:text-amber-300">
+              未启用 GitHub 图床，也未配置 Cloudflare R2 —— 自动上传不可用
+            </p>
+            <p class="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+              <strong>推荐</strong>：在「设置 → 图床」里启用 GitHub 图床（与文章、动态的图片上传同一套通道），
+              保存后<strong>刷新本页</strong>即可出现上传区，无需重启应用。
+            </p>
+            <p class="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+              或者配置 Cloudflare R2：桌面端的 R2 凭据需写入
+              <code class="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono">%APPDATA%\byqx-blog-desktop\config.json</code>
+              的
+              <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_ACCOUNT_ID</code>
+              <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_ACCESS_KEY_ID</code>
+              <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_SECRET_ACCESS_KEY</code>
+              <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_BUCKET</code>
+              （自定义域名再填 <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_PUBLIC_BASE_URL</code>），
+              然后<strong>重启应用</strong>。
+            </p>
+            <p class="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+              都不配置也可以直接用下方「URL 导入」添加照片（PicGo / GitHub 图床工作流，照片存外链、不占站内存储）。
+            </p>
           </div>
         )
       }
@@ -250,6 +280,7 @@ const todayStr = photoDateKey(new Date());
      注意：不能直接 import `@/lib/photos` —— 它引 drizzle/db，客户端打包会炸。 */
   import { combineTags, normalizeTags, parseTagsInput } from '@/lib/photo-tags';
   import type { TagOp } from '@/lib/photo-tags';
+  import { bindImagePaste } from '@/lib/image-paste';
 
   const todayStr = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
   const MAX_ORIGINAL_BYTES = 3 * 1024 * 1024;
@@ -305,6 +336,7 @@ const todayStr = photoDateKey(new Date());
     row: HTMLElement;
   }
   const queue: QueueItem[] = [];
+  let uploading = false;
 
   function renderQueue(): void {
     const list = el('upload-list');
@@ -316,8 +348,8 @@ const todayStr = photoDateKey(new Date());
       btn.textContent = '开始上传';
       return;
     }
-    btn.disabled = false;
-    btn.textContent = `开始上传（${queue.length} 张）`;
+    btn.disabled = uploading;
+    btn.textContent = uploading ? '上传中…' : `开始上传（${queue.length} 张）`;
     queue.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'flex items-center gap-3 border-b border-border px-3 py-2 text-xs';
@@ -411,7 +443,8 @@ const todayStr = photoDateKey(new Date());
     const tags = parseTagsInput(el<HTMLInputElement>('upload-tags')?.value ?? '');
     const status = el('upload-status');
     const btn = el<HTMLButtonElement>('upload-btn');
-    if (!btn || queue.length === 0) return;
+    if (!btn || queue.length === 0 || uploading) return;
+    uploading = true;
     btn.disabled = true;
     if (status) status.textContent = '上传中…';
 
@@ -427,6 +460,7 @@ const todayStr = photoDateKey(new Date());
     for (let i = queue.length - 1; i >= 0; i -= 1) {
       if (queue[i]!.status === 'done') queue.splice(i, 1);
     }
+    uploading = false;
     renderQueue();
     if (status) {
       status.textContent = failed > 0 ? `完成 ${doneCount} 张，失败 ${failed} 张（可重新选择重试）` : `完成 ${doneCount} 张`;
@@ -439,12 +473,30 @@ const todayStr = photoDateKey(new Date());
   const dropZone = el('drop-zone');
   const fileInput = el<HTMLInputElement>('file-input');
 
+  function addFiles(files: File[]): void {
+    const images = files.filter((file) => file.type.startsWith('image/'));
+    images.forEach((file) => queue.push({ file, status: 'pending', row: document.createElement('div') }));
+    // Preserve active rows/statuses if images arrive during an upload.
+    if (!uploading) renderQueue();
+    const status = el('upload-status');
+    if (status && !uploading) status.textContent = images.length
+      ? `已添加 ${images.length} 张照片，点击「开始上传」`
+      : '未发现图片，请先复制图片或截图，再在此处粘贴';
+  }
+
+  if (dropZone) bindImagePaste(dropZone, addFiles);
+  dropZone?.addEventListener('keydown', (event) => {
+    if (event.target === dropZone && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      fileInput?.click();
+    }
+  });
+
   dropZone?.addEventListener('click', () => fileInput?.click());
   fileInput?.addEventListener('change', () => {
     const files = Array.from(fileInput.files ?? []);
-    files.forEach((f) => queue.push({ file: f, status: 'pending', row: document.createElement('div') }));
+    addFiles(files);
     fileInput.value = '';
-    renderQueue();
   });
 
   dropZone?.addEventListener('dragover', (e) => {
@@ -456,8 +508,7 @@ const todayStr = photoDateKey(new Date());
     e.preventDefault();
     dropZone.classList.remove('border-primary');
     const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
-    files.forEach((f) => queue.push({ file: f, status: 'pending', row: document.createElement('div') }));
-    renderQueue();
+    addFiles(files);
   });
 
   el('upload-btn')?.addEventListener('click', () => void startUpload());

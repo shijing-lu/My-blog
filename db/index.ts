@@ -212,8 +212,8 @@ export async function dbWrite<T>(build: (d: BlogDb, postgres: boolean) => Promis
   let anySuccess = false;
   for (let i = 0; i < endpoints.length; i += 1) {
     const ep = endpoints[i]!;
-    if (!ep.db) ep.db = createDrizzle(ep, i);
     try {
+      if (!ep.db) ep.db = createDrizzle(ep, i);
       const r = await build(ep.db, ep.postgres);
       if (result === undefined) result = r; // 保留主库（首个成功端点）的结果
       anySuccess = true;

@@ -1,0 +1,22 @@
+/** 倒计时实体切片的公开出口 */
+export {
+  COUNTDOWN_COLORS,
+  UNIT_LABEL,
+  UNIT_MS,
+  breakdownOf,
+  clockOfMs,
+  dateKeyOfMs,
+  describeAmount,
+  durationMsOf,
+  formatRemaining,
+  formatRemainingIn,
+  isFinished,
+  isPaused,
+  nextColorOf,
+  primaryOf,
+  remainingMsOf,
+  targetAtOfDateTime,
+  type Countdown,
+  type CountdownBreakdown,
+  type CountdownUnit,
+} from "./model";

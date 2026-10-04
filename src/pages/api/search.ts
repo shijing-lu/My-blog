@@ -50,11 +50,11 @@ const MAX_CONTENT_SCAN = 300;
  * 2. **正文细筛**（按需）：仅当存在「元信息未命中」的候选、且候选数在上限内时，
  *    才按 id 批量取回这些候选的正文 —— 且**只对未命中的那些**做剥离匹配。
  *
- * 效果：常见查询（关键词出现在标题/摘要/标签）**完全不读正文**；
+ * 元信息命中不扫描正文；仅为实际返回的公开结果补取字数与封面（最多 50 篇）。
  * 即便走正文路径，取的也是「数量受限的候选正文」而非全表。
  */
 export const GET: APIRoute = async ({ url }) => {
-  const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+  const q = (url.searchParams.get('q') ?? '').trim().slice(0, 100).toLowerCase();
   const type = url.searchParams.get('type') ?? 'all';
   if (type !== 'all' && !isArticleType(type)) {
     return badRequest('type 不合法');
@@ -81,7 +81,7 @@ export const GET: APIRoute = async ({ url }) => {
 
   /* ---- 阶段 2：正文细筛（仅按需 + 仅对未命中项）---- */
   const scanTargets = q && needsContentScan(metaHit.size, candidates.length)
-    ? candidates.filter((a) => !metaHit.has(a.id)).slice(0, MAX_CONTENT_SCAN)
+    ? candidates.filter((a) => !a.encrypted && !metaHit.has(a.id)).slice(0, MAX_CONTENT_SCAN)
     : [];
   const contentById = scanTargets.length > 0
     ? await getArticleContents(scanTargets.map((a) => a.id))
@@ -95,13 +95,18 @@ export const GET: APIRoute = async ({ url }) => {
     return stripMarkdownCached(content).includes(q);
   });
 
-  const articles = matched.slice(0, MAX_RESULTS).map((a) => {
-    // 加密文章 content 落库为空串 → 天然不会「正文命中」；snippet 回退为摘要。
-    // 前端据 encrypted 显示锁标识并提示需解锁。
+  const visible = matched.slice(0, MAX_RESULTS);
+  // 仅补取实际展示的公开文章，修复标题/分类命中后字数变 0、正文首图丢失。
+  // 设密码文章现在明文落库，公开搜索不可读取正文或通过命中与否泄露关键词。
+  const missingIds = visible.filter((a) => !a.encrypted && !contentById.has(a.id)).map((a) => a.id);
+  if (missingIds.length > 0) {
+    for (const [id, content] of await getArticleContents(missingIds)) contentById.set(id, content);
+  }
+  const articles = visible.map((a) => {
     const content = contentById.get(a.id);
     const snippet = a.encrypted
       ? a.summary
-      : (content !== undefined ? (extractSnippet(content, q) ?? a.summary) : a.summary);
+      : (!metaHit.has(a.id) && content !== undefined ? (extractSnippet(content, q) ?? a.summary) : a.summary);
     return {
       id: a.id,
       title: a.title,
@@ -109,7 +114,7 @@ export const GET: APIRoute = async ({ url }) => {
       type: a.type,
       summary: a.summary,
       snippet,
-      cover: cardCoverUrl(resolveCover({ cover: a.cover, content: content ?? '' })),
+      cover: cardCoverUrl(resolveCover({ cover: a.cover, content: a.encrypted ? '' : content ?? '' })),
       tags: a.tags,
       encrypted: a.encrypted,
       updatedAt: a.updatedAt.toISOString(),
