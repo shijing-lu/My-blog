@@ -37,4 +37,5 @@
 - 构建时主库和备用库各 36 张表检查通过，无新增列；boolean/timestamp/CRUD、ORM 镜像读写、Cadence CAS 和主库失败后的回退读写检查通过。
 - 正式站现有管理员登录、编辑入口和权限回归通过。`scripts/verify-production-heading-folding.mjs` 对现有公开文章、文章编辑、文档阅读及编辑进行实际浏览器验证，折叠/展开均生效，没有浏览器运行错误，也没有发送文章 PATCH/PUT/DELETE；未改动生产正文。
 - 正式站完成标识：`PRODUCTION_READING_EDITOR_HEADING_FOLD_NO_WRITES_OK`。报告见忽略目录内的 `production-verification.json`。
-- 桌面更新包已准备在 `release/heading-fold-payload-20261004/`。当前客户端仍在运行，已请求确认保存状态，安装和重启等待该确认；不将已构建描述为已安装。
+- 用户确认当前编辑已保存并允许安装重启后，已将 `release/heading-fold-payload-20261004/dist/` 安装至 `release/portable/resources/app/dist/`，校验服务入口一致，并重启 `release/portable/白衣卿相.exe`。原构建保存在 `release/heading-fold-before-20261004-163016/dist/`，本地数据库和配置沿用原文件。
+- 已通过重启客户端的实际 HTTP 服务验证现有公开文章、文章页、文档页：阅读折叠和展开生效，文章及文档的编辑折叠和展开生效，无浏览器运行错误，无文章 PATCH/PUT/DELETE，验证前后现有正文逐字符一致。完成标识：`INSTALLED_CLIENT_READING_EDITOR_FOLD_SOURCE_PRESERVED_OK`；报告见忽略目录内的 `installed-client-verification.json`。
