@@ -4,6 +4,7 @@ import { installTreeContextMenu, type TreeCommand, type TreeTarget } from '@/lib
 import { setupArticleDetailRails } from '@/lib/article-detail-rails';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import { confirmDanger } from '@/lib/confirm';
+import { enhanceBodyHeadings, revealBodyHeading } from '@/lib/body-heading-folding';
 
 const VIRTUAL_ROOT = '__home_uncategorized__';
 const data = (): HTMLElement | null => document.getElementById('doc-detail-data');
@@ -216,7 +217,8 @@ function setup(): void {
         const nth = [...sameLevel].indexOf(link);
         if (nth >= 0) window.__docInlineEditor?.jumpToHeading?.(level, nth);
       } else {
-        document.getElementById(decodeURIComponent(link.hash.slice(1)))?.scrollIntoView({ behavior: 'instant', block: 'start' });
+        const heading = document.getElementById(decodeURIComponent(link.hash.slice(1)));
+        if (heading) { revealBodyHeading(heading); heading.scrollIntoView({ behavior: 'instant', block: 'start' }); }
       }
     });
   }
@@ -225,7 +227,11 @@ function setup(): void {
     deferred.dataset.loading = '1';
     const id = deferred.dataset.deferArticle;
     if (id) void fetch(`/api/articles/${encodeURIComponent(id)}/render`).then((response) => response.json()).then((result) => {
-      if (result.html && deferred.isConnected) deferred.innerHTML = result.html;
+      if (result.html && deferred.isConnected) {
+        deferred.innerHTML = result.html;
+        enhanceBodyHeadings(deferred);
+        document.dispatchEvent(new CustomEvent('article:body-updated'));
+      }
       const list = document.getElementById('doc-toc-list');
       if (list && Array.isArray(result.toc)) list.innerHTML = result.toc.length ? renderTocTreeHtml(result.toc) : '<p class="mt-2 text-xs text-muted-foreground">无目录</p>';
     }).catch(() => { deferred.textContent = '文章加载失败，请刷新重试。'; });

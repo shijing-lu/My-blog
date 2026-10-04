@@ -296,7 +296,7 @@ const blockMapJson = JSON.stringify(blockMap);
         </form>
       </div>
     ) : (
-      <article class={articleClass} set:html={html} />
+      <article class={articleClass} data-heading-folding data-heading-fold-key={`home:${article.id}`} set:html={html} />
     )
   }
 

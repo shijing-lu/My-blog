@@ -8,9 +8,10 @@ import { mdKeymap } from './md-keymap';
 import { columnBlocks, columnsEdit, columnsSource, columnsTransactionCache, pendingColumnFocus, setColumnTarget, setColumnsSource } from './cm-columns-state';
 import { buildMarkdownColumns, removeMarkdownColumn, serializeMarkdownColumns } from '../../lib/markdown-columns';
 import type { MarkdownColumns } from '../../lib/markdown-columns';
-import { visualDirectivesExtension } from './cm-visual-directives';
+import { revealVisualHeading, visualDirectivesExtension } from './cm-visual-directives';
+import { headingFolding, rememberChildHeadingFolds, restoreChildHeadingFolds, unfoldHeadingAt } from './cm-heading-folding';
 
-interface Options { preview: Extension; onSave: () => void; onPaste: (event: ClipboardEvent) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
+interface Options { preview: Extension; foldHeadings?: boolean; onSave: () => void; onPaste: (event: ClipboardEvent) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
 const controllers = new WeakMap<HTMLElement, ColumnController>();
 
 function button(label: string, run: () => void): HTMLButtonElement {
@@ -98,10 +99,12 @@ class ColumnController {
           doc: column.content,
           extensions: [
             EditorView.lineWrapping, drawSelection(), markdown(), mdKeymap, this.options.preview, visualDirectivesExtension({
+              foldHeadings: this.options.foldHeadings,
               onSave: this.options.onSave,
               onUndo: (redo) => this.history(redo),
               onContextMenu: this.options.onContextMenu,
             }),
+            ...(this.options.foldHeadings ? [headingFolding()] : []),
             placeholder('在这里写 Markdown…'),
             EditorView.contentAttributes.of({ 'aria-label': `第 ${index + 1} 栏，共 ${this.block.columns.length} 栏` }),
             keymap.of([
@@ -142,6 +145,7 @@ class ColumnController {
           ],
         }),
       });
+      if (this.options.foldHeadings) restoreChildHeadingFolds(this.parent, `column:${this.block.from}:${index}`, child);
       this.editors.push(child);
     });
     queueMicrotask(() => {
@@ -286,7 +290,13 @@ class ColumnController {
     return true;
   }
 
-  destroy(): void { this.disposed = true; for (const child of this.editors) child.destroy(); }
+  destroy(): void {
+    this.disposed = true;
+    this.editors.forEach((child, index) => {
+      rememberChildHeadingFolds(this.parent, `column:${this.block.from}:${index}`, child);
+      child.destroy();
+    });
+  }
 }
 
 class ColumnsWidget extends WidgetType {
@@ -300,6 +310,25 @@ class ColumnsWidget extends WidgetType {
   updateDOM(dom: HTMLElement): boolean { return controllers.get(dom)?.sync(this.block) ?? false; }
   destroy(dom: HTMLElement): void { controllers.get(dom)?.destroy(); controllers.delete(dom); }
   ignoreEvent(): boolean { return true; }
+}
+
+/** Route a source heading into the visual column instead of leaving it hidden in a widget. */
+export function revealColumnHeading(parent: EditorView, pos: number): boolean {
+  for (const dom of parent.dom.querySelectorAll<HTMLElement>('.cm-columns-widget')) {
+    const controller = controllers.get(dom);
+    if (!controller || controller.parent !== parent || controller.disposed) continue;
+    const index = controller.block.columns.findIndex(column => column.from <= pos && pos <= column.to);
+    if (index < 0) continue;
+    const child = controller.editors[index];
+    if (!child) continue;
+    const offset = pos - controller.block.columns[index]!.from;
+    unfoldHeadingAt(child, offset);
+    child.dispatch({ selection: { anchor: offset }, effects: EditorView.scrollIntoView(offset, { y: 'center' }) });
+    controller.focus(index, offset);
+    revealVisualHeading(child, offset);
+    return true;
+  }
+  return false;
 }
 
 export function columnsExtension(options: Options): Extension {

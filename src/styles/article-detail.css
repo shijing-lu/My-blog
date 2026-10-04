@@ -122,18 +122,22 @@
      contain-intrinsic-size 的 `auto` 前缀会记住真实高度，避免滚动条反复抖动。
      权衡：未渲染过的区块用估算高度，首次锚点/TOC 跳转可能有轻微偏移；
      打印时必须还原 visible，否则视口外内容不会进打印结果。 */
-  main article.prose > * {
+  main article.prose > :not([data-body-heading-section]),
+  main article.prose [data-body-heading-content] > :not([data-body-heading-section]),
+  main article.prose [data-body-heading-section] > :is(h1,h2,h3,h4,h5,h6) {
     content-visibility: auto;
     contain-intrinsic-size: auto 120px;
   }
   @media print {
-    main article.prose > * { content-visibility: visible; }
+    main article.prose > *, main article.prose [data-body-heading-content] > *, main article.prose [data-body-heading-section] > :is(h1,h2,h3,h4,h5,h6) { content-visibility: visible; }
   }
   /* 目录跳转/模式切换定位专用的「强制渲染」态：
      首次点击目录时视口外区块仍是估算高（120px），滚动途中逐渐真实化导致
      首次定位偏移、后续点击才准。跳转前暂时整篇强制布局（contain-intrinsic-size
      的 auto 前缀会记住真实高度，恢复后不再回跳），定位完即恢复。 */
-  main article.prose.toc-nav-rendering > * {
+  main article.prose.toc-nav-rendering > *,
+  main article.prose.toc-nav-rendering [data-body-heading-content] > *,
+  main article.prose.toc-nav-rendering [data-body-heading-section] > :is(h1,h2,h3,h4,h5,h6) {
     content-visibility: visible;
   }
 

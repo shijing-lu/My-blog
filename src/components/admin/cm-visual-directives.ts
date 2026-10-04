@@ -8,6 +8,7 @@ import { livePreview } from './cm-live-preview';
 import { scanVisualDirectives } from '../../lib/markdown-visual-directives';
 import type { VisualBlock, VisualItem } from '../../lib/markdown-visual-directives';
 import { columnBlocks } from './cm-columns-state';
+import { headingFolding, rememberChildHeadingFolds, restoreChildHeadingFolds, unfoldHeadingAt } from './cm-heading-folding';
 
 export const setVisualSource = StateEffect.define<boolean>();
 const visualSource = StateField.define<boolean>({
@@ -16,7 +17,7 @@ const visualSource = StateField.define<boolean>({
 });
 
 const controllers = new WeakMap<HTMLElement, VisualController>();
-interface Options { onSave?: () => void; onUndo?: (redo: boolean) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
+interface Options { foldHeadings?: boolean; onSave?: () => void; onUndo?: (redo: boolean) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
 function button(label: string, run: () => void, title = label): HTMLButtonElement {
   const node = document.createElement('button'); node.type = 'button'; node.textContent = label; node.title = title;
   node.addEventListener('mousedown', (event) => event.preventDefault());
@@ -81,12 +82,19 @@ class VisualController {
     if (this.block.kind === 'tabs') this.active = other;
     this.replace(start, end, right + left);
   }
-  private closeChildren(): void { for (const child of this.children.values()) child.destroy(); this.children.clear(); }
+  private closeChildren(): void {
+    for (const [index, child] of this.children) {
+      rememberChildHeadingFolds(this.parent, `visual:${this.block.kind}:${this.block.from}:${index}`, child);
+      child.destroy();
+    }
+    this.children.clear();
+  }
   private mountBody(host: HTMLElement, index: number): void {
     if (this.children.has(index)) return;
     const item = this.block.items[index]; if (!item?.body) return;
     const child: EditorView = new EditorView({ parent: host, state: EditorState.create({
       doc: this.bodyContent(item), extensions: [EditorView.lineWrapping, markdown(), livePreview(), placeholder('在这里写 Markdown…'),
+        ...(this.options.foldHeadings ? [headingFolding()] : []),
         keymap.of([
           { key: 'Mod-s', run: () => { this.options.onSave?.(); return true; } },
           { key: 'Mod-z', run: () => this.options.onUndo?.(false) ?? undo(this.parent), shift: () => this.options.onUndo?.(true) ?? redo(this.parent) },
@@ -99,6 +107,7 @@ class VisualController {
         EditorView.theme({ '&': { backgroundColor: 'transparent', fontSize: 'inherit' }, '&.cm-focused': { outline: 'none' }, '.cm-scroller': { fontFamily: 'inherit', overflow: 'visible' }, '.cm-content': { minHeight: '3rem', padding: '.5rem .25rem' }, '.cm-line': { padding: '0' } }),
       ],
     }) });
+    if (this.options.foldHeadings) restoreChildHeadingFolds(this.parent, `visual:${this.block.kind}:${this.block.from}:${index}`, child);
     this.children.set(index, child);
   }
   private controlBar(): HTMLElement {
@@ -257,6 +266,21 @@ class VisualController {
     }
     return true;
   }
+  revealAtSource(pos: number): boolean {
+    const index = this.block.items.findIndex(item => item.body && item.body.from <= pos && pos <= item.body.to);
+    if (index < 0 || this.disposed) return false;
+    if (this.block.kind === 'tabs' && this.active !== index) { this.active = index; this.render(); }
+    if (this.block.kind === 'collapse' && !this.expanded.has(index)) { this.expanded.add(index); this.render(); }
+    const child = this.children.get(index);
+    if (!child) return false;
+    const body = this.block.items[index]!.body!;
+    const prefix = this.parent.state.sliceDoc(body.from, pos);
+    const offset = this.block.kind === 'collapse' ? prefix.split('\n').map(line => line.startsWith('  ') ? line.slice(2) : line).join('\n').length : prefix.length;
+    unfoldHeadingAt(child, offset);
+    child.dispatch({ selection: { anchor: offset }, effects: EditorView.scrollIntoView(offset, { y: 'center' }) });
+    child.focus();
+    return true;
+  }
   destroy(): void { this.disposed = true; this.closeChildren(); }
 }
 class VisualWidget extends WidgetType {
@@ -267,6 +291,14 @@ class VisualWidget extends WidgetType {
   destroy(dom: HTMLElement): void { controllers.get(dom)?.destroy(); controllers.delete(dom); }
   ignoreEvent(): boolean { return true; }
 }
+export function revealVisualHeading(parent: EditorView, pos: number): boolean {
+  for (const dom of parent.dom.querySelectorAll<HTMLElement>('.cm-visual-directive')) {
+    const controller = controllers.get(dom);
+    if (controller?.parent === parent && controller.revealAtSource(pos)) return true;
+  }
+  return false;
+}
+
 export function visualDirectivesExtension(options: Options = {}): Extension {
   const build = (state: EditorState): DecorationSet => {
     if (state.field(visualSource)) return Decoration.none;

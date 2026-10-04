@@ -40,6 +40,7 @@ import { useMotionFeedback } from '@/components/ui/use-motion-feedback';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import MarkdownEditor from '@/components/admin/MarkdownEditor';
+import { enhanceBodyHeadings, revealBodyHeading } from '@/lib/body-heading-folding';
 import type { MarkdownEditorHandle } from '@/components/admin/MarkdownEditor';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import { activateInlineArticleTitle, type InlineArticleTitleSession } from '@/lib/inline-article-title';
@@ -120,10 +121,11 @@ function readScrollerRatio(): number {
 }
 
 /** 阅读态标题序列（文档顺序；级别 + 顶边距视口顶的偏移） */
-function readingHeadingTops(art: HTMLElement): { level: number; top: number }[] {
+function readingHeadingTops(art: HTMLElement): { level: number; top: number; hidden: boolean }[] {
   return [...art.querySelectorAll<HTMLElement>(HEADING_SELECTOR)].map((h) => ({
     level: Number(h.tagName.slice(1)),
     top: h.getBoundingClientRect().top,
+    hidden: !!h.closest('[data-body-heading-content][hidden]'),
   }));
 }
 
@@ -161,6 +163,7 @@ function restoreReadingAnchor(art: HTMLElement | null, anchor: ViewAnchor | null
   );
   if (idx < 0) return false;
   const target = heads[idx]!;
+  revealBodyHeading(target);
   art.classList.add('toc-nav-rendering');
   void art.offsetHeight;
   instantScrollTo(target.getBoundingClientRect().top + window.scrollY - anchor.offset);
@@ -373,7 +376,7 @@ export default function DocInlineEditor(): ReactElement {
           const art = document.querySelector<HTMLElement>('main article.prose');
           const scrollY = window.scrollY;
           const anchor = captureReadingAnchor(art);
-          if (art) art.innerHTML = d.html;
+          if (art) { art.innerHTML = d.html; enhanceBodyHeadings(art); }
           // 正文重写后重建黑幕开关（spoiler.ts 监听；幂等，无 :spoiler 语法时不注入）
           document.dispatchEvent(new CustomEvent('spoiler:refresh'));
           const tocWrap = document.getElementById('doc-toc-list');
@@ -837,6 +840,7 @@ export default function DocInlineEditor(): ReactElement {
               <p className="px-1 py-6 text-sm text-muted-foreground">正在读取正文…</p>
             ) : readFailed ? null : (
               <MarkdownEditor
+                foldHeadings
                 documentContextMenu
                 ref={editorRef}
                 initialContent={content}

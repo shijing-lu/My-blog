@@ -211,6 +211,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   import { instantScrollTo, warmDocEditEntry } from '@/lib/doc-viewport';
   import { installTreeContextMenu, installArticleContextMenu, type TreeCommand, type TreeTarget } from '@/lib/tree-context-menu';
   import { setupArticleDetailRails } from '@/lib/article-detail-rails';
+  import { enhanceBodyHeadings, revealBodyHeading } from '@/lib/body-heading-folding';
 
   const isAuthed = (): boolean => document.querySelector('[data-article-domain="docs"]') !== null
     && document.getElementById('doc-detail-data')?.dataset.authed === '1';
@@ -363,6 +364,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       applyTocFoldState(tocWrap);
     }
     document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
+    if (article) enhanceBodyHeadings(article);
+    document.dispatchEvent(new CustomEvent('article:body-updated'));
   }
 
   /** 加载反馈：正文降透明 + 顶部进度条（大文档首渲染期间页面不得静止无反馈） */
@@ -874,6 +877,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
      auto 前缀记住真实高度不回跳），再做多帧校正（图片陆续加载的漂移一并收敛）；
      用户一旦手动滚动（wheel/touch）立即停止校正，绝不和用户抢视口。 */
   function stableScrollTo(target: Element): void {
+    revealBodyHeading(target);
     const art = document.querySelector<HTMLElement>('main article.prose');
     art?.classList.add('toc-nav-rendering');
     // 强制同步 layout：估算高 → 真实高

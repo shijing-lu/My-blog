@@ -58,7 +58,7 @@ const { domain, authed, treeLabel, treeHtml, title, articleHtml = '', tocHtml, t
               </div>
               <div class="pixel-divider mt-4" />
             </header>
-            <article class="prose mt-6 max-w-none break-words" data-defer-article={deferArticleId} set:html={articleHtml} />
+            <article class="prose mt-6 max-w-none break-words" data-heading-folding data-defer-article={deferArticleId} set:html={articleHtml} />
             <slot name="editor" />
           </>
         ) : <p class="mt-10 text-center text-sm text-muted-foreground">{emptyText}</p>}

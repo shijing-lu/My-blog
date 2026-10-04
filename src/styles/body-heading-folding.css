@@ -1,0 +1,54 @@
+article[data-heading-folding] [data-body-heading-section],
+article[data-heading-folding] [data-body-heading-content] {
+  display: contents;
+}
+article[data-heading-folding] [data-body-heading-content][hidden] {
+  display: none !important;
+}
+article[data-heading-folding] .body-heading-foldable {
+  position: relative;
+  padding-left: 1.75rem;
+}
+.body-heading-toggle, .cm-heading-fold-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.body-heading-toggle {
+  position: absolute;
+  left: 0;
+  top: 0.1em;
+}
+.body-heading-toggle:hover, .cm-heading-fold-button:hover {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}
+.body-heading-toggle:focus-visible, .cm-heading-fold-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.body-heading-toggle svg, .cm-heading-fold-button svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.body-heading-toggle[aria-expanded='true'] svg,
+.cm-heading-fold-button[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+@media print {
+  /* Tailwind's base layer marks [hidden] !important; print must override in that layer. */
+  @layer base {
+    article[data-heading-folding] [data-body-heading-content][hidden] { display: contents !important; }
+  }
+  article[data-heading-folding] .body-heading-foldable { padding-left: 0; }
+  .body-heading-toggle, .cm-heading-fold-button { display: none !important; }
+}

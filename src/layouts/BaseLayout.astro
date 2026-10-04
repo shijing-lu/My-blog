@@ -24,6 +24,7 @@ import '../styles/global.css';
 import '../styles/print.css'; // 「导出 PDF」打印样式表（@media print，零屏显开销）
 import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
 import '@/styles/mobile-reading.css';
+import '@/styles/body-heading-folding.css';
 // KaTeX 关键字体预热：?url 取打包后哈希 URL，head 里 preload（见模板）。
 // 国内网络下 KaTeX 字体加载失败会导致公式 vlist 行盒塌缩、糊成一团（诊断结论），
 // preload 提前并行拉取 + 页面脚本检测失败后切 MathML 兜底（.katex-font-fallback）。
@@ -390,6 +391,7 @@ const needsKatexFonts =
       import '@/scripts/lightbox';
       import '@/scripts/tabs';
       import '@/scripts/spoiler';
+      import '@/scripts/body-heading-folding';
     </script>
     <script>
       import '@/scripts/desktop-navigation';

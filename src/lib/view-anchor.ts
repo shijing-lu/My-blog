@@ -37,6 +37,8 @@ export const ANCHOR_LEVELS: readonly number[] = [2, 3, 4];
 export interface HeadingTop {
   level: number;
   top: number;
+  /** Hidden chapters count toward heading identity, but cannot be viewport anchors. */
+  hidden?: boolean;
 }
 
 /**
@@ -55,6 +57,7 @@ export function pickViewAnchor(
   let cur: ViewAnchor | null = null;
   for (const h of headings) {
     if (!ANCHOR_LEVELS.includes(h.level)) continue;
+    if (h.hidden) { seen.set(h.level, (seen.get(h.level) ?? 0) + 1); continue; }
     if (h.top > tolerance) break;
     const nth = seen.get(h.level) ?? 0;
     seen.set(h.level, nth + 1);
@@ -71,6 +74,7 @@ export function pickNearestViewAnchor(headings: ReadonlyArray<HeadingTop>): View
     if (!ANCHOR_LEVELS.includes(h.level)) continue;
     const nth = seen.get(h.level) ?? 0;
     seen.set(h.level, nth + 1);
+    if (h.hidden) continue;
     const candidate = { level: h.level, nth, offset: h.top };
     if (h.top <= ANCHOR_TOP_TOLERANCE) {
       above = candidate;

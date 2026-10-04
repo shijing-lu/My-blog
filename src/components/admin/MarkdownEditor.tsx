@@ -26,10 +26,11 @@ import { compressImageForUpload } from '../../lib/client-image-upload';
 import { characterCount } from './cm-character-count';
 import { pickNearestViewAnchor } from '../../lib/view-anchor';
 import type { ViewAnchor } from '../../lib/view-anchor';
-import { columnsExtension } from './cm-columns';
+import { columnsExtension, revealColumnHeading } from './cm-columns';
 import { columnTarget, setColumnTarget } from './cm-columns-state';
 import { MarkdownContextMenu } from './cm-context-menu';
-import { setVisualSource, visualDirectivesExtension } from './cm-visual-directives';
+import { revealVisualHeading, setVisualSource, visualDirectivesExtension } from './cm-visual-directives';
+import { headingFolding, isHeadingFolded, unfoldHeadingAt } from './cm-heading-folding';
 
 /** 对外暴露的编辑器句柄 */
 export interface MarkdownEditorHandle {
@@ -102,6 +103,8 @@ interface MarkdownEditorProps {
   initialWysiwyg?: typeof import('./cm-wysiwyg');
   /** 文档文章编辑器的三级 Markdown 右键菜单。 */
   documentContextMenu?: boolean;
+  /** 文档与文章就地编辑的 H1–H6 正文章节折叠。 */
+  foldHeadings?: boolean;
   /**
    * 视觉变体：
    * - 'panel'（默认）：写作台卡片式外观（`--color-card` 面板背景 + 内容限宽
@@ -261,7 +264,7 @@ function nameFromUrl(url: string): string {
  * 可复用所见即所得编辑器
  */
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { initialContent, onChange, onSave, className, wysiwyg = false, initialWysiwyg, documentContextMenu = false, variant = 'panel', autoHeight = false, onViewportHeading, onReady, onLoadError },
+  { initialContent, onChange, onSave, className, wysiwyg = false, initialWysiwyg, documentContextMenu = false, foldHeadings = false, variant = 'panel', autoHeight = false, onViewportHeading, onReady, onLoadError },
   ref,
 ): ReactElement {
   const ghost = variant === 'ghost';
@@ -401,8 +404,14 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const view = viewRef.current;
     if (!view) return;
     const pos = view.state.doc.line(line + 1).from;
+    unfoldHeadingAt(view, pos);
     view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
     view.focus();
+    // Widgets for far-away headings mount after the scroll measurement.
+    requestAnimationFrame(() => {
+      if (viewRef.current !== view) return;
+      revealColumnHeading(view, pos) || revealVisualHeading(view, pos);
+    });
   }, []);
 
   /**
@@ -511,9 +520,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const view = viewRef.current;
     if (!view) return null;
     const scrollTop = view.scrollDOM.scrollTop;
-    const list: { level: number; top: number }[] = [];
+    const list: { level: number; top: number; hidden?: boolean }[] = [];
     for (const h of scanHeadings(view.state, true)) {
-      list.push({ level: h.level, top: measuredLineTop(view, h.pos) ?? view.lineBlockAt(h.pos).top - scrollTop });
+      const hidden = isHeadingFolded(view.state, h.pos);
+      list.push({ level: h.level, hidden, top: hidden ? 0 : measuredLineTop(view, h.pos) ?? view.lineBlockAt(h.pos).top - scrollTop });
     }
     return pickNearestViewAnchor(list);
   }, []);
@@ -531,6 +541,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     if (!view) return false;
     const hit = nthHeading(view.state, level, nth);
     if (!hit) return false;
+    unfoldHeadingAt(view, hit.pos);
     const scroller = view.scrollDOM;
     const doc = view.state.doc;
     cancelAnimationFrame(headingScrollRafRef.current);
@@ -692,10 +703,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     if (!host) return;
     const ghostMode = ghost;
     const visualExtensions = (preview: Extension): Extension[] => [preview, visualDirectivesExtension({
+      foldHeadings,
       onSave: () => onSaveRef.current?.(),
       onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
     }), columnsExtension({
-      preview, onSave: () => onSaveRef.current?.(), onPaste: (event) => onPasteRef.current(event),
+      preview, foldHeadings, onSave: () => onSaveRef.current?.(), onPaste: (event) => onPasteRef.current(event),
       onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
     })];
     const view = new EditorView({
@@ -764,6 +776,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             },
           }),
           markdown({ base: markdownLanguage, codeLanguages }),
+          ...(foldHeadings ? [headingFolding()] : []),
           // 装饰扩展互斥：wysiwyg 模块动态加载后注入（见下方 import('./cm-wysiwyg')），
           // 写作台等非 wysiwyg 场景零 katex 负担；livePreview 为写作台轻量版
           wysiwyg ? wysiwygCompartment.current.of(initialWysiwyg ? visualExtensions(initialWysiwyg.wysiwygPreview()) : []) : [livePreview(), columnsExtension({
