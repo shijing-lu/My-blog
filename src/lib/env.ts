@@ -10,8 +10,7 @@
 /**
  * 读取服务端环境变量，缺失或为空时返回 fallback
  *
- * 同时检查 `import.meta.env`（Astro/Vite 从 .env 加载，含非 PUBLIC 变量）与
- * `process.env`（Vercel 等平台注入），保证开发与生产行为一致。
+ * 生产运行时配置优先于构建时配置；开发仍允许 Astro 从 .env 加载变量。
  */
 export function serverEnv(key: string, fallback = ''): string {
   // 桌面端凭据由主进程从用户配置注入。Astro 构建时会把 .env 值内联进
@@ -20,9 +19,14 @@ export function serverEnv(key: string, fallback = ''): string {
     const desktopValue = process.env[key];
     return desktopValue !== undefined && desktopValue !== '' ? desktopValue : fallback;
   }
-  const metaValue = (import.meta.env as Record<string, unknown> | undefined)?.[key];
-  const fromMeta = typeof metaValue === 'string' ? metaValue : undefined;
   const fromProcess = process.env[key];
+  if (process.env.VERCEL === '1' || process.env.NODE_ENV === 'production' || import.meta.env?.PROD) {
+    // Sensitive variables may be masked during environment pulls/builds.
+    // Runtime credentials must not be shadowed by a compiled placeholder.
+    if (fromProcess !== undefined) return fromProcess || fallback;
+  }
+  const metaValue = (import.meta.env as Record<string, unknown> | undefined)?.[key];
+  const fromMeta = typeof metaValue === 'string' && metaValue !== '[SENSITIVE]' ? metaValue : undefined;
   const value = fromMeta && fromMeta !== '' ? fromMeta : fromProcess;
   return value !== undefined && value !== '' ? value : fallback;
 }
