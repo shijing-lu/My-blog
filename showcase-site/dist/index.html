@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#faf9f5">
+  <meta name="description" content="白衣卿相，把思考变成自己的世界。一个关于文章、知识、影像与时间的个人博客项目。">
+  <title>白衣卿相 · 把思考，变成自己的世界。</title>
+  <link rel="icon" type="image/png" href="assets/brand.png">
+  <link rel="preload" href="assets/WenKai.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="site-header wrap">
+    <a href="#" class="brand" aria-label="白衣卿相，回到顶部"><img src="assets/brand.png" width="36" height="36" alt=""><span>白衣卿相</span></a>
+    <nav aria-label="主导航"><a href="#idea">关于</a><a href="#features">功能</a><a href="#film">影像</a></nav>
+    <button class="header-film" data-open-film><span class="play-mark" aria-hidden="true"></span>观看宣传片</button>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span></span>一个人的博客，一个自己的世界</p>
+        <h1 id="hero-title">把思考，<br>变成<span class="accent-word">自己的世界。</span></h1>
+        <p class="hero-description">把知识、生活与热爱，<br>写成自己的故事。</p>
+        <div class="hero-actions"><button class="button button-primary" data-open-film><span class="play-mark" aria-hidden="true"></span>观看宣传片</button><a class="quiet-link" href="#idea">认识白衣卿相</a></div>
+      </div>
+      <figure class="hero-image">
+        <img src="assets/summit.webp" width="1800" height="1000" alt="暖色日光照亮山脊与云海，远处一位旅行者伫立山顶" fetchpriority="high">
+        <div class="photo-edge" aria-hidden="true"></div>
+        <figcaption><span>A WORLD OF YOUR OWN</span><span>01 / 03</span></figcaption>
+        <span class="vertical-note" aria-hidden="true">READ. WRITE. LIVE.</span>
+      </figure>
+    </section>
+    <section id="idea" class="idea wrap" aria-labelledby="idea-title">
+      <div class="section-rule"><span>白衣卿相 / PERSONAL WORLD</span><span>关于这个项目</span></div>
+      <h2 id="idea-title">给好奇一个去处，<br>给生活留一点回声。</h2>
+      <p>一篇文章，一段推导，一张照片。<br>那些认真想过、走过、见过的事，值得慢慢积累。</p>
+      <div class="idea-index"><a href="#features"><small>01</small>阅读与知识</a><a href="#writing"><small>02</small>写作与表达</a><a href="#life"><small>03</small>影像与时间</a></div>
+    </section>
+    <section id="features" class="reading-section wrap" aria-labelledby="reading-title" data-reveal>
+      <div class="reading-intro"><span class="chapter-number" aria-hidden="true">01</span><h2 id="reading-title">从一篇文章，<br>到一套知识。</h2><p>写技术，学数学，记录新的发现。<br>内容有层次，阅读也有自己的节奏。</p></div>
+      <div class="reading-explorer">
+        <div class="feature-tabs" role="tablist" aria-label="探索阅读能力"><button role="tab" id="tab-reading" aria-controls="panel-reading" aria-selected="true" tabindex="0">阅读</button><button role="tab" id="tab-math" aria-controls="panel-math" aria-selected="false" tabindex="-1">公式</button><button role="tab" id="tab-archive" aria-controls="panel-archive" aria-selected="false" tabindex="-1">归档</button></div>
+        <div id="panel-reading" class="feature-panel" role="tabpanel" aria-labelledby="tab-reading" tabindex="0"><div class="editorial-words" aria-hidden="true"><span>读</span><span>思考 / 记录 / 发现</span></div><h3>长文，也有清晰的路径。</h3><p>树形目录、全站搜索与多种阅读布局，让每次回看都能找到想要的那一段。</p><div class="feature-tags"><span>树形目录</span><span>全站搜索</span><span>阅读布局</span></div></div>
+        <div id="panel-math" class="feature-panel" role="tabpanel" aria-labelledby="tab-math" tabindex="0" hidden><div class="math-display" aria-label="欧拉恒等式">e<sup>iπ</sup> + 1 = 0</div><h3>让推导，完整发生。</h3><p>从直觉到证明，用清晰的数学表达和有结构的讲义，把理解一步步写下来。</p><div class="feature-tags"><span>KaTeX 公式</span><span>数学讲义</span><span>知识目录</span></div></div>
+        <div id="panel-archive" class="feature-panel" role="tabpanel" aria-labelledby="tab-archive" tabindex="0" hidden><div class="archive-display" aria-hidden="true"><span>数学</span><span>技术</span><span>学习</span></div><h3>积累的东西，随时找回。</h3><p>沿着时间与标签回看，让零散的学习笔记，逐渐成为自己的知识地图。</p><div class="feature-tags"><span>标签分类</span><span>时间归档</span><span>内容检索</span></div></div>
+      </div>
+    </section>
+    <section id="writing" class="writing-section wrap" aria-labelledby="writing-title">
+      <div class="writing-heading" data-reveal><h2 id="writing-title">写下来，<br>想法就有了形状。</h2><p>用 Markdown 创作，让代码、公式与图片，<br>自然融入每一次表达。</p><button class="text-button" data-open-film data-film-start="18.2">观看写作片段 <span class="play-mark" aria-hidden="true"></span></button></div>
+      <figure class="writing-image" data-reveal><img src="assets/writing.webp" width="1600" height="900" alt="宣传片中的 Markdown 写作演示，包含公式、代码和多栏排版" loading="lazy"><figcaption>站主写作台演示 / Markdown · 公式 · 代码 · 多栏</figcaption></figure>
+      <div class="writing-strip"><span>即时渲染</span><span>自动保存</span><span>专注表达</span></div>
+    </section>
+    <section id="life" class="life-section wrap" aria-labelledby="life-title">
+      <div class="life-heading" data-reveal><h2 id="life-title">把生活，<br>留在画面里。</h2><p>有些故事无需长篇。<br>一张照片，一句随笔，就足够记住。</p></div>
+      <div class="life-grid"><figure class="lake-photo" data-reveal><img src="assets/lake.webp" width="1800" height="1000" alt="秋日湖泊倒映山峰，木栈桥伸向平静的湖面" loading="lazy"><figcaption><span>停留，才会看见。</span><small>02 / AUTUMN LAKE</small></figcaption></figure><figure class="city-photo" data-reveal><img src="assets/city.webp" width="1000" height="1000" alt="雨后的城市街道，砖墙与拱门映出温暖灯光" loading="lazy"><figcaption>日常，也有光。</figcaption></figure><div class="life-caption"><span class="chapter-number" aria-hidden="true">02</span><p>影集与时间线，把值得记住的瞬间，<br>慢慢收进生活的相册。</p><small>本页风景为宣传生成素材。</small></div></div>
+    </section>
+    <section id="workspace" class="workspace-section wrap" aria-labelledby="workspace-title">
+      <div class="workspace-heading" data-reveal><span class="access-label">站主专属工作台</span><h2 id="workspace-title">给热爱，<br>安排一点时间。</h2><p>从一个目标，到一段投入，再到一次回看。<br>把想做的事，放进真实的每一天。</p></div>
+      <div class="workspace-layout"><figure class="workspace-image" data-reveal><img src="assets/schedule.webp" width="1600" height="900" alt="宣传片中的日程与专注演示，展示今日时间轴、专注计时和复盘入口" loading="lazy"><figcaption>日程能力演示 / 计划 · 执行 · 复盘</figcaption></figure><div class="workspace-details" data-reveal><details open><summary><span>01</span>计划与安排</summary><p>把目标拆成任务，安排时间，在今日视图里看清接下来要做的事。</p></details><details><summary><span>02</span>专注与投入</summary><p>启动专注计时，留下投入记录，让每一段认真做事的时间有迹可循。</p></details><details><summary><span>03</span>回看与复盘</summary><p>回顾任务、计划与投入，整理进展，找到下一步值得继续的方向。</p></details><details><summary><span>04</span>随心录</summary><p>先记下一个念头，再用标签与回看慢慢整理。灵感来时，总有地方安放。</p></details></div></div>
+    </section>
+    <section id="film" class="film-section wrap" aria-labelledby="film-title">
+      <div class="film-heading" data-reveal><h2 id="film-title">用 56 秒，<br>走进这个世界。</h2><p>《把思考，变成自己的世界。》<br>一支关于记录、创作与热爱的短片。</p></div>
+      <button class="film-poster" data-open-film aria-label="播放完整宣传片" data-reveal><img src="assets/poster.webp" width="1920" height="1080" alt="白衣卿相宣传片封面" loading="lazy"><span class="poster-play"><span class="play-mark" aria-hidden="true"></span></span><span class="poster-meta">品牌宣传片 <span>00:56 / 1080P</span></span></button>
+      <div class="film-chapters" aria-label="按章节观看宣传片"><button data-open-film data-film-start="5.4"><span>00:05</span>白衣卿相</button><button data-open-film data-film-start="10.8"><span>00:10</span>知识与阅读</button><button data-open-film data-film-start="18.2"><span>00:18</span>思考与写作</button><button data-open-film data-film-start="25.6"><span>00:25</span>摄影与生活</button><button data-open-film data-film-start="32"><span>00:32</span>日程与专注</button><button data-open-film data-film-start="39.4"><span>00:39</span>随心录</button></div>
+      <p class="media-note">原创配乐版 · 界面为功能演示重构，风景为生成素材。</p>
+    </section>
+    <section class="closing wrap" aria-labelledby="closing-title" data-reveal><p>白衣卿相</p><h2 id="closing-title">自己的世界，<br>从一次<span>记录</span>开始。</h2><div class="closing-line"><span>为好奇留下位置。</span><span>READ. WRITE. LIVE.</span></div></section>
+  </main>
+  <footer class="site-footer wrap"><a class="brand" href="#"><img src="assets/brand.png" width="36" height="36" alt=""><span>白衣卿相</span></a><p>从一次记录开始。</p><a href="#main">回到顶部</a></footer>
+  <dialog id="film-dialog" class="film-dialog" aria-labelledby="dialog-title"><div class="dialog-top"><h2 id="dialog-title">把思考，变成自己的世界。</h2><button class="dialog-close" aria-label="关闭宣传片">关闭</button></div><video id="promo-video" controls playsinline preload="none" poster="assets/poster.webp"><source src="assets/promo.mp4" type="video/mp4">你的浏览器无法播放视频。<a href="assets/promo.mp4">打开视频文件</a></video><p class="video-error" hidden>视频暂时无法加载，请重试或<a href="assets/promo.mp4">打开视频文件</a>。</p></dialog>
+</body>
+</html>
