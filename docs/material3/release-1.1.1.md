@@ -25,3 +25,9 @@ fc8b8b2d73d4783798a7a2210d22ecf22051a98bd7c037a84341b0c5c4dfeae6  白衣卿相 S
 正式网站：[白衣卿相](https://www.byqx-blog.online/)；Material 可在当前设备外观面板切换，站点默认保持原值。应用源码部署 `dpl_F26koeNYBFAAipZpLQDgUGk9djWc` 已 Ready 和 promote；正式访客 12 组合与管理员设置 30 次验证通过。`public/desktop-version.json` 更新为 1.1.1，避免新版客户端收到旧清单的错误更新提示；清单沿用现有站点入口 URL。
 
 Android ADB 检查没有连接设备，本轮不计真机通过。包保持原签名，供后续覆盖安装验收。
+
+## 源码与版本清单发布
+
+主实施提交 `e9ff284` 已推送 `origin/master`。Git 关联生产部署 `my-blog-hzbwzzxen-a3129446848-7902s-projects.vercel.app` 已 Ready；正式域名读取 `desktop-version.json` 验证为 1.1.1。此部署增加版本清单与交付文档，界面源码与此前 1500 组合、正式站 30 个设置视图验收的源码一致。
+
+提交检查还发现旧认证测试中存在历史密码字面量，已替换为隔离测试用值，8 个认证测试通过。当前源码清理不删除 Git 历史，也未未经用户同意修改正式管理员密码。

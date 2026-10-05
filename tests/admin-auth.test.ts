@@ -32,10 +32,10 @@ describe('normalizePermissions', () => {
 });
 
 describe('checkTopPassword', () => {
-  it('未配置站主密码时禁用该通道，拒绝旧内置密码和空密码', () => {
+  it('未配置站主密码时禁用该通道，拒绝未配置的非空密码和空密码', () => {
     vi.stubEnv('TOP_ADMIN_PASSWORD', '');
     expect(topAdminPassword()).toBe('');
-    expect(checkTopPassword('2640477581a')).toBe(false);
+    expect(checkTopPassword('unconfigured-password')).toBe(false);
     expect(checkTopPassword('')).toBe(false);
   });
 
