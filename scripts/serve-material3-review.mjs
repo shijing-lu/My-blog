@@ -9,6 +9,10 @@ const root = path.resolve(import.meta.dirname, '..');
 const output = path.join(root, 'outputs/material3-review');
 fs.mkdirSync(output, { recursive: true });
 const databasePath = path.join(output, 'test.db');
+const android = process.argv.includes('--android-sync');
+const syncConfigPath = path.join(output, 'android-sync-config.json');
+if (android && !fs.existsSync(syncConfigPath)) fs.writeFileSync(syncConfigPath, JSON.stringify({ ADMIN_PASSWORD: 'material3-local-check', untouched: true }));
+const syncConfig = android ? JSON.parse(fs.readFileSync(syncConfigPath, 'utf8')) : {};
 if (!process.argv.includes('--reuse')) {
   const configDir = path.join(process.env.APPDATA, 'byqx-blog-desktop');
   const config = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'), 'utf8'));
@@ -20,9 +24,11 @@ const child = spawn(process.execPath, [path.join(root, 'dist/server/entry.mjs')]
   cwd: output,
   env: { ...process.env, HOST: '127.0.0.1', PORT: '43221',
     DATABASE_URL: 'file:' + databasePath, DATABASE_URL_FALLBACK: '', SYNC_DATABASE_URL: '',
+    SYNC_DATABASE_URL_FALLBACK: '',
     ADMIN_PASSWORD: 'material3-local-check', TOP_ADMIN_PASSWORD: 'material3-local-check',
     AUTH_SECRET: randomBytes(32).toString('hex'),
     DESKTOP_MODE: '1', SITE_URL: 'http://127.0.0.1:43221',
+    ...(android ? { ANDROID_MODE: '1', BYQX_CONFIG_PATH: syncConfigPath, SYNC_DATABASE_URL: syncConfig.SYNC_DATABASE_URL || '', SYNC_DATABASE_URL_FALLBACK: syncConfig.SYNC_DATABASE_URL_FALLBACK || '' } : {}),
   },
   stdio: ['ignore', log, log],
 });

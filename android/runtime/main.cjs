@@ -29,6 +29,7 @@ const config = JSON.parse(fs.readFileSync(path.join(user, 'config.json'), 'utf8'
 process.chdir(root);
 Object.assign(process.env, {
   DESKTOP_MODE: '1', ANDROID_MODE: '1', HOST: '127.0.0.1', PORT: '43218',
+  BYQX_CONFIG_PATH: path.join(user, 'config.json'),
   PUBLIC_SITE_URL: 'http://127.0.0.1:43218',
   DATABASE_URL: `file:${path.join(user, 'blog-local.db')}`,
   APPDATA: path.dirname(user), HOME: path.dirname(user), TMPDIR: path.join(user, 'tmp'),

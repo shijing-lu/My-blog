@@ -6,6 +6,7 @@
  * - 依赖装配：本地端点用运行时 db，云端端点用 `SYNC_DATABASE_URL`（+ 可选备库镜像）。
  */
 import { serverEnv } from '@/lib/env';
+import { syncConfigurationBusy } from '@/lib/local-sync-config';
 import { db } from '../../db';
 import { SqliteEndpoint, type SqliteLikeDb } from './adapters/sqlite-endpoint';
 import { PgEndpoint } from './adapters/pg-endpoint';
@@ -40,7 +41,9 @@ const state: SyncStatus = {
 
 /** 读状态快照 */
 export function syncStatus(): SyncStatus {
-  return { ...state };
+  const cloudConfigured = !!cloudUrls().primary;
+  const lastError = cloudConfigured && state.lastError === '云端尚未配置，请在设置 → 云端同步中保存或导入连接配置' ? null : state.lastError;
+  return { ...state, cloudConfigured, lastError };
 }
 
 /** 云端连接串（桌面端由主进程从 config.json 注入到环境变量） */
@@ -55,7 +58,7 @@ function cloudUrls(): { primary: string | null; fallback: string | null } {
 function buildDeps(onProgress: (p: SyncProgress) => void, warnings: string[]) {
   const urls = cloudUrls();
   if (!urls.primary) {
-    throw new Error('未配置 SYNC_DATABASE_URL（桌面端请在 %APPDATA%\\byqx-blog-desktop\\config.json 填写）');
+    throw new Error('云端尚未配置，请在设置 → 云端同步中保存或导入连接配置');
   }
   state.cloudConfigured = true;
   return {
@@ -82,6 +85,11 @@ function buildDeps(onProgress: (p: SyncProgress) => void, warnings: string[]) {
 export async function startSync(
   awaitCompletion = true,
 ): Promise<{ started: boolean; running: boolean; report?: SyncReport; error?: string }> {
+  if (syncConfigurationBusy()) return { started: false, running: state.running, error: '连接配置正在保存，请稍后重试' };
+  if (!cloudUrls().primary) {
+    state.lastError = '云端尚未配置，请在设置 → 云端同步中保存或导入连接配置';
+    return { started: false, running: false, error: state.lastError };
+  }
   if (state.running) {
     console.log('[sync] 已有同步在执行中，忽略本次触发');
     return { started: false, running: true };

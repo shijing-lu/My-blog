@@ -104,6 +104,7 @@ export function requiredApiPermission(pathname: string, method: string): Permiss
   // 对象缓存路由例外：返回的是 R2 上本就公开的对象（暴露面与原 publicUrl 一致），
   // 放行以便桌面端未登录时也能显示图片
   if (pathname.startsWith('/api/desktop/object/')) return null;
+  if (pathname === '/api/desktop/sync-config') return 'top';
   if (pathname.startsWith('/api/desktop/')) return ['settings'];
   // 网盘对接（含 /api/netdisk-settings 与 /api/netdisk-test 与 /api/netdisk/*）：
   // 列目录/取直链也含网盘结构信息，统一按 netdisk 权限收紧

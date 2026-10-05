@@ -18,6 +18,7 @@ import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts'
 import { getSiteName } from '@/lib/site-name';
 import EditorShortcutsSettings from '@/components/admin/EditorShortcutsSettings';
 import UiStyleSettings from '@/components/admin/UiStyleSettings.astro';
+import SyncConnectionSettings from '@/components/admin/SyncConnectionSettings.astro';
 import ClassicAppearanceSettings from '@/components/admin/ClassicAppearanceSettings.astro';
 import { serverEnv } from '@/lib/env';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
@@ -688,6 +689,7 @@ const siteCssUpdatedAtText =
       <div data-m3-role="actions" class="mt-4 flex flex-wrap items-center gap-3">
         <button data-m3-role="button"
           id="sync-now"
+          disabled
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
         >
@@ -697,6 +699,7 @@ const siteCssUpdatedAtText =
         <div id="sync-progress" class="motion-progress w-full" role="progressbar" aria-label="同步进度" aria-valuemin="0" aria-valuemax="100" hidden><span></span></div>
       </div>
 
+      <SyncConnectionSettings />
       <div id="sync-report" class="mt-4 hidden">
         <table class="w-full text-xs">
           <thead class="text-muted-foreground">
@@ -3096,7 +3099,7 @@ const siteCssUpdatedAtText =
         const s = (await res.json()) as SyncStatusLike;
         pollFailures = 0;
         if (cloudEl) {
-          cloudEl.textContent = s.cloudConfigured ? '云端已配置' : '云端未配置：请在 config.json 填写 SYNC_DATABASE_URL';
+          cloudEl.textContent = s.cloudConfigured ? '云端已配置' : '云端未配置：请在下方保存或导入连接配置';
         }
         if (s.running) {
           btn.disabled = true;
@@ -3109,9 +3112,12 @@ const siteCssUpdatedAtText =
           pollTimer = window.setTimeout(() => void poll(), 800);
           return;
         }
-        btn.disabled = false;
+        btn.disabled = !s.cloudConfigured;
         progress(s.lastReport?.ok && !s.lastError ? 1 : null);
-        if (s.lastError) {
+        if (!s.cloudConfigured) {
+          progress(null);
+          setStatus('等待配置云端连接，尚未启动同步', 'text-xs text-muted-foreground');
+        } else if (s.lastError) {
           setStatus('失败：' + s.lastError, 'text-xs text-destructive');
         } else if (s.lastReport) {
           setStatus(s.lastReport.ok ? '同步已完成' : '同步部分完成，请查看失败原因并重试', s.lastReport.ok ? 'text-xs text-emerald-600' : 'text-xs text-destructive');
@@ -3158,6 +3164,7 @@ const siteCssUpdatedAtText =
       }
     });
 
+    window.addEventListener('byqx:sync-config-change', () => void poll(), { signal: lifetime.signal });
     void poll();
   }
 

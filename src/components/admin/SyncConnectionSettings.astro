@@ -1,0 +1,125 @@
+---
+import { serverEnv } from '@/lib/env';
+---
+<div id="sync-connection-settings" data-android={serverEnv('ANDROID_MODE') === '1' ? '1' : '0'} class="mt-4 rounded-xl border border-border bg-card p-4">
+  <h3 class="text-sm font-medium">云端连接</h3>
+  <p class="mt-1 text-xs text-muted-foreground">填写 PostgreSQL 数据库连接串，不是网站地址。可直接导入下面的加密配置文件，不需要在手机上修改 config.json。</p>
+  <div data-m3-columns="2" class="mt-4 grid gap-3 sm:grid-cols-2">
+    <label class="block text-xs">主库连接串
+      <input id="sync-primary-url" type="password" autocomplete="new-password" spellcheck="false" placeholder="postgresql://用户:密码@主机:5432/库名" class="mt-1 block w-full rounded-md border border-input bg-background p-3 text-sm" />
+    </label>
+    <label class="block text-xs">备库连接串（可选）
+      <input id="sync-fallback-url" type="password" autocomplete="new-password" spellcheck="false" placeholder="已有配置时留空保持不变" class="mt-1 block w-full rounded-md border border-input bg-background p-3 text-sm" />
+    </label>
+  </div>
+  <p id="sync-connection-state" class="mt-2 text-xs text-muted-foreground" role="status"></p>
+  <div data-m3-role="actions" class="mt-3 flex flex-wrap gap-4">
+    <label class="flex items-center gap-2 text-xs"><input id="sync-show-urls" type="checkbox" />显示本次输入的连接串</label>
+    <label class="flex items-center gap-2 text-xs"><input id="sync-clear-fallback" type="checkbox" />移除已有备库连接</label>
+  </div>
+  <div data-m3-role="actions" class="mt-4 flex flex-wrap gap-3">
+    <button id="sync-config-save" type="button" data-m3-role="button" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">保存连接</button>
+    <button id="sync-config-test" type="button" data-m3-role="button" class="rounded-md border border-border px-4 py-2 text-sm">测试主备库连接</button>
+  </div>
+  <details class="mt-4 border-t border-border pt-3">
+    <summary class="cursor-pointer text-sm">从另一台设备导入／导出连接配置</summary>
+    <p class="mt-2 text-xs text-muted-foreground">只传递连接配置，不覆盖文章或本地数据库。配置文件经过加密，口令只用于该文件，不会更改登录密码。</p>
+    <label class="mt-3 block text-xs">配置文件口令（至少 8 个字符）
+      <input id="sync-transfer-password" type="password" autocomplete="new-password" class="mt-1 block w-full rounded-md border border-input bg-background p-3 text-sm" />
+    </label>
+    <label class="mt-3 block text-xs">选择加密连接配置文件
+      <input id="sync-transfer-file" type="file" accept=".byqx-sync,application/json" class="mt-1 block w-full text-sm" />
+    </label>
+    <label class="mt-3 block text-xs">或粘贴另一台设备复制的加密配置
+      <textarea id="sync-transfer-text" rows="3" spellcheck="false" class="mt-1 block w-full rounded-md border border-input bg-background p-3 text-sm"></textarea>
+    </label>
+    <div data-m3-role="actions" class="mt-4 flex flex-wrap gap-3">
+      <button id="sync-config-import" type="button" data-m3-role="button" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">导入并保存</button>
+      <button id="sync-config-export" type="button" data-m3-role="button" class="rounded-md border border-border px-4 py-2 text-sm">导出加密配置</button>
+    </div>
+  </details>
+  <p id="sync-config-feedback" class="mt-3 text-xs" role="status" aria-live="polite"></p>
+</div>
+<script>
+  function initSyncConnections() {
+    const candidate = document.getElementById('sync-connection-settings');
+    if (!candidate || candidate.dataset.inited) return;
+    const root: HTMLElement = candidate;
+    root.dataset.inited = '1';
+    const lifetime = new AbortController();
+    document.addEventListener('astro:before-swap', () => lifetime.abort(), { once: true, signal: lifetime.signal });
+    const input = (id: string) => root.querySelector<HTMLInputElement>('#' + id)!;
+    const feedback = root.querySelector<HTMLElement>('#sync-config-feedback')!;
+    const state = root.querySelector<HTMLElement>('#sync-connection-state')!;
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('button')];
+    let busy = false;
+    function message(text: string, error = false) { feedback.textContent = text; feedback.classList.toggle('text-destructive', error); }
+    function body() { return { primaryUrl: input('sync-primary-url').value, fallbackUrl: input('sync-fallback-url').value, clearFallback: input('sync-clear-fallback').checked }; }
+    async function request(method: string, value?: unknown) {
+      const response = await fetch('/api/desktop/sync-config', { method, signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]), ...(value === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }) });
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || '配置操作失败，请重试');
+      return result;
+    }
+    async function refresh() {
+      try {
+        const summary = await request('GET');
+        state.textContent = `主库：${summary.primaryConfigured ? '已配置，留空保持原值' : '未配置'}；备库：${summary.fallbackConfigured ? '已配置，留空保持原值' : '未配置（可选）'}`;
+      } catch (error) { if (!lifetime.signal.aborted) message(error instanceof Error ? error.message : '读取配置状态失败', true); }
+    }
+    input('sync-show-urls').addEventListener('change', () => {
+      for (const id of ['sync-primary-url', 'sync-fallback-url']) input(id).type = input('sync-show-urls').checked ? 'text' : 'password';
+    });
+    async function act(name: string) {
+      if (busy) return;
+      busy = true; buttons.forEach(button => { button.disabled = true; });
+      message(name === 'test' ? '正在测试主库和备库连接…' : '正在处理连接配置…');
+      try {
+        if (name === 'save') {
+          await request('PUT', body()); message('连接配置已保存并立即生效，无需重启。可点击「立即同步」。');
+        } else if (name === 'test') {
+          const result = await request('POST', { action: 'test', ...body() });
+          message(`主库：${result.primary.ok ? '连接成功' : result.primary.error}；备库：${result.fallback ? result.fallback.ok ? '连接成功' : result.fallback.error : '未配置（可选）'}`, !result.ok);
+          return;
+        } else if (name === 'import') {
+          const file = input('sync-transfer-file').files?.[0];
+          const pasted = root.querySelector<HTMLTextAreaElement>('#sync-transfer-text')!.value.trim();
+          if ((!file && !pasted) || (file && file.size > 65536) || pasted.length > 65536) throw Error('请选择或粘贴有效的加密连接配置（不超过 64KB）');
+          let envelope: unknown;
+          try { envelope = JSON.parse(pasted || await file!.text()); } catch { throw Error('配置文件格式不正确'); }
+          await request('POST', { action: 'import', envelope, password: input('sync-transfer-password').value });
+          message('主备库连接配置已导入并生效，本地文章未改动。可先测试连接，再点击「立即同步」。');
+        } else {
+          const envelope = await request('POST', { action: 'export', password: input('sync-transfer-password').value });
+          if (root.dataset.android === '1') {
+            const text = JSON.stringify(envelope);
+            try { await navigator.clipboard.writeText(text); }
+            catch {
+              const area = document.createElement('textarea'); area.value = text; root.append(area); area.select();
+              const copied = document.execCommand('copy'); area.remove();
+              if (!copied) throw Error('无法复制，请重试或使用其他设备导出配置文件');
+            }
+            input('sync-transfer-password').value = '';
+            message('加密配置已复制；另一台设备粘贴后输入相同文件口令即可导入。');
+            return;
+          }
+          const url = URL.createObjectURL(new Blob([JSON.stringify(envelope)], { type: 'application/json' }));
+          const link = document.createElement('a'); link.href = url; link.download = '白衣卿相-云同步连接.byqx-sync'; link.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          message('加密配置已导出，请仅传递给自己的设备；导入时使用同一个文件口令。');
+          input('sync-transfer-password').value = '';
+          return;
+        }
+        for (const id of ['sync-primary-url', 'sync-fallback-url', 'sync-transfer-password', 'sync-transfer-file']) input(id).value = '';
+        input('sync-clear-fallback').checked = false;
+        root.querySelector<HTMLTextAreaElement>('#sync-transfer-text')!.value = '';
+        await refresh(); window.dispatchEvent(new Event('byqx:sync-config-change'));
+      } catch (error) { if (!lifetime.signal.aborted) message(error instanceof Error ? error.message : '配置操作失败，请重试', true); }
+      finally { busy = false; buttons.forEach(button => { button.disabled = false; }); }
+    }
+    for (const name of ['save', 'test', 'import', 'export']) root.querySelector('#sync-config-' + name)?.addEventListener('click', () => void act(name));
+    if (root.dataset.android === '1') root.querySelector('#sync-config-export')!.textContent = '复制加密配置';
+    void refresh();
+  }
+  initSyncConnections(); document.addEventListener('astro:page-load', initSyncConnections);
+</script>
