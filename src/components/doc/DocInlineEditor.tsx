@@ -1,4 +1,3 @@
-import { useMotionFeedback } from '@/components/ui/use-motion-feedback';
 /**
  * DocInlineEditor.tsx —— 文档文章「就地实时编辑」React 岛（Obsidian 式原位编辑）
  *
@@ -30,9 +29,8 @@ import { useMotionFeedback } from '@/components/ui/use-motion-feedback';
  *   · 页面脚本在悬停/聚焦「编辑」按钮时预取正文（`__docPrefetchNode`），点击后基本零等待；
  *   · 点击瞬间即给反馈（正文降透明 + 顶部进度条，复用「页内切换文章」的视觉语言），
  *     不再「等 fetch 完才有反应」。
- * - 保存反馈收敛为一个右下小胶囊（不占文档流、不遮挡正文结构）：「完成」= 保存
- *   并退出；未保存/保存中/已保存/失败状态就近显示。另有标题旁按钮与右侧悬浮框
- *   按钮（编辑中再点 = 保存退出）两条等价退出路径。
+ * - 标题旁按钮与右侧悬浮框按钮：编辑中再点 = 保存并退出。
+ *   自动保存继续运行，读取或保存失败以正文下方提示显示。
  * - 自动保存只 PATCH（编辑态正文隐藏，渲染结果暂时用不到）；关闭编辑器时若本
  *   会话保存过 → 后台补拉 /render 就地替换正文与目录（不 reload）。
  */
@@ -305,16 +303,12 @@ export default function DocInlineEditor(): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const titleSessionRef = useRef<InlineArticleTitleSession | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
-  const insertMenuRef = useRef<HTMLDetailsElement | null>(null);
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
   const [visualModule, setVisualModule] = useState<typeof import('../admin/cm-wysiwyg') | null>(null);
   const [phase, setPhase] = useState<'idle' | 'loading' | 'saving'>('idle');
-  const statusMotionRef = useMotionFeedback<HTMLSpanElement>(phase);
   const [error, setError] = useState<string | null>(null);
   const [readFailed, setReadFailed] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState('');
   /** 编辑器视口高度（px；打开时按正文高计算，超长文退化为可用屏高） */
   const [viewH, setViewH] = useState(0);
 
@@ -417,9 +411,7 @@ export default function DocInlineEditor(): ReactElement {
       const savedContent = await saveQueueRef.current.flush();
       if (saveSessionRef.current !== session) return true;
       dirtyRef.current = contentRef.current !== savedContent;
-      setDirty(dirtyRef.current);
       setError(null);
-      setLastSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
       return true;
     } catch (err) {
       if (saveSessionRef.current === session) setError(err instanceof Error ? err.message : '保存失败');
@@ -468,7 +460,6 @@ export default function DocInlineEditor(): ReactElement {
       setOpen(false);
       syncEntryButtons(false);
       setError(null);
-      setDirty(false);
       dirtyRef.current = false;
       setPhase('idle');
       // ③ 模式切换视口同步（编辑 → 阅读，Obsidian 式不跳动）——
@@ -547,7 +538,6 @@ export default function DocInlineEditor(): ReactElement {
         rememberArticleSave(saveSessionRef.current.url, { content: v });
       }
       dirtyRef.current = true;
-      setDirty(true);
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         void saveCoreRef.current();
@@ -600,7 +590,7 @@ export default function DocInlineEditor(): ReactElement {
     [],
   );
 
-  /** 保存并退出（入口按钮 / 完成胶囊调用） */
+  /** 保存并退出（入口按钮调用） */
   const handleSaveAndClose = useCallback(() => {
     void (async () => {
       window.clearTimeout(saveTimer.current);
@@ -612,10 +602,6 @@ export default function DocInlineEditor(): ReactElement {
     })();
   }, [closeEditor]);
 
-  const handleCancel = useCallback(() => {
-    if (dirtyRef.current && !window.confirm('有未保存的修改（已自动保存的部分不会回退），确定放弃并关闭吗？')) return;
-    void closeEditor({ discard: true });
-  }, [closeEditor]);
 
   /**
    * 按已记录的阅读锚点对齐编辑器视口（进入编辑时 + 两次错峰收敛共用）。
@@ -744,9 +730,7 @@ export default function DocInlineEditor(): ReactElement {
       setContent(text);
       setVisualModule(readyVisualModule);
       dirtyRef.current = pendingContent !== null;
-      setDirty(dirtyRef.current);
       savedRef.current = false;
-      setLastSavedAt('');
       // 编辑视口高：短文 0 = 高度随内容（auto，无滚动条）；超长文取可用屏高（编辑器内滚动）
       setViewH(fit ? 0 : avail);
       // 在正文仍占据文档流时挂载隐藏的编辑器；它有真实宽度，可以完成 CodeMirror
@@ -825,8 +809,6 @@ export default function DocInlineEditor(): ReactElement {
     };
   }, [open]);
 
-  const saving = phase === 'saving';
-  const showSaveFail = Boolean(error) && phase === 'idle';
   /** viewH = 0 → 高度随内容（短文形态，无内部滚动条）；> 0 → 固定视口高（长文内滚） */
   const autoHeight = viewH === 0;
 
@@ -858,76 +840,14 @@ export default function DocInlineEditor(): ReactElement {
             )}
           </div>
 
-          {/* 读取/保存失败提示（非胶囊，独立红字行，不遮挡正文） */}
+          {/* 读取/保存失败提示（独立红字行，不遮挡正文） */}
           {error && (
             <p className="mt-2 px-1 text-xs text-destructive" role="alert">
               {error}
             </p>
           )}
 
-          {/* 右下角状态胶囊：完成 = 保存退出；状态就近显示（不占文档流） */}
-          {phase !== 'loading' && (
-            <div className="doc-ie-status absolute right-3 bottom-3 z-20 flex items-center gap-1 rounded-full border border-border bg-background/85 py-1 pr-1 pl-3 text-[0.7rem] shadow-sm backdrop-blur">
-              <span ref={statusMotionRef} role="status">
-              {showSaveFail ? (
-                <span className="text-destructive">保存失败</span>
-              ) : saving ? (
-                <span className="text-muted-foreground">保存中…</span>
-              ) : dirty ? (
-                <span className="text-muted-foreground">● 未保存（自动保存中）</span>
-              ) : lastSavedAt ? (
-                <span className="text-muted-foreground">✓ 已自动保存 {lastSavedAt}</span>
-              ) : (
-                <span className="text-muted-foreground">就地编辑</span>
-              )}
-              </span>
-              {!readFailed && (
-                <details ref={insertMenuRef} className="doc-ie-insert relative">
-                  <summary className="cursor-pointer rounded-full px-1.5 py-0.5 text-primary" title="插入 Markdown 块" aria-label="插入 Markdown 块">＋</summary>
-                  <div className="absolute right-0 bottom-full mb-2 min-w-32 rounded-md border border-border bg-background p-1 shadow-lg">
-                    {([
-                      ['表格', '\n| 列 A | 列 B |\n| --- | --- |\n|  |  |\n'],
-                      ['引用', '\n> 引用文字\n'],
-                      ['提示块', '\n> [!note] 标题\n> 内容\n'],
-                      ['任务列表', '\n- [ ] 待办\n'],
-                      ['代码块', '\n```\n代码\n```\n'],
-                    ] as const).map(([label, snippet]) => (
-                      <button
-                        key={label}
-                        type="button"
-                        className="block w-full rounded px-2 py-1 text-left text-xs text-foreground hover:bg-accent"
-                        onClick={() => {
-                          insertMenuRef.current!.open = false;
-                          editorRef.current?.insertBlock(snippet);
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </details>
-              )}
-              <button
-                type="button"
-                onClick={handleCancel}
-                disabled={saving}
-                title="放弃未保存修改并退出"
-                aria-label="放弃修改并退出"
-                className="rounded-full px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
-              >
-                ×
-              </button>
-              <button
-                type="button"
-                data-testid="doc-editor-save"
-                onClick={handleSaveAndClose}
-                disabled={saving || readFailed}
-                className="rounded-full bg-primary px-2.5 py-0.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? '保存中…' : '完成'}
-              </button>
-            </div>
-          )}
+
         </div>
       )}
     </div>
