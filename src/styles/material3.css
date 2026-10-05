@@ -1,0 +1,151 @@
+/* Material is additive. Every rule is root-scoped, including portalled and
+   asynchronously generated interfaces. Unlayered rules override legacy utility
+   classes without changing their classic rendering or remounting components. */
+@import './material3-tokens.css';
+@import './material3-components.css';
+@import './material3-content.css';
+@import './material3-modules.css';
+@import './material3-settings.css';
+
+html[data-ui-style='material3'] {
+  color-scheme: light;
+  --background: var(--m3-surface) !important;
+  --foreground: var(--m3-on-surface) !important;
+  --card: var(--m3-surface-container-low) !important;
+  --card-foreground: var(--m3-on-surface) !important;
+  --popover: var(--m3-surface-container) !important;
+  --popover-foreground: var(--m3-on-surface) !important;
+  --primary: var(--m3-primary) !important;
+  --primary-foreground: var(--m3-on-primary) !important;
+  --secondary: var(--m3-secondary-container) !important;
+  --secondary-foreground: var(--m3-on-secondary-container) !important;
+  --muted: var(--m3-surface-container-high) !important;
+  --muted-foreground: var(--m3-on-surface-variant) !important;
+  --accent: var(--m3-secondary-container) !important;
+  --accent-foreground: var(--m3-on-secondary-container) !important;
+  --destructive: var(--m3-error) !important;
+  --border: var(--m3-outline-variant) !important;
+  --input: var(--m3-outline) !important;
+  --ring: var(--m3-primary) !important;
+  --chart-1: var(--m3-primary) !important;
+  --chart-2: var(--m3-tertiary) !important;
+  --chart-3: var(--m3-secondary) !important;
+  --chart-4: var(--m3-primary-container) !important;
+  --chart-5: var(--m3-error) !important;
+  --radius: 16px !important;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 28px;
+  --m3-font: 'Roboto Variable', 'Noto Sans SC Variable', 'Roboto', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-sans-family: var(--m3-font) !important;
+  --font-display-family: var(--m3-font) !important;
+  --font-pixel-family: var(--m3-font) !important;
+  --font-sans: var(--m3-font);
+  --font-display: var(--m3-font);
+  --font-pixel: var(--m3-font);
+  --m3-shape-extra-small: 4px;
+  --m3-shape-small: 8px;
+  --m3-shape-medium: 12px;
+  --m3-shape-large: 16px;
+  --m3-shape-extra-large: 28px;
+  --m3-shape-full: 9999px;
+  --m3-elevation-0: none;
+  --m3-elevation-1: 0 1px 2px rgb(0 0 0 / 18%), 0 1px 3px 1px rgb(0 0 0 / 9%);
+  --m3-elevation-2: 0 1px 2px rgb(0 0 0 / 18%), 0 2px 6px 2px rgb(0 0 0 / 9%);
+  --m3-elevation-3: 0 1px 3px rgb(0 0 0 / 18%), 0 4px 8px 3px rgb(0 0 0 / 9%);
+  --m3-elevation-4: 0 2px 3px rgb(0 0 0 / 18%), 0 6px 10px 4px rgb(0 0 0 / 9%);
+  --m3-elevation-5: 0 4px 4px rgb(0 0 0 / 18%), 0 8px 12px 6px rgb(0 0 0 / 9%);
+  --m3-ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --m3-ease-emphasized: cubic-bezier(.05, .7, .1, 1);
+  --m3-duration-short: 150ms;
+  --m3-duration-medium: 300ms;
+  --m3-duration-long: 400ms;
+  --m3-display-large-size: 57px;
+  --m3-display-large-line-height: 64px;
+  --m3-display-medium-size: 45px;
+  --m3-display-medium-line-height: 52px;
+  --m3-display-small-size: 36px;
+  --m3-display-small-line-height: 44px;
+  --m3-headline-large-size: 32px;
+  --m3-headline-large-line-height: 40px;
+  --m3-headline-medium-size: 28px;
+  --m3-headline-medium-line-height: 36px;
+  --m3-headline-small-size: 24px;
+  --m3-headline-small-line-height: 32px;
+  --m3-title-large-size: 22px;
+  --m3-title-large-line-height: 28px;
+  --m3-title-medium-size: 16px;
+  --m3-title-medium-line-height: 24px;
+  --m3-title-small-size: 14px;
+  --m3-title-small-line-height: 20px;
+  --m3-body-large-size: 16px;
+  --m3-body-large-line-height: 24px;
+  --m3-body-medium-size: 14px;
+  --m3-body-medium-line-height: 20px;
+  --m3-body-small-size: 12px;
+  --m3-body-small-line-height: 16px;
+  --m3-label-large-size: 14px;
+  --m3-label-large-line-height: 20px;
+  --m3-label-medium-size: 12px;
+  --m3-label-medium-line-height: 16px;
+  --m3-label-small-size: 11px;
+  --m3-label-small-line-height: 16px;
+  --motion-duration-fast: var(--m3-duration-short);
+  --motion-duration-base: var(--m3-duration-medium);
+  --motion-ease-standard: var(--m3-ease-standard);
+  --motion-ease-enter: var(--m3-ease-emphasized);
+  --theme-glow: 0 !important;
+  --m3-hover: 8%;
+  --m3-pressed: 12%;
+  --m3-focus: 12%;
+  accent-color: var(--m3-primary);
+  scrollbar-color: var(--m3-outline) var(--m3-surface);
+}
+html[data-ui-style='material3'].dark { color-scheme: dark; }
+html[data-ui-style='material3'] body {
+  font-family: var(--m3-font);
+  font-size: var(--m3-body-medium-size);
+  line-height: var(--m3-body-medium-line-height);
+  letter-spacing: .25px;
+  color: var(--m3-on-surface);
+  background: var(--m3-surface) !important;
+  -webkit-font-smoothing: antialiased;
+}
+html[data-ui-style='material3'] :is(button, input, textarea, select, dialog, [role='dialog'], [role='menu'], [role='tooltip']) {
+  font-family: var(--m3-font);
+}
+html[data-ui-style='material3'] :is(h1, h2, h3, h4, h5, h6, .font-pixel, .font-display, .font-serif, .font-readable) {
+  font-family: var(--m3-font);
+  text-shadow: none;
+}
+html[data-ui-style='material3'] :is(h1, h2, h3, h4, h5, h6) { font-weight: 500; letter-spacing: 0; }
+html[data-ui-style='material3'] :is(.site-bg, .stardust, .meteor, .firework-particle, .post-cover-dither, .deer-dots-wrap, .corner-mark::before, .corner-mark::after) {
+  display: none !important;
+}
+html[data-ui-style='material3'] :is(.ghost-text, .glow-text, .hero-char) { animation: none; text-shadow: none; }
+html[data-ui-style='material3'] .hero-char { opacity: 1; transform: none; }
+html[data-ui-style='material3'] .pixel-divider { height: 1px; background: var(--m3-outline-variant); background-image: none; }
+html[data-ui-style='material3'] .scroll-progress { height: 4px; background: var(--m3-primary); }
+html[data-ui-style='material3'] .nav-progress { height: 4px; box-shadow: none; }
+html[data-ui-style='material3'] .nav-loader { background: color-mix(in srgb, var(--m3-surface) 84%, transparent); }
+html[data-ui-style='material3'] .nav-loader::before { border: 4px solid var(--m3-primary-container); border-top-color: var(--m3-primary); width: 48px; height: 48px; }
+html[data-ui-style='material3'] :focus-visible { outline: 3px solid var(--m3-primary); outline-offset: 3px; }
+html[data-ui-style='material3'] ::selection { background: var(--m3-primary-container); color: var(--m3-on-primary-container); }
+html[data-ui-style='material3'] :is(.text-xs, .text-\[10px\], .text-\[11px\]) { line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-style='material3'] { --m3-duration-short: 0ms; --m3-duration-medium: 0ms; --m3-duration-long: 0ms; scroll-behavior: auto; }
+  html[data-ui-style='material3'] *, html[data-ui-style='material3'] *::before, html[data-ui-style='material3'] *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media print {
+  html[data-ui-style='material3'] { --m3-on-surface: #000; --m3-surface: #fff; }
+  html[data-ui-style='material3'] body { background: #fff !important; color: #000; }
+  html[data-ui-style='material3'] :is(.m3-nav, .m3-topbar, .byqx-toast-host, [data-m3-role='snackbar']) { display: none !important; }
+  html[data-ui-style='material3'] :is(.m3-shell, main, article) { box-shadow: none; margin-inline-start: 0; }
+}

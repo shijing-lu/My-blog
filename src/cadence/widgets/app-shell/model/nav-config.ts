@@ -25,6 +25,8 @@ export interface NavItem {
   label: string;
   hint: string;
   icon: LucideIcon;
+  /** Material Symbols 对应名称；图标与现有风格共享同一导航节点。 */
+  materialIcon: string;
   /** 该模块的语义色 */
   pigment: PigmentKey;
 }
@@ -35,6 +37,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "总览",
     hint: "今天的状态",
     icon: LayoutDashboard,
+    materialIcon: "dashboard",
     pigment: "archive",
   },
   {
@@ -42,6 +45,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "计划",
     hint: "要做什么",
     icon: NotebookPen,
+    materialIcon: "description",
     pigment: "plan",
   },
   {
@@ -49,6 +53,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "日程",
     hint: "时间块",
     icon: CalendarRange,
+    materialIcon: "calendar_month",
     pigment: "session",
   },
   {
@@ -56,6 +61,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "执行",
     hint: "实际投入",
     icon: Timer,
+    materialIcon: "timer",
     pigment: "session",
   },
   {
@@ -63,6 +69,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "复盘",
     hint: "按小时回看",
     icon: Feather,
+    materialIcon: "rate_review",
     pigment: "review",
   },
   {
@@ -70,6 +77,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "待办",
     hint: "待处理的事",
     icon: StickyNote,
+    materialIcon: "task_alt",
     pigment: "todo",
   },
   {
@@ -77,6 +85,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "统计",
     hint: "投入与节律",
     icon: BarChart3,
+    materialIcon: "assessment",
     pigment: "review",
   },
   {
@@ -84,6 +93,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "设置",
     hint: "外观与数据",
     icon: Settings,
+    materialIcon: "settings",
     pigment: "archive",
   },
 ] as const;

@@ -16,7 +16,8 @@
  */
 
 import { Dialog as RadixDialog } from "radix-ui";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
+import { MaterialIcon } from "@/components/ui/MaterialIcon";
 
 import {
   AnimatePresence,
@@ -58,6 +59,7 @@ export function PresenceDialog({
 }: PresenceDialogProps) {
   const backdropVariants = useResolvedVariants(backdrop);
   const panelVariants = useResolvedVariants(modalPanel);
+  const opener = useRef<HTMLElement | null>(null);
 
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -69,6 +71,7 @@ export function PresenceDialog({
           >
             <RadixDialog.Overlay asChild forceMount>
               <m.div
+                data-m3-role="scrim"
                 variants={backdropVariants}
                 initial="hidden"
                 animate="visible"
@@ -82,9 +85,19 @@ export function PresenceDialog({
             <RadixDialog.Content
               asChild
               forceMount
+              onOpenAutoFocus={() => {
+                opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+              }}
+              onCloseAutoFocus={(event) => {
+                if (opener.current?.isConnected) {
+                  event.preventDefault();
+                  opener.current.focus({ preventScroll: true });
+                }
+              }}
               {...(description ? {} : { "aria-describedby": undefined })}
             >
               <m.div
+                data-m3-role="dialog"
                 variants={panelVariants}
                 initial="hidden"
                 animate="visible"
@@ -113,10 +126,11 @@ export function PresenceDialog({
 
                 {/* 关闭按钮：手绘小叉 */}
                 <RadixDialog.Close
+                  data-m3-role="icon-button"
                   aria-label="关闭"
                   className="text-ink-3 hover:text-ink-1 craft-transition-fast absolute top-4 right-4 grid h-7 w-7 place-items-center rounded-full"
                 >
-                  <svg
+                  <MaterialIcon name="close"><svg
                     viewBox="0 0 16 16"
                     width={14}
                     height={14}
@@ -129,7 +143,7 @@ export function PresenceDialog({
                       strokeWidth={1.8}
                       strokeLinecap="round"
                     />
-                  </svg>
+                  </svg></MaterialIcon>
                 </RadixDialog.Close>
               </m.div>
             </RadixDialog.Content>

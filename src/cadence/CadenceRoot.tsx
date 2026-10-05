@@ -28,9 +28,9 @@ export default function CadenceRoot() {
     };
   }, []);
   return (
-    <div className="cadence-root">
+    <div className="cadence-root" data-m3-module="schedule">
       {error ? (
-        <div role="alert" className="mx-auto max-w-6xl px-4 py-10">
+        <div role="alert" data-m3-role="error-state" className="mx-auto max-w-6xl px-4 py-10">
           {error}
           <button className="ml-3 underline" onClick={() => location.reload()}>
             重试
@@ -41,6 +41,7 @@ export default function CadenceRoot() {
           fallback={
             <p
               role="status"
+              data-m3-role="loading-state"
               className="mx-auto max-w-6xl px-4 py-10 text-muted-foreground"
             >
               正在加载日程界面…
@@ -52,6 +53,7 @@ export default function CadenceRoot() {
       ) : (
         <p
           role="status"
+          data-m3-role="loading-state"
           className="mx-auto max-w-6xl px-4 py-10 text-muted-foreground"
         >
           正在打开本地日程…

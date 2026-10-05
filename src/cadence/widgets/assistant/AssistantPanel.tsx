@@ -16,6 +16,7 @@ import { CAPABILITY_SUMMARY } from "./types";
 import { AnimatePresence, m } from "@/cadence/shared/motion";
 import { Button } from "@/cadence/shared/ui/Button";
 import { TextField } from "@/cadence/shared/ui/TextField";
+import { MaterialIcon } from "@/components/ui/MaterialIcon";
 
 interface ChatItem {
   id: number;
@@ -87,6 +88,7 @@ export function AssistantPanel() {
     <>
       {/* 悬浮球 */}
       <button
+        data-m3-role="fab"
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
@@ -94,7 +96,7 @@ export function AssistantPanel() {
         className="craft-transition-fast fixed right-5 bottom-24 z-[var(--z-drawer)] grid place-items-center rounded-full bg-primary text-primary-foreground md:bottom-5"
         style={{ height: 52, width: 52 }}
       >
-        <svg
+        <MaterialIcon name="auto_awesome"><svg
           viewBox="0 0 24 24"
           width={22}
           height={22}
@@ -110,13 +112,14 @@ export function AssistantPanel() {
           <circle cx="9" cy="10" r="1" fill="currentColor" />
           <circle cx="12" cy="10" r="1" fill="currentColor" />
           <circle cx="15" cy="10" r="1" fill="currentColor" />
-        </svg>
+        </svg></MaterialIcon>
       </button>
 
       {/* 对话面板 */}
       <AnimatePresence>
         {open ? (
           <m.div
+            data-m3-role="dialog"
             key="assistant-panel"
             initial={{ opacity: 0, y: 12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -130,7 +133,7 @@ export function AssistantPanel() {
             role="dialog"
             aria-label="AI 助手"
           >
-            <header className="border-b border-[var(--color-paper-line)] px-5 pt-4 pb-3">
+            <header data-m3-role="panel-header" className="border-b border-[var(--color-paper-line)] px-5 pt-4 pb-3">
               <h3 className="text-ink-1 font-serif text-[15px]">助手</h3>
               <p className="text-ink-4 mt-0.5 text-[11px]">
                 一次只做一件事 · 删除类操作需确认 · 说不清的会反问

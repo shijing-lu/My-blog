@@ -12,30 +12,24 @@
  */
 import SettingsForm from '@/components/admin/SettingsForm.astro';
 import { serverEnv } from '@/lib/env';
+import { getSettingsSections } from '@/lib/settings-sections';
 
 /* 左侧导航：分区 key + 标签 + 搜索关键词；anchor 用于分区内的子定位（如站点背景） */
-const navItems = [
-  { id: 'site-name', label: '站点名称', kw: '站点名称 site name 标题 品牌' },
-  { id: 'hero-quotes', label: '诗词轮播', kw: '诗词轮播 hero quotes 首页 古诗 名言 逐字' },
-  { id: 'landing', label: '落地页', kw: '落地页 landing 头图 轮播 副标题 hero 图' },
-  { id: 'appearance', label: '全局字体', kw: '全局字体 font 文章字体 其他字体 字号缩放 导入字体' },
-  { id: 'appearance', label: '站点背景', kw: '站点背景 background 背景图 透明度 模糊 星光 页面背景', anchor: 'settings-background' },
-  { id: 'image-bed', label: 'GitHub 图床', kw: '图床 github image bed 粘贴图片 上传 仓库 token pat 反代 图片链接' },
-  { id: 'md-css', label: 'Markdown 样式', kw: 'markdown css 样式 自定义 上传 加粗 斜体 颜色 标题 列表 代码 表格 引用 链接 覆盖' },
-  { id: 'site-css', label: '全站样式', kw: '全站样式 css 样式 自定义 标题 正文 按钮 导航 链接 表单 标签 提示 颜色 字重 字体 风格 豪放 活泼 默认 覆盖 文字' },
-  { id: 'ai', label: 'AI 助手', kw: 'ai 助手 小卿 api key 模型 deepseek openai chatgpt 大模型 流式 问问小卿 测试连接 温度 token 提示词' },
-  { id: 'netdisk', label: '网盘对接', kw: '网盘 对接 蓝奏云 lanzou alist 中转 上传 下载 直传 地址 账号 密码 隧道 tunnel 暂存 文件管理' },
-  { id: 'shortcuts', label: '编辑器快捷键', kw: '快捷键 键位 快捷方式 编辑器 markdown 录制 自定义 ctrl 加粗 斜体 标题' },
-  ...(serverEnv('DESKTOP_MODE') === '1' ? [{ id: 'sync', label: '云端同步', kw: '云端 同步 sync 本地 数据' }] : []),
-];
+const navItems = getSettingsSections(serverEnv('DESKTOP_MODE') === '1');
 ---
 
 <!-- ===== Template ===== -->
 <dialog
   id="settings-modal"
   class="m-auto hidden h-[min(700px,88vh)] w-[min(1000px,94vw)] grid-cols-[220px_1fr] overflow-hidden rounded-lg border border-border bg-card p-0 text-card-foreground shadow-xl open:grid"
-  aria-label="站点设置"
+  aria-labelledby="settings-modal-title"
 >
+  <div class="settings-dialog-header">
+    <h2 id="settings-modal-title" class="settings-dialog-title">站点设置</h2>
+    <button id="settings-modal-close" data-m3-role="icon-button" type="button" aria-label="关闭设置" title="关闭 (Esc)" class="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="size-4" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+    </button>
+  </div>
   <!-- 左侧：搜索 + 垂直标签导航（Obsidian 风格） -->
   <div class="flex min-h-0 flex-col border-r border-border bg-muted/30">
     <div class="p-3 pb-2">
@@ -43,6 +37,7 @@ const navItems = [
         id="settings-modal-search"
         type="text"
         placeholder="搜索设置..."
+        aria-label="搜索设置"
         class="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
       />
     </div>
@@ -52,29 +47,19 @@ const navItems = [
         <button
           type="button"
           data-section={it.id}
-          data-anchor={it.anchor ?? ''}
-          data-keywords={it.kw}
+          data-keywords={it.keywords}
+          data-m3-role="navigation-item"
           class="settings-nav-item block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
         >
           {it.label}
         </button>
       ))}
     </nav>
+    <p id="settings-modal-empty" class="hidden px-4 py-3 text-sm text-muted-foreground" role="status">没有匹配的设置，请更换关键词。</p>
   </div>
 
   <!-- 右侧：设置内容（全部分区渲染，导航切换显隐） -->
   <div class="relative min-h-0">
-    <button
-      id="settings-modal-close"
-      type="button"
-      aria-label="关闭设置"
-      title="关闭 (Esc)"
-      class="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="size-4" aria-hidden="true">
-        <path d="M18 6 6 18M6 6l12 12" />
-      </svg>
-    </button>
     <div id="settings-modal-content" class="h-full overflow-y-auto px-6 py-6">
       <SettingsForm />
     </div>
@@ -113,10 +98,15 @@ const navItems = [
   function activateSection(key: string, anchor?: string): void {
     const dialog = getDialog();
     if (!dialog) return;
+    if (!dialog.querySelector(`[data-settings-section="${CSS.escape(key)}"]`)) key = 'site-name';
+    dialog.dataset.activeSection = key;
+    dialog.scrollLeft = 0;
     // 1) 导航高亮
     dialog.querySelectorAll<HTMLElement>('#settings-modal-nav .settings-nav-item').forEach((btn) => {
-      const active = btn.dataset.section === key && (anchor ?? '') === (btn.dataset.anchor ?? '');
+      const active = btn.dataset.section === key;
       btn.classList.toggle('active', active);
+      if (active) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
     });
     // 2) 面板显隐（仅弹窗内容器内，独立子页面的同 id 分区不受影响）
     const content = dialog.querySelector<HTMLElement>('#settings-modal-content');
@@ -127,12 +117,15 @@ const navItems = [
       // 3) 分区内锚点定位（如「站点背景」→ appearance 内 #settings-background）
       const scrollBox = content;
       scrollBox.scrollTop = 0;
+      scrollBox.scrollLeft = 0;
       if (anchor) {
         // 双 rAF 等布局稳定后，手动按容器坐标滚动（scrollIntoView 在 dialog 内会滚错容器）
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             const el = content.querySelector<HTMLElement>(`#${CSS.escape(anchor)}`);
             if (!el) return;
+            const details = el.closest<HTMLDetailsElement>('details[data-classic-settings]');
+            if (details) { details.open = true; details.dataset.materialOpen = 'true'; }
             scrollBox.scrollTop += el.getBoundingClientRect().top - scrollBox.getBoundingClientRect().top - 8;
           });
         });
@@ -175,12 +168,15 @@ const navItems = [
     const input = e.target as HTMLInputElement;
     if (input.id !== 'settings-modal-search') return;
     const q = input.value.trim().toLowerCase();
+    let matches = 0;
     document.querySelectorAll<HTMLElement>('#settings-modal-nav .settings-nav-item').forEach((a) => {
       const hit =
         !q ||
         (a.textContent ?? '').toLowerCase().includes(q) ||
         (a.dataset.keywords ?? '').toLowerCase().includes(q);
       a.classList.toggle('hidden', !hit);
+      if (hit) matches++;
     });
+    document.getElementById('settings-modal-empty')?.classList.toggle('hidden', matches > 0);
   });
 </script>

@@ -30,6 +30,7 @@ export function SegmentedControl<T extends string>({
 }: SegmentedControlProps<T>) {
   return (
     <div
+      data-m3-role="segmented-control"
       role="radiogroup"
       aria-label={label}
       className={[
@@ -45,6 +46,7 @@ export function SegmentedControl<T extends string>({
         const active = option.value === value;
         return (
           <button
+            data-m3-role="segment"
             key={option.value}
             type="button"
             role="radio"

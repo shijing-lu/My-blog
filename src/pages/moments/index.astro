@@ -32,9 +32,9 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
 <!-- ===== Template ===== -->
 <BaseLayout title="动态" description="随手记录，分享生活 —— My Blog Moments">
   <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_190px]">
+    <div class="grid min-w-0 grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_190px]">
     <!-- 主面板：与背景相融（无盒），用像素分割线分区 -->
-    <div class="p-4 sm:p-6">
+    <div class="min-w-0 p-4 sm:p-6">
       <!-- 头部 -->
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>

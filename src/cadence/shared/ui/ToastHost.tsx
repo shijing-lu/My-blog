@@ -10,6 +10,7 @@
  */
 
 import { useEffect, type ReactNode } from "react";
+import { MaterialIcon } from "@/components/ui/MaterialIcon";
 
 import {
   AnimatePresence,
@@ -51,6 +52,8 @@ function ToastRow({ item }: { item: ToastItem }) {
 
   return (
     <m.div
+      data-m3-role="snackbar"
+      data-m3-tone={item.tone}
       layout="position"
       variants={variants}
       initial="hidden"
@@ -81,6 +84,8 @@ function ToastRow({ item }: { item: ToastItem }) {
 
       {item.action ? (
         <button
+          data-m3-role="button"
+          data-m3-variant="text"
           type="button"
           onClick={() => {
             item.action?.onClick();
@@ -93,12 +98,13 @@ function ToastRow({ item }: { item: ToastItem }) {
       ) : null}
 
       <button
+        data-m3-role="icon-button"
         type="button"
         onClick={() => dismiss(item.id)}
         aria-label="关闭提示"
         className="text-ink-4 hover:text-ink-2 craft-transition-fast -my-1 -mr-1 shrink-0 rounded-full p-1"
       >
-        <svg viewBox="0 0 12 12" width={11} height={11} aria-hidden="true">
+        <MaterialIcon name="close"><svg viewBox="0 0 12 12" width={11} height={11} aria-hidden="true">
           <path
             d="M2.4 2.2 L9.7 9.6 M9.4 2.5 L2.3 9.4"
             fill="none"
@@ -106,7 +112,7 @@ function ToastRow({ item }: { item: ToastItem }) {
             strokeWidth={1.6}
             strokeLinecap="round"
           />
-        </svg>
+        </svg></MaterialIcon>
       </button>
     </m.div>
   );
@@ -117,6 +123,7 @@ export function ToastHost(): ReactNode {
 
   return (
     <div
+      data-m3-role="snackbar-host"
       aria-label="通知"
       className="pointer-events-none fixed inset-x-3 top-3 z-[var(--z-toast)] flex flex-col items-center gap-2 md:inset-x-auto md:top-auto md:right-6 md:bottom-6 md:items-end"
     >

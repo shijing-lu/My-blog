@@ -1,0 +1,78 @@
+---
+import { getSiteUiStyle } from '@/lib/ui-style-server';
+const defaultStyle = await getSiteUiStyle();
+---
+<div data-ui-style-settings data-default-style={defaultStyle} class="mb-6 rounded-xl border border-border bg-card p-4">
+  <h2 class="font-medium">站点默认风格</h2>
+  <p class="mt-1 text-sm text-muted-foreground">为所有跟随站点的设备设置界面风格。访客和管理员仍可在个人外观面板中选择当前设备的风格。</p>
+  <fieldset class="mt-4 grid gap-3 sm:grid-cols-2">
+    <legend class="sr-only">站点默认风格</legend>
+    <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border p-3">
+      <input type="radio" name="site-ui-default-style" value="classic" checked={defaultStyle === 'classic'} />
+      <span><strong class="block text-sm font-medium">现有风格</strong><span class="text-xs text-muted-foreground">保留原主题、字体与背景配置</span></span>
+    </label>
+    <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border p-3">
+      <input type="radio" name="site-ui-default-style" value="material3" checked={defaultStyle === 'material3'} />
+      <span><strong class="block text-sm font-medium">Google Material 3</strong><span class="text-xs text-muted-foreground">统一全站界面，支持明亮与暗色</span></span>
+    </label>
+  </fieldset>
+  <p class="mt-3 text-xs text-muted-foreground">切换不会修改文章内容。原外观设置始终保留，切回现有风格即可恢复。</p>
+  <div class="mt-4 flex flex-wrap items-center justify-end gap-3">
+    <p data-ui-style-status class="mr-auto text-sm" role="status" aria-live="polite"></p>
+    <button data-ui-style-save data-m3-role="button" data-m3-variant="filled" type="button" class="rounded-lg bg-primary px-5 py-2 text-sm text-primary-foreground">保存并应用</button>
+  </div>
+</div>
+
+<script>
+  import { setSiteUiStyle } from '@/lib/theme';
+  import { isUiStyle } from '@/lib/ui-style';
+
+  document.addEventListener('change', (event) => {
+    const target = event.target as HTMLElement;
+    const section = target.closest<HTMLElement>('[data-ui-style-settings]');
+    if (section && target.matches('input[type="radio"]')) section.dataset.dirty = 'true';
+  });
+
+  document.addEventListener('click', async (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-ui-style-save]');
+    const section = button?.closest<HTMLElement>('[data-ui-style-settings]');
+    if (!button || !section || button.disabled) return;
+    const selected = section.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value;
+    const status = section.querySelector<HTMLElement>('[data-ui-style-status]');
+    if (!isUiStyle(selected) || !status) return;
+    const previous = section.dataset.defaultStyle;
+    button.disabled = true;
+    status.textContent = '正在保存…';
+    status.classList.remove('text-destructive');
+    section.querySelectorAll<HTMLInputElement>('input').forEach((input) => { input.disabled = true; });
+    try {
+      const response = await fetch('/api/ui-style', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ defaultStyle: selected }),
+      });
+      const result = await response.json();
+      if (!response.ok || !isUiStyle(result.defaultStyle)) throw new Error(result.error || '保存失败，请重试');
+      section.dataset.defaultStyle = result.defaultStyle;
+      delete section.dataset.dirty;
+      setSiteUiStyle(result.defaultStyle, true);
+      status.textContent = '已保存。跟随站点的设备已应用新风格。';
+    } catch (error) {
+      section.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((input) => { input.checked = input.value === previous; });
+      delete section.dataset.dirty;
+      status.classList.add('text-destructive');
+      status.textContent = error instanceof Error ? error.message : '保存失败，请重试';
+    } finally {
+      button.disabled = false;
+      section.querySelectorAll<HTMLInputElement>('input').forEach((input) => { input.disabled = false; });
+    }
+  });
+
+  window.addEventListener('byqx:theme-change', () => {
+    const current = document.documentElement.dataset.siteUiStyle;
+    if (!isUiStyle(current)) return;
+    document.querySelectorAll<HTMLElement>('[data-ui-style-settings]').forEach((section) => {
+      if (section.dataset.dirty === 'true' || section.querySelector<HTMLButtonElement>('[data-ui-style-save]')?.disabled) return;
+      section.dataset.defaultStyle = current;
+      section.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((input) => { input.checked = input.value === current; });
+    });
+  });
+</script>

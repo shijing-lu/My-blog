@@ -20,6 +20,7 @@ const profileJson = JSON.stringify(profile);
 <!-- 导航头像入口 -->
 <button
   id="profile-btn"
+  data-m3-role="avatar-button"
   type="button"
   aria-label="个人中心"
   title="个人中心"
@@ -119,6 +120,23 @@ const profileJson = JSON.stringify(profile);
 <script>
   import { compressImageForUpload } from '../lib/client-image-upload';
   /** 个人中心悬浮框：打开/关闭/查看↔编辑/头像上传/保存（document 委托，兼容 View Transitions） */
+
+  function showAvatarFallback(image: HTMLImageElement): void {
+    image.hidden = true;
+    const initial = image.parentElement?.querySelector<HTMLElement>('[data-profile-initial]');
+    if (initial) initial.hidden = false;
+  }
+  document.addEventListener('error', event => {
+    const target = event.target;
+    if (target instanceof HTMLImageElement && target.matches('[data-profile-avatar]')) showAvatarFallback(target);
+  }, true);
+  function restoreFailedAvatars(): void {
+    document.querySelectorAll<HTMLImageElement>('[data-profile-avatar]').forEach(image => {
+      if (image.complete && !image.naturalWidth) showAvatarFallback(image);
+    });
+  }
+  restoreFailedAvatars();
+  document.addEventListener('astro:page-load', restoreFailedAvatars);
 
   function dialogEl(): HTMLDialogElement | null {
     return document.getElementById('profile-dialog') as HTMLDialogElement | null;

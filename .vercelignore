@@ -21,7 +21,7 @@ dist/
 android/
 release/
 outputs/
-data/
+/data/
 desktop/assets/
 promo-film/
 showcase-site/

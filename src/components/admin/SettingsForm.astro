@@ -8,7 +8,7 @@
  * - 脚本以 #settings-form-root[data-inited] 幂等防重复绑定；astro:page-load 时随 DOM 重建自动重初始化。
  */
 interface Props {
-  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai' | 'netdisk' | 'sync';
+  section?: 'site-name' | 'hero-quotes' | 'landing' | 'appearance' | 'image-bed' | 'md-css' | 'site-css' | 'ai' | 'netdisk' | 'sync' | 'shortcuts';
 }
 const { section } = Astro.props;
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
@@ -17,6 +17,8 @@ import { getLandingHero } from '@/lib/landing';
 import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 import EditorShortcutsSettings from '@/components/admin/EditorShortcutsSettings';
+import UiStyleSettings from '@/components/admin/UiStyleSettings.astro';
+import ClassicAppearanceSettings from '@/components/admin/ClassicAppearanceSettings.astro';
 import { serverEnv } from '@/lib/env';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
@@ -45,6 +47,7 @@ const showLanding = !section || section === 'landing';
 const showAppearance = !section || section === 'appearance';
 const showImageBed = !section || section === 'image-bed';
 const showMdCss = !section || section === 'md-css';
+const showShortcuts = !section || section === 'shortcuts';
 const showSiteCss = !section || section === 'site-css';
 const showAi = !section || section === 'ai';
 const showNetdisk = !section || section === 'netdisk';
@@ -80,11 +83,11 @@ const siteCssUpdatedAtText =
 ---
 
 <!-- ===== Template ===== -->
-<div id="settings-form-root">
+<div id="settings-form-root" data-m3-module="settings-form">
     <!-- 站点名称分区 -->
     {showSiteName && (<>
     <section id="site-name" data-settings-section="site-name" class="border-t border-border pt-6" data-name={siteName}>
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">SITE NAME</p>
           <h2 class="mt-1 font-medium">站点名称</h2>
@@ -107,9 +110,9 @@ const siteCssUpdatedAtText =
 
       <p id="site-name-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="site-name-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="site-name-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -123,7 +126,7 @@ const siteCssUpdatedAtText =
     <!-- 诗词轮播分区 -->
     {showHeroQuotes && (<>
     <section id="hero-quotes" data-settings-section="hero-quotes" class="border-t border-border pt-6" data-settings={heroJson}>
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">HERO QUOTES</p>
           <h2 class="mt-1 font-medium">首页诗词轮播</h2>
@@ -134,7 +137,7 @@ const siteCssUpdatedAtText =
         首页 Hero 大字的古诗/名言：逐字闪烁出现，全部显示后停留，再倒序逐字还原并轮播到下一条。
       </p>
 
-      <div class="mt-5 grid grid-cols-2 gap-3">
+      <div data-m3-columns="2" class="mt-5 grid grid-cols-2 gap-3">
         <label class="block text-xs font-medium text-muted-foreground">
           逐字间隔（毫秒）
           <input
@@ -162,13 +165,13 @@ const siteCssUpdatedAtText =
       <p class="settings-label mt-5">诗词列表 / QUOTES</p>
       <p class="text-xs text-muted-foreground">每行一条；「停留(ms)」留空则用上方默认停留。</p>
       <div id="s-quotes" class="mt-2 space-y-1.5"></div>
-      <button id="s-add" type="button" class="settings-mini-btn mt-2">+ 添加诗词</button>
+      <button data-m3-role="button" id="s-add" type="button" class="settings-mini-btn mt-2">+ 添加诗词</button>
 
       <p id="s-status" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="s-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="s-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -182,7 +185,7 @@ const siteCssUpdatedAtText =
     <!-- 落地页分区（Hero 头图） -->
     {showLanding && (<>
     <section id="landing" data-settings-section="landing" class="border-t border-border pt-6" data-landing={JSON.stringify(landing)}>
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">LANDING HERO</p>
           <h2 class="mt-1 font-medium">落地页头图</h2>
@@ -199,16 +202,16 @@ const siteCssUpdatedAtText =
         当前使用文章封面（未自定义图片）
       </p>
 
-      <div class="mt-4 flex flex-wrap items-center gap-2">
+      <div data-m3-role="actions" class="mt-4 flex flex-wrap items-center gap-2">
         <input id="landing-file" type="file" accept="image/*" multiple class="hidden" />
-        <button
+        <button data-m3-role="button"
           id="landing-choose"
           type="button"
           class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
         >
           添加本地图片
         </button>
-        <button
+        <button data-m3-role="button"
           id="landing-clear"
           type="button"
           class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
@@ -218,7 +221,7 @@ const siteCssUpdatedAtText =
         <span id="landing-status" class="text-xs text-muted-foreground">可多选，自动压缩（宽 ≤1920px）</span>
       </div>
 
-      <div class="mt-4 grid gap-3 sm:grid-cols-3">
+      <div data-m3-columns="3" class="mt-4 grid gap-3 sm:grid-cols-3">
         <label class="block text-xs font-medium text-muted-foreground">
           轮换间隔（秒，2-60）
           <input
@@ -254,9 +257,9 @@ const siteCssUpdatedAtText =
 
       <p id="landing-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="landing-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="landing-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -278,6 +281,8 @@ const siteCssUpdatedAtText =
       data-custom-fonts={JSON.stringify(customFonts)}
       data-has-manual-fonts={String(hasManualFonts)}
     >
+      <UiStyleSettings />
+      <ClassicAppearanceSettings label="现有风格设置 · 字体与背景">
       <!-- 全局字体 -->
       <p class="pixel-chip text-primary">FONTS</p>
       <h2 class="mt-1 font-medium">全局字体</h2>
@@ -287,9 +292,9 @@ const siteCssUpdatedAtText =
       </p>
 
       <!-- 手动/跟随主题状态 + 操作 -->
-      <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+      <div data-m3-role="actions" class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
         <span id="font-mode-text" class="text-xs text-muted-foreground"></span>
-        <button
+        <button data-m3-role="button"
           id="font-follow-theme"
           type="button"
           class="hidden rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
@@ -299,7 +304,7 @@ const siteCssUpdatedAtText =
         <p id="font-mode-status" class="hidden w-full text-xs text-destructive" role="alert"></p>
       </div>
 
-      <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      <div data-m3-columns="2" class="mt-4 grid gap-4 sm:grid-cols-2">
         <label class="block text-xs font-medium text-muted-foreground">
           文章字体（正文）
           <select
@@ -360,9 +365,9 @@ const siteCssUpdatedAtText =
       <div class="mt-4 rounded-md border border-dashed border-border p-3">
         <p class="text-xs font-medium text-muted-foreground">导入自定义字体</p>
         <p class="mt-0.5 text-xs text-muted-foreground/70">≤3MB 存站内；更大文件（最高 30MB，如全量中文字体）自动走 Vercel Blob 直传，不经过服务器限制。</p>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
+        <div data-m3-role="actions" class="mt-2 flex flex-wrap items-center gap-2">
           <input id="font-file" type="file" accept=".woff2,.ttf,.otf,font/*" class="hidden" />
-          <button
+          <button data-m3-role="button"
             id="font-choose"
             type="button"
             class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
@@ -377,7 +382,7 @@ const siteCssUpdatedAtText =
             placeholder="字体名称（如 MyFont）"
             class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
           />
-          <button
+          <button data-m3-role="button"
             id="font-upload"
             type="button"
             class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -389,9 +394,9 @@ const siteCssUpdatedAtText =
         <ul id="font-list" class="mt-2 space-y-1 text-xs text-muted-foreground"></ul>
       </div>
 
-      <div class="mt-4 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-4 flex items-center justify-end gap-3">
         <span id="font-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="font-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -409,9 +414,9 @@ const siteCssUpdatedAtText =
         </p>
 
         <!-- 模式切换 -->
-        <div class="mt-4 flex gap-2" role="radiogroup" aria-label="背景模式">
-          <button id="bg-mode-unified" type="button" class="bg-mode-btn rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary/50">统一背景</button>
-          <button id="bg-mode-pages" type="button" class="bg-mode-btn rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary/50">按页面设置</button>
+        <div data-m3-role="actions" class="mt-4 flex gap-2" role="radiogroup" aria-label="背景模式">
+          <button data-m3-role="button" id="bg-mode-unified" type="button" class="bg-mode-btn rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary/50">统一背景</button>
+          <button data-m3-role="button" id="bg-mode-pages" type="button" class="bg-mode-btn rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary/50">按页面设置</button>
         </div>
 
         <!-- 星光闪烁开关（两种模式都生效） -->
@@ -422,7 +427,7 @@ const siteCssUpdatedAtText =
 
         <!-- 统一模式面板 -->
         <div id="bg-unified-panel" class="mt-4">
-          <div class="flex items-center gap-3">
+          <div data-m3-role="actions" class="flex items-center gap-3">
             <label class="flex items-center gap-2 text-sm">
               <input id="bg-enabled" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
               开启背景层
@@ -437,9 +442,9 @@ const siteCssUpdatedAtText =
               class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
             />
           </label>
-          <div class="mt-3 flex flex-wrap items-center gap-3">
+          <div data-m3-role="actions" class="mt-3 flex flex-wrap items-center gap-3">
             <input id="bg-file" type="file" accept="image/*" class="hidden" />
-            <button
+            <button data-m3-role="button"
               id="bg-upload"
               type="button"
               class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
@@ -448,7 +453,7 @@ const siteCssUpdatedAtText =
             </button>
             <span id="bg-upload-status" class="text-xs text-muted-foreground">自动压缩（宽 ≤1920px）并填入上方 URL 框</span>
           </div>
-          <div class="mt-4 grid grid-cols-2 gap-6">
+          <div data-m3-columns="2" class="mt-4 grid grid-cols-2 gap-6">
             <label class="block text-xs font-medium text-muted-foreground">
               透明度（0-100%）
               <input id="bg-opacity" type="range" min="0" max="100" step="5" class="mt-2 w-full accent-[var(--color-primary)]" />
@@ -470,10 +475,10 @@ const siteCssUpdatedAtText =
 
         <p id="bg-status" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-        <div class="mt-5 flex items-center justify-end gap-3">
+        <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
           <span id="bg-saved-hint" class="text-xs text-emerald-600"></span>
           <a href="/" target="_blank" class="text-xs text-muted-foreground hover:text-primary">预览首页 →</a>
-          <button
+          <button data-m3-role="button"
             id="bg-save"
             type="button"
             class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -482,13 +487,14 @@ const siteCssUpdatedAtText =
           </button>
         </div>
       </div>
+      </ClassicAppearanceSettings>
     </section>
     </>)}
 
     <!-- GitHub 图床分区 -->
     {showImageBed && (<>
     <section id="image-bed" data-settings-section="image-bed" class="border-t border-border pt-6" data-image-bed={JSON.stringify(imageBed)}>
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">GITHUB IMAGE BED</p>
           <h2 class="mt-1 font-medium">GitHub 图床</h2>
@@ -504,7 +510,7 @@ const siteCssUpdatedAtText =
         启用 GitHub 图床（粘贴图片上传到 GitHub 仓库）
       </label>
 
-      <div class="mt-4 grid grid-cols-2 gap-3">
+      <div data-m3-columns="2" class="mt-4 grid grid-cols-2 gap-3">
         <label class="block text-xs font-medium text-muted-foreground">
           仓库属主 Owner（用户名或组织）
           <input
@@ -548,8 +554,8 @@ const siteCssUpdatedAtText =
         仓库需为 public（访客经本站反代读取原图无需鉴权）。
       </p>
 
-      <div class="mt-4 flex items-center gap-3">
-        <button
+      <div data-m3-role="actions" class="mt-4 flex items-center gap-3">
+        <button data-m3-role="button"
           id="ib-test"
           type="button"
           class="rounded-md border border-input bg-background px-4 py-1.5 text-sm transition-colors hover:bg-accent"
@@ -561,9 +567,9 @@ const siteCssUpdatedAtText =
 
       <p id="ib-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="ib-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="ib-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -577,7 +583,7 @@ const siteCssUpdatedAtText =
     <!-- 网盘对接分区（AList 中转层） -->
     {showNetdisk && (<>
     <section id="netdisk" data-settings-section="netdisk" class="border-t border-border pt-6" data-netdisk={JSON.stringify(netdisk)}>
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">CLOUD DRIVE</p>
           <h2 class="mt-1 font-medium">网盘对接</h2>
@@ -593,7 +599,7 @@ const siteCssUpdatedAtText =
         启用网盘对接（管理页只读浏览生效）
       </label>
 
-      <div class="mt-4 grid grid-cols-2 gap-3">
+      <div data-m3-columns="2" class="mt-4 grid grid-cols-2 gap-3">
         <label class="col-span-2 block text-xs font-medium text-muted-foreground">
           中转服务地址（AList）
           <input
@@ -637,8 +643,8 @@ const siteCssUpdatedAtText =
         此处只需填好 AList 地址与管理员账号，即可浏览各网盘并复制文件直链。
       </p>
 
-      <div class="mt-4 flex flex-wrap items-center gap-3">
-        <button
+      <div data-m3-role="actions" class="mt-4 flex flex-wrap items-center gap-3">
+        <button data-m3-role="button"
           id="nd-test"
           type="button"
           class="rounded-md border border-input bg-background px-4 py-1.5 text-sm transition-colors hover:bg-accent"
@@ -651,9 +657,9 @@ const siteCssUpdatedAtText =
 
       <p id="nd-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="nd-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="nd-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -667,7 +673,7 @@ const siteCssUpdatedAtText =
     <!-- 云端同步分区（仅桌面端） -->
     {showSync && isDesktopMode && (<>
     <section id="sync" data-settings-section="sync" class="border-t border-border pt-6">
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">SYNC</p>
           <h2 class="mt-1 font-medium">云端同步</h2>
@@ -679,8 +685,8 @@ const siteCssUpdatedAtText =
         <span id="sync-cloud-state" class="text-xs text-muted-foreground"></span>
       </div>
 
-      <div class="mt-4 flex flex-wrap items-center gap-3">
-        <button
+      <div data-m3-role="actions" class="mt-4 flex flex-wrap items-center gap-3">
+        <button data-m3-role="button"
           id="sync-now"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -711,9 +717,9 @@ const siteCssUpdatedAtText =
     </>)}
 
     <!-- Markdown 自定义样式分区 -->
-    {showMdCss && (<>
+    {showShortcuts && (<>
     <section id="shortcuts" data-settings-section="shortcuts" class="border-t border-border pt-6">
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">EDITOR SHORTCUTS</p>
           <h2 class="mt-1 font-medium">编辑器快捷键</h2>
@@ -727,13 +733,16 @@ const siteCssUpdatedAtText =
         <EditorShortcutsSettings client:load />
       </div>
     </section>
+    </>)}
+    {showMdCss && (<>
     <section
       id="md-css"
       data-settings-section="md-css"
       class="border-t border-border pt-6"
       data-updated-at={mdCss.updatedAt != null ? String(mdCss.updatedAt) : ''}
     >
-      <div class="flex items-center justify-between">
+      <ClassicAppearanceSettings label="现有风格设置 · Markdown 样式">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">MARKDOWN CSS</p>
           <h2 class="mt-1 font-medium">Markdown 样式自定义</h2>
@@ -746,7 +755,7 @@ const siteCssUpdatedAtText =
       </p>
 
       <!-- 当前状态 -->
-      <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+      <div data-m3-role="actions" class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
         <span id="mdcss-state" class="text-xs text-muted-foreground">
           {mdCssHasCustom ? `已自定义（${Math.ceil(mdCss.css.length / 1024)}KB${mdCssUpdatedAtText ? `，更新于 ${mdCssUpdatedAtText}` : ''}）` : '当前使用站点默认样式'}
         </span>
@@ -754,11 +763,11 @@ const siteCssUpdatedAtText =
 
       <!-- 样式库：命名保存 + 下拉快速选择（一键应用到预览） -->
       <div class="mt-3 rounded-md border border-border bg-muted/30 px-3 py-3">
-        <div class="flex items-center justify-between">
+        <div data-m3-role="actions" class="flex items-center justify-between">
           <p class="text-xs font-medium text-muted-foreground">样式库（命名保存，下拉快速选择并应用到预览）</p>
           <span id="mdcss-lib-count" class="text-xs text-muted-foreground">共 {mdCssLib.length} 个</span>
         </div>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
+        <div data-m3-role="actions" class="mt-2 flex flex-wrap items-center gap-2">
           <select
             id="mdcss-lib-select"
             class="min-w-48 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
@@ -768,7 +777,7 @@ const siteCssUpdatedAtText =
               <option value={it.id}>{`${it.name}（${Math.max(1, Math.ceil(it.css.length / 1024))}KB）`}</option>
             ))}
           </select>
-          <button
+          <button data-m3-role="button"
             id="mdcss-lib-update"
             type="button"
             disabled
@@ -776,7 +785,7 @@ const siteCssUpdatedAtText =
           >
             更新到选中样式
           </button>
-          <button
+          <button data-m3-role="button"
             id="mdcss-lib-delete"
             type="button"
             disabled
@@ -785,7 +794,7 @@ const siteCssUpdatedAtText =
             删除选中样式
           </button>
         </div>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
+        <div data-m3-role="actions" class="mt-2 flex flex-wrap items-center gap-2">
           <input
             id="mdcss-lib-name"
             type="text"
@@ -793,7 +802,7 @@ const siteCssUpdatedAtText =
             placeholder="样式名称（保存/改名当前编辑框内容，50 字以内）"
             class="min-w-48 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
           />
-          <button
+          <button data-m3-role="button"
             id="mdcss-lib-save"
             type="button"
             class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
@@ -807,9 +816,9 @@ const siteCssUpdatedAtText =
       </div>
 
       <!-- 上传 / 编辑 -->
-      <div class="mt-4 flex flex-wrap items-center gap-2">
+      <div data-m3-role="actions" class="mt-4 flex flex-wrap items-center gap-2">
         <input id="mdcss-file" type="file" accept=".css,text/css" class="hidden" />
-        <button
+        <button data-m3-role="button"
           id="mdcss-choose"
           type="button"
           class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
@@ -832,7 +841,7 @@ const siteCssUpdatedAtText =
 
       <!-- 实时预览（已保存样式 SSR 注入 + 编辑即时更新） -->
       <p class="settings-label mt-4">实时预览 / PREVIEW</p>
-      {mdCssScopedPreview !== '' && <style id="mdcss-preview-style" set:html={mdCssScopedPreview} />}
+      {mdCssScopedPreview !== '' && <style id="mdcss-preview-style" data-classic-style set:html={mdCssScopedPreview} />}
       <div class="mt-2 rounded-md border border-border p-4">
         <div
           id="mdcss-preview"
@@ -897,16 +906,16 @@ const siteCssUpdatedAtText =
 
       <p id="mdcss-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="mdcss-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="mdcss-reset"
           type="button"
           class="rounded-md border border-destructive/40 px-4 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
         >
           恢复默认样式
         </button>
-        <button
+        <button data-m3-role="button"
           id="mdcss-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -914,6 +923,7 @@ const siteCssUpdatedAtText =
           保存并应用
         </button>
       </div>
+      </ClassicAppearanceSettings>
     </section>
     </>)}
 
@@ -927,7 +937,8 @@ const siteCssUpdatedAtText =
       data-default-css={DEFAULT_SITE_TEXT_CSS}
       data-presets={JSON.stringify(SITE_TEXT_PRESETS)}
     >
-      <div class="flex items-center justify-between">
+      <ClassicAppearanceSettings label="现有风格设置 · 全站样式">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">SITE CSS</p>
           <h2 class="mt-1 font-medium">全站样式自定义</h2>
@@ -945,7 +956,7 @@ const siteCssUpdatedAtText =
       </p>
 
       <!-- 当前状态 -->
-      <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+      <div data-m3-role="actions" class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
         <span id="sitecss-state" class="text-xs text-muted-foreground">
           {siteCssHasCustom ? `已自定义（${Math.max(1, Math.ceil(siteCss.css.length / 1024))}KB${siteCssUpdatedAtText ? `，更新于 ${siteCssUpdatedAtText}` : ''}）` : '当前使用内置默认风格包（豪放 · 活泼）'}
         </span>
@@ -953,14 +964,14 @@ const siteCssUpdatedAtText =
 
       <!-- 内置风格预设：一键填入编辑框（可改后保存） -->
       <div class="mt-3 rounded-md border border-border bg-muted/30 px-3 py-3">
-        <div class="flex items-center justify-between">
+        <div data-m3-role="actions" class="flex items-center justify-between">
           <p class="text-xs font-medium text-muted-foreground">内置风格包（点击填入编辑框，可修改后「保存并应用」）</p>
           <span class="text-xs text-muted-foreground">共 {SITE_TEXT_PRESETS.length} 套</span>
         </div>
-        <div class="mt-2 flex flex-wrap gap-2">
+        <div data-m3-role="actions" class="mt-2 flex flex-wrap gap-2">
           {
             SITE_TEXT_PRESETS.map((p) => (
-              <button
+              <button data-m3-role="button"
                 type="button"
                 data-sitecss-preset={p.id}
                 title={p.tagline}
@@ -976,8 +987,8 @@ const siteCssUpdatedAtText =
         </p>
       </div>
 
-      <div class="mt-4 flex flex-wrap items-center gap-2">
-        <button
+      <div data-m3-role="actions" class="mt-4 flex flex-wrap items-center gap-2">
+        <button data-m3-role="button"
           id="sitecss-fill-default"
           type="button"
           title="把内置默认风格包填入编辑框，可在其基础上修改"
@@ -1006,20 +1017,20 @@ const siteCssUpdatedAtText =
       <p class="mt-1 text-xs text-muted-foreground">
         本设置页就是站点一页——编辑时下方（与整页）文字会即时按新样式呈现；「标题 / 正文链接 / 按钮 / 表单标签」处最直观。
       </p>
-      {siteCssHasCustom && <style id="sitecss-preview-style" is:global set:html={siteCss.css} />}
+      {siteCssHasCustom && <style id="sitecss-preview-style" data-classic-style is:global set:html={siteCss.css} />}
 
       <p id="sitecss-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="sitecss-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="sitecss-reset"
           type="button"
           class="rounded-md border border-destructive/40 px-4 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
         >
           清除自定义
         </button>
-        <button
+        <button data-m3-role="button"
           id="sitecss-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
@@ -1027,13 +1038,14 @@ const siteCssUpdatedAtText =
           保存并应用
         </button>
       </div>
+      </ClassicAppearanceSettings>
     </section>
     )}
 
     <!-- AI 助手（小卿）分区 -->
     {showAi && (<>
     <section id="ai" data-settings-section="ai" class="border-t border-border pt-6" data-ai-config={JSON.stringify(aiConfig)}>
-      <div class="flex items-center justify-between">
+      <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">AI ASSISTANT</p>
           <h2 class="mt-1 font-medium">AI 助手（小卿）</h2>
@@ -1049,7 +1061,7 @@ const siteCssUpdatedAtText =
         启用 AI 助手（关闭后 /api/ai/chat 直接拒绝）
       </label>
 
-      <div class="mt-4 grid grid-cols-2 gap-3">
+      <div data-m3-columns="2" class="mt-4 grid grid-cols-2 gap-3">
         <label class="col-span-2 block text-xs font-medium text-muted-foreground">
           API 地址（根地址即可，自动拼接 /v1/chat/completions）
           <input
@@ -1140,8 +1152,8 @@ const siteCssUpdatedAtText =
         </label>
       </div>
 
-      <div class="mt-4 flex items-center gap-3">
-        <button
+      <div data-m3-role="actions" class="mt-4 flex items-center gap-3">
+        <button data-m3-role="button"
           id="ai-test"
           type="button"
           class="rounded-md border border-input bg-background px-4 py-1.5 text-sm transition-colors hover:bg-accent"
@@ -1153,9 +1165,9 @@ const siteCssUpdatedAtText =
 
       <p id="ai-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
-      <div class="mt-5 flex items-center justify-end gap-3">
+      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
         <span id="ai-saved-hint" class="text-xs text-emerald-600"></span>
-        <button
+        <button data-m3-role="button"
           id="ai-save"
           type="button"
           class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"

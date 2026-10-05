@@ -53,6 +53,9 @@ function Button({
   return (
     <Comp
       data-slot="button"
+      data-m3-role={size?.startsWith("icon") ? "icon-button" : "button"}
+      data-m3-variant={{ default: "filled", secondary: "tonal", outline: "outlined", ghost: "text", link: "text", destructive: "danger" }[variant ?? "default"]}
+      data-m3-size={size}
       data-variant={variant}
       data-size={size}
       className={cn(buttonVariants({ variant, size, className }))}

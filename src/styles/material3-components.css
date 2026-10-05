@@ -1,0 +1,229 @@
+/* Shared Material component contract: existing Radix data-slot and the
+   data-m3-role adapters both consume the same surface, shape and state rules. */
+html[data-ui-style='material3'] :is([data-slot='button'], [data-m3-role='button'], button:not(.body-heading-toggle):not(.cm-heading-fold-button):not(.copy-button):not(.collapse-toggle):not(.md-table-edge-button):not(.cal-cell):not(.toc-fold)) {
+  --m3-button-state: currentColor;
+  border-radius: var(--m3-shape-full);
+  font-weight: 500;
+  letter-spacing: .1px;
+  line-height: var(--m3-label-large-line-height);
+  text-transform: none;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-standard), color var(--m3-duration-short) var(--m3-ease-standard), box-shadow var(--m3-duration-short) var(--m3-ease-standard), border-color var(--m3-duration-short) var(--m3-ease-standard);
+}
+/* Only conventional action buttons have the 40px visual container. Menu rows,
+   inline prose actions and editor widgets keep their own geometry. */
+html[data-ui-style='material3'] :where([data-slot='button'], [data-m3-role='button'], button[type='submit'], .settings-mini-btn, .mode-btn) {
+  min-height: 40px;
+  padding-inline: 24px;
+  font-size: 14px;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-variant='default'], [data-m3-role='button'][data-m3-variant='filled']) {
+  background: var(--m3-primary);
+  color: var(--m3-on-primary);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-variant='secondary'], [data-m3-role='button'][data-m3-variant='tonal']) {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+  border: 1px solid transparent;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-variant='outline'], [data-m3-role='button'][data-m3-variant='outlined']) {
+  border: 1px solid var(--m3-outline);
+  background: transparent;
+  color: var(--m3-primary);
+  box-shadow: none;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-variant='ghost'], [data-slot='button'][data-variant='link'], [data-m3-role='button'][data-m3-variant='text']) {
+  color: var(--m3-primary);
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-variant='destructive'], [data-m3-role='button'][data-m3-variant='danger']) {
+  background: var(--m3-error);
+  color: var(--m3-on-error);
+  border: 1px solid transparent;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-size^='icon'], [data-m3-role='icon-button'], .settings-close) {
+  min-height: 40px;
+  min-width: 40px;
+  padding: 8px;
+  border-radius: 9999px;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-size='xs'], [data-slot='button'][data-size='sm'], [data-m3-role='button'][data-m3-size='sm']) { min-height: 32px; padding-inline: 16px; }
+html[data-ui-style='material3'] :is([data-slot='button'][data-size='lg'], [data-m3-role='button'][data-m3-size='lg']) { min-height: 48px; padding-inline: 32px; }
+/* The avatar entry also has border-border. Give this icon-sized control its
+   own container so the generic text-button padding cannot squeeze its image
+   to zero width. Keep the real avatar and existing failed-image fallback. */
+html[data-ui-style='material3'] [data-m3-role='avatar-button'] { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 3px; flex-shrink: 0; border-radius: var(--m3-shape-full); }
+html[data-ui-style='material3'] [data-m3-role='avatar-button'] > [data-profile-avatar] { width: 32px; height: 32px; flex-shrink: 0; border-radius: var(--m3-shape-full); }
+@media (any-pointer: coarse) {
+  html[data-ui-style='material3'] [data-m3-role='avatar-button'] { width: 48px; height: 48px; min-width: 48px; min-height: 48px; padding: 7px; }
+}
+/* State layers preserve each button's filled/outlined/text container. */
+html[data-ui-style='material3'] :is(button, [data-slot='button'], [data-m3-role='button']):not(:disabled):not([aria-disabled='true']):hover {
+  background-image: linear-gradient(color-mix(in srgb, currentColor 8%, transparent), color-mix(in srgb, currentColor 8%, transparent));
+}
+html[data-ui-style='material3'] :is(button, [data-slot='button'], [data-m3-role='button']):not(:disabled):not([aria-disabled='true']):active {
+  background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent), color-mix(in srgb, currentColor 12%, transparent));
+  transform: none;
+}
+html[data-ui-style='material3'] :is([data-slot='button'][data-variant='default'], [data-m3-role='button'][data-m3-variant='filled']):hover:not(:disabled) { box-shadow: var(--m3-elevation-1); }
+html[data-ui-style='material3'] :is(button, [data-slot='button'], [data-m3-role='button']):focus-visible { outline: 3px solid var(--m3-primary); outline-offset: 3px; }
+html[data-ui-style='material3'] :is(button, [data-slot='button'], [data-m3-role='button']):is(:disabled, [aria-disabled='true']) {
+  cursor: not-allowed;
+  opacity: .38;
+  box-shadow: none;
+  background-image: none;
+}
+html[data-ui-style='material3'] :is([aria-busy='true'], [data-loading='true']) { cursor: progress; }
+html[data-ui-style='material3'] .ripple-wave { opacity: .12; animation-timing-function: var(--m3-ease-standard); }
+
+/* Text fields use outlined M3 containers, with labels supplied by existing forms. */
+html[data-ui-style='material3'] :is(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']), textarea, select, [data-slot='input'], [data-slot='select-trigger']) {
+  color: var(--m3-on-surface);
+  background-color: var(--m3-surface);
+  border: 1px solid var(--m3-outline);
+  border-radius: var(--m3-shape-extra-small);
+  min-width: 0;
+  max-width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: .5px;
+  box-shadow: none;
+  transition: border-color var(--m3-duration-short) var(--m3-ease-standard), box-shadow var(--m3-duration-short) var(--m3-ease-standard);
+}
+html[data-ui-style='material3'] textarea { min-height: 96px; }
+html[data-ui-style='material3'] :is(input, textarea)::placeholder { color: var(--m3-on-surface-variant); opacity: 1; }
+html[data-ui-style='material3'] :is(input, textarea, select, [data-slot='select-trigger']):hover:not(:disabled) { border-color: var(--m3-on-surface); }
+html[data-ui-style='material3'] :is(input, textarea, select, [data-slot='select-trigger']):focus-visible {
+  border-color: var(--m3-primary);
+  outline: 2px solid var(--m3-primary);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+html[data-ui-style='material3'] :is(input, textarea, select, [data-slot='select-trigger'])[aria-invalid='true'] {
+  border-color: var(--m3-error);
+  color: var(--m3-error);
+}
+html[data-ui-style='material3'] :is(input, textarea, select):disabled { opacity: .38; cursor: not-allowed; }
+html[data-ui-style='material3'] :is(input[type='checkbox'], input[type='radio']) { accent-color: var(--m3-primary); width: 20px; height: 20px; flex-shrink: 0; vertical-align: middle; }
+html[data-ui-style='material3'] input[type='checkbox']:not(.sr-only) { appearance: none; border: 2px solid var(--m3-on-surface-variant); border-radius: 2px; background: transparent; cursor: pointer; display: inline-grid; place-content: center; }
+html[data-ui-style='material3'] input[type='checkbox']:not(.sr-only):checked { border-color: var(--m3-primary); background: var(--m3-primary); }
+html[data-ui-style='material3'] input[type='checkbox']:not(.sr-only):checked::after { content: ''; width: 6px; height: 11px; border: solid var(--m3-on-primary); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+html[data-ui-style='material3'] input[type='checkbox']:not(.sr-only):indeterminate { background: var(--m3-primary); border-color: var(--m3-primary); }
+html[data-ui-style='material3'] input[type='checkbox']:not(.sr-only):indeterminate::after { content: ''; width: 10px; height: 2px; background: var(--m3-on-primary); }
+html[data-ui-style='material3'] input[type='radio']:not(.sr-only) { appearance: none; border: 2px solid var(--m3-on-surface-variant); border-radius: 9999px; background: transparent; cursor: pointer; }
+html[data-ui-style='material3'] input[type='radio']:not(.sr-only):checked { border-color: var(--m3-primary); background: var(--m3-primary); box-shadow: inset 0 0 0 3px var(--m3-surface); }
+html[data-ui-style='material3'] input[type='range'] { accent-color: var(--m3-primary); min-height: 32px; }
+html[data-ui-style='material3'] input[type='file']::file-selector-button { background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); border: 0; border-radius: 9999px; padding: 10px 20px; font: 500 14px var(--m3-font); margin-inline-end: 12px; cursor: pointer; }
+html[data-ui-style='material3'] :is(label, [data-slot='label'], .settings-label) { color: var(--m3-on-surface-variant); letter-spacing: .025em; }
+html[data-ui-style='material3'] label:has(>input:is([type='checkbox'], [type='radio'])) { min-height: 48px; align-items: center; }
+html[data-ui-style='material3'] [data-m3-role='field'] > label { font-size: 12px; }
+html[data-ui-style='material3'] [role='switch'] { border-radius: 9999px; border: 2px solid var(--m3-outline); background: var(--m3-surface-container-highest); }
+html[data-ui-style='material3'] [role='switch'][aria-checked='true'] { background: var(--m3-primary); border-color: var(--m3-primary); }
+html[data-ui-style='material3'] input[type='checkbox'][role='switch'] { position: relative; display: inline-block; width: 52px; height: 32px; border: 2px solid var(--m3-outline); border-radius: 9999px; background: var(--m3-surface-container-highest); transition: background-color var(--m3-duration-short) var(--m3-ease-standard); }
+html[data-ui-style='material3'] input[type='checkbox'][role='switch']::before { content: ''; position: absolute; width: 16px; height: 16px; top: 6px; left: 6px; border-radius: 9999px; background: var(--m3-outline); transition: left var(--m3-duration-short) var(--m3-ease-standard), width var(--m3-duration-short) var(--m3-ease-standard); }
+html[data-ui-style='material3'] input[type='checkbox'][role='switch']:checked { background: var(--m3-primary); border-color: var(--m3-primary); }
+html[data-ui-style='material3'] input[type='checkbox'][role='switch']:checked::before { width: 24px; height: 24px; top: 2px; left: 22px; background: var(--m3-on-primary); }
+html[data-ui-style='material3'] input[type='checkbox'][role='switch']:checked::after { display: none; }
+
+/* Cards, lists, chips and tabs cover primitives and Astro's utility-only markup. */
+html[data-ui-style='material3'] :is([data-slot='card'], [data-m3-role='card'], .bg-card.rounded-lg, .bg-card.rounded-xl, .bg-card.rounded-md) {
+  border-radius: var(--m3-shape-medium);
+  border-color: var(--m3-outline-variant);
+  background-color: var(--m3-surface-container-low);
+  color: var(--m3-on-surface);
+  box-shadow: none;
+}
+html[data-ui-style='material3'] [data-slot='card-title'] { font-size: 22px; line-height: 28px; font-weight: 400; }
+html[data-ui-style='material3'] [data-slot='card-description'] { color: var(--m3-on-surface-variant); font-size: 14px; line-height: 20px; }
+html[data-ui-style='material3'] :is([data-slot='badge'], [data-m3-role='badge'], .pixel-chip, .post-tag, .archive-chip) {
+  min-height: 24px;
+  border-radius: 8px;
+  border: 1px solid var(--m3-outline-variant);
+  color: var(--m3-on-surface-variant);
+  background: var(--m3-surface-container-low);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .5px;
+}
+html[data-ui-style='material3'] :is(.post-tag, .pixel-chip, [data-m3-role='badge']):is(a, button) { min-height: 32px; }
+html[data-ui-style='material3'] :is([data-slot='tabs-list'], [role='tablist']:not(.md-tabs-nav)) { background: transparent; box-shadow: none; border-radius: 0; border-bottom: 1px solid var(--m3-outline-variant); padding: 0; gap: 0; }
+html[data-ui-style='material3'] :is([data-slot='tabs-trigger'], [role='tab'], .settings-tab) {
+  min-height: 48px;
+  border-radius: 0;
+  padding: 12px 20px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background-color: transparent;
+  color: var(--m3-on-surface-variant);
+  box-shadow: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+html[data-ui-style='material3'] :is([data-slot='tabs-trigger'][data-state='active'], [role='tab'][aria-selected='true'], .settings-tab.active) { border-bottom-color: var(--m3-primary); color: var(--m3-primary); background: transparent; box-shadow: none; }
+html[data-ui-style='material3'] [data-m3-role='segmented-control'] { display: inline-flex; padding: 0; border: 1px solid var(--m3-outline); border-radius: 9999px; overflow: hidden; gap: 0; }
+html[data-ui-style='material3'] [data-m3-role='segment'] { border-radius: 0; min-height: 40px; padding: 10px 20px; border: 0; background: transparent; color: var(--m3-on-surface); }
+html[data-ui-style='material3'] [data-m3-role='segment'] + [data-m3-role='segment'] { border-inline-start: 1px solid var(--m3-outline); }
+html[data-ui-style='material3'] [data-m3-role='segment']:is([aria-pressed='true'], [aria-selected='true']) { color: var(--m3-on-secondary-container); background: var(--m3-secondary-container); }
+html[data-ui-style='material3'] :is([data-slot='separator'], [role='separator']) { background-color: var(--m3-outline-variant); }
+
+/* Portals remain themed because selectors anchor at html, not at page shells. */
+html[data-ui-style='material3'] :is([data-slot='dialog-overlay'], [data-m3-role='scrim']) { background: color-mix(in srgb, var(--m3-scrim) 32%, transparent); backdrop-filter: none; }
+html[data-ui-style='material3'] dialog::backdrop { background: color-mix(in srgb, var(--m3-scrim) 32%, transparent); backdrop-filter: none; }
+html[data-ui-style='material3'] :is(dialog, [data-slot='dialog-content'], [data-m3-role='dialog']) {
+  color: var(--m3-on-surface);
+  background: var(--m3-surface-container-high);
+  border: 0;
+  border-radius: var(--m3-shape-extra-large);
+  box-shadow: var(--m3-elevation-3);
+  padding: 24px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+}
+html[data-ui-style='material3'] :is([role='dialog']:not(dialog):not([data-m3-role='sheet']), .theme-settings, .quote-settings, .wechat-dialog, .profile-dialog, .all-events-dialog, .login-dialog, .manage-dialog) { background-color: var(--m3-surface-container-high); border-radius: 28px; border-color: transparent; box-shadow: var(--m3-elevation-3); }
+html[data-ui-style='material3'] :is([data-slot='dialog-title'], .settings-header h2, [data-m3-role='dialog'] h2) { color: var(--m3-on-surface); font-size: 24px; line-height: 32px; font-weight: 400; }
+html[data-ui-style='material3'] :is([data-slot='dialog-description'], [data-m3-role='dialog'] p) { color: var(--m3-on-surface-variant); }
+html[data-ui-style='material3'] [data-m3-role='sheet'] { border-radius: 28px 0 0 28px; background: var(--m3-surface-container-low); box-shadow: var(--m3-elevation-3); border: 0; }
+html[data-ui-style='material3'] :is([data-slot='dialog-close'], .settings-close) { color: var(--m3-on-surface-variant); min-height: 40px; min-width: 40px; display: inline-grid; place-items: center; }
+html[data-ui-style='material3'] :is([data-slot='select-content'], [data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-m3-role='menu'], .md-context-menu, .md-table-menu, [role='listbox']) {
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface);
+  border: 0;
+  border-radius: var(--m3-shape-extra-small);
+  box-shadow: var(--m3-elevation-2);
+  padding-block: 8px;
+}
+html[data-ui-style='material3'] :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='dropdown-menu-sub-trigger'], [data-slot='select-item'], [data-m3-role='menu-item'], .md-context-item, .md-table-menu button) { min-height: 48px; font-size: 14px; line-height: 20px; border-radius: 0; padding: 12px 16px; }
+html[data-ui-style='material3'] :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], [data-slot='select-item'], .md-context-item):is(:hover, :focus-visible, [data-highlighted], [aria-expanded='true']) { background: color-mix(in srgb, var(--m3-on-surface) 8%, var(--m3-surface-container)); color: var(--m3-on-surface); outline: none; }
+html[data-ui-style='material3'] :is([data-slot='select-item'][data-state='checked'], [role='option'][aria-selected='true']) { background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+html[data-ui-style='material3'] :is([data-slot='dropdown-menu-label'], [data-slot='select-label'], .md-context-heading) { color: var(--m3-on-surface-variant); font-size: 12px; font-weight: 500; padding: 8px 16px; }
+html[data-ui-style='material3'] :is([role='tooltip'], .cal-tooltip) { background: var(--m3-inverse-surface); color: var(--m3-inverse-on-surface); border-radius: 4px; border: 0; box-shadow: none; padding: 8px 12px; font-size: 12px; }
+html[data-ui-style='material3'] :is(.byqx-toast, [data-m3-role='snackbar']) { background: var(--m3-inverse-surface); color: var(--m3-inverse-on-surface); border-radius: 4px; border: 0; box-shadow: var(--m3-elevation-3); padding: 14px 16px; min-height: 48px; font-size: 14px; line-height: 20px; }
+html[data-ui-style='material3'] .byqx-toast--error { border-inline-start: 4px solid var(--m3-error-container); }
+html[data-ui-style='material3'] [data-m3-role='snackbar'] button { color: var(--m3-inverse-primary); }
+html[data-ui-style='material3'] :is([data-slot='skeleton'], [data-m3-role='skeleton']) { background: var(--m3-surface-container-highest); border-radius: 8px; }
+html[data-ui-style='material3'] progress { width: 100%; height: 4px; border: 0; border-radius: 9999px; accent-color: var(--m3-primary); background: var(--m3-secondary-container); overflow: hidden; }
+html[data-ui-style='material3'] progress::-webkit-progress-bar { background: var(--m3-secondary-container); }
+html[data-ui-style='material3'] progress::-webkit-progress-value { background: var(--m3-primary); border-radius: 9999px; }
+html[data-ui-style='material3'] [data-m3-role='placeholder'] { color: var(--m3-on-surface-variant); background: var(--m3-surface-container-low); border-radius: 16px; border: 0; }
+@media (any-pointer: coarse) {
+  html[data-ui-style='material3'] :is(button, [role='button'], summary):not(:where(.prose button, .cm-content button, .cm-gutters button, .copy-button, .collapse-toggle, .callout-copy, .md-table-edge-button, .toc-fold, .cm-foldPlaceholder)) { min-height: 48px; }
+  html[data-ui-style='material3'] :is(button[aria-label], [data-m3-role='icon-button']) { min-width: 48px; }
+  html[data-ui-style='material3'] a:is([data-slot='button'], [data-m3-role='button'], .rounded-md.border, .rounded-md.bg-primary) { min-height: 48px; display: inline-flex; align-items: center; }
+  html[data-ui-style='material3'] :is([data-slot='button'], [data-m3-role='button'], [data-m3-role='icon-button'], .settings-close, .pagination-btn, .cal-nav-btn, .filter-tag, .filter-category) { min-height: 48px; }
+  html[data-ui-style='material3'] :is([data-slot='button'][data-size^='icon'], [data-m3-role='icon-button'], .settings-close) { min-width: 48px; }
+  html[data-ui-style='material3'] input:is([type='checkbox'], [type='radio']):not(:where(.sr-only, [role='switch'], .prose input, .cm-content input)) { position: relative; }
+  html[data-ui-style='material3'] input:is([type='checkbox'], [type='radio']):not(:where(.sr-only, [role='switch'], .prose input, .cm-content input))::before { content: ''; position: absolute; top: 50%; left: 50%; width: 48px; height: 48px; transform: translate(-50%, -50%); }
+  html[data-ui-style='material3'] input[type='checkbox'][role='switch']::after { content: ''; display: block; position: absolute; inset: 50% auto auto 50%; width: 52px; height: 48px; border: 0; background: transparent; transform: translate(-50%, -50%); }
+  html[data-ui-style='material3'] input[type='checkbox'][role='switch']:checked::after { display: block; }
+  html[data-ui-style='material3'] input[type='range'] { min-height: 48px; }
+}

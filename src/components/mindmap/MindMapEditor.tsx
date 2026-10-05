@@ -149,10 +149,10 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
   }
 
   return (
-    <div className="relative h-full w-full">
+    <div data-m3-module="mindmap-editor" className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {/* 右上角：保存状态 + 手动保存 */}
-      <div className="absolute right-3 top-2 flex items-center gap-2 text-xs">
+      <div data-m3-role="editor-toolbar" className="absolute right-3 top-2 flex items-center gap-2 text-xs">
         <span
           className={
             saveState === 'saved'
@@ -165,6 +165,8 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
           {saveState === 'saved' ? '已保存' : saveState === 'saving' ? '保存中…' : saveState === 'dirty' ? '未保存…' : '保存失败'}
         </span>
         <button
+          data-m3-role="button"
+          data-m3-variant="outlined"
           type="button"
           onClick={() => void saveNow()}
           disabled={saveState === 'saving'}

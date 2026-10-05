@@ -41,6 +41,8 @@ export function Tag({
 }: TagProps) {
   return (
     <span
+      data-m3-role="badge"
+      data-m3-tone={tone}
       className={[
         "inline-flex items-center gap-1.5 rounded-[var(--radius-hand-sm)] px-2.5 py-1 text-[12px] font-medium",
         TONE_CLASS[tone],
@@ -71,6 +73,8 @@ export function TagAppearing({
 }: Omit<TagProps, "dot">) {
   return (
     <m.span
+      data-m3-role="badge"
+      data-m3-tone={tone}
       variants={smudgeLite}
       initial="hidden"
       animate="visible"

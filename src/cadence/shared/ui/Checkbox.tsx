@@ -17,6 +17,7 @@
  */
 
 import { useId, type ReactNode } from "react";
+import { MaterialIcon } from "@/components/ui/MaterialIcon";
 
 import {
   checkPath,
@@ -50,6 +51,9 @@ export function Checkbox({
 
   return (
     <label
+      data-m3-role="checkbox"
+      data-m3-checked={checked}
+      data-m3-disabled={disabled || undefined}
       className={[
         "flex items-start gap-2.5 select-none",
         disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer",
@@ -70,6 +74,7 @@ export function Checkbox({
 
       {/* 外框：手绘圆角 + 弹一下。必须是 input 的后续兄弟才能吃到 peer-focus-visible */}
       <m.span
+        data-m3-role="checkbox-indicator"
         aria-hidden="true"
         variants={popVariants}
         initial={false}
@@ -83,7 +88,7 @@ export function Checkbox({
             : "bg-paper-1 shadow-[inset_0_0_0_1.8px_var(--color-paper-line)]",
         ].join(" ")}
       >
-        <svg viewBox="0 0 20 20" width={15} height={15} aria-hidden="true">
+        <MaterialIcon name="check"><svg viewBox="0 0 20 20" width={15} height={15} aria-hidden="true">
           <m.path
             d="M4 10.5 L8.2 15 L16 5.6"
             fill="none"
@@ -95,7 +100,7 @@ export function Checkbox({
             initial={false}
             animate={state}
           />
-        </svg>
+        </svg></MaterialIcon>
       </m.span>
 
       {children ? (

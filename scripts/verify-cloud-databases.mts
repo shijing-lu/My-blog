@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import postgres from 'postgres';
 import { eq } from 'drizzle-orm';
 import { db, dbWrite } from '../db/index';
-import { aiConversations } from '../db/schema.sqlite';
+import { aiConversations, settings } from '../db/schema.sqlite';
 import { createPgCadenceStore } from '../src/lib/cadence-store';
 
 const fallbackProbe = process.argv.includes('--fallback-probe');
@@ -41,6 +41,21 @@ if (process.env.VERCEL !== '1') {
     }
     await db.delete(aiConversations).where(eq(aiConversations.id, id)).returning();
     for (const client of clients) assert.equal((await client`SELECT id FROM ai_conversations WHERE id = ${id}`).length, 0);
+    // Exercise the same existing KV-table upsert as /api/ui-style without changing the site's preference.
+    for (const defaultStyle of ['material3', 'classic']) {
+      const value = JSON.stringify({ defaultStyle });
+      await dbWrite(async endpoint => {
+        await endpoint.insert(settings).values({ key: id, value, updatedAt: stamp })
+          .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: stamp } });
+      });
+      assert.equal((await db.select().from(settings).where(eq(settings.key, id)))[0]?.value, value);
+      for (const client of clients) {
+        const rows = await client`SELECT value, updated_at FROM settings WHERE key = ${id}`;
+        assert.equal(rows[0]?.value, value);
+        assert.equal(rows[0]?.updated_at.getTime(), stamp.getTime());
+      }
+    }
+    console.log(`[cloud-db-check] settings KV upsert/read ${fallbackProbe ? 'fallback' : 'mirror'} passed`);
     const cadence = createPgCadenceStore(process.env.DATABASE_URL!, process.env.DATABASE_URL_FALLBACK || '');
     const cadenceId = `settings:${id}`;
     try {
@@ -66,7 +81,10 @@ if (process.env.VERCEL !== '1') {
   } finally {
     console.error = previousError;
     await Promise.allSettled(clients.map(async client => {
-      try { await client`DELETE FROM ai_conversations WHERE id = ${id}`; }
+      try {
+        await client`DELETE FROM ai_conversations WHERE id = ${id}`;
+        await client`DELETE FROM settings WHERE key = ${id}`;
+      }
       finally { await client.end({ timeout: 5 }); }
     }));
   }

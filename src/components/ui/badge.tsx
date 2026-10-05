@@ -38,6 +38,7 @@ function Badge({
   return (
     <Comp
       data-slot="badge"
+      data-m3-role="badge"
       data-variant={variant}
       className={cn(badgeVariants({ variant }), className)}
       {...props}

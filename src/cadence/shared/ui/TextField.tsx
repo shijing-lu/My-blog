@@ -71,8 +71,9 @@ export function TextField({
     .join(" ");
 
   return (
-    <div className={["relative pb-3", className].filter(Boolean).join(" ")}>
+    <div data-m3-role="field" data-m3-error={hasError || undefined} className={["relative pb-3", className].filter(Boolean).join(" ")}>
       <label
+        data-m3-role="field-label"
         htmlFor={inputId}
         className={
           hideLabel
@@ -85,6 +86,7 @@ export function TextField({
 
       {multiline ? (
         <textarea
+          data-m3-role="input"
           id={inputId}
           rows={3}
           aria-invalid={hasError || undefined}
@@ -94,6 +96,7 @@ export function TextField({
         />
       ) : (
         <input
+          data-m3-role="input"
           id={inputId}
           aria-invalid={hasError || undefined}
           aria-describedby={describedBy || undefined}

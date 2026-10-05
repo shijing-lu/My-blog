@@ -7,6 +7,7 @@
  *        →「编辑当前文章」（文档详情或首页文章编辑页，点击进入/退出就地编辑）→ 回到顶部
  */
 import { isTopAdmin, permissionChecker } from '@/lib/admin-auth';
+import MaterialIcon from './MaterialIcon.astro';
 
 /* ===== Props ===== */
 interface Props {
@@ -25,6 +26,7 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
 ---
 <!-- ===== Template ===== -->
 <aside class="side-toolbar" aria-label="快捷工具栏">
+  <div data-m3-tools-body>
   <!-- 返回首页 -->
   <a href="/" aria-label="返回首页" title="首页">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true">
@@ -92,9 +94,31 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
       <path d="m5 12 7-7 7 7" />
     </svg>
   </button>
+  </div>
+  <button class="m3-tools-toggle" type="button" data-m3-tools-toggle aria-label="展开快捷工具" aria-expanded="false"><MaterialIcon name="tune" /></button>
 </aside>
 
 <script>
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const toggle = target?.closest<HTMLButtonElement>('[data-m3-tools-toggle]');
+    if (toggle) {
+      const tools = toggle.closest<HTMLElement>('.side-toolbar');
+      const expanded = tools?.dataset.m3Expanded !== 'true';
+      if (tools) tools.dataset.m3Expanded = String(expanded);
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.setAttribute('aria-label', expanded ? '收起快捷工具' : '展开快捷工具');
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    // The foreground dialog owns Escape. Do not hide its opener or steal the
+    // focus that the native/Radix dialog restores when it closes.
+    if (document.querySelector('dialog[open], [role="dialog"][data-state="open"]')) return;
+    const tools = document.querySelector<HTMLElement>('.side-toolbar[data-m3-expanded="true"]');
+    const toggle = tools?.querySelector<HTMLButtonElement>('[data-m3-tools-toggle]');
+    if (tools && toggle) { tools.dataset.m3Expanded = 'false'; toggle.setAttribute('aria-expanded', 'false'); toggle.setAttribute('aria-label', '展开快捷工具'); toggle.focus(); }
+  });
   import { setDocArticleLoading } from '@/lib/doc-viewport';
 
   document.addEventListener('click', (e) => {

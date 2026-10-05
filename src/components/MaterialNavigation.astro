@@ -1,0 +1,70 @@
+---
+import MaterialIcon from './MaterialIcon.astro';
+import { permissionChecker, isTopAdmin } from '@/lib/admin-auth';
+interface Props { siteTitle: string; admin?: boolean }
+const { siteTitle, admin = false } = Astro.props;
+const can = await permissionChecker(Astro.cookies);
+const top = await isTopAdmin(Astro.cookies);
+const path = Astro.url.pathname;
+const primary = admin ? [
+  { href: '/admin', label: '文章', icon: 'description', show: can('articles') },
+  { href: '/admin/mindmaps', label: '导图', icon: 'account_tree', show: can('articles') },
+  { href: '/admin/nav', label: '导航', icon: 'public', show: can('nav') },
+  { href: '/admin/settings/appearance', label: '设置', icon: 'settings', show: can('settings') },
+] : [
+  { href: '/', label: '首页', icon: 'home', show: true },
+  { href: '/doc', label: '文档', icon: 'description', show: true },
+  { href: '/gallery', label: '相册', icon: 'photo_library', show: true },
+  { href: '/moments', label: '动态', icon: 'chat', show: true },
+];
+const secondary = [
+  { href: '/nav', label: '网址导航', icon: 'public', show: true },
+  { href: '/archive', label: '文章归档', icon: 'history', show: true },
+  { href: '/calendar', label: '日历', icon: 'calendar_month', show: can('calendar') },
+  { href: '/schedule', label: '日程', icon: 'event', show: top },
+  { href: '/quick-notes', label: '随心录', icon: 'sticky_note_2', show: top },
+  { href: '/edit', label: '文章编辑', icon: 'edit', show: can('articles') },
+  { href: '/manage', label: '管理', icon: 'tune', show: can('articles') },
+  { href: '/admin/netdisk', label: '网盘管理', icon: 'folder', show: can('netdisk') },
+  { href: '/admin/auth', label: '授权管理', icon: 'person', show: top },
+  { href: '/login', label: '登录', icon: 'person', show: !can('articles') },
+  { href: '/', label: '查看网站', icon: 'home', show: admin },
+].filter(item => item.show && !primary.some(p => p.href === item.href));
+const active = (href: string) => href === '/' ? path === '/' || path.startsWith('/blog/') || path.startsWith('/edit/') : href === '/admin' ? path === '/admin' : path === href || path.startsWith(href + '/');
+---
+<nav class="m3-navigation" aria-label={admin ? 'Material 管理导航' : 'Material 主导航'}>
+  <a href="/" class="m3-navigation-brand" data-site-name>{siteTitle}</a>
+  <div class="m3-navigation-items">
+    {primary.filter(item => item.show).map(item => <a href={item.href} data-astro-reload={admin || undefined} class="m3-destination" aria-current={active(item.href) ? 'page' : undefined}>
+      <span class="m3-destination-icon"><MaterialIcon name={item.icon} /></span>
+      <span class="m3-destination-label">{item.label}</span>
+    </a>)}
+    <details class="m3-navigation-more">
+      <summary class="m3-destination" aria-label="更多页面" aria-current={secondary.some(item => active(item.href)) ? 'page' : undefined}>
+        <span class="m3-destination-icon"><MaterialIcon name="more_horiz" /></span>
+        <span class="m3-destination-label">更多</span>
+      </summary>
+      <div class="m3-more-surface">
+        <p class="m3-more-title">更多页面</p>
+        {secondary.map(item => <a href={item.href} class="m3-more-link" aria-current={active(item.href) ? 'page' : undefined}><MaterialIcon name={item.icon} /><span>{item.label}</span></a>)}
+        <button type="button" class="m3-more-link" data-m3-open-appearance><MaterialIcon name="tune" /><span>外观与风格</span></button>
+      </div>
+    </details>
+  </div>
+  <button type="button" class="m3-navigation-appearance m3-more-link" data-m3-open-appearance><MaterialIcon name="tune" /><span>外观与风格</span></button>
+</nav>
+
+<script>
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('[data-m3-open-appearance]')) {
+      document.querySelector<HTMLButtonElement>('#theme-settings-btn')?.click();
+    }
+    const destination = target?.closest('.m3-navigation a, .m3-navigation button');
+    if (destination) document.querySelectorAll<HTMLDetailsElement>('.m3-navigation-more[open]').forEach(details => { details.open = false; });
+    if (target && !target.closest('.m3-navigation')) document.querySelectorAll<HTMLDetailsElement>('.m3-navigation-more[open]').forEach(details => { details.open = false; });
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') document.querySelectorAll<HTMLDetailsElement>('.m3-navigation-more[open]').forEach(details => { details.open = false; details.querySelector<HTMLElement>('summary')?.focus(); });
+  });
+</script>

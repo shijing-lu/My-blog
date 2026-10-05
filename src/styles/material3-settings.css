@@ -1,0 +1,103 @@
+/* Settings is an app surface, not a descendant of navigation typography. */
+.settings-dialog-header { display: contents; }
+.settings-dialog-title { display: none; }
+.classic-settings-summary, .classic-settings-notice { display: none; }
+
+html[data-ui-style='material3'] :is(#settings-modal, #theme-settings-dialog, #settings-form-root, [data-settings-page]) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+html[data-ui-style='material3'] #settings-modal {
+  width: min(1000px, calc(100vw - 48px));
+  max-width: none;
+  height: min(800px, calc(100dvh - 48px));
+  max-height: none;
+  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-rows: 64px minmax(0, 1fr);
+  overflow: clip;
+  margin: auto;
+  padding: 0;
+}
+html[data-ui-style='material3'] #settings-modal > .settings-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  padding: 8px 16px 8px 24px;
+  background: var(--m3-surface-container-high);
+  border-bottom: 1px solid var(--m3-outline-variant);
+}
+html[data-ui-style='material3'] .settings-dialog-title { display: block; font-size: var(--m3-title-large-size); line-height: var(--m3-title-large-line-height); font-weight: 400; }
+html[data-ui-style='material3'] #settings-modal > div:nth-child(2) { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; background: var(--m3-surface-container); border-inline-end: 1px solid var(--m3-outline-variant); }
+html[data-ui-style='material3'] #settings-modal > div:last-child { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; }
+html[data-ui-style='material3'] #settings-modal-close { position: static; flex: 0 0 40px; width: 40px; height: 40px; padding: 8px; }
+html[data-ui-style='material3'] #settings-modal-content { height: 100%; min-width: 0; overflow-x: clip; overflow-y: auto; padding: 24px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+html[data-ui-style='material3'] #settings-modal-search { min-width: 0; padding: 12px 16px; }
+html[data-ui-style='material3'] #settings-modal-nav { min-width: 0; }
+html[data-ui-style='material3'] #settings-modal-nav .settings-nav-item { min-width: 0; white-space: normal; text-align: start; overflow-wrap: anywhere; }
+html[data-ui-style='material3'] #settings-modal-nav .settings-nav-item { min-height: 48px; padding: 12px 16px; border-radius: 9999px; color: var(--m3-on-surface-variant); font-weight: 500; }
+html[data-ui-style='material3'] #settings-modal-nav .settings-nav-item.active { color: var(--m3-on-secondary-container); background: var(--m3-secondary-container); }
+html[data-ui-style='material3'] #settings-modal-nav .settings-nav-item.hidden { display: none; }
+
+html[data-ui-style='material3'] #settings-form-root { container: settings-form / inline-size; }
+html[data-ui-style='material3'] #settings-form-root :is(fieldset, section, label, [data-m3-role='actions'], .classic-settings-body) { min-width: 0; }
+html[data-ui-style='material3'] #settings-form-root :is(p, label, h2, h3) { white-space: normal; overflow-wrap: anywhere; }
+html[data-ui-style='material3'] #settings-form-root [data-m3-columns] { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* Fixed span-2 utilities otherwise create an implicit second column in the
+   single-column layout, squeezing the following model/credential fields. */
+html[data-ui-style='material3'] #settings-form-root [data-m3-columns] > :is(.col-span-2, .col-span-3) { grid-column: 1 / -1; }
+html[data-ui-style='material3'] #settings-form-root [data-m3-role='actions'] { flex-wrap: wrap; min-width: 0; }
+html[data-ui-style='material3'] #settings-form-root [data-m3-role='actions'] > :is(input:not([type='checkbox']):not([type='radio']):not([type='range']), select) { flex: 1 1 240px; width: 100%; min-width: 0; }
+html[data-ui-style='material3'] #settings-form-root [data-m3-role='actions'] > button { flex: 0 0 auto; max-width: 100%; white-space: normal; }
+html[data-ui-style='material3'] #settings-form-root :is(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']), select, textarea) { max-width: 100%; }
+html[data-ui-style='material3'] #settings-form-root > section > .flex { gap: 16px; }
+html[data-ui-style='material3'] #settings-form-root .pixel-chip { width: fit-content; font-size: var(--m3-label-medium-size); }
+html[data-ui-style='material3'] #settings-form-root h2 { font-size: var(--m3-title-large-size); line-height: var(--m3-title-large-line-height); font-weight: 400; }
+html[data-ui-style='material3'] #settings-form-root :is([role='alert'], [role='status']) { white-space: normal; overflow-wrap: anywhere; }
+html[data-ui-style='material3'] [data-ui-style-settings] fieldset { min-inline-size: 0; grid-template-columns: minmax(0, 1fr); }
+html[data-ui-style='material3'] [data-ui-style-settings] label > span { min-width: 0; }
+@container settings-form (min-width: 560px) {
+  html[data-ui-style='material3'] #settings-form-root [data-m3-columns], html[data-ui-style='material3'] [data-ui-style-settings] fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container settings-form (min-width: 840px) {
+  html[data-ui-style='material3'] #settings-form-root [data-m3-columns='3'] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+html[data-ui-style='material3'] .classic-settings-disclosure { border: 1px solid var(--m3-outline-variant); border-radius: 16px; background: var(--m3-surface-container-low); }
+html[data-ui-style='material3'] .classic-settings-summary { display: list-item; padding: 16px; min-height: 56px; font-size: var(--m3-title-medium-size); line-height: var(--m3-title-medium-line-height); cursor: pointer; border-radius: 16px; }
+html[data-ui-style='material3'] .classic-settings-summary:hover { background: color-mix(in srgb, var(--m3-on-surface) 8%, transparent); }
+html[data-ui-style='material3'] .classic-settings-body { padding: 0 16px 16px; }
+html[data-ui-style='material3'] .classic-settings-notice { display: block; margin-bottom: 20px; color: var(--m3-on-surface-variant); font-size: var(--m3-body-medium-size); line-height: var(--m3-body-medium-line-height); }
+
+html[data-ui-style='material3'] #theme-settings-dialog { width: min(480px, calc(100vw - 32px)); overflow-x: clip; overflow-y: auto; }
+html[data-ui-style='material3'] #theme-settings-dialog .settings-header { align-items: flex-start; }
+html[data-ui-style='material3'] #theme-settings-dialog .settings-header > div { min-width: 0; flex: 1; }
+html[data-ui-style='material3'] #theme-settings-dialog .settings-header .pixel-chip { width: fit-content; }
+html[data-ui-style='material3'] #theme-settings-dialog .settings-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html[data-ui-style='material3'] #theme-settings-dialog .mode-btn { padding: 10px 12px; height: auto; white-space: normal; overflow: visible; min-width: 0; }
+html[data-ui-style='material3'] #theme-settings-dialog #settings-close { flex-shrink: 0; }
+html[data-ui-style='material3'] [data-settings-page] { min-height: 0; }
+html[data-ui-style='material3'] [data-settings-page] > nav { gap: 4px; }
+html[data-ui-style='material3'] [data-settings-page] .settings-tab { display: inline-flex; align-items: center; min-height: 48px; padding: 12px; white-space: normal; }
+
+@media (max-width: 839px) {
+  html[data-ui-style='material3'] #settings-modal { inset: 0; margin: 0; width: 100vw; height: 100dvh; border-radius: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: 64px auto minmax(0, 1fr); }
+  html[data-ui-style='material3'] #settings-modal > div:nth-child(2) { grid-column: 1; grid-row: 2; border: 0; border-bottom: 1px solid var(--m3-outline-variant); }
+  html[data-ui-style='material3'] #settings-modal > div:last-child { grid-column: 1; grid-row: 3; }
+  html[data-ui-style='material3'] #settings-modal-nav { display: flex; flex: none; overflow-x: auto; overflow-y: hidden; max-height: none; padding: 4px 8px 8px; gap: 4px; }
+  html[data-ui-style='material3'] #settings-modal-nav > p { display: none; }
+  html[data-ui-style='material3'] #settings-modal-nav .settings-nav-item { flex: none; width: auto; white-space: nowrap; }
+  html[data-ui-style='material3'] #settings-modal-content { padding: 20px 16px max(20px, env(safe-area-inset-bottom)); }
+  html[data-ui-style='material3'] #settings-modal > .settings-dialog-header { padding-inline: 16px; }
+}
+@media (max-width: 479px) {
+  html[data-ui-style='material3'] #theme-settings-dialog .ui-style-choices { grid-template-columns: minmax(0, 1fr); }
+  html[data-ui-style='material3'] #theme-settings-dialog { padding: 20px 16px; }
+}
+@media (any-pointer: coarse) {
+  html[data-ui-style='material3'] #settings-modal-close { flex-basis: 48px; width: 48px; height: 48px; min-height: 48px; }
+  html[data-ui-style='material3'] #theme-settings-dialog .mode-btn, html[data-ui-style='material3'] #theme-settings-dialog #settings-close { min-height: 48px; }
+}

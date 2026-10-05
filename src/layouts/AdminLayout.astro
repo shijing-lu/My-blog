@@ -9,7 +9,14 @@ const { title = '后台管理' } = Astro.props;
 
 /* ===== Imports ===== */
 import '../styles/global.css';
+import '@/styles/material3-resources.css';
+import '@/styles/material3.css';
+import '@/styles/material3-navigation.css';
 import ThemeHead from '@/components/ThemeHead.astro';
+import ThemeSettings from '@/components/ThemeSettings.astro';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+import MaterialNavigation from '@/components/MaterialNavigation.astro';
+import { getSiteUiStyle } from '@/lib/ui-style-server';
 import SiteTextStyles from '@/components/SiteTextStyles.astro';
 import { isManagerSession } from '@/lib/admin-auth';
 import { buildFontCss, getFontsByIds, getSiteFontState } from '@/lib/fonts';
@@ -26,10 +33,11 @@ const customFonts = await getFontsByIds(customFontIds);
 const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
 /** 站点名称（管理员可在 /admin/settings 自定义，默认「白衣卿相」） */
 const siteTitle = await getSiteName();
+const siteUiStyle = await getSiteUiStyle();
 ---
 <!-- ===== Template ===== -->
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-site-ui-style={siteUiStyle} data-ui-style={siteUiStyle}>
   <head>
     <meta charset="utf-8" />
     <!-- Buffer 垫片：同 BaseLayout —— 客户端共享模块引用了 Node 的 Buffer，
@@ -48,13 +56,15 @@ const siteTitle = await getSiteName();
     {/* 后台页面一律不索引（P1-7）：防搜索引擎收录管理入口 */}
     <meta name="robots" content="noindex, nofollow" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <ThemeHead />
+    <ThemeHead defaultStyle={siteUiStyle} />
     {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题） */}
-    {fontCss !== '' && <style set:html={fontCss} />}
+    {fontCss !== '' && <style data-classic-style set:html={fontCss} />}
     {/* 全站文字样式（内置默认包 + 自定义）：后台与前台共用同一套文字观感 */}
     <SiteTextStyles />
+    <script is:inline>window.__applyUiStyleHead?.();</script>
   </head>
-  <body class="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+  <body class="flex h-dvh flex-col overflow-hidden bg-background text-foreground" data-layout="admin">
+    <MaterialNavigation siteTitle={siteTitle} admin />
     {/* 跳转到主内容（无障碍 P1-5）：与 BaseLayout 一致，键盘用户可直达后台内容区 */}
     <a
       href="#main"
@@ -67,6 +77,7 @@ const siteTitle = await getSiteName();
         {siteTitle}
       </a>
       <nav class="flex items-center gap-2 text-xs sm:gap-3 sm:text-sm">
+        <span class="m3-admin-appearance"><ThemeToggle /><ThemeSettings /></span>
         {/* 后台互跳用整页刷新（data-astro-reload）：后台页面内联脚本只在首次加载执行，
             直接元素绑定与页面状态会在 SPA 切换后失效（点击无反应）——整页刷新保证状态新鲜 */}
         <a href="/admin" data-astro-reload class="text-muted-foreground transition-colors duration-200 hover:text-foreground">
@@ -101,10 +112,14 @@ const siteTitle = await getSiteName();
     </main>
   </body>
 </html>
+<script>import '@/scripts/material3-icons';</script>
 
 <script>
   import { initMotion } from '@/lib/motion';
   initMotion();
+  import { restoreTheme, initSystemThemeWatcher } from '@/lib/theme';
+  restoreTheme();
+  initSystemThemeWatcher();
   import { on } from '@/lib/dom';
   /** 退出登录：POST /api/logout 后回首页（委托绑定，防 SPA 后失效） */
   on('admin-logout', 'click', async () => {

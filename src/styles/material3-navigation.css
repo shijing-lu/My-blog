@@ -1,0 +1,76 @@
+.m3-navigation { display: none; }
+.m3-admin-appearance { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+#site-header nav > button { flex-shrink: 0; }
+[data-m3-tools-body] { display: contents; }
+.side-toolbar .m3-tools-toggle { display: none; }
+html[data-ui-style='material3'] .side-toolbar { top: auto; right: 16px; bottom: 24px; transform: none; background: transparent; padding: 0; box-shadow: none; display: flex; flex-direction: column; gap: 12px; }
+html[data-ui-style='material3'] .side-toolbar [data-m3-tools-body] { display: none; padding: 8px; background: var(--popover); border-radius: 16px; box-shadow: 0 3px 8px #0003; }
+html[data-ui-style='material3'] .side-toolbar[data-m3-expanded='true'] [data-m3-tools-body] { display: flex; flex-direction: column; gap: 4px; }
+html[data-ui-style='material3'] .side-toolbar :is(a, button) { width: 48px; height: 48px; min-width: 48px; min-height: 48px; border-radius: 16px; }
+html[data-ui-style='material3'] .side-toolbar .m3-tools-toggle { display: inline-flex; align-items: center; justify-content: center; align-self: end; width: 56px; height: 56px; background: var(--md-sys-color-tertiary-container, var(--secondary)); color: var(--md-sys-color-on-tertiary-container, var(--foreground)); box-shadow: 0 3px 8px #0003; }
+html[data-ui-style='material3'] .m3-admin-appearance { display: inline-flex; align-items: center; gap: 8px; }
+html[data-ui-style='material3'] .m3-admin-appearance :is(#theme-toggle, #theme-settings-btn) { display: inline-flex; }
+html[data-ui-style='material3'] .m3-navigation {
+  display: flex; flex-direction: column; position: fixed; inset: 0 auto 0 0; width: 240px;
+  padding: 24px 12px 16px; z-index: 45; background: var(--md-sys-color-surface-container-low, var(--muted));
+  color: var(--foreground); font-family: 'Roboto Variable', 'Noto Sans SC Variable', sans-serif;
+}
+html[data-ui-style='material3'] :is(#site-header, #site-footer, #main, [data-layout='admin'] > header) { margin-inline-start: 240px; }
+html[data-ui-style='material3'] :is(#site-header, #site-footer, #main, [data-layout='admin'] > header) { width: calc(100% - 240px); }
+html[data-ui-style='material3'] #site-header { backdrop-filter: none; background: var(--background); border: 0; }
+html[data-ui-style='material3'] #site-header > div { height: 64px; max-width: none; padding-inline: 24px; }
+html[data-ui-style='material3'] #site-header > div > nav > :is(a, span) { display: none; }
+html[data-ui-style='material3'] #site-header > div > nav { overflow: visible; }
+html[data-ui-style='material3'] [data-layout='admin'] > header { height: 64px; flex-shrink: 0; border: 0; }
+html[data-ui-style='material3'] [data-layout='admin'] > header nav > a { display: none; }
+html[data-ui-style='material3'] #main { min-width: 0; }
+html[data-ui-style='material3'] .m3-navigation-brand { font-size: 22px; font-weight: 500; line-height: 28px; padding: 12px 16px 28px; color: var(--foreground); text-decoration: none; }
+html[data-ui-style='material3'] .m3-navigation-items { display: flex; flex-direction: column; gap: 4px; }
+html[data-ui-style='material3'] .m3-destination {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 16px;
+  border-radius: 28px; cursor: pointer; text-decoration: none; font-size: 14px; font-weight: 500;
+  color: var(--muted-foreground); list-style: none; background: transparent; border: 0;
+}
+html[data-ui-style='material3'] .m3-destination::-webkit-details-marker { display: none; }
+html[data-ui-style='material3'] :is(.m3-destination[aria-current='page'], .m3-navigation-more[open] > summary) { background: var(--md-sys-color-secondary-container, var(--secondary)); color: var(--md-sys-color-on-secondary-container, var(--foreground)); }
+html[data-ui-style='material3'] :is(.m3-destination, .m3-more-link):hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+html[data-ui-style='material3'] :is(.m3-destination, .m3-more-link):active { background: color-mix(in srgb, currentColor 12%, transparent); }
+html[data-ui-style='material3'] .m3-more-surface { padding: 8px 0; background: var(--popover); color: var(--popover-foreground); border-radius: 16px; box-shadow: 0 3px 8px #0003; max-height: min(64dvh, 520px); overflow-y: auto; }
+html[data-ui-style='material3'] .m3-more-title { padding: 12px 16px; font-size: 12px; color: var(--muted-foreground); }
+html[data-ui-style='material3'] .m3-more-link { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 16px; width: 100%; border: 0; border-radius: 12px; color: inherit; text-align: start; background: transparent; text-decoration: none; font-size: 14px; }
+html[data-ui-style='material3'] .m3-navigation-appearance { margin-top: auto; }
+html[data-ui-style='material3'] .m3-destination-icon { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; }
+html[data-ui-style='material3'] [data-layout='admin'] > header nav { overflow: visible; }
+@media (min-width: 600px) and (max-width: 839px) {
+  html[data-ui-style='material3'] .m3-navigation { width: 80px; padding: 16px 4px; }
+  html[data-ui-style='material3'] :is(#site-header, #site-footer, #main, [data-layout='admin'] > header) { margin-inline-start: 80px; }
+  html[data-ui-style='material3'] :is(#site-header, #site-footer, #main, [data-layout='admin'] > header) { width: calc(100% - 80px); }
+  html[data-ui-style='material3'] .m3-navigation-brand, html[data-ui-style='material3'] .m3-navigation-appearance { display: none; }
+  html[data-ui-style='material3'] .m3-destination { flex-direction: column; justify-content: center; gap: 4px; height: 80px; padding: 8px 0; border-radius: 0; font-size: 12px; }
+  html[data-ui-style='material3'] .m3-destination-icon { width: 56px; height: 32px; border-radius: 16px; }
+  html[data-ui-style='material3'] .m3-destination[aria-current='page'] { background: transparent; }
+  html[data-ui-style='material3'] .m3-destination[aria-current='page'] .m3-destination-icon { background: var(--secondary); }
+  html[data-ui-style='material3'] .m3-more-surface { position: fixed; left: 88px; bottom: 16px; width: 260px; }
+}
+@media (max-width: 599px) {
+  html[data-ui-style='material3'] .m3-navigation { inset: auto 0 0; width: 100%; height: calc(80px + env(safe-area-inset-bottom, 0px)); padding: 0 4px env(safe-area-inset-bottom, 0px); }
+  html[data-ui-style='material3'] .m3-navigation-items { flex-direction: row; justify-content: space-around; gap: 0; }
+  html[data-ui-style='material3'] .m3-navigation-items > * { flex: 1; min-width: 0; }
+  html[data-ui-style='material3'] .m3-navigation-brand, html[data-ui-style='material3'] .m3-navigation-appearance { display: none; }
+  html[data-ui-style='material3'] .m3-destination { flex-direction: column; justify-content: center; gap: 4px; height: 80px; min-height: 80px; padding: 8px 0; border-radius: 0; font-size: 12px; }
+  html[data-ui-style='material3'] .m3-destination-icon { width: 56px; height: 32px; border-radius: 16px; }
+  html[data-ui-style='material3'] .m3-destination[aria-current='page'] { background: transparent; }
+  html[data-ui-style='material3'] .m3-destination[aria-current='page'] .m3-destination-icon { background: var(--secondary); }
+  html[data-ui-style='material3'] :is(#site-header, #site-footer, #main, [data-layout='admin'] > header) { margin-inline-start: 0; }
+  html[data-ui-style='material3'] :is(#site-header, #site-footer, #main, [data-layout='admin'] > header) { width: 100%; }
+  html[data-ui-style='material3'] body { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  html[data-ui-style='material3'] #site-header > div { padding-inline: 16px; gap: 8px; }
+  html[data-ui-style='material3'] #site-header :is(#theme-toggle, #manage-entry-btn) { display: none; }
+  html[data-ui-style='material3'] .m3-more-surface { position: fixed; inset: auto 8px calc(88px + env(safe-area-inset-bottom, 0px)); width: auto; }
+  html[data-ui-style='material3'] :is(.ai-chat-float, .quick-note-float, .side-toolbar) { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+}
+@media print {
+  .m3-navigation { display: none !important; }
+  html[data-ui-style='material3'] :is(#site-header, #site-footer, #main, [data-layout='admin'] > header) { margin-inline-start: 0 !important; width: 100% !important; }
+  html[data-ui-style='material3'] body { padding-bottom: 0; }
+}

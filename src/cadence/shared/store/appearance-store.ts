@@ -40,7 +40,7 @@ export const useAppearanceStore = create<AppearanceState>()(
       },
       setTexture: (texture) => set({ texture }),
       setMotion: (motion) => set({ motion }),
-      reset: () => set({ ...APPEARANCE_DEFAULTS }),
+      reset: () => set({ ...APPEARANCE_DEFAULTS, theme: readState().mode }),
     }),
     {
       name: STORAGE_KEYS.appearance,

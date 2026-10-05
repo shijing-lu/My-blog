@@ -78,6 +78,7 @@ export function requiredApiPermission(pathname: string, method: string): Permiss
   // 站点设置类（个人中心之外的站点级配置）：写需 settings 权限
   if (
     (pathname === '/api/quote-settings' ||
+      pathname === '/api/ui-style' ||
       pathname === '/api/background' ||
       pathname === '/api/landing' ||
       pathname === '/api/site-name' ||

@@ -763,10 +763,12 @@ export default function AiChatFloat({ enabled }: Props) {
       {/* 记忆管理弹窗（站主专属） */}
       {memOpen && (
         <div
+          data-m3-role="scrim"
           className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4"
           onClick={() => setMemOpen(false)}
         >
           <div
+            data-m3-role="dialog"
             className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -823,10 +825,12 @@ export default function AiChatFloat({ enabled }: Props) {
       {menu && (
         <div
           id="ai-context-menu"
+          data-m3-role="menu"
           className="fixed z-[90] overflow-hidden rounded-md border border-border bg-background shadow-lg"
           style={{ left: `${Math.min(menu.x + 4, window.innerWidth - 140)}px`, top: `${Math.min(menu.y + 4, window.innerHeight - 48)}px` }}
         >
           <button
+            data-m3-role="menu-item"
             type="button"
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
             onPointerDown={(e) => e.stopPropagation()}
@@ -842,6 +846,8 @@ export default function AiChatFloat({ enabled }: Props) {
       {open && (
         <div
           id="ai-chat-float"
+          data-m3-role="dialog"
+          data-m3-module="ai-assistant"
           role="dialog"
           aria-modal={false}
           aria-labelledby="ai-chat-float-title"

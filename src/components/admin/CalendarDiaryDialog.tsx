@@ -117,7 +117,7 @@ export default function CalendarDiaryDialog(): ReactElement {
     }
   }, [date, readDiary, saving]);
 
-  return <dialog ref={dialogRef} aria-label={`${date || '每日'}日记`} onCancel={(event) => { event.preventDefault(); void close(); }}
+  return <dialog data-m3-role="dialog" data-m3-module="diary" ref={dialogRef} aria-label={`${date || '每日'}日记`} onCancel={(event) => { event.preventDefault(); void close(); }}
     onClick={(event) => { if (event.target === dialogRef.current) void close(); }}
     className="m-auto max-h-[90vh] w-[min(96vw,58rem)] overflow-visible rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/55">
     <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-4 backdrop-blur sm:px-8">

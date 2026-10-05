@@ -1,0 +1,9 @@
+---
+interface Props { name: string; class?: string }
+const { name, class: className = '' } = Astro.props;
+const hasLegacy = Astro.slots.has('default');
+---
+<span class:list={['material-icon-pair', className]} aria-hidden="true">
+  {hasLegacy && <span class="material-icon-classic"><slot /></span>}
+  <span class:list={['material-symbol', { 'material-icon-only': !hasLegacy }]}>{name}</span>
+</span>

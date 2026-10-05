@@ -27,7 +27,7 @@ export function ModulePlaceholder({
   refs,
 }: ModulePlaceholderProps) {
   return (
-    <section className="surface-card p-7">
+    <section data-m3-role="card" className="surface-card p-7">
       <div className="flex flex-wrap items-baseline gap-3">
         {/* 用 h3 而非 h2：页面标题已是 h2（h1 是品牌名），
          * 区块再用 h2 会破坏标题层级，也会让 getByRole('heading', {level:2, name:'计划'})

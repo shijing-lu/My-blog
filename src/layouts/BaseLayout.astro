@@ -25,6 +25,9 @@ import '../styles/print.css'; // 「导出 PDF」打印样式表（@media print�
 import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
 import '@/styles/mobile-reading.css';
 import '@/styles/body-heading-folding.css';
+import '@/styles/material3-resources.css';
+import '@/styles/material3.css';
+import '@/styles/material3-navigation.css';
 // KaTeX 关键字体预热：?url 取打包后哈希 URL，head 里 preload（见模板）。
 // 国内网络下 KaTeX 字体加载失败会导致公式 vlist 行盒塌缩、糊成一团（诊断结论），
 // preload 提前并行拉取 + 页面脚本检测失败后切 MathML 兜底（.katex-font-fallback）。
@@ -38,6 +41,8 @@ import { ClientRouter } from 'astro:transitions';
 import ThemeHead from '@/components/ThemeHead.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import ThemeSettings from '@/components/ThemeSettings.astro';
+import MaterialNavigation from '@/components/MaterialNavigation.astro';
+import { getSiteUiStyle } from '@/lib/ui-style-server';
 import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
 import ManageDialog from '@/components/ManageDialog.astro';
@@ -56,6 +61,7 @@ import SiteTextStyles from '@/components/SiteTextStyles.astro';
 
 /** 站点名称（管理员可在 /admin/settings 自定义，默认「白衣卿相」） */
 const siteTitle = await getSiteName();
+const siteUiStyle = await getSiteUiStyle();
 const isDesktop = serverEnv('DESKTOP_MODE') === '1';
 /** 文档标题：无页面标题或与站名相同时只显示站名，否则「页面标题 · 站名」 */
 const pageTitle = title === '' || title === siteTitle ? siteTitle : `${title} · ${siteTitle}`;
@@ -123,7 +129,7 @@ const needsKatexFonts =
 <!-- ===== Template ===== -->
 <!doctype html>
 <!-- data-desktop：桌面端（Electron）标记 —— 用于启用"启动入场"等桌面专属动效 -->
-<html lang="zh-CN" data-desktop={isDesktop ? '' : undefined}>
+<html lang="zh-CN" data-desktop={isDesktop ? '' : undefined} data-site-ui-style={siteUiStyle} data-ui-style={siteUiStyle}>
   <head>
     <meta charset="utf-8" />
     <!--
@@ -179,7 +185,7 @@ const needsKatexFonts =
     <meta name="twitter:image" content={ogImage} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <ClientRouter fallback="swap" />
-    <ThemeHead />
+    <ThemeHead defaultStyle={siteUiStyle} />
     {/* KaTeX 关键字体预热（并行提前拉取，缓解弱网下公式字体加载失败）。
         P2-21：仅公式页面 preload（见 needsKatexFonts 判定），其余路由零额外请求。 */}
     {
@@ -244,14 +250,16 @@ const needsKatexFonts =
       })();
     </script>
     {/* 手动字体设置覆盖（仅设置过时注入；未设置则跟随主题字体） */}
-    {fontCss !== '' && <style set:html={fontCss} />}
+    {fontCss !== '' && <style data-classic-style set:html={fontCss} />}
     {/* 自定义 Markdown 样式（管理员上传，作用域限定 .prose；SSR 每页注入，ClientRouter 转场随新 head 存活） */}
-    {mdCssScoped !== '' && <style id="md-custom-css" set:html={mdCssScoped} />}
+    {mdCssScoped !== '' && <style id="md-custom-css" data-classic-style set:html={mdCssScoped} />}
     {/* 全站文字样式：① 内置默认风格包（site-text 层，始终生效）② 管理员自定义（unlayered，覆盖 ①）。
         两块都在 head 内、无「</style」风险（保存前已净化），ClientRouter 转场随新 head 存活 */}
     <SiteTextStyles />
+    <script is:inline>window.__applyUiStyleHead?.();</script>
   </head>
-  <body class="flex min-h-dvh flex-col">
+  <body class="flex min-h-dvh flex-col" data-layout="base">
+    <MaterialNavigation siteTitle={siteTitle} />
     {/* 跳转到主内容（无障碍 P1-5）：默认视觉隐藏，键盘 Tab 聚焦时才显形。
         全站导航有 6 个链接 + 若干图标按钮，键盘/读屏用户无需逐个跳过即可直达正文。 */}
     <a
@@ -401,7 +409,7 @@ const needsKatexFonts =
     <script>
       import { initMotion } from '@/lib/motion';
       initMotion();
-      import { restoreTheme, readState, isDark, initSystemThemeWatcher } from '@/lib/theme';
+      import { restoreTheme, readState, applyThemeToDocument, initSystemThemeWatcher } from '@/lib/theme';
       import { getCustomThemes, injectCustomThemeCss } from '@/lib/custom-theme';
 
       // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
@@ -458,12 +466,6 @@ const needsKatexFonts =
         try {
           const doc = (ev as unknown as { newDocument?: Document }).newDocument;
           if (!doc) return;
-          const root = doc.documentElement;
-          const state = readState();
-          if (state.themeId) root.setAttribute('data-theme', state.themeId);
-          else root.removeAttribute('data-theme');
-          root.classList.toggle('dark', isDark(state));
-          root.setAttribute('data-mode', state.mode);
           // 自定义主题：把当前注入的 #custom-theme-css 原样复制进新文档 head，
           // 否则 swap 替换 head 后自定义主题 CSS 丢失（内置主题 CSS 在 #theme-styles 里会随 head 一并替换，无需处理）
           const existing = document.getElementById('custom-theme-css') as HTMLStyleElement | null;
@@ -473,6 +475,7 @@ const needsKatexFonts =
             st.textContent = existing.textContent;
             doc.head.appendChild(st);
           }
+          applyThemeToDocument(doc);
         } catch (e) { /* 失败则回落 after-swap/page-load 兜底，不影响导航 */ }
       });
 
@@ -497,3 +500,4 @@ const needsKatexFonts =
     </script>
   </body>
 </html>
+<script>import '@/scripts/material3-icons';</script>

@@ -49,6 +49,7 @@ function HandSpinner() {
 
   return (
     <svg
+      data-m3-role="progress"
       viewBox="0 0 16 16"
       width={14}
       height={14}
@@ -93,6 +94,9 @@ export function Button({
 
   return (
     <button
+      data-m3-role="button"
+      data-m3-variant={variant === "primary" ? "filled" : variant === "danger" ? "danger" : "text"}
+      data-m3-size={size}
       type="button"
       disabled={isDisabled}
       aria-busy={loading || undefined}

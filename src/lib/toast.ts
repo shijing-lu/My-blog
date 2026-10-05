@@ -53,6 +53,8 @@ export function toast(message: string, kind: ToastKind = 'success', durationMs =
 
   const item = document.createElement('div');
   item.className = `byqx-toast byqx-toast--${kind}`;
+  item.dataset.m3Role = 'snackbar';
+  item.dataset.m3Tone = kind;
   item.textContent = message;
   host.appendChild(item);
 

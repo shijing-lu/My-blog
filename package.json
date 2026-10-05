@@ -1,6 +1,6 @@
 {
   "name": "my-blog",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
@@ -22,7 +22,8 @@
     "db:migrate:pg": "drizzle-kit migrate --config=drizzle.config.pg.ts",
     "db:seed": "tsx db/seed.ts",
     "db:inspect": "node scripts/db-inspect.mjs",
-    "db:migrate-data": "tsx scripts/migrate-to-pg.ts"
+    "db:migrate-data": "tsx scripts/migrate-to-pg.ts",
+    "material:tokens": "tsx scripts/generate-material-tokens.mjs"
   },
   "dependencies": {
     "@astrojs/node": "^11.1.5",
@@ -37,6 +38,8 @@
     "@codemirror/state": "^6.7.1",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.43.9",
+    "@fontsource-variable/noto-sans-sc": "^5.3.0",
+    "@fontsource-variable/roboto": "^5.3.0",
     "@fontsource/lora": "^5.3.0",
     "@fontsource/noto-serif-sc": "^5.2.8",
     "@fontsource/silkscreen": "^5.3.0",
@@ -101,6 +104,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@material/material-color-utilities": "^0.4.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/hast": "^3.0.5",
     "@types/mdast": "^4.0.4",

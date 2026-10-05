@@ -5,7 +5,7 @@ dist/
 .vite/
 
 # 开发数据库（本地 SQLite）
-data/
+/data/
 *.db
 *.db-journal
 

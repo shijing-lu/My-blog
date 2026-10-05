@@ -30,13 +30,14 @@ function ensureDialog(): boolean {
   if (dialogEl && dialogEl.isConnected) return true;
   dialogEl = document.createElement('dialog');
   dialogEl.setAttribute('aria-label', '操作确认');
+  dialogEl.dataset.m3Role = 'dialog';
   dialogEl.className = 'm-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40';
   dialogEl.innerHTML = `
     <h3 data-confirm-title class="text-sm font-medium"></h3>
     <p data-confirm-message class="mt-2 text-sm text-muted-foreground whitespace-pre-wrap break-words"></p>
     <div class="mt-4 flex items-center justify-end gap-2">
-      <button data-confirm-cancel type="button" class="rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"></button>
-      <button data-confirm-ok type="button" class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity hover:opacity-90"></button>
+      <button data-confirm-cancel data-m3-role="button" data-m3-variant="text" type="button" class="rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"></button>
+      <button data-confirm-ok data-m3-role="button" data-m3-variant="filled" type="button" class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-opacity hover:opacity-90"></button>
     </div>
   `;
   titleEl = dialogEl.querySelector('[data-confirm-title]');
@@ -63,6 +64,7 @@ export function confirmDialog(message: string, options: ConfirmOptions = {}): Pr
   messageEl.textContent = message;
   confirmBtn.textContent = options.confirmText ?? '确定';
   cancelBtn.textContent = options.cancelText ?? '取消';
+  confirmBtn.dataset.m3Variant = options.danger ? 'danger' : 'filled';
   // 危险操作：确认按钮换红色
   confirmBtn.className = options.danger
     ? 'rounded-md bg-destructive px-3 py-1.5 text-xs text-destructive-foreground transition-opacity hover:opacity-90'

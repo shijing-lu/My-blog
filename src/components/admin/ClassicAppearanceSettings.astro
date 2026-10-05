@@ -1,0 +1,32 @@
+---
+interface Props { label?: string }
+const { label = '现有风格设置' } = Astro.props;
+---
+<details open data-classic-settings class="classic-settings-disclosure">
+  <summary class="classic-settings-summary">{label}</summary>
+  <div class="classic-settings-body">
+    <p class="classic-settings-notice">这些配置在现有风格中生效。Material 3 使用统一外观；原值和保存能力保留，切回现有风格即可使用。</p>
+    <slot />
+  </div>
+</details>
+
+<script>
+  function syncClassicSettings(): void {
+    const material = document.documentElement.dataset.uiStyle === 'material3';
+    document.querySelectorAll<HTMLDetailsElement>('[data-classic-settings]').forEach(details => {
+      const style = material ? 'material3' : 'classic';
+      if (details.dataset.renderedStyle === style) return;
+      details.dataset.renderedStyle = style;
+      details.open = material ? details.dataset.materialOpen === 'true' : true;
+    });
+  }
+  document.addEventListener('toggle', event => {
+    const details = event.target;
+    if (details instanceof HTMLDetailsElement && details.matches('[data-classic-settings]') && document.documentElement.dataset.uiStyle === 'material3') {
+      details.dataset.materialOpen = String(details.open);
+    }
+  }, true);
+  window.addEventListener('byqx:theme-change', syncClassicSettings);
+  document.addEventListener('astro:page-load', syncClassicSettings);
+  syncClassicSettings();
+</script>

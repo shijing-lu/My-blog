@@ -19,6 +19,7 @@ import { tags } from '@lezer/highlight';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark, oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
+import { MaterialIcon } from '@/components/ui/MaterialIcon';
 import { searchKeymap } from '@codemirror/search';
 import { livePreview } from './cm-live-preview';
 import { buildMdKeymap, mdKeymap } from './md-keymap';
@@ -886,12 +887,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [initialContent]);
 
   return (
-    <div className={`flex min-h-0 flex-col ${className ?? ''}`}>
+    <div data-m3-module="markdown-editor" className={`flex min-h-0 flex-col ${className ?? ''}`}>
       {/* 格式化与图片工具条；原位编辑可用键盘快捷键和粘贴图片。 */}
       {!ghost && (
         <div className="shrink-0 border-b bg-background">
           {/* 第一行：格式化（点击即对选区生效，再点一次取消） */}
-          <div className="flex flex-wrap items-center gap-1 px-3 py-1.5">
+          <div role="toolbar" aria-label="文章格式" data-m3-role="editor-toolbar" className="flex flex-wrap items-center gap-1 px-3 py-1.5">
             <input
               ref={fileInputRef}
               type="file"
@@ -904,20 +905,21 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               }}
             />
             {([
-              { label: 'B', title: '加粗（Ctrl/Cmd+B）', cls: 'font-bold', run: () => wrapSelection('**', '**', '粗体') },
-              { label: 'I', title: '斜体（Ctrl/Cmd+I）', cls: 'italic', run: () => wrapSelection('*', '*', '斜体') },
-              { label: 'S', title: '删除线', cls: 'line-through', run: () => wrapSelection('~~', '~~', '删除线') },
-              { label: 'H', title: '标题（# / ## / ### 循环）', cls: '', run: () => toggleLinePrefix(['# ', '## ', '### '], '# ') },
-              { label: '•', title: '无序列表', cls: '', run: () => toggleLinePrefix(['- '], '- ') },
-              { label: '1.', title: '有序列表', cls: '', run: () => insertBlock('\n1. 第一项\n2. 第二项') },
-              { label: '❝', title: '引用', cls: '', run: () => toggleLinePrefix(['> '], '> ') },
-              { label: '`', title: '行内代码', cls: '', run: () => wrapSelection('`', '`', 'code') },
-              { label: '```', title: '代码块', cls: '', run: () => insertBlock('\n```ts\n\n```\n') },
-              { label: '🔗', title: '链接（Ctrl/Cmd+K）', cls: '', run: () => wrapSelection('[', '](https://)', '链接文字') },
-              { label: '⊞', title: '表格', cls: '', run: () => insertBlock('\n| 列 A | 列 B |\n| --- | --- |\n|  |  |\n') },
-              { label: '≡', title: '高亮（==文本==）', cls: '', run: () => wrapSelection('==', '==', '重点') },
-            ] as Array<{ label: string; title: string; cls: string; run: () => void }>).map((b) => (
+              { label: 'B', icon: 'format_bold', title: '加粗（Ctrl/Cmd+B）', cls: 'font-bold', run: () => wrapSelection('**', '**', '粗体') },
+              { label: 'I', icon: 'format_italic', title: '斜体（Ctrl/Cmd+I）', cls: 'italic', run: () => wrapSelection('*', '*', '斜体') },
+              { label: 'S', icon: 'format_strikethrough', title: '删除线', cls: 'line-through', run: () => wrapSelection('~~', '~~', '删除线') },
+              { label: 'H', icon: 'format_h1', title: '标题（# / ## / ### 循环）', cls: '', run: () => toggleLinePrefix(['# ', '## ', '### '], '# ') },
+              { label: '•', icon: 'format_list_bulleted', title: '无序列表', cls: '', run: () => toggleLinePrefix(['- '], '- ') },
+              { label: '1.', icon: 'format_list_numbered', title: '有序列表', cls: '', run: () => insertBlock('\n1. 第一项\n2. 第二项') },
+              { label: '❝', icon: 'format_quote', title: '引用', cls: '', run: () => toggleLinePrefix(['> '], '> ') },
+              { label: '`', icon: 'code', title: '行内代码', cls: '', run: () => wrapSelection('`', '`', 'code') },
+              { label: '```', icon: 'code', title: '代码块', cls: '', run: () => insertBlock('\n```ts\n\n```\n') },
+              { label: '🔗', icon: 'link', title: '链接（Ctrl/Cmd+K）', cls: '', run: () => wrapSelection('[', '](https://)', '链接文字') },
+              { label: '⊞', icon: 'table_chart', title: '表格', cls: '', run: () => insertBlock('\n| 列 A | 列 B |\n| --- | --- |\n|  |  |\n') },
+              { label: '≡', icon: 'highlight', title: '高亮（==文本==）', cls: '', run: () => wrapSelection('==', '==', '重点') },
+            ] as Array<{ label: string; icon: string; title: string; cls: string; run: () => void }>).map((b) => (
               <button
+                data-m3-role="icon-button"
                 key={b.title}
                 type="button"
                 onClick={b.run}
@@ -925,11 +927,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
                 aria-label={b.title}
                 className={`inline-flex size-6 shrink-0 items-center justify-center rounded border border-transparent text-xs text-muted-foreground transition-colors duration-150 hover:border-border hover:bg-accent hover:text-foreground active:scale-95 ${b.cls}`}
               >
-                {b.label}
+                <MaterialIcon name={b.icon}>{b.label}</MaterialIcon>
               </button>
             ))}
             <span className="mx-1 h-4 w-px shrink-0 bg-border" />
             <button
+              data-m3-role="button"
+              data-m3-variant="outlined"
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
@@ -937,16 +941,18 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               title="插入本地图片"
               aria-label="插入本地图片"
             >
-              {uploading ? '上传中…' : '🖼 图片'}
+              {uploading ? '上传中…' : <><MaterialIcon name="image">🖼</MaterialIcon> 图片</>}
             </button>
             <button
+              data-m3-role="button"
+              data-m3-variant="outlined"
               type="button"
               onClick={insertNetworkImage}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
               title="插入网络图片"
               aria-label="插入网络图片"
             >
-              🔗 网络图
+              <MaterialIcon name="link">🔗</MaterialIcon> 网络图
             </button>
             <span className="ml-auto hidden text-[0.65rem] text-muted-foreground lg:inline">
               Ctrl/Cmd+B 加粗 · I 斜体 · K 链接 · S 保存

@@ -43,6 +43,9 @@ export function Card({
 }: CardProps) {
   return (
     <div
+      data-m3-role="card"
+      data-m3-tone={tone}
+      data-m3-interactive={interactive || undefined}
       className={[
         "surface-card p-5",
         TONE_CLASS[tone],
@@ -68,7 +71,7 @@ export function CardHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
+    <div data-m3-role="card-header" className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="text-[15px]">{title}</h3>
       <div className="flex items-center gap-2">
         {hint ? <span className="text-ink-3 text-[11px]">{hint}</span> : null}

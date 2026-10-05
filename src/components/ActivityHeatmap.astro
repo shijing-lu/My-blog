@@ -84,15 +84,17 @@ const peakTotal = data.monthly[peakIdx]?.total ?? 0;
 
   <div class="flex flex-col gap-6 lg:flex-row">
     <!-- 逐日热力格 -->
-    <div class="min-w-0 flex-1">
-      <div class="mb-1 flex h-3">
+    <div class="activity-heatmap-daily min-w-0 flex-1">
+      <!-- The month labels and cells share one local scroll viewport in both styles. -->
+      <div class="activity-heatmap-scroll min-w-0 max-w-full overflow-x-auto" role="region" aria-label="最近十二个月的每日写作活动" tabindex="0">
+      <div class="activity-heatmap-months mb-1 flex h-3 w-max">
         {monthLabels.map((label) => (
           <span class="w-[11px] shrink-0 text-[0.5rem] leading-none text-muted-foreground">
             {label}
           </span>
         ))}
       </div>
-      <div class="overflow-x-auto">
+      <div class="activity-heatmap-cells">
         <div class="flex w-max gap-[2px]">
           {data.weeks.map((week) => (
             <div class="flex flex-col gap-[2px]">
@@ -106,6 +108,7 @@ const peakTotal = data.monthly[peakIdx]?.total ?? 0;
             </div>
           ))}
         </div>
+      </div>
       </div>
       <!-- 图例 -->
       <div class="mt-3 flex items-center gap-1.5 text-[0.6rem] text-muted-foreground">

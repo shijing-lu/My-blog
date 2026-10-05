@@ -8,6 +8,7 @@
  */
 
 import { Link, useRouterState } from "@tanstack/react-router";
+import { MaterialIcon } from "@/components/ui/MaterialIcon";
 
 import { pigmentClasses } from "@/cadence/shared/ui/pigment-classes";
 
@@ -18,6 +19,7 @@ export function BottomTabs() {
 
   return (
     <nav
+      data-m3-role="module-navigation"
       aria-label="主导航"
       className="surface-paper fixed inset-x-0 bottom-0 z-[var(--z-sticky)] border-t border-paper-line md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -33,6 +35,7 @@ export function BottomTabs() {
           return (
             <li key={item.to} className="flex-1">
               <Link
+                data-m3-role="navigation-item"
                 to={item.to}
                 aria-current={active ? "page" : undefined}
                 className={[
@@ -40,11 +43,11 @@ export function BottomTabs() {
                   active ? "text-ink-1" : "text-ink-3",
                 ].join(" ")}
               >
-                <Icon
+                <MaterialIcon name={item.materialIcon}><Icon
                   size={19}
                   strokeWidth={active ? 2.1 : 1.7}
                   aria-hidden="true"
-                />
+                /></MaterialIcon>
                 <span>{item.label}</span>
                 {/* 选中指示：一条手绘感的短横线，而非整块高亮 */}
                 {active ? (

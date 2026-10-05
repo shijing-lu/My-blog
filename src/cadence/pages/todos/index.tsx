@@ -18,18 +18,11 @@ import { resolveZones, type AxisConfig } from "@/cadence/entities/axis";
 import type { Todo, TodoCoordinate } from "@/cadence/entities/todo";
 import { db } from "@/cadence/data/db/database";
 import {
-  AnimatePresence,
   DraggableSurface,
-  HandRule,
-  m,
+  PresenceDialog,
   StickyNote,
   toNormalizedPoint,
-  useResolvedVariants,
 } from "@/cadence/shared/motion";
-import {
-  backdrop,
-  modalPanel,
-} from "@/cadence/shared/motion/variants/surfaces";
 import { toast } from "@/cadence/shared/store/toast-store";
 import { Button } from "@/cadence/shared/ui/Button";
 import { softPigment } from "@/cadence/shared/config/pigment";
@@ -96,10 +89,6 @@ export function TodosPage() {
           ),
     [axis, todos],
   );
-
-  // Hook 必须无条件调用：就地创建浮层的背板与面板变体在这里解析
-  const backdropVariants = useResolvedVariants(backdrop);
-  const panelVariants = useResolvedVariants(modalPanel);
 
   const commitMove = (todo: Todo, point: TodoCoordinate) => {
     void moveTodo(deps, todo, point, Date.now());
@@ -349,54 +338,23 @@ export function TodosPage() {
         />
       )}
 
-      {/* 就地创建：点击空白处后弹出。背板与面板分开动画（退出时各自离场） */}
-      <AnimatePresence>
-        {pendingPoint !== undefined ? (
-          <m.div
-            key="todo-create-backdrop"
-            variants={backdropVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-[var(--scrim)]"
-            onClick={() => setPendingPoint(undefined)}
-          >
-            <m.div
-              variants={panelVariants}
-              className="surface-card w-[min(420px,92vw)] p-6"
-              onClick={(event) => event.stopPropagation()}
-              style={{ borderRadius: "var(--radius-hand-lg)" }}
-            >
-              <h3 className="text-ink-1 font-serif text-lg">在这里记一条</h3>
-              <HandRule shape="gentle" className="my-3" />
-              <TextField
-                label="待办内容"
-                value={draftTitle}
-                placeholder="一句话说清要做什么"
-                onChange={(event) => setDraftTitle(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    confirmCreate();
-                  }
-                }}
-              />
-              <div className="mt-5 flex justify-end gap-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setPendingPoint(undefined)}
-                >
-                  取消
-                </Button>
-                <Button size="sm" onClick={confirmCreate}>
-                  记下
-                </Button>
-              </div>
-            </m.div>
-          </m.div>
-        ) : null}
-      </AnimatePresence>
+      {/* 所有待办弹窗复用 Radix 的焦点陷阱、Esc 与焦点归还。 */}
+      <PresenceDialog
+        open={pendingPoint !== undefined}
+        onOpenChange={(open) => { if (!open) setPendingPoint(undefined); }}
+        title="在这里记一条"
+        footer={<><Button variant="ghost" size="sm" onClick={() => setPendingPoint(undefined)}>取消</Button><Button size="sm" onClick={confirmCreate}>记下</Button></>}
+      >
+        <TextField
+          label="待办内容"
+          value={draftTitle}
+          placeholder="一句话说清要做什么"
+          onChange={(event) => setDraftTitle(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); confirmCreate(); }
+          }}
+        />
+      </PresenceDialog>
 
       {/* 右键菜单：覆盖浏览器默认菜单（容器 preventDefault）。
           便签上 → 编辑备注 / 修改 / 删除；空白处 → 在此新建。
@@ -413,6 +371,7 @@ export function TodosPage() {
           />
           <div
             role="menu"
+            data-m3-role="menu"
             aria-label="待办操作"
             className="surface-card fixed z-[calc(var(--z-modal)+1)] min-w-[150px] py-1.5 shadow-[0_6px_18px_-8px_var(--paper-shadow-strong)]"
             style={{
@@ -460,83 +419,38 @@ export function TodosPage() {
       ) : null}
 
       {/* 编辑备注（多行；空保存 = 清除） */}
-      {noteTarget !== undefined ? (
-        <div
-          className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-[var(--scrim)]"
-          onClick={() => setNoteTarget(undefined)}
-        >
-          <div
-            className="surface-card w-[min(440px,92vw)] p-6"
-            onClick={(event) => event.stopPropagation()}
-            style={{ borderRadius: "var(--radius-hand-lg)" }}
-          >
-            <h3 className="text-ink-1 font-serif text-lg">
-              备注 · {noteTarget.title}
-            </h3>
-            <HandRule shape="gentle" className="my-3" />
-            <TextField
-              label="备注"
-              multiline
-              rows={4}
-              value={noteDraft}
-              placeholder="补充标题装不下的信息；留空保存即清除"
-              onChange={(event) => setNoteDraft(event.target.value)}
-            />
-            <div className="mt-5 flex justify-end gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setNoteTarget(undefined)}
-              >
-                取消
-              </Button>
-              <Button size="sm" onClick={saveNote}>
-                保存
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <PresenceDialog
+        open={noteTarget !== undefined}
+        onOpenChange={(open) => { if (!open) setNoteTarget(undefined); }}
+        title={`备注 · ${noteTarget?.title ?? ''}`}
+        footer={<><Button variant="ghost" size="sm" onClick={() => setNoteTarget(undefined)}>取消</Button><Button size="sm" onClick={saveNote}>保存</Button></>}
+      >
+        <TextField
+          label="备注"
+          multiline
+          rows={4}
+          value={noteDraft}
+          placeholder="补充标题装不下的信息；留空保存即清除"
+          onChange={(event) => setNoteDraft(event.target.value)}
+        />
+      </PresenceDialog>
 
       {/* 修改（重命名） */}
-      {renameTarget !== undefined ? (
-        <div
-          className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-[var(--scrim)]"
-          onClick={() => setRenameTarget(undefined)}
-        >
-          <div
-            className="surface-card w-[min(440px,92vw)] p-6"
-            onClick={(event) => event.stopPropagation()}
-            style={{ borderRadius: "var(--radius-hand-lg)" }}
-          >
-            <h3 className="text-ink-1 font-serif text-lg">修改待办</h3>
-            <HandRule shape="gentle" className="my-3" />
-            <TextField
-              label="标题"
-              value={renameDraft}
-              onChange={(event) => setRenameDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  saveRename();
-                }
-              }}
-            />
-            <div className="mt-5 flex justify-end gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setRenameTarget(undefined)}
-              >
-                取消
-              </Button>
-              <Button size="sm" onClick={saveRename}>
-                保存
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <PresenceDialog
+        open={renameTarget !== undefined}
+        onOpenChange={(open) => { if (!open) setRenameTarget(undefined); }}
+        title="修改待办"
+        footer={<><Button variant="ghost" size="sm" onClick={() => setRenameTarget(undefined)}>取消</Button><Button size="sm" onClick={saveRename}>保存</Button></>}
+      >
+        <TextField
+          label="标题"
+          value={renameDraft}
+          onChange={(event) => setRenameDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); saveRename(); }
+          }}
+        />
+      </PresenceDialog>
     </div>
   );
 }
@@ -555,6 +469,8 @@ function MenuItem({
     <button
       type="button"
       role="menuitem"
+      data-m3-role="menu-item"
+      data-m3-variant={danger ? "danger" : undefined}
       onClick={onClick}
       className={[
         "craft-transition-fast block w-full px-4 py-2 text-left text-[12.5px]",

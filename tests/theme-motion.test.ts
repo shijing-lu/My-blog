@@ -28,11 +28,12 @@ describe('主题动效的业务状态与取消', () => {
       dataset: {},
       classList: { contains: (key) => classes.has(key), toggle: (key, value) => { if (value) classes.add(key); else classes.delete(key); } },
       style: { getPropertyValue: (key) => styles.get(key) ?? '', setProperty: (key, value) => { styles.set(key, value); } },
-      setAttribute: (key, value) => { root.dataset[key.slice(5)] = value; },
-      removeAttribute: (key) => { delete root.dataset[key.slice(5)]; },
+      setAttribute: (key, value) => { root.dataset[key.slice(5).replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())] = value; },
+      removeAttribute: (key) => { delete root.dataset[key.slice(5).replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())]; },
     };
     callbacks = []; finishes = []; skips = vi.fn();
-    doc = Object.assign(new EventTarget(), { documentElement: root, hidden: false });
+    root.dataset.uiStyle = 'classic';
+    doc = Object.assign(new EventTarget(), { documentElement: root, hidden: false, querySelectorAll: () => [] });
     doc.startViewTransition = vi.fn((update: () => void) => {
       const done = deferred(); const updated = deferred();
       callbacks.push(() => { update(); updated.resolve(); });
@@ -42,7 +43,7 @@ describe('主题动效的业务状态与取消', () => {
     preference = Object.assign(new EventTarget(), { matches: false });
     const media = (query: string) => query.includes('reduced-motion') ? preference : { matches: false };
     vi.stubGlobal('document', doc);
-    vi.stubGlobal('window', { matchMedia: media });
+    vi.stubGlobal('window', Object.assign(new EventTarget(), { matchMedia: media }));
     vi.stubGlobal('matchMedia', media);
     vi.stubGlobal('innerWidth', 1200);
     vi.stubGlobal('innerHeight', 800);
@@ -56,7 +57,7 @@ describe('主题动效的业务状态与取消', () => {
     const theme = await import('../src/lib/theme');
     theme.writeState({ themeId: 'graphite', mode: 'dark' }, { origin: { x: 10, y: 10 } });
     expect(root.classList.contains('dark')).toBe(true);
-    expect(theme.readState()).toEqual({ themeId: 'graphite', mode: 'dark' });
+    expect(theme.readState()).toEqual({ themeId: 'graphite', mode: 'dark', uiStyle: 'inherit' });
   });
 
   it('减少动效与程序恢复不创建快照', async () => {
@@ -128,7 +129,7 @@ describe('主题动效的业务状态与取消', () => {
     const theme = await import('../src/lib/theme');
     theme.writeState({ themeId: 'terminal', mode: 'dark' }, {});
     doc.dispatchEvent(new Event('astro:before-preparation'));
-    expect(theme.readState()).toEqual({ themeId: 'terminal', mode: 'dark' });
+    expect(theme.readState()).toEqual({ themeId: 'terminal', mode: 'dark', uiStyle: 'inherit' });
     expect(root.classList.contains('dark')).toBe(true);
   });
 });

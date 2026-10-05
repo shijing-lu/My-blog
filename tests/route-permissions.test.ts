@@ -26,6 +26,7 @@ describe('API 逐项权限边界', () => {
     ['/api/fonts/record', 'POST', 'settings'],
     ['/api/fonts-settings', 'PUT', 'settings'],
     ['/api/fonts-settings', 'DELETE', 'settings'],
+    ['/api/ui-style', 'PUT', 'settings'],
     ['/api/image-bed-settings', 'GET', 'settings'],
     ['/api/image-bed-settings', 'PUT', 'settings'],
     ['/api/image-bed-test', 'POST', 'settings'],
@@ -49,6 +50,7 @@ describe('API 逐项权限边界', () => {
     ['/api/doc/articles/article-id/render', 'GET'],
     ['/api/ai/chat', 'POST'],
     ['/api/editor-shortcuts', 'GET'],
+    ['/api/ui-style', 'GET'],
     ['/api/desktop/object/images/example.png', 'GET'],
     ['/api/comments/comment-id', 'DELETE'],
   ])('%s %s 保留公开访问或端点自身按身份判定', (path, method) => {

@@ -16,6 +16,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronsLeft, ChevronsRight, Timer } from "lucide-react";
+import { MaterialIcon } from "@/components/ui/MaterialIcon";
 
 import { HandRule } from "@/cadence/shared/motion";
 import { isSessionActive, sessionDurationMs } from "@/cadence/entities/session";
@@ -91,7 +92,7 @@ function ActiveSessionBar({ collapsed }: { collapsed: boolean }) {
         aria-label={`专注中，已进行 ${formatDuration(sessionDurationMs(active, now))}`}
         className="craft-transition-fast flex items-center justify-center gap-1.5 rounded-[var(--radius-hand-pill)] bg-amber-soft py-2 text-amber-deep"
       >
-        <Timer size={14} aria-hidden="true" />
+        <MaterialIcon name="timer"><Timer size={14} aria-hidden="true" /></MaterialIcon>
         <span className="numeric text-[10.5px]">
           {formatDuration(sessionDurationMs(active, now))}
         </span>
@@ -105,7 +106,7 @@ function ActiveSessionBar({ collapsed }: { collapsed: boolean }) {
       className="craft-transition-fast bg-amber-soft hover:bg-amber-base/30 block rounded-[var(--radius-hand-sm)] px-3 py-2.5"
     >
       <p className="text-amber-deep flex items-center gap-1.5 text-[11px] tracking-[0.14em]">
-        <Timer size={13} aria-hidden="true" />
+        <MaterialIcon name="timer"><Timer size={13} aria-hidden="true" /></MaterialIcon>
         专注中
       </p>
       <p className="text-ink-1 numeric mt-1 font-serif text-[17px] leading-none">
@@ -158,6 +159,7 @@ export function SidebarNav() {
        * 放在 aside 上会让 getByRole('navigation') 完全匹配不到。
        */}
       <nav
+        data-m3-role="module-navigation"
         aria-label="主导航"
         className={["flex-1", collapsed ? "px-2" : "px-3.5"].join(" ")}
       >
@@ -172,6 +174,7 @@ export function SidebarNav() {
             return (
               <li key={item.to}>
                 <Link
+                  data-m3-role="navigation-item"
                   to={item.to}
                   aria-current={active ? "page" : undefined}
                   title={collapsed ? item.label : undefined}
@@ -193,12 +196,12 @@ export function SidebarNav() {
                       active ? tone.dot : "bg-paper-line group-hover:bg-ink-4",
                     ].join(" ")}
                   />
-                  <Icon
+                  <MaterialIcon name={item.materialIcon}><Icon
                     size={16}
                     strokeWidth={1.8}
                     aria-hidden="true"
                     className="shrink-0"
-                  />
+                  /></MaterialIcon>
                   {collapsed ? null : (
                     <span className="font-medium">{item.label}</span>
                   )}
@@ -239,6 +242,7 @@ export function SidebarNav() {
         </div>
 
         <button
+          data-m3-role="icon-button"
           type="button"
           onClick={toggleSidebar}
           aria-pressed={collapsed}
@@ -250,10 +254,10 @@ export function SidebarNav() {
           ].join(" ")}
         >
           {collapsed ? (
-            <ChevronsRight size={14} aria-hidden="true" />
+            <MaterialIcon name="chevron_right"><ChevronsRight size={14} aria-hidden="true" /></MaterialIcon>
           ) : (
             <>
-              <ChevronsLeft size={14} aria-hidden="true" />
+              <MaterialIcon name="arrow_back"><ChevronsLeft size={14} aria-hidden="true" /></MaterialIcon>
               折叠
             </>
           )}

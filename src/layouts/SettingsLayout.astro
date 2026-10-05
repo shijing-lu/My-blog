@@ -10,36 +10,13 @@ const { section } = Astro.props;
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import SettingsForm from '@/components/admin/SettingsForm.astro';
 import EditorShortcutsSettings from '@/components/admin/EditorShortcutsSettings';
-const SECTION_LABELS: Record<Props['section'], string> = {
-  'site-name': '站点名称',
-  'hero-quotes': '诗词轮播',
-  'landing': '落地页',
-  'appearance': '外观',
-  'image-bed': 'GitHub 图床',
-  'md-css': 'Markdown 样式',
-  'site-css': '全站样式',
-  'ai': 'AI 助手',
-  'netdisk': '网盘对接',
-  'sync': '云端同步',
-  'shortcuts': '编辑器快捷键',
-};
-const titleSuffix = SECTION_LABELS[section] ?? '设置';
-const tabs: { id: Props['section']; label: string; href: string }[] = [
-  { id: 'site-name', label: '站点名称', href: '/admin/settings/site-name' },
-  { id: 'hero-quotes', label: '诗词轮播', href: '/admin/settings/hero-quotes' },
-  { id: 'landing', label: '落地页', href: '/admin/settings/landing' },
-  { id: 'appearance', label: '外观', href: '/admin/settings/appearance' },
-  { id: 'image-bed', label: 'GitHub 图床', href: '/admin/settings/image-bed' },
-  { id: 'md-css', label: 'Markdown 样式', href: '/admin/settings/md-css' },
-  { id: 'site-css', label: '全站样式', href: '/admin/settings/site-css' },
-  { id: 'ai', label: 'AI 助手', href: '/admin/settings/ai' },
-  { id: 'netdisk', label: '网盘对接', href: '/admin/settings/netdisk' },
-  { id: 'sync', label: '云端同步', href: '/admin/settings/sync' },
-  { id: 'shortcuts', label: '编辑器快捷键', href: '/admin/settings/editor-shortcuts' },
-];
+import { getSettingsSections } from '@/lib/settings-sections';
+import { serverEnv } from '@/lib/env';
+const tabs = getSettingsSections(serverEnv('DESKTOP_MODE') === '1');
+const titleSuffix = getSettingsSections(true).find(item => item.id === section)?.label ?? '设置';
 ---
 <AdminLayout title={`设置 · ${titleSuffix}`}>
-  <section class="mx-auto h-full w-full max-w-3xl overflow-y-auto px-4 py-8">
+  <section data-settings-page class="mx-auto h-full w-full max-w-3xl overflow-y-auto px-4 py-8">
     <div>
       <p class="pixel-chip text-primary">SETTINGS</p>
       <h1 class="mt-1 font-display text-2xl font-semibold">站点设置</h1>
@@ -47,7 +24,7 @@ const tabs: { id: Props['section']; label: string; href: string }[] = [
     </div>
     <nav class="mt-5 flex flex-wrap gap-2" aria-label="设置分区">
       {tabs.map((t) => (
-        <a href={t.href} class={`settings-tab${t.id === section ? ' active' : ''}`}>{t.label}</a>
+        <a href={t.href} data-m3-role="navigation-item" aria-current={t.id === section ? 'page' : undefined} class={`settings-tab${t.id === section ? ' active' : ''}`}>{t.label}</a>
       ))}
     </nav>
     {section === 'shortcuts' ? (

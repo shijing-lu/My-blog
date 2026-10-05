@@ -1,0 +1,36 @@
+@import '@fontsource-variable/roboto';
+@import '@fontsource-variable/noto-sans-sc';
+
+@font-face {
+  font-family: 'Material Symbols Rounded';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/fonts/material3/material-symbols-rounded.woff2') format('woff2');
+}
+.material-icon-pair { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; flex-shrink: 0; }
+.material-icon-classic { display: inline-flex; }
+.material-symbol {
+  display: none;
+  font-family: 'Material Symbols Rounded';
+  font-weight: 400;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.material-icon-only { display: inline-block; }
+html[data-ui-style='material3'] .material-icon-classic { display: none; }
+html[data-ui-style='material3'] .material-symbol { display: inline-block; }
+html[data-ui-style='material3'] [data-material-icon-adapted] > svg { display: none; }

@@ -15,7 +15,7 @@ function formatShort(date: Date): string {
 }
 ---
 <AdminLayout title="思维导图">
-  <section class="mx-auto w-full max-w-4xl px-4 py-8">
+  <section class="mx-auto min-w-0 w-full max-w-4xl px-4 py-8">
     <div class="flex items-end justify-between gap-4">
       <div>
         <p class="pixel-chip text-primary">MIND MAP</p>
@@ -27,7 +27,7 @@ function formatShort(date: Date): string {
     <!-- 新建 -->
     <div class="mt-5">
       <p class="text-xs font-medium text-muted-foreground">新建思维导图</p>
-      <div class="mt-2 flex flex-wrap items-center gap-2">
+      <div class="mt-2 flex min-w-0 max-w-full flex-wrap items-center gap-2">
         <input
           id="map-title"
           type="text"
@@ -37,7 +37,7 @@ function formatShort(date: Date): string {
         />
         <select
           id="map-article"
-          class="rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
+          class="min-w-0 max-w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
         >
           <option value="">不绑定文章（独立导图）</option>
           {articles.map((a) => <option value={a.id}>{a.title || '未命名'}</option>)}

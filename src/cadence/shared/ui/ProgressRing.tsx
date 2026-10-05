@@ -50,6 +50,7 @@ export function ProgressRing({
 
   return (
     <div
+      data-m3-role="progress"
       className={["relative shrink-0", className].filter(Boolean).join(" ")}
       style={{ width: size, height: size }}
       role="img"
@@ -132,6 +133,7 @@ export function DualProgressRing({
 
   return (
     <div
+      data-m3-role="progress"
       className={["relative shrink-0", className].filter(Boolean).join(" ")}
       style={{ width: size, height: size }}
     >

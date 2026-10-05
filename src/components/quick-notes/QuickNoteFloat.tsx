@@ -217,8 +217,8 @@ export default function QuickNoteFloat(): ReactElement | null {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:p-6" role="presentation">
-      <section role="dialog" aria-modal="true" aria-label="随心录编辑器" className="motion-panel flex h-full max-h-[760px] w-full max-w-3xl flex-col overflow-hidden border border-border bg-background shadow-2xl sm:h-[min(88vh,760px)] sm:rounded-xl">
+    <div data-m3-role="scrim" className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:p-6" role="presentation">
+      <section data-m3-role="dialog" data-m3-module="quick-notes" role="dialog" aria-modal="true" aria-label="随心录编辑器" className="motion-panel flex h-full max-h-[760px] w-full max-w-3xl flex-col overflow-hidden border border-border bg-background shadow-2xl sm:h-[min(88vh,760px)] sm:rounded-xl">
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
           <div>
             <p className="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">QUICK NOTE</p>

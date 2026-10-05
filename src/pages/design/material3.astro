@@ -1,0 +1,55 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import MaterialComponentDemo from '@/components/ui/MaterialComponentDemo';
+import MaterialIcon from '@/components/MaterialIcon.astro';
+---
+<BaseLayout title="界面设计预览" description="两种风格的组件与代表性界面预览" indexable={false}>
+  <section class="mx-auto max-w-6xl px-4 py-8" data-design-preview>
+    <header class="mb-8">
+      <h1 class="font-display text-3xl font-semibold">界面设计预览</h1>
+      <p class="mt-3 text-muted-foreground">示例界面，所有操作仅用于展示，不写入业务数据。通过顶部的外观面板切换现有风格与 Google Material 3。</p>
+    </header>
+    <div class="grid gap-6 lg:grid-cols-2">
+      <section class="rounded-xl border bg-card p-6" data-m3-role="card" aria-label="首页设计预览">
+        <p class="text-sm text-muted-foreground">首页 · 示例</p><h2 class="mt-3 text-2xl font-semibold">记录与学习</h2>
+        <p class="mt-2 text-muted-foreground">文章、文档和生活影像，保持清晰的阅读与导航层级。</p>
+        <div class="mt-5 flex flex-wrap gap-2"><button type="button" data-preview-action="已选择文章" class="rounded-full bg-primary px-4 py-2 text-primary-foreground">文章</button><button type="button" data-preview-action="已选择文档" class="rounded-full border px-4 py-2">文档</button></div>
+        <article class="mt-6 rounded-lg bg-muted p-4"><h3 class="font-medium">阅读与编辑</h3><p class="mt-2 text-sm text-muted-foreground">一致的工具栏、反馈和正文样式，降低界面切换的负担。</p><a href="/doc" class="mt-4 inline-flex items-center gap-2 text-primary"><MaterialIcon name="description" />打开文档</a></article>
+      </section>
+      <section class="rounded-xl border bg-card p-6" data-m3-role="card" aria-label="文档编辑设计预览">
+        <p class="text-sm text-muted-foreground">文档与编辑 · 示例</p><h2 class="mt-3 text-2xl font-semibold">正文与工具</h2>
+        <div class="mt-5 flex flex-wrap gap-2" role="toolbar" aria-label="示例编辑工具">
+          <button type="button" aria-label="示例粗体" data-preview-action="已展示粗体操作" class="rounded-lg border p-3"><MaterialIcon name="format_bold" /></button>
+          <button type="button" aria-label="示例斜体" data-preview-action="已展示斜体操作" class="rounded-lg border p-3"><MaterialIcon name="format_italic" /></button>
+          <button type="button" aria-label="示例插入图片" data-preview-action="已展示图片操作" class="rounded-lg border p-3"><MaterialIcon name="image" /></button>
+        </div>
+        <details open class="mt-6 rounded-lg bg-muted p-4"><summary class="cursor-pointer font-medium">可折叠的正文标题</summary><p class="mt-3 leading-7">正文标题支持逐级折叠，阅读和编辑共享色彩角色；正文保持独立的阅读节奏。</p></details>
+      </section>
+      <section class="rounded-xl border bg-card p-6" data-m3-role="card" aria-label="日程设计预览">
+        <p class="text-sm text-muted-foreground">日程 · 示例</p><h2 class="mt-3 text-2xl font-semibold">安排与执行</h2>
+        <div class="mt-5 flex gap-2"><button type="button" data-preview-action="已选择今天" class="rounded-full bg-secondary px-4 py-2">今天</button><button type="button" data-preview-action="已选择本周" class="rounded-full border px-4 py-2">本周</button></div>
+        <label class="mt-6 flex cursor-pointer items-center gap-3 rounded-lg bg-muted p-4"><input type="checkbox" class="size-5" /><span>示例：整理学习笔记</span></label>
+        <p class="mt-4 text-sm text-muted-foreground">实际日程使用原有任务、项目和同步逻辑。</p>
+      </section>
+      <section class="rounded-xl border bg-card p-6" data-m3-role="card" aria-label="设置设计预览">
+        <p class="text-sm text-muted-foreground">设置与反馈 · 示例</p><h2 class="mt-3 text-2xl font-semibold">清晰的选择与反馈</h2>
+        <label class="mt-5 block text-sm font-medium">示例名称<input type="text" placeholder="输入内容" class="mt-2 w-full rounded-lg border bg-background px-4 py-3" /></label>
+        <label class="mt-4 flex items-center gap-3"><input type="checkbox" role="switch" checked /><span>示例开关</span></label>
+        <div class="mt-6 flex flex-wrap gap-3"><button type="button" data-preview-dialog class="rounded-full bg-primary px-5 py-2 text-primary-foreground">打开确认弹窗</button><button type="button" disabled class="rounded-full border px-5 py-2 opacity-40">禁用状态</button></div>
+      </section>
+    </div>
+    <MaterialComponentDemo client:load />
+    <p class="mt-6 rounded-lg bg-muted p-4" data-preview-status role="status" aria-live="polite">可以操作上面的示例控件。</p>
+    <dialog data-preview-confirm class="rounded-xl bg-card p-6 text-foreground" aria-labelledby="preview-dialog-title">
+      <h2 id="preview-dialog-title" class="text-xl font-medium">示例确认</h2><p class="mt-3 text-muted-foreground">用于检查弹窗层级、键盘焦点和按钮反馈。</p><form method="dialog" class="mt-6 flex justify-end gap-3"><button class="rounded-full border px-5 py-2">取消</button><button class="rounded-full bg-primary px-5 py-2 text-primary-foreground">确认</button></form>
+    </dialog>
+  </section>
+</BaseLayout>
+<script>
+  document.addEventListener('click', event => {
+    const target = event.target instanceof Element ? event.target : null;
+    const action = target?.closest<HTMLElement>('[data-preview-action]');
+    if (action) { const status = document.querySelector('[data-preview-status]'); if (status) status.textContent = action.dataset.previewAction ?? ''; }
+    if (target?.closest('[data-preview-dialog]')) document.querySelector<HTMLDialogElement>('[data-preview-confirm]')?.showModal();
+  });
+</script>

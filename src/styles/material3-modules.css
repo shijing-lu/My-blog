@@ -1,0 +1,224 @@
+/* Module adaptation matrix: public lists/navigation, document chrome, media,
+   calendars, all settings surfaces, private tools, third-party comment DOM and
+   Cadence's nested/portalled surfaces. Geometry and data remain module-owned. */
+html[data-ui-style='material3'] :is(.post-card, .post-row, .doc-card, .archive-card.archive-card) {
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: 12px;
+  background: var(--m3-surface-container-low);
+  box-shadow: none;
+  padding: 20px;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-standard), box-shadow var(--m3-duration-short) var(--m3-ease-standard);
+}
+html[data-ui-style='material3'] :is(.post-card, .post-row, .doc-card, .archive-card.archive-card):hover {
+  border-color: var(--m3-outline-variant);
+  background: color-mix(in srgb, var(--m3-on-surface) 4%, var(--m3-surface-container-low));
+  box-shadow: var(--m3-elevation-1);
+  transform: none;
+}
+html[data-ui-style='material3'] :is(.post-row::before, .list-blend > li::before, .list-blend-row::before) { display: none; }
+html[data-ui-style='material3'] :is(.post-list, .post-grid) { gap: 12px; }
+html[data-ui-style='material3'] .post-row + .post-row { margin-top: 12px; }
+html[data-ui-style='material3'] .post-row h3 { font-size: 22px; font-weight: 400; line-height: 28px; }
+html[data-ui-style='material3'] .post-cover { border-radius: 12px 12px 0 0; background: var(--m3-primary-container); background-image: none; }
+html[data-ui-style='material3'] .post-cover[data-type='note'] { background: var(--m3-secondary-container); }
+html[data-ui-style='material3'] .post-cover[data-type='photo'] { background: var(--m3-tertiary-container); }
+html[data-ui-style='material3'] .post-cover-glyph { color: var(--m3-on-primary-container); text-shadow: none; }
+html[data-ui-style='material3'] .landing-hero { min-height: 360px; height: auto; width: calc(100% - 48px); margin: 16px 24px 0; padding-block: 24px; border-radius: 28px; overflow: hidden; background: var(--m3-primary-container); }
+html[data-ui-style='material3'] .landing-hero-bg--gradient { background: var(--m3-primary-container); }
+html[data-ui-style='material3'] .landing-hero-scrim { background: linear-gradient(90deg, rgb(0 0 0 / .68), rgb(0 0 0 / .24)); }
+html[data-ui-style='material3'] .landing-hero-content { padding-inline: 32px; text-shadow: none; }
+html[data-ui-style='material3'] .landing-hero-content :is(h1, p) { font-family: var(--m3-font); }
+html[data-ui-style='material3'] .landing-hero-content h1 { font-weight: 400; letter-spacing: -.015em; font-size: clamp(32px, 4vw, 57px); line-height: 1.12; }
+html[data-ui-style='material3'] .landing-hero-content > h1 [data-hero] { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: .025em; color: rgb(255 255 255 / .95); }
+html[data-ui-style='material3'] .landing-hero-content > div[data-hero] { margin-top: 24px; }
+html[data-ui-style='material3'] .landing-hero .social-link { min-height: 48px; min-width: 48px; width: 48px; height: 48px; border: 0; background: var(--m3-surface-container-high); color: var(--m3-on-surface); box-shadow: none; }
+html[data-ui-style='material3'] .landing-hero .scroll-cue { display: none; }
+html[data-ui-style='material3'] :is(.archive-card-title, .doc-card-name) { color: var(--m3-on-surface); font-size: 18px; font-weight: 500; }
+html[data-ui-style='material3'] .archive-timeline::before { background: var(--m3-outline-variant); }
+html[data-ui-style='material3'] :is(.archive-year-dot, .archive-node, .timeline-dot) { background: var(--m3-primary); box-shadow: none; border-color: var(--m3-surface); }
+html[data-ui-style='material3'] .archive-card-summary { font-size: 14px; line-height: 20px; }
+html[data-ui-style='material3'] :is(.filter-heading, .gallery-date-label) { color: var(--m3-on-surface-variant); font-size: 14px; font-weight: 500; letter-spacing: .007em; text-transform: none; }
+html[data-ui-style='material3'] .filter-heading::before { display: none; }
+html[data-ui-style='material3'] .filter-panel { background: var(--m3-surface-container-low); border: 0; border-radius: 16px; padding: 16px; }
+html[data-ui-style='material3'] :is(.filter-panel .filter-tag, .filter-panel .filter-category, .search-type-btn, .pagination-btn) { min-height: 40px; border: 1px solid var(--m3-outline); border-radius: 8px; padding: 8px 12px; background: transparent; color: var(--m3-on-surface-variant); font-size: 14px; }
+html[data-ui-style='material3'] .filter-panel .filter-tags { gap: 8px; }
+html[data-ui-style='material3'] .filter-panel .filter-categories { gap: 4px; }
+html[data-ui-style='material3'] .filter-panel .filter-category { border: 0; border-radius: 9999px; padding-inline: 16px; }
+html[data-ui-style='material3'] :is(.filter-panel .filter-tag, .filter-panel .filter-category, .search-type-btn):hover { background: color-mix(in srgb, var(--m3-on-surface) 8%, transparent); }
+html[data-ui-style='material3'] :is(.filter-panel .filter-tag.active, .filter-panel .filter-category.active, .search-type-btn.active, .pagination-btn-active) { color: var(--m3-on-secondary-container); background: var(--m3-secondary-container); border-color: transparent; }
+html[data-ui-style='material3'] .filter-panel .filter-tag .pixel-chip { border: 0; background: transparent; color: inherit; padding: 0; }
+html[data-ui-style='material3'] :is(.filter-tag-count, .filter-category-count) { color: inherit; }
+html[data-ui-style='material3'] .pagination-btn { border-radius: 9999px; min-width: 40px; }
+html[data-ui-style='material3'] .pagination-input { min-height: 40px; padding: 8px; }
+html[data-ui-style='material3'] #search-box { border: 0; padding-bottom: 16px; }
+html[data-ui-style='material3'] #search-box > div:first-child { background: var(--m3-surface-container-high); padding: 4px 16px; border-radius: 9999px; }
+html[data-ui-style='material3'] #search-input { border: 0; border-radius: 9999px; background: transparent; padding-inline: 8px; box-shadow: none; }
+html[data-ui-style='material3'] #search-input:focus-visible { outline-offset: 0; border: 0; }
+html[data-ui-style='material3'] :is(.section-nav-item, .social-link) { border-radius: 9999px; color: var(--m3-on-surface-variant); }
+html[data-ui-style='material3'] .section-nav-item:hover { background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+html[data-ui-style='material3'] .list-blend > :is(li, .list-blend-row) { border-radius: 12px; padding: 12px 16px; border-bottom-color: var(--m3-outline-variant); }
+html[data-ui-style='material3'] .list-blend > :is(li, .list-blend-row):hover { background: color-mix(in srgb, var(--m3-on-surface) 8%, transparent); }
+
+/* Article/document trees are navigation lists, with tonal active indicators. */
+html[data-ui-style='material3'] :is(#doc-toc-panel, #doc-ltoc-inner, #doc-ltoc-aside) { background-color: var(--m3-surface-container-low); border-color: var(--m3-outline-variant); }
+html[data-ui-style='material3'] #doc-toc-panel { border-radius: 16px; box-shadow: var(--m3-elevation-2); }
+html[data-ui-style='material3'] #doc-toc-fab { border-radius: 16px; background: var(--m3-primary-container); color: var(--m3-on-primary-container); box-shadow: var(--m3-elevation-3); }
+html[data-ui-style='material3'] :is(.toc-item, .toc-link) { color: var(--m3-on-surface-variant); border-radius: 8px; padding: 6px 8px; font-size: 14px; line-height: 20px; }
+html[data-ui-style='material3'] :is(.toc-item.toc-active, .toc-link[data-active='true'], #doc-ltoc-body [data-doc-node-id][aria-current='page']) { color: var(--m3-on-secondary-container); background: var(--m3-secondary-container); }
+html[data-ui-style='material3'] #doc-ltoc-body [data-doc-node-id] { border-radius: 9999px; padding-block: 10px; }
+html[data-ui-style='material3'] .doc-main-col { border-left: 1px solid var(--m3-outline-variant); }
+html[data-ui-style='material3'] #doc-inline-edit.doc-entry-active { background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); border-color: transparent; }
+html[data-ui-style='material3'] :is(#doc-toc-overlay, .lightbox-overlay) { background-color: color-mix(in srgb, var(--m3-scrim) 64%, transparent); }
+html[data-ui-style='material3'] .lightbox-overlay :is(.lightbox-close, .lightbox-prev, .lightbox-next) { min-width: 48px; min-height: 48px; border: 0; border-radius: 9999px; background: var(--m3-inverse-surface); color: var(--m3-inverse-on-surface); box-shadow: var(--m3-elevation-1); }
+html[data-ui-style='material3'] .lightbox-overlay .lightbox-count { border-radius: 9999px; background: var(--m3-inverse-surface); color: var(--m3-inverse-on-surface); padding: 6px 12px; }
+html[data-ui-style='material3'] :is(.moment-media img, .moment-video-wrap, [data-gallery-item] img) { border-radius: 12px; }
+html[data-ui-style='material3'] :is(.moment-grid, .moment-grid-two, .moment-grid-single) { gap: 8px; }
+html[data-ui-style='material3'] :is([data-gallery-card], [data-moment-card]) { border-radius: 12px; background: var(--m3-surface-container-low); border-color: var(--m3-outline-variant); }
+html[data-ui-style='material3'] :is([data-upload-dropzone], #drop-zone, #paste-zone) { background: var(--m3-surface-container-low); border: 2px dashed var(--m3-outline); border-radius: 16px; color: var(--m3-on-surface-variant); }
+
+/* Calendar cells retain lunar/status semantics, but lose pixel/card lift. */
+html[data-ui-style='material3'] .cal-nav-btn { border: 0; border-radius: 9999px; color: var(--m3-primary); background: transparent; }
+html[data-ui-style='material3'] .cal-cell { border: 1px solid var(--m3-outline-variant); border-radius: 12px; background: var(--m3-surface-container-low); color: var(--m3-on-surface); box-shadow: none; }
+html[data-ui-style='material3'] .cal-cell:hover { border-color: var(--m3-outline-variant); background: color-mix(in srgb, var(--m3-on-surface) 8%, var(--m3-surface-container-low)); transform: none; }
+html[data-ui-style='material3'] .cal-cell-today { border-color: var(--m3-primary); }
+html[data-ui-style='material3'] .cal-cell-today .cal-day-num { background: var(--m3-primary); color: var(--m3-on-primary); border-radius: 9999px; min-width: 28px; min-height: 28px; display: inline-grid; place-items: center; }
+html[data-ui-style='material3'] .cal-cell-selected { color: var(--m3-on-primary-container); background: var(--m3-primary-container); border-color: transparent; }
+html[data-ui-style='material3'] .cal-cell-other { opacity: .55; }
+html[data-ui-style='material3'] .cal-day-num { font-size: 16px; font-weight: 500; }
+html[data-ui-style='material3'] :is(.cal-lunar, .cal-tag) { color: var(--m3-on-surface-variant); font-size: 11px; }
+html[data-ui-style='material3'] :is(.cal-tag-festival, .cal-tip-festival) { color: var(--m3-tertiary); }
+html[data-ui-style='material3'] :is(.cal-mark-todo, .cal-mark-event) { background: var(--m3-primary); }
+html[data-ui-style='material3'] .cal-mark-diary { background: var(--m3-tertiary); }
+html[data-ui-style='material3'] .cal-tooltip :is(.cal-tip-date, .cal-tip-diary-title, .cal-tip-diary-content) { color: var(--m3-inverse-on-surface); }
+html[data-ui-style='material3'] .cal-tooltip .cal-tip-event { color: var(--m3-inverse-primary); }
+html[data-ui-style='material3'] .heat-0 { background: var(--m3-surface-container-high); }
+html[data-ui-style='material3'] .heat-1 { background: color-mix(in srgb, var(--m3-primary) 25%, var(--m3-surface)); }
+html[data-ui-style='material3'] .heat-2 { background: color-mix(in srgb, var(--m3-primary) 50%, var(--m3-surface)); }
+html[data-ui-style='material3'] .heat-3 { background: color-mix(in srgb, var(--m3-primary) 75%, var(--m3-surface)); }
+html[data-ui-style='material3'] .heat-4 { background: var(--m3-primary); }
+html[data-ui-style='material3'] .activity-heatmap { min-width: 0; max-width: 100%; }
+html[data-ui-style='material3'] .activity-heatmap > div:first-child { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding-block: 16px; }
+html[data-ui-style='material3'] .activity-heatmap > div:first-child > .flex { flex-direction: column; align-items: flex-start; gap: 8px; }
+html[data-ui-style='material3'] .activity-heatmap > div:first-child > div:not(.flex) { grid-column: 1 / -1; margin-left: 0; display: flex; align-items: center; gap: 8px; text-align: start; }
+html[data-ui-style='material3'] .activity-heatmap > div:first-child .font-pixel { font-size: 12px; line-height: 16px; letter-spacing: .025em; }
+html[data-ui-style='material3'] .activity-heatmap .pixel-chip { background: transparent; color: var(--m3-on-surface-variant); border: 0; padding: 0; font-size: 14px; line-height: 20px; }
+html[data-ui-style='material3'] .activity-heatmap svg { max-height: 120px; }
+html[data-ui-style='material3'] .activity-heatmap-scroll { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; padding-block: 4px; }
+html[data-ui-style='material3'] .activity-heatmap-months { width: max-content; }
+html[data-ui-style='material3'] .activity-heatmap-months { height: 16px; }
+html[data-ui-style='material3'] .activity-heatmap-months > span { font-size: 11px; line-height: 16px; }
+html[data-ui-style='material3'] .activity-heatmap-cells { overflow: visible; }
+
+/* Settings dialogs/subpages remain operable at 320px, with adaptive local nav. */
+html[data-ui-style='material3'] :is(.theme-card, .mode-btn, .settings-mini-btn) { border-color: var(--m3-outline); border-radius: 12px; background: var(--m3-surface-container-low); }
+html[data-ui-style='material3'] :is(.theme-card.active, .mode-btn.active) { border-color: var(--m3-primary); background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+html[data-ui-style='material3'] .settings-label { font-size: 14px; line-height: 20px; font-weight: 500; }
+html[data-ui-style='material3'] .settings-header { padding-bottom: 16px; border-color: var(--m3-outline-variant); }
+html[data-ui-style='material3'] :is(#ai-chat-float, [data-ai-panel]) { border-radius: 16px; border-color: var(--m3-outline-variant); background: var(--m3-surface-container-low); box-shadow: var(--m3-elevation-3); }
+html[data-ui-style='material3'] .ai-md-body { font-family: var(--m3-font); font-size: 14px; line-height: 1.65; }
+html[data-ui-style='material3'] .ai-md-body pre { border-radius: 12px; background: var(--m3-surface-container-high); color: var(--m3-on-surface); }
+html[data-ui-style='material3'] .ai-md-body :not(pre) > code { background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+html[data-ui-style='material3'] .ai-md-body blockquote { border-left-color: var(--m3-primary); opacity: 1; color: var(--m3-on-surface-variant); }
+html[data-ui-style='material3'] .ai-md-body :is(th, td) { border-color: var(--m3-outline-variant); padding: 8px 12px; }
+html[data-ui-style='material3'] .ai-md-body .katex-error { color: var(--m3-error); }
+
+/* Twikoo injects Element UI and inline styles outside React. These owned chrome
+   overrides deliberately need !important against its shipped theme. */
+html[data-ui-style='material3'] :is(.tk-comments, .tk-comment, .tk-submit) { color: var(--m3-on-surface); font-family: var(--m3-font); }
+html[data-ui-style='material3'] .tk-content { color: var(--m3-on-surface); }
+html[data-ui-style='material3'] :is(.tk-meta-input .el-input__inner, .tk-input .el-textarea__inner) { background: var(--m3-surface) !important; color: var(--m3-on-surface) !important; border: 1px solid var(--m3-outline) !important; border-radius: 4px !important; box-shadow: none !important; padding: 12px 16px; min-height: 48px; font: 16px/1.5 var(--m3-font); }
+html[data-ui-style='material3'] :is(.tk-meta-input .el-input__inner, .tk-input .el-textarea__inner):focus { border-color: var(--m3-primary) !important; outline: 2px solid var(--m3-primary); outline-offset: -2px; }
+html[data-ui-style='material3'] .tk-submit .el-button { min-height: 40px; border-radius: 9999px !important; background: var(--m3-primary) !important; color: var(--m3-on-primary) !important; border: 0 !important; font: 500 14px var(--m3-font); padding: 10px 24px; }
+html[data-ui-style='material3'] :is(.tk-nick, .tk-nick-link, .tk-action-link, .tk-action-icon) { color: var(--m3-primary) !important; }
+html[data-ui-style='material3'] .tk-tag { border-radius: 8px; border-color: var(--m3-outline-variant); background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+html[data-ui-style='material3'] :is(.tk-time, .tk-meta, .tk-footer) { color: var(--m3-on-surface-variant); }
+
+/* Cadence colours already map to root theme; its handcraft shape/motion aliases
+   and portals get Material containers as well. */
+html[data-ui-style='material3'] .cadence-root {
+  --radius-hand-sm: 8px;
+  --radius-hand-md: 12px;
+  --radius-hand-lg: 28px;
+  --radius-hand-pill: 9999px;
+  --dur-fast: 150ms;
+  --dur-base: 300ms;
+  --dur-slow: 400ms;
+  --ease-standard: var(--m3-ease-standard);
+  --ease-decelerate: var(--m3-ease-emphasized);
+  --scrim: color-mix(in srgb, var(--m3-scrim) 32%, transparent);
+  --paper-shadow: rgb(0 0 0 / 12%);
+  --paper-shadow-strong: rgb(0 0 0 / 18%);
+  color: var(--m3-on-surface);
+}
+html[data-ui-style='material3'] .cadence-root :is(.surface-card, .sticky-surface, .hand-frame) { border: 1px solid var(--m3-outline-variant); border-radius: 12px; background: var(--m3-surface-container-low); box-shadow: none; }
+html[data-ui-style='material3'] .cadence-root .surface-card-hover:hover { background: color-mix(in srgb, var(--m3-on-surface) 4%, var(--m3-surface-container-low)); box-shadow: var(--m3-elevation-1); }
+html[data-ui-style='material3'] .cadence-root .surface-paper { background: var(--m3-surface); }
+html[data-ui-style='material3'] .cadence-root .surface-inset { background: var(--m3-surface-container); }
+html[data-ui-style='material3'] .cadence-root :is(h2, h3, .font-serif) { font-family: var(--m3-font); letter-spacing: 0; font-weight: 500; }
+html[data-ui-style='material3'] .cadence-root .cadence-sidebar { border: 0; padding: 12px; border-radius: 16px; background: var(--m3-surface-container-low); }
+html[data-ui-style='material3'] :is([data-m3-role='navigation-item'], .cadence-root nav a) { min-height: 48px; padding: 12px 16px; border-radius: 9999px; color: var(--m3-on-surface-variant); }
+html[data-ui-style='material3'] :is([data-m3-role='navigation-item'], .cadence-root nav a)[aria-current='page'] { color: var(--m3-on-secondary-container); background: var(--m3-secondary-container); }
+html[data-ui-style='material3'] .cadence-root [data-m3-role='dialog'] { border: 0; border-radius: 28px; background: var(--m3-surface-container-high); box-shadow: var(--m3-elevation-3); }
+html[data-ui-style='material3'] [data-m3-role='checkbox'] { align-items: center; min-height: 48px; color: var(--m3-on-surface); }
+html[data-ui-style='material3'] [data-m3-role='checkbox-indicator'] { border-radius: 2px; background: transparent; border: 2px solid var(--m3-on-surface-variant); box-shadow: none; width: 20px; height: 20px; margin: 0; }
+html[data-ui-style='material3'] [data-m3-role='checkbox'][data-m3-checked='true'] [data-m3-role='checkbox-indicator'] { background: var(--m3-primary); border-color: var(--m3-primary); }
+html[data-ui-style='material3'] [data-m3-role='checkbox'][data-m3-checked='true'] [data-m3-role='checkbox-indicator'] path { stroke: var(--m3-on-primary); }
+html[data-ui-style='material3'] [data-m3-role='checkbox-indicator'] .material-symbol { font-size: 18px; color: var(--m3-on-primary); }
+html[data-ui-style='material3'] [data-m3-role='checkbox'][data-m3-checked='false'] .material-symbol { visibility: hidden; }
+html[data-ui-style='material3'] [data-m3-role='checkbox'] input.sr-only { width: 1px; height: 1px; }
+html[data-ui-style='material3'] [data-m3-role='checkbox'][data-m3-disabled='true'] { opacity: .38; }
+html[data-ui-style='material3'] [data-m3-role='progress'] { color: var(--m3-primary); }
+html[data-ui-style='material3'] [data-m3-role='page-header'] h1 { font-size: 28px; line-height: 36px; font-weight: 400; }
+html[data-ui-style='material3'] [data-m3-role='loading-state'] { color: var(--m3-on-surface-variant); }
+html[data-ui-style='material3'] [data-m3-role='error-state'] { color: var(--m3-on-error-container); background: var(--m3-error-container); border-radius: 12px; padding: 16px; }
+html[data-ui-style='material3'] [data-m3-role='fab'] { min-width: 56px; min-height: 56px; width: 56px; height: 56px; padding: 16px; border: 0; border-radius: 16px; color: var(--m3-on-primary-container); background: var(--m3-primary-container); box-shadow: var(--m3-elevation-3); }
+html[data-ui-style='material3'] [data-m3-role='fab']:hover { box-shadow: var(--m3-elevation-4); }
+/* The Cadence assistant and global tools share the right edge. Reserve one
+   56px FAB plus a 12px gap, and clear the edge while its panel is open. */
+html[data-ui-style='material3'] body:has([data-m3-module='schedule']) .side-toolbar { right: 20px; bottom: 88px; }
+html[data-ui-style='material3'] body:has([data-m3-module='schedule'] [role='dialog'][aria-label='AI 助手']) .side-toolbar { visibility: hidden; pointer-events: none; }
+@media (max-width: 767px) {
+  html[data-ui-style='material3'] body:has([data-m3-module='schedule']) .side-toolbar { bottom: calc(164px + env(safe-area-inset-bottom, 0px)); }
+}
+html[data-ui-style='material3'] [data-m3-role='panel-header'] { background: var(--m3-surface-container-high); color: var(--m3-on-surface); border-bottom: 1px solid var(--m3-outline-variant); padding: 12px 16px; }
+html[data-ui-style='material3'] [data-m3-role='editor-toolbar'] { background: var(--m3-surface-container-low); border-color: var(--m3-outline-variant); padding: 8px 12px; gap: 4px; }
+html[data-ui-style='material3'] [data-m3-role='editor-toolbar'] [data-m3-role='icon-button'] { min-height: 40px; min-width: 40px; padding: 8px; }
+html[data-ui-style='material3'] [data-m3-module='ai-chat-float'] { border-radius: 16px; background: var(--m3-surface-container-low); }
+html[data-ui-style='material3'] [data-m3-module='ai-chat-float'] textarea { min-height: 48px; padding: 10px 12px; border-radius: 24px; }
+/* Existing success/warning hints use explicit Tailwind shades; adapt only
+   interface chrome, leaving deliberately coloured Markdown content alone. */
+html[data-ui-style='material3'] [class*='text-emerald-']:not(:where(.prose *, .ai-md-body *, .cm-content *)) { color: var(--m3-secondary); }
+html[data-ui-style='material3'] [class*='text-amber-']:not(:where(.prose *, .ai-md-body *, .cm-content *)) { color: var(--m3-tertiary); }
+html[data-ui-style='material3'] [class*='bg-emerald-500/']:not(:where(.prose *, .ai-md-body *, .cm-content *)) { background-color: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+html[data-ui-style='material3'] [class*='bg-amber-500/']:not(:where(.prose *, .ai-md-body *, .cm-content *)) { background-color: var(--m3-tertiary-container); color: var(--m3-on-tertiary-container); }
+html[data-ui-style='material3'] [class*='border-amber-500/']:not(:where(.prose *, .ai-md-body *, .cm-content *)) { border-color: var(--m3-tertiary); }
+
+/* These module rules follow the primitive sheet. Repeat their exact selectors
+   here so compact desktop visuals never override the larger touch target. */
+@media (any-pointer: coarse) {
+  html[data-ui-style='material3'] :is(.filter-panel .filter-tag, .filter-panel .filter-category, .search-type-btn, .pagination-btn, .pagination-input) { min-height: 48px; }
+  html[data-ui-style='material3'] .pagination-btn { min-width: 48px; }
+  html[data-ui-style='material3'] .tk-submit .el-button { min-height: 48px; }
+  html[data-ui-style='material3'] [data-m3-role='editor-toolbar'] [data-m3-role='icon-button'] { min-height: 48px; min-width: 48px; }
+}
+
+/* A large document collection must not push its selected article beyond the
+   whole mobile viewport. Keep the same tree and expansion state, with a local
+   scroll region while the three-column layout is stacked. */
+@media (max-width: 1023px) {
+  html[data-ui-style='material3'] #doc-ltoc-body { max-height: min(280px, 34dvh); overflow-y: auto; }
+}
+
+@media (max-width: 599px) {
+  html[data-ui-style='material3'] .landing-hero { min-height: 280px; width: calc(100% - 32px); margin-inline: 16px; padding-block: 24px; border-radius: 24px; }
+  html[data-ui-style='material3'] .landing-hero-content { padding-inline: 20px; }
+  html[data-ui-style='material3'] .landing-hero-content h1 { font-size: 28px; line-height: 36px; padding-right: 0; }
+  html[data-ui-style='material3'] .landing-hero-content > div[data-hero] { margin-top: 20px; gap: 8px; }
+  html[data-ui-style='material3'] .activity-heatmap .stat-num { font-size: 24px; line-height: 32px; }
+  html[data-ui-style='material3'] :is(.post-row, .doc-card, .archive-card.archive-card) { padding: 16px; }
+  html[data-ui-style='material3'] .post-row { align-items: flex-start; }
+  html[data-ui-style='material3'] .post-row h3 { font-size: 20px; line-height: 28px; }
+  html[data-ui-style='material3'] .byqx-toast-host { bottom: calc(92px + env(safe-area-inset-bottom)); width: calc(100% - 32px); }
+  html[data-ui-style='material3'] .byqx-toast { width: 100%; }
+  html[data-ui-style='material3'] [data-m3-role='snackbar-host'] { bottom: calc(92px + env(safe-area-inset-bottom)); }
+}
