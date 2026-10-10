@@ -11,6 +11,7 @@ import { saveDraft } from '@/lib/articles';
 import { badJson, badRequest, json, missing, readJson, serializeArticle } from '@/lib/api';
 import { ARTICLE_TYPES, isArticleType } from '../../../db/types';
 import { ArticlePasswordError } from '@/lib/article-password';
+import { ArticleConflictError, contentVersion } from '@/lib/article-content-version';
 
 export const prerender = false;
 
@@ -45,6 +46,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   try {
     const article = await saveDraft({
+      expectedContentHash: typeof body.expectedContentHash==='string'?body.expectedContentHash:undefined,
       id,
       title,
       type,
@@ -57,8 +59,9 @@ export const POST: APIRoute = async ({ request }) => {
       encryptPassword,
       encryptHint,
     });
-    return json({ ok: true, article: serializeArticle(article) });
+    return json({ ok: true, article: serializeArticle(article), contentHash: contentVersion(article.content) });
   } catch (err) {
+    if(err instanceof ArticleConflictError)return json({error:err.message},409);
     // 密码强度等参数错误 → 400，消息可直接展示给用户
     if (err instanceof ArticlePasswordError) {
       return badRequest(err.message);

@@ -1,13 +1,16 @@
 import { EditorState, StateEffect, StateField } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, keymap, placeholder } from '@codemirror/view';
+import { searchKeymap } from '@codemirror/search';
+import { searchFoldRestoration } from './cm-search-folds';
 import type { DecorationSet } from '@codemirror/view';
 import { defaultKeymap, redo, undo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { livePreview } from './cm-live-preview';
 import { scanVisualDirectives } from '../../lib/markdown-visual-directives';
 import type { VisualBlock, VisualItem } from '../../lib/markdown-visual-directives';
-import { columnBlocks } from './cm-columns-state';
+import { columnBlocks, registerEditorOwner, rootEditor, setColumnTarget } from './cm-columns-state';
+import { scanMarkdownCallouts } from '../../lib/markdown-callouts';
 import { headingFolding, rememberChildHeadingFolds, restoreChildHeadingFolds, unfoldHeadingAt } from './cm-heading-folding';
 
 export const setVisualSource = StateEffect.define<boolean>();
@@ -17,7 +20,7 @@ const visualSource = StateField.define<boolean>({
 });
 
 const controllers = new WeakMap<HTMLElement, VisualController>();
-interface Options { foldHeadings?: boolean; onSave?: () => void; onUndo?: (redo: boolean) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
+interface Options { childExtensions?: () => Extension; onPaste?: (event: ClipboardEvent) => boolean; foldHeadings?: boolean; onSave?: () => void; onUndo?: (redo: boolean) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
 function button(label: string, run: () => void, title = label): HTMLButtonElement {
   const node = document.createElement('button'); node.type = 'button'; node.textContent = label; node.title = title;
   node.addEventListener('mousedown', (event) => event.preventDefault());
@@ -93,20 +96,29 @@ class VisualController {
     if (this.children.has(index)) return;
     const item = this.block.items[index]; if (!item?.body) return;
     const child: EditorView = new EditorView({ parent: host, state: EditorState.create({
-      doc: this.bodyContent(item), extensions: [EditorView.lineWrapping, markdown(), livePreview(), placeholder('在这里写 Markdown…'),
+      doc: this.bodyContent(item), extensions: [EditorView.lineWrapping, markdown(), this.options.childExtensions?.() ?? livePreview(), searchFoldRestoration, placeholder('在这里写 Markdown…'),
         ...(this.options.foldHeadings ? [headingFolding()] : []),
         keymap.of([
           { key: 'Mod-s', run: () => { this.options.onSave?.(); return true; } },
-          { key: 'Mod-z', run: () => this.options.onUndo?.(false) ?? undo(this.parent), shift: () => this.options.onUndo?.(true) ?? redo(this.parent) },
-          { key: 'Mod-Shift-z', run: () => this.options.onUndo?.(true) ?? redo(this.parent) },
-          { key: 'Mod-y', run: () => this.options.onUndo?.(true) ?? redo(this.parent) },
+          { key: 'Mod-z', run: () => this.options.onUndo?.(false) ?? undo(rootEditor(this.parent)), shift: () => this.options.onUndo?.(true) ?? redo(rootEditor(this.parent)) },
+          { key: 'Mod-Shift-z', run: () => this.options.onUndo?.(true) ?? redo(rootEditor(this.parent)) },
+          { key: 'Mod-y', run: () => this.options.onUndo?.(true) ?? redo(rootEditor(this.parent)) },
           ...defaultKeymap,
+          ...searchKeymap,
         ]),
-        EditorView.domEventHandlers({ contextmenu: (event) => this.options.onContextMenu?.(event, child, this.parent) ?? false }),
+        EditorView.domEventHandlers({
+          contextmenu: (event) => this.options.onContextMenu?.(event, child, this.parent) ?? false,
+          focus: (event) => { if (event.target === child.contentDOM) { setColumnTarget(this.parent, child); setColumnTarget(child); } return false; },
+          paste: (event) => { setColumnTarget(this.parent, child); return this.options.onPaste?.(event) ?? false; },
+        }),
         EditorView.updateListener.of((update) => { if (this.editing || this.disposed || !update.docChanged) return; this.body(index, update.state.doc.toString()); }),
         EditorView.theme({ '&': { backgroundColor: 'transparent', fontSize: 'inherit' }, '&.cm-focused': { outline: 'none' }, '.cm-scroller': { fontFamily: 'inherit', overflow: 'visible' }, '.cm-content': { minHeight: '3rem', padding: '.5rem .25rem' }, '.cm-line': { padding: '0' } }),
       ],
     }) });
+    registerEditorOwner(child, this.parent, () => {
+      const body = this.block.items[index]!.body!, source = this.parent.state.doc.toString(), kind = this.block.kind;
+      return content => source.slice(0, body.from) + (kind === 'collapse' ? content.split('\n').map(line => line ? `  ${line}` : '').join('\n') : content) + source.slice(body.to);
+    });
     if (this.options.foldHeadings) restoreChildHeadingFolds(this.parent, `visual:${this.block.kind}:${this.block.from}:${index}`, child);
     this.children.set(index, child);
   }
@@ -302,7 +314,7 @@ export function revealVisualHeading(parent: EditorView, pos: number): boolean {
 export function visualDirectivesExtension(options: Options = {}): Extension {
   const build = (state: EditorState): DecorationSet => {
     if (state.field(visualSource)) return Decoration.none;
-    const columns = columnBlocks(state.doc);
+    const columns = [...columnBlocks(state.doc), ...scanMarkdownCallouts(state.doc.toString())];
     return Decoration.set(scanVisualDirectives(state.doc.toString()).filter((block) =>
       !columns.some((column) => block.from >= column.from && block.to <= column.to)).map((block) =>
       Decoration.replace({ block: true, widget: new VisualWidget(block, options) }).range(block.from, block.to)));

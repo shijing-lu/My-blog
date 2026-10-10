@@ -22,6 +22,10 @@ export const LOCAL_ONLY_TABLES = ['sync_mirror', 'sync_log', 'sync_conflicts'] a
  *      —— D4-W1 已为 14 张 lww 表补齐该列。
  */
 export const SYNC_POLICIES: SyncPolicy[] = [
+  { table: 'ai_edit_runs', pk: ['id'], role: 'skip', changeBy: 'hash', note: '当前站点 AI 修改与恢复快照' },
+  { table: 'ai_skill_versions', pk: ['id'], role: 'union', changeBy: 'hash', note: '完整技能不可变版本；分叉保留并显式选择' },
+  ...['mobile_sync_head', 'mobile_sync_records', 'mobile_sync_receipts'].map(table => ({ table, pk: ['id'], role: 'skip' as const, changeBy: 'hash' as const, note: '主服务端版本、墓碑与操作确认；不参与旧LWW复制' })),
+  { table: 'mobile_sessions', pk: ['id'], role: 'skip', changeBy: 'hash', note: '服务器认证凭据，不复制到桌面/备库，不使用LWW' },
   // Cadence 浏览器副本经自己的 CAS API 直接同步配置的云库，避免旧 LWW 引擎再次覆盖。
   { table: 'cadence_records', pk: ['id'], role: 'local-only', changeBy: 'hash', note: 'Cadence 专用三方同步管理' },
   // ── 站主内容（LWW）─────────────────────────────────────────────────
@@ -61,7 +65,7 @@ export const SYNC_POLICIES: SyncPolicy[] = [
     role: 'lww',
     changeBy: 'updated_at',
     note: '站点设置 KV；ai_usage 为高频计数器 → 排除（否则 LWW 会丢计数）',
-    excludeWhere: (row: SyncRow) => row.key === 'ai_usage',
+    excludeWhere: (row: SyncRow) => row.key === 'ai_usage' || row.key === 'ai_skill_mounts',
   },
 
   // ── 追加型（union，按主键并集）───────────────────────────────────────

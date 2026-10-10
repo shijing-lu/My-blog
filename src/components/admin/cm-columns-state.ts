@@ -47,13 +47,43 @@ export const columnsSource = StateField.define<boolean>({
 });
 
 const activeChildren = new WeakMap<EditorView, EditorView>();
+const owners = new WeakMap<EditorView, EditorView>();
+const projections = new WeakMap<EditorView, () => (source: string) => string>();
+export function registerEditorOwner(child: EditorView, parent: EditorView, projection?: () => (source: string) => string): void {
+  owners.set(child, parent); if (projection) projections.set(child, projection);
+}
+/** Freeze serialization functions before a dialog takes focus; never dispatch into a stale child. */
+export function captureEditorProjection(view: EditorView): { root: EditorView; project: (source: string) => string } | null {
+  const steps: Array<(source: string) => string> = [];
+  let parent = owners.get(view);
+  while (parent) {
+    const factory = projections.get(view); if (!factory) return null;
+    steps.push(factory()); view = parent; parent = owners.get(view);
+  }
+  return { root: view, project: source => steps.reduce((value, step) => step(value), source) };
+}
+export function rootEditor(view: EditorView): EditorView {
+  let owner = owners.get(view);
+  while (owner) { view = owner; owner = owners.get(view); }
+  return view;
+}
 export function setColumnTarget(parent: EditorView, child?: EditorView): void {
-  if (child) activeChildren.set(parent, child);
+  if (child) {
+    activeChildren.set(parent, child);
+    let owner = owners.get(parent);
+    while (owner) { activeChildren.set(owner, parent); parent = owner; owner = owners.get(parent); }
+  }
   else activeChildren.delete(parent);
 }
 export function columnTarget(parent: EditorView | null): EditorView | null {
-  const child = parent && activeChildren.get(parent);
-  return child?.dom.isConnected ? child : parent;
+  const seen = new Set<EditorView>();
+  while (parent && !seen.has(parent)) {
+    seen.add(parent);
+    const child = activeChildren.get(parent);
+    if (!child?.dom.isConnected) break;
+    parent = child;
+  }
+  return parent;
 }
 
 export const pendingColumnFocus = new WeakMap<EditorView, { pos: number; column: number; offset: number }>();

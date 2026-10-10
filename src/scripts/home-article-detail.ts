@@ -5,6 +5,7 @@ import { setupArticleDetailRails } from '@/lib/article-detail-rails';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import { confirmDanger } from '@/lib/confirm';
 import { enhanceBodyHeadings, revealBodyHeading } from '@/lib/body-heading-folding';
+import { installMarkdownFileDrop } from '@/lib/markdown-file-drop';
 
 const VIRTUAL_ROOT = '__home_uncategorized__';
 const data = (): HTMLElement | null => document.getElementById('doc-detail-data');
@@ -172,6 +173,14 @@ function setup(): void {
   if (tree && tree.dataset.homeMenuBound !== '1') {
     tree.dataset.homeMenuBound = '1';
     installTreeContextMenu(tree, command);
+    const cleanupImport = installMarkdownFileDrop(tree, {
+      nodes: readNodes, endpoint: '/api/articles/import', rootLabel: '未分类', virtualRootId: VIRTUAL_ROOT,
+      onImported: node => {
+        writeNodes([...readNodes().filter(item => item.id !== node.id), { ...node, parentId: node.parentId ?? VIRTUAL_ROOT }]);
+        renderTree();
+      },
+    });
+    document.addEventListener('astro:before-swap', cleanupImport, { once: true });
   }
   const rootFolder = document.getElementById('doc-add-root-folder');
   if (rootFolder && !rootFolder.dataset.bound) {

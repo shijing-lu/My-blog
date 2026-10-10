@@ -6,7 +6,7 @@ export function parseDeploymentSchema(source) {
   const statements = source.split('--> statement-breakpoint').map(s => s.trim()).filter(Boolean);
   const tables = [], indexes = [];
   for (const statement of statements) {
-    const table = statement.match(/^CREATE TABLE "([a-z_]+)" \(([\s\S]*)\);$/);
+    const table = statement.match(/^CREATE TABLE(?: IF NOT EXISTS)? "([a-z_]+)" \(([\s\S]*)\);$/);
     if (table) {
       const columns = table[2].split('\n').map(line => line.trim().replace(/,$/, ''))
         .filter(line => line.startsWith('"')).map(line => {
@@ -14,7 +14,11 @@ export function parseDeploymentSchema(source) {
           if (!match) throw new Error(`Cannot parse column in ${table[1]}`);
           return { name: match[1], definition: line };
         });
-      tables.push({ name: table[1], columns, create: statement.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ') });
+      tables.push({
+        name: table[1],
+        columns,
+        create: statement.replace(/^CREATE TABLE(?: IF NOT EXISTS)? /, 'CREATE TABLE IF NOT EXISTS '),
+      });
     } else if (/^CREATE (UNIQUE )?INDEX /.test(statement)) {
       indexes.push(statement.replace(/^(CREATE (?:UNIQUE )?INDEX) /, '$1 IF NOT EXISTS '));
     } else throw new Error('Unsupported deployment DDL; review the schema artifact');

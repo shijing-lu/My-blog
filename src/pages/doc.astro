@@ -1,5 +1,7 @@
 ---
 /* ===== Imports ===== */
+import '@/styles/article-workspace.css';
+import NeoIcon from '@/components/NeoIcon.astro';
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import DocCategoryNav from '@/components/doc/DocCategoryNav.astro';
 import { canManage } from '@/lib/admin-auth';
@@ -29,9 +31,11 @@ function esc(s: string): string {
     data-managing="false"
     data-active-cat="all"
   >
-    <main class="mx-auto w-full max-w-6xl px-4 py-10">
+    <main class="neo-library">
       {/* 页头：居中构图 —— 标题 + 统计（统计居中），管理开关悬于右上角 */}
       <div data-hero class="relative text-center">
+        <img src="/images/neobrutalism/cat-peek.webp" alt="" aria-hidden="true" width="100" height="60" />
+        <p class="text-xs font-bold text-primary">DOCUMENT LIBRARY</p>
         <h1 class="font-display text-3xl font-semibold tracking-tight">文档</h1>
         <p id="doc-stats" class="mt-1 text-sm text-muted-foreground" set:html={docStats(categories.length, totalBundles, totalArticles)} />
         {/* 管理开关：仅登录可见，默认关闭（aria-pressed 表达状态） */}
@@ -76,11 +80,12 @@ function esc(s: string): string {
       </div>
 
       {/* 搜索：置于文档列表下方居中（下拉面板仍向上方弹出定位于此容器） */}
-      <div class="relative mx-auto mt-10 w-full max-w-md">
+      <div class="library-search relative mx-auto mt-10 w-full max-w-md">
         <div class="flex items-center gap-2 border-b border-border px-1 py-2">
-          <span class="text-muted-foreground">🔍</span>
+          <NeoIcon name="search" size={20} />
           <input
             id="doc-search"
+            aria-label="搜索文档或文章"
             type="text"
             placeholder="搜索文档 / 文章…"
             class="min-w-0 flex-1 bg-transparent text-center text-sm outline-none placeholder:text-muted-foreground"

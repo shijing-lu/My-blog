@@ -20,6 +20,8 @@ export type { SyncProgress } from './engine';
 export interface SyncStatus {
   /** 是否正在同步 */
   running: boolean;
+  /** 本次同步开始时间，供界面显示等待时长 */
+  startedAt: number | null;
   /** 当前进度（未运行时为 null） */
   progress: SyncProgress | null;
   /** 最近一次同步报告（内存缓存；重启后可由 store.lastReport() 读回） */
@@ -33,6 +35,7 @@ export interface SyncStatus {
 /** 模块级状态（进程内单例；桌面端是长驻进程，Web 端每次调用会重新初始化 —— 无害） */
 const state: SyncStatus = {
   running: false,
+  startedAt: null,
   progress: null,
   lastReport: null,
   lastError: null,
@@ -97,6 +100,7 @@ export async function startSync(
 
   const warnings: string[] = [];
   state.running = true;
+  state.startedAt = Date.now();
   state.lastError = null;
   state.progress = null;
 
@@ -128,6 +132,7 @@ export async function startSync(
       throw err;
     } finally {
       state.running = false;
+      state.startedAt = null;
       state.progress = null;
     }
   })();

@@ -11,6 +11,9 @@ import { useMotionFeedback } from '@/components/ui/use-motion-feedback';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import MarkdownEditor from './MarkdownEditor';
+import { registerAiEditor } from '@/lib/ai-editor-bridge';
+import { createLatestSaveQueue } from '@/lib/latest-save-queue';
+import { registerArticleBaseline, articleContentVersion, setArticleContentVersion } from '@/lib/pending-article-saves';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import MindMapEditor from '../mindmap/MindMapEditor';
 import type { ArticleType } from '../../../db/types';
@@ -150,15 +153,20 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
   draftRef.current = draft;
   const saveTimer = useRef<number | null>(null);
   const versionRef = useRef(0);
+  const aiLockedRef = useRef(false), aiApplyingRef = useRef(false);
+  const savedPayloadRef = useRef('');
+  const draftQueueRef = useRef<ReturnType<typeof createLatestSaveQueue<InitialDraft>> | null>(null);
 
   /* ---- 保存 ---- */
-  const saveNow = useCallback(async (): Promise<boolean> => {
+  const writeDraft = useCallback(async (draftSnapshot: InitialDraft): Promise<boolean> => {
     const v = ++versionRef.current;
     setSaveStatus('saving');
     try {
       const c = cryptoRef.current;
       // 构造请求体：访问密码字段按状态注入（见 resolveEncryption 的语义说明）
-      const payload: Record<string, unknown> = { ...draftRef.current };
+      const payload: Record<string, unknown> = { ...draftSnapshot };
+      const expectedContentHash=articleContentVersion(`/api/articles/${draftSnapshot.id}`);
+      if(expectedContentHash)payload.expectedContentHash=expectedContentHash;
       delete payload.encrypted;
       delete payload.encryptHint;
       // ⚠️ 正文**始终提交**（勿回退）：服务端拦截模式下正文明文入库，
@@ -179,6 +187,12 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
         payload.encrypt = 'disable';
       }
 
+      // Flushing an unchanged draft must not bump its server version during an AI run.
+      const payloadSignature = JSON.stringify({ ...payload, expectedContentHash: undefined });
+      if (savedPayloadRef.current === payloadSignature) {
+        setSaveStatus('saved');
+        return true;
+      }
       const res = await fetch('/api/save-draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -189,6 +203,7 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
         return false;
       }
       if (!res.ok) {
+        if(res.status===409) { const conflict=await res.json().catch(()=>({}));setCryptoMsg(conflict.error||'正文在其他窗口发生变化，当前修改已保留'); }
         // 400 多为密码强度等可展示的业务错误
         if (res.status === 400) {
           const d = (await res.json().catch(() => ({}))) as { error?: string };
@@ -197,6 +212,9 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
         if (v === versionRef.current) setSaveStatus('error');
         return false;
       }
+      const ack=await res.json().catch(()=>({})) as {contentHash?:string};
+      savedPayloadRef.current = payloadSignature;
+      if(ack.contentHash)setArticleContentVersion(`/api/articles/${draftSnapshot.id}`,ack.contentHash);
       if (v === versionRef.current) {
         setCryptoMsg('');
         setSaveStatus('saved');
@@ -218,6 +236,18 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
     }
   }, []);
 
+  const saveNow = useCallback(async (): Promise<boolean> => {
+    if (aiLockedRef.current) return false;
+    draftQueueRef.current ??= createLatestSaveQueue(() => draftRef.current, async snapshot => {
+      if (!(await writeDraft(snapshot))) throw new Error('草稿保存失败');
+    });
+    try { await draftQueueRef.current.flush(); return true; } catch { return false; }
+  }, [writeDraft]);
+  useEffect(()=>{
+    if(!selectedId)return;
+    void registerArticleBaseline(`/api/articles/${selectedId}`,draftRef.current.content).catch(()=>{});
+  },[selectedId]);
+
   const scheduleSave = useCallback((): void => {
     setSaveStatus('dirty');
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
@@ -228,11 +258,31 @@ export default function LiveEditor({ initial, articles, categories, categoryMap 
 
   const update = useCallback(
     <K extends keyof InitialDraft>(key: K, value: InitialDraft[K]): void => {
-      setDraft((d) => ({ ...d, [key]: value }));
+      const next = { ...draftRef.current, [key]: value }; draftRef.current = next; setDraft(next);
+      if (aiApplyingRef.current) return;
       scheduleSave();
     },
     [scheduleSave],
   );
+
+  useEffect(() => {
+    if (!editorReady || viewMode !== 'edit' || !selectedId || encryptOn) return;
+    return registerAiEditor({ session: crypto.randomUUID(), domain: 'article', targetId: selectedId,
+      ownsRoot: root => editorRef.current?.ownsRoot(root) ?? false,
+      source: () => editorRef.current?.getSource() ?? draftRef.current.content,
+      flush: async () => { editorRef.current?.flushInputs(); if (saveTimer.current) window.clearTimeout(saveTimer.current); return saveNow(); },
+      lock: locked => { aiLockedRef.current = locked; editorRef.current?.lockAiInput(locked); },
+      apply: (content,contentHash) => {
+        savedPayloadRef.current = '';
+        aiApplyingRef.current = true;
+        try { editorRef.current?.applyAiSource(content); const next = {...draftRef.current,content}; draftRef.current=next;setDraft(next); }
+        finally { aiApplyingRef.current = false; }
+        if (saveTimer.current) window.clearTimeout(saveTimer.current); draftQueueRef.current = null;
+        if(contentHash)setArticleContentVersion(`/api/articles/${selectedId}`,contentHash);
+        setSaveStatus('saved'); setLastSaved(new Date().toLocaleTimeString('zh-CN', {hour12:false}));
+      },
+    });
+  }, [selectedId, editorReady, viewMode, encryptOn, saveNow]);
 
   useEffect(
     () => () => {

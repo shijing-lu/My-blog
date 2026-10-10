@@ -1,0 +1,16 @@
+#profile-dialog, .neo-confirm-dialog { font-family: var(--neo-font); border: 2px solid var(--neo-ink); border-radius: 20px; background: var(--neo-paper); color: var(--neo-ink); box-shadow: 6px 7px 0 var(--neo-orange); padding: 22px; width: min(520px,calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; }
+#profile-dialog :is(h2,h3,p,button,label,input,textarea), .neo-confirm-dialog :is(h3,p,button) { font-family: var(--neo-font); }
+#profile-dialog .settings-header { padding: 0 0 16px; border-bottom: 2px solid var(--neo-ink); align-items: center; }
+#profile-dialog .settings-header h2 { font-size: 25px; font-weight: 900; }
+#profile-dialog .neo-profile-cat { width: 62px; height: 50px; object-fit: contain; margin-left: auto; }
+#profile-dialog > .pixel-divider { display: none; }
+#profile-dialog :is(button,input:not([type='file']),textarea), .neo-confirm-dialog button { border: 1.5px solid var(--neo-ink); border-radius: 9px; background: var(--neo-paper); color: var(--neo-ink); min-height: 38px; font-size: 13px; }
+#profile-dialog :is(input:not([type='file']),textarea) { padding: 8px 10px; max-width: 100%; }
+#profile-dialog :is(#profile-save,#profile-edit-btn), .neo-confirm-dialog [data-confirm-ok] { box-shadow: 3px 3px 0 var(--neo-ink); background: var(--neo-orange); color: #151511; }
+#profile-dialog #profile-close { display: inline-flex; justify-content: center; align-items: center; padding: 6px; }
+#profile-dialog :is(a,button,input,textarea):focus-visible, .neo-confirm-dialog button:focus-visible { outline: 3px solid var(--neo-orange-text); outline-offset: 3px; }
+.neo-confirm-dialog h3 { font-size: 21px; font-weight: 850; }
+.neo-confirm-dialog [data-confirm-ok][data-m3-variant='danger'] { background: var(--color-destructive); color: var(--color-destructive-foreground); }
+.neo-confirm-dialog [data-confirm-cancel] { padding: 7px 13px; }
+.neo-confirm-dialog [data-confirm-message] { line-height: 1.8; color: var(--neo-muted); }
+@media (max-width: 767px) { #profile-dialog, .neo-confirm-dialog { padding: 18px; } #profile-dialog button, .neo-confirm-dialog button { min-height: 44px; } }

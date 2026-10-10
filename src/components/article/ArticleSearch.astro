@@ -1,0 +1,26 @@
+<div class="article-search-actions flex flex-wrap gap-2 text-xs">
+  <button type="button" data-article-search="site" data-m3-role="button" class="rounded-md border border-border px-3 py-2">全局搜索 <kbd>Ctrl+Shift+F</kbd></button>
+  <button type="button" data-article-search="article" data-m3-role="button" class="rounded-md border border-border px-3 py-2">文章搜索 <kbd>Ctrl+F</kbd></button>
+</div>
+<dialog id="article-global-search" class="m-auto w-[min(92vw,42rem)] max-h-[85dvh] rounded-xl border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40" aria-labelledby="article-global-search-title">
+  <div class="flex items-center justify-between gap-3"><h2 id="article-global-search-title">全站文章与文档搜索</h2><button type="button" data-search-close class="min-h-12 min-w-12" aria-label="关闭全局搜索">×</button></div>
+  <label class="mt-2 block">关键词<input id="article-site-query" type="search" autocomplete="off" class="mt-1 w-full rounded-md border border-input bg-background p-3" /></label>
+  <p id="article-site-status" class="my-3 text-xs text-muted-foreground" role="status" aria-live="polite"></p>
+  <div id="article-site-results" class="grid gap-3"></div>
+  <div class="mt-3 flex items-center justify-between"><button id="article-site-prev" type="button" class="min-h-12 px-3">上一页</button><span id="article-site-page" class="text-xs"></span><button id="article-site-next" type="button" class="min-h-12 px-3">下一页</button></div>
+</dialog>
+<section id="article-find" hidden aria-label="当前文章查找" class="sticky top-16 z-20 my-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2 shadow-sm">
+  <input id="article-find-query" type="search" aria-label="当前文章关键词" autocomplete="off" class="min-w-0 flex-1 rounded-md border border-input bg-background p-2" />
+  <span id="article-find-count" class="text-xs" role="status" aria-live="polite"></span>
+  <button type="button" data-find-prev aria-label="上一个匹配" class="min-h-10 min-w-10">↑</button><button type="button" data-find-next aria-label="下一个匹配" class="min-h-10 min-w-10">↓</button><button type="button" data-find-close aria-label="关闭文章查找" class="min-h-10 min-w-10">×</button>
+</section>
+<script>import '@/scripts/article-search';</script>
+<style is:global>
+  #article-find[hidden] { display: none; }
+  ::highlight(article-find) { background-color: #ffe082; color: #1f1b00; }
+  ::highlight(article-find-current) { background-color: #ffb300; color: #161000; }
+  .article-find-mark { background: #ffe082; color: #1f1b00; }
+  .spoiler.article-find-reveal { color: inherit !important; background: transparent !important; filter: none !important; }
+  #article-global-search { overflow-y: auto; white-space: normal; }
+  .article-search-actions kbd { font-size: .65rem; opacity: .65; }
+</style>

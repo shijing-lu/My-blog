@@ -1,0 +1,50 @@
+/* Shared reading/editor palette. Explicit .prose selectors also work in Markdown CSS settings. */
+html :is(.prose, .cm-lp-code) {
+  --soft-code-bg: #f3f1ec;
+  --soft-code-text: #394956;
+  --soft-code-border: #dcd7cf;
+  --soft-code-muted: #7b807e;
+  --soft-code-keyword: #655b85;
+  --soft-code-string: #4d7160;
+  --soft-code-number: #8b6945;
+  --soft-code-function: #416780;
+}
+html.dark :is(.prose, .cm-lp-code) {
+  --soft-code-bg: #282c30;
+  --soft-code-text: #d0d7dc;
+  --soft-code-border: #42494e;
+  --soft-code-muted: #949e9e;
+  --soft-code-keyword: #b6a9ce;
+  --soft-code-string: #9ebaa6;
+  --soft-code-number: #c5ac88;
+  --soft-code-function: #9ebdd0;
+}
+html :is(.prose pre, .cm-lp-code pre) {
+  background: var(--soft-code-bg) !important;
+  color: var(--soft-code-text) !important;
+  border: 1px solid var(--soft-code-border) !important;
+  box-shadow: none;
+}
+html :is(.prose pre, .cm-lp-code pre) code {
+  background: transparent !important;
+  color: inherit !important;
+  border: 0 !important;
+  padding: 0 !important;
+  font-weight: 400;
+}
+html :is(.prose pre, .cm-lp-code pre) .token { color: var(--soft-code-text) !important; }
+html :is(.prose pre, .cm-lp-code pre) .token:is(.comment, .prolog, .doctype, .cdata) { color: var(--soft-code-muted) !important; }
+html :is(.prose pre, .cm-lp-code pre) .token:is(.keyword, .important, .atrule, .rule) { color: var(--soft-code-keyword) !important; }
+html :is(.prose pre, .cm-lp-code pre) .token:is(.string, .char, .attr-value, .regex, .inserted) { color: var(--soft-code-string) !important; }
+html :is(.prose pre, .cm-lp-code pre) .token:is(.number, .boolean, .constant, .symbol, .builtin) { color: var(--soft-code-number) !important; }
+html :is(.prose pre, .cm-lp-code pre) .token:is(.function, .method, .class-name, .tag, .property, .attr-name) { color: var(--soft-code-function) !important; }
+html .prose pre .code-line.line-number::before { color: var(--soft-code-muted); }
+html .prose pre :is(.copy-button, .collapse-toggle) {
+  background: var(--soft-code-bg);
+  color: var(--soft-code-text);
+  border-color: var(--soft-code-border);
+}
+html .prose pre :is(.copy-button, .collapse-toggle):hover {
+  background: color-mix(in srgb, var(--soft-code-text) 10%, var(--soft-code-bg));
+  color: var(--soft-code-text);
+}

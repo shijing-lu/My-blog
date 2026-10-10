@@ -115,7 +115,7 @@ export default function EditorShortcutsSettings() {
     return (
       <div
         key={def.id}
-        className="flex items-center justify-between gap-3 border-b border-border/60 px-3 py-2 last:border-b-0"
+        className="neo-shortcut-row flex items-center justify-between gap-3 border-b border-border/60 px-3 py-2 last:border-b-0"
       >
         <div className="min-w-0">
           <p className="truncate text-sm text-foreground">{def.label}</p>
@@ -153,7 +153,7 @@ export default function EditorShortcutsSettings() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="neo-shortcuts space-y-5">
       <header>
         <h2 className="text-lg font-medium text-foreground">编辑器快捷键</h2>
         <p className="mt-1 text-sm text-muted-foreground">

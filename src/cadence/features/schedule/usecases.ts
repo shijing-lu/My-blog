@@ -27,6 +27,7 @@ import {
   snapDown,
 } from "@/cadence/entities/schedule";
 import type { CadenceDatabase } from "@/cadence/data/db/database";
+import { validTimeSpan } from '@/cadence/entities/schedule/time-input';
 
 export interface ScheduleDeps {
   database: CadenceDatabase;
@@ -85,6 +86,7 @@ export async function createEvent(
 ): Promise<ScheduleEvent> {
   const title = draft.title.trim();
   if (title.length === 0) throw new Error("日程标题不能为空");
+  if (!validTimeSpan(draft.startMin, draft.endMin)) throw new Error('请输入当天有效的起止时间，结束须晚于开始');
   if (draft.endMin - draft.startMin < MIN_DURATION_MIN) {
     throw new Error(`日程至少要 ${MIN_DURATION_MIN} 分钟`);
   }
@@ -139,7 +141,7 @@ export async function moveEvent(
   return next;
 }
 
-/** 底缘拖拽调时长：改结束时间，最短 15 分钟 */
+/** 底缘拖拽调时长：改结束时间，最短 1 分钟 */
 export async function resizeEvent(
   deps: ScheduleDeps,
   dateKey: string,
@@ -165,7 +167,7 @@ export async function updateEventDetails(
   deps: ScheduleDeps,
   dateKey: string,
   eventId: ScheduleEventId,
-  draft: { title?: string | undefined; note?: string | undefined },
+  draft: { title?: string | undefined; note?: string | undefined; startMin?: number; endMin?: number },
   now: number,
 ): Promise<ScheduleEvent> {
   const events = await listDayEvents(deps, dateKey);
@@ -176,9 +178,13 @@ export async function updateEventDetails(
   if (title !== undefined && title.length === 0)
     throw new Error("日程标题不能为空");
   const note = draft.note?.trim();
+  const startMin = draft.startMin ?? event.startMin, endMin = draft.endMin ?? event.endMin;
+  if (!validTimeSpan(startMin, endMin)) throw new Error('请输入当天有效的起止时间，结束须晚于开始');
+  assertNoOverlap(events, { id: event.id, startMin, endMin });
 
   const next: ScheduleEvent = {
     ...event,
+    startMin, endMin,
     ...(title !== undefined ? { title } : {}),
     ...(note !== undefined && note.length > 0 ? { note } : { note: undefined }),
     updatedAt: now,

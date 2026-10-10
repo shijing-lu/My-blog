@@ -17,6 +17,12 @@
  *   - 配置文件含数据库凭据与站主密码，存 %APPDATA%/byqx-blog-desktop（用户级 ACL）
  *   - preload 不暴露任何 Node 能力（contextIsolation）
  */
+// Packaged tools run in their own Electron process before the blog single-instance
+// lock, server, credentials and tray are initialized.
+if (process.argv.includes('--toolchain-runner')) {
+  const runnerIndex = process.argv.indexOf('--toolchain-runner');
+  require(process.argv[runnerIndex + 1]);
+} else {
 const { app, BrowserWindow, Tray, Menu, dialog, nativeImage, session, shell, ipcMain, utilityProcess } = require('electron');
 const { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, appendFileSync, statSync } = require('node:fs');
 const path = require('node:path');
@@ -28,6 +34,11 @@ const APP_ROOT = path.join(__dirname, '..');
 /** 配置目录（固定名，不随 productName 变，便于文档与排障） */
 const CONFIG_DIR = path.join(app.getPath('appData'), 'byqx-blog-desktop');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+let toolchainStore;
+const toolchain = { operation(action, input) {
+  toolchainStore ||= require('./toolchain/manager.cjs').createToolchain({ directory: path.join(CONFIG_DIR, 'toolchain'), app, shell, nativeImage });
+  return toolchainStore.operation(action, input);
+} };
 
 /** 必填项：缺一则服务无法正常使用 */
 const REQUIRED_KEYS = ['SYNC_DATABASE_URL', 'ADMIN_PASSWORD'];
@@ -246,6 +257,38 @@ function openExternalPage(url) {
 }
 
 ipcMain.handle('desktop:navigation-state', (event) => navigationState(navigationWindow(event.sender)));
+async function toolchainOwner(event) {
+  const win = navigationWindow(event.sender);
+  if (!win || event.senderFrame !== event.sender.mainFrame || !isLocalPage(event.senderFrame.url) || new URL(event.senderFrame.url).pathname.replace(/\/+$/, '') !== '/toolchain') throw Error('请在桌面端工具链页面操作');
+  const cookies = await event.sender.session.cookies.get({ url: siteBaseUrl });
+  const response = await fetch(`${siteBaseUrl}/api/toolchain/access`, { headers: { cookie: cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ') }, signal: AbortSignal.timeout(4000) });
+  if (!response.ok) throw Error('工具链仅对站主开放，请重新登录');
+  return win;
+}
+ipcMain.handle('desktop:toolchain', async (event, action, input) => {
+  try {
+    await toolchainOwner(event);
+    if (!['list', 'inspect-software', 'inspect-project', 'save', 'reorder', 'launch', 'stop', 'restart', 'remove', 'favorite', 'folder', 'logs'].includes(action)) throw Error('不支持的工具操作');
+    return { ok: true, data: await toolchain.operation(action, input) };
+  } catch (error) { return { ok: false, error: error.message || '工具操作失败' }; }
+});
+ipcMain.handle('desktop:toolchain-picker', async (event, kind) => {
+  try {
+    const win = await toolchainOwner(event);
+    if (!['software', 'source'].includes(kind)) throw Error('不支持的选择方式');
+    const result = await dialog.showOpenDialog(win, kind === 'source'
+      ? { title: '选择源码项目文件夹', properties: ['openDirectory'] }
+      : { title: '选择快捷方式或程序', properties: ['openFile'], filters: [{ name: '软件与快捷方式', extensions: ['lnk', 'exe'] }] });
+    if (result.canceled) return { ok: true, data: null };
+    return { ok: true, data: await toolchain.operation(kind === 'source' ? 'inspect-project' : 'inspect-software', { path: result.filePaths[0] }) };
+  } catch (error) { return { ok: false, error: error.message || '选择失败' }; }
+});
+ipcMain.handle('desktop:pick-skill-directory', async (event, skillId) => {
+  const win = navigationWindow(event.sender);
+  if (!win || !isLocalPage(event.senderFrame?.url || '') || !['note-normalizer', 'my-blog-structured-notes'].includes(skillId)) return null;
+  const result = await dialog.showOpenDialog(win, { title: `选择 ${skillId} 技能目录`, properties: ['openDirectory'] });
+  return result.canceled ? null : result.filePaths[0] || null;
+});
 ipcMain.handle('desktop:navigation-back', (event) => {
   const win = navigationWindow(event.sender);
   if (win && navigationState(win).canGoBack) win.webContents.navigationHistory.goBack();
@@ -778,3 +821,4 @@ void main().catch((err) => {
   dialog.showErrorBox('启动失败', `${msg}\n\n日志：${path.join(CONFIG_DIR, 'logs', 'launch.log')}`);
   app.quit();
 });
+}

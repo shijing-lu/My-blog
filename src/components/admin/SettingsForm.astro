@@ -17,6 +17,8 @@ import { getLandingHero } from '@/lib/landing';
 import { getSiteFonts, hasManualFontSettings, listFontsMeta } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 import EditorShortcutsSettings from '@/components/admin/EditorShortcutsSettings';
+import AiSubscriptionSettings from './AiSubscriptionSettings';
+import AiSkillsSettings from '@/components/admin/AiSkillsSettings';
 import UiStyleSettings from '@/components/admin/UiStyleSettings.astro';
 import SyncConnectionSettings from '@/components/admin/SyncConnectionSettings.astro';
 import ClassicAppearanceSettings from '@/components/admin/ClassicAppearanceSettings.astro';
@@ -24,10 +26,9 @@ import { serverEnv } from '@/lib/env';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 import { getMdCssLibrary } from '@/lib/md-css-library';
-import { getCustomSiteCss } from '@/lib/site-css';
-import { DEFAULT_SITE_TEXT_CSS, SITE_TEXT_PRESETS } from '@/lib/site-css-defaults';
 import { getAiConfig, serializeAiConfig } from '@/lib/ai-config';
 import { getNetdiskConfig, serializeNetdiskConfig } from '@/lib/netdisk-config';
+import '@/styles/settings-workspace.css';
 
 /* ===== Logic ===== */
 /** 读取各类设置：诗词轮播 + 外观（字体 + 背景） */
@@ -77,14 +78,11 @@ const mdCssUpdatedAtText =
 const mdCssLib = await getMdCssLibrary();
 
 /** 全站文字样式：自定义原文进 textarea；内置默认包用于「填入默认」按钮与说明 */
-const siteCss = await getCustomSiteCss();
-const siteCssHasCustom = siteCss.css.trim() !== '';
-const siteCssUpdatedAtText =
-  siteCss.updatedAt != null ? new Date(siteCss.updatedAt).toLocaleString('zh-CN') : '';
+
 ---
 
 <!-- ===== Template ===== -->
-<div id="settings-form-root" data-m3-module="settings-form">
+<div id="settings-form-root" data-m3-module="settings-form" class="neo-settings-form">
     <!-- 站点名称分区 -->
     {showSiteName && (<>
     <section id="site-name" data-settings-section="site-name" class="border-t border-border pt-6" data-name={siteName}>
@@ -135,12 +133,12 @@ const siteCssUpdatedAtText =
         <a href="/" class="text-xs text-muted-foreground hover:text-primary">查看效果 →</a>
       </div>
       <p class="mt-1 text-xs text-muted-foreground">
-        首页 Hero 大字的古诗/名言：逐字闪烁出现，全部显示后停留，再倒序逐字还原并轮播到下一条。
+        首页首先显示列表第一条，整句淡入淡出切换。减少动态模式下停止自动轮播。
       </p>
 
       <div data-m3-columns="2" class="mt-5 grid grid-cols-2 gap-3">
-        <label class="block text-xs font-medium text-muted-foreground">
-          逐字间隔（毫秒）
+        <label hidden class="hidden">
+          旧版逐字间隔（兼容字段）
           <input
             id="s-char-ms"
             type="number"
@@ -234,8 +232,8 @@ const siteCssUpdatedAtText =
             class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
           />
         </label>
-        <label class="block text-xs font-medium text-muted-foreground">
-          轮换动画
+        <label hidden class="hidden">
+          旧版轮换动画（兼容字段）
           <select
             id="landing-animation"
             class="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
@@ -250,7 +248,7 @@ const siteCssUpdatedAtText =
             id="landing-subtitle"
             type="text"
             maxlength="200"
-            placeholder="全面自由地发展吧，同志！…"
+            placeholder="敢于斗争，善于斗争"
             class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
           />
         </label>
@@ -283,13 +281,12 @@ const siteCssUpdatedAtText =
       data-has-manual-fonts={String(hasManualFonts)}
     >
       <UiStyleSettings />
-      <ClassicAppearanceSettings label="现有风格设置 · 字体与背景">
+      <ClassicAppearanceSettings label="内容显示设置 · 字体与背景">
       <!-- 全局字体 -->
       <p class="pixel-chip text-primary">FONTS</p>
-      <h2 class="mt-1 font-medium">全局字体</h2>
+      <h2 class="mt-1 font-medium">正文阅读字体</h2>
       <p class="mt-1 text-xs text-muted-foreground">
-        两种字体：<strong>文章字体</strong>用于文章正文；<strong>其他字体</strong>用于其余所有内容（标题、导航、按钮、评论、动态、UI 等，含像素装饰）。
-        手动设置后全站优先于主题；<strong>恢复跟随主题</strong>后回到主题自带界面字体（默认主题为像素风格，切换主题即换字体）。
+        文章正文可单独选择字体和字号。导航、首页和界面统一使用 Noto Sans SC；恢复默认后使用系统阅读字体。
       </p>
 
       <!-- 手动/跟随主题状态 + 操作 -->
@@ -300,7 +297,7 @@ const siteCssUpdatedAtText =
           type="button"
           class="hidden rounded-md border border-border px-2.5 py-1 text-xs transition-colors duration-200 hover:border-primary hover:text-primary"
         >
-          恢复跟随主题字体
+          恢复默认阅读字体
         </button>
         <p id="font-mode-status" class="hidden w-full text-xs text-destructive" role="alert"></p>
       </div>
@@ -324,7 +321,7 @@ const siteCssUpdatedAtText =
             }
           </select>
         </label>
-        <label class="block text-xs font-medium text-muted-foreground">
+        <label hidden class="hidden">
           其他字体（标题/UI/评论/动态等所有非正文）
           <select
             id="font-ui"
@@ -346,7 +343,7 @@ const siteCssUpdatedAtText =
 
       <!-- 字号缩放 -->
       <label class="mt-4 block text-xs font-medium text-muted-foreground">
-        字号缩放（部分字体字面偏小，可整体放大；全站 rem 等比生效）
+        正文字号缩放（仅作用于阅读内容）
         <select
           id="font-scale"
           class="mt-1 block w-48 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring"
@@ -421,7 +418,7 @@ const siteCssUpdatedAtText =
         </div>
 
         <!-- 星光闪烁开关（两种模式都生效） -->
-        <label class="mt-4 flex items-center gap-2 text-sm">
+        <label hidden class="hidden">
           <input id="bg-stardust" type="checkbox" class="size-4 accent-[var(--color-primary)]" />
           星光闪烁粒子（暗色模式背景装饰）
         </label>
@@ -563,6 +560,7 @@ const siteCssUpdatedAtText =
         >
           测试连接
         </button>
+        <button id="ai-test-tools" type="button" class="rounded-md border border-input bg-background px-4 py-1.5 text-sm transition-colors hover:bg-accent">测试工具调用</button>
         <span id="ib-test-result" class="text-xs" role="status"></span>
       </div>
 
@@ -744,7 +742,7 @@ const siteCssUpdatedAtText =
       class="border-t border-border pt-6"
       data-updated-at={mdCss.updatedAt != null ? String(mdCss.updatedAt) : ''}
     >
-      <ClassicAppearanceSettings label="现有风格设置 · Markdown 样式">
+      <ClassicAppearanceSettings label="内容显示设置 · Markdown 样式">
       <div data-m3-role="actions" class="flex items-center justify-between">
         <div>
           <p class="pixel-chip text-primary">MARKDOWN CSS</p>
@@ -930,120 +928,7 @@ const siteCssUpdatedAtText =
     </section>
     </>)}
 
-    <!-- 全站文字样式分区（内置默认风格包 + 自定义覆盖） -->
-    {showSiteCss && (
-    <section
-      id="site-css"
-      data-settings-section="site-css"
-      class="border-t border-border pt-6"
-      data-updated-at={siteCss.updatedAt != null ? String(siteCss.updatedAt) : ''}
-      data-default-css={DEFAULT_SITE_TEXT_CSS}
-      data-presets={JSON.stringify(SITE_TEXT_PRESETS)}
-    >
-      <ClassicAppearanceSettings label="现有风格设置 · 全站样式">
-      <div data-m3-role="actions" class="flex items-center justify-between">
-        <div>
-          <p class="pixel-chip text-primary">SITE CSS</p>
-          <h2 class="mt-1 font-medium">全站样式自定义</h2>
-        </div>
-      </div>
-      <p class="mt-1 text-xs text-muted-foreground">
-        自定义 CSS 覆盖<strong>全站所有出现文字的位置</strong>：各级标题、正文段落与列表、正文链接、按钮、导航链接、
-        表单标签与输入控件、占位符、徽章像素字、文字选区等。编辑框为空时应用内置的
-        <strong>「豪放 · 活泼」默认风格包</strong>，或从下方内置风格中一键挑选。
-      </p>
-      <p class="mt-1 text-xs text-muted-foreground">
-        生效优先级：<strong>本页自定义 CSS = Markdown 样式（unlayered）&gt; 内置默认包（site-text 层）&gt; 元素工具类</strong>。
-        即：默认包会重塑全站文字观感；需要更细粒度控制时在自定义 CSS 中覆盖即可。
-        提示类弱化文字（灰色说明）默认包刻意未改色，以保持信息层级——需要时同样在自定义 CSS 中覆盖。
-      </p>
-
-      <!-- 当前状态 -->
-      <div data-m3-role="actions" class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
-        <span id="sitecss-state" class="text-xs text-muted-foreground">
-          {siteCssHasCustom ? `已自定义（${Math.max(1, Math.ceil(siteCss.css.length / 1024))}KB${siteCssUpdatedAtText ? `，更新于 ${siteCssUpdatedAtText}` : ''}）` : '当前使用内置默认风格包（豪放 · 活泼）'}
-        </span>
-      </div>
-
-      <!-- 内置风格预设：一键填入编辑框（可改后保存） -->
-      <div class="mt-3 rounded-md border border-border bg-muted/30 px-3 py-3">
-        <div data-m3-role="actions" class="flex items-center justify-between">
-          <p class="text-xs font-medium text-muted-foreground">内置风格包（点击填入编辑框，可修改后「保存并应用」）</p>
-          <span class="text-xs text-muted-foreground">共 {SITE_TEXT_PRESETS.length} 套</span>
-        </div>
-        <div data-m3-role="actions" class="mt-2 flex flex-wrap gap-2">
-          {
-            SITE_TEXT_PRESETS.map((p) => (
-              <button data-m3-role="button"
-                type="button"
-                data-sitecss-preset={p.id}
-                title={p.tagline}
-                class="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/60 hover:text-primary"
-              >
-                {p.name}
-              </button>
-            ))
-          }
-        </div>
-        <p class="mt-1.5 text-xs text-muted-foreground">
-          「清除自定义」= 回到「豪放 · 活泼」默认；保存的风格即 unlayered 自定义，优先级高于内置默认包。
-        </p>
-      </div>
-
-      <div data-m3-role="actions" class="mt-4 flex flex-wrap items-center gap-2">
-        <button data-m3-role="button"
-          id="sitecss-fill-default"
-          type="button"
-          title="把内置默认风格包填入编辑框，可在其基础上修改"
-          class="rounded-md border border-border px-3 py-1.5 text-sm transition-colors duration-200 hover:border-primary hover:text-primary"
-        >
-          填入默认样式
-        </button>
-        <span id="sitecss-file-hint" class="text-xs text-muted-foreground">
-          {siteCssHasCustom ? '正在使用下方自定义 CSS' : '编辑框为空 = 使用内置默认样式'}
-        </span>
-      </div>
-
-      <label class="mt-3 block text-xs font-medium text-muted-foreground">
-        样式内容（可编辑，本页实时预览；保存后全站生效）
-        <textarea
-          id="sitecss-text"
-          rows="12"
-          spellcheck="false"
-          placeholder={'/* 留空 = 使用内置「豪放 · 活泼」默认风格包 */\n\n/* 示例：标题改用更夸张的字距与主色下划线 */\n:where(h1, h2) {\n  letter-spacing: -0.02em;\n  text-decoration-color: var(--color-primary);\n}\n\n/* 示例：按钮文字全部大写化（拉丁字符生效） */\nbutton { text-transform: uppercase; }'}
-          class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none transition-colors focus-visible:border-ring"
-        >{siteCss.css}</textarea>
-      </label>
-
-      <!-- 实时预览：本页即站点一部分，编辑内容即时改写整页文字观感 -->
-      <p class="settings-label mt-4">实时预览 / PREVIEW</p>
-      <p class="mt-1 text-xs text-muted-foreground">
-        本设置页就是站点一页——编辑时下方（与整页）文字会即时按新样式呈现；「标题 / 正文链接 / 按钮 / 表单标签」处最直观。
-      </p>
-      {siteCssHasCustom && <style id="sitecss-preview-style" data-classic-style is:global set:html={siteCss.css} />}
-
-      <p id="sitecss-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
-
-      <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
-        <span id="sitecss-saved-hint" class="text-xs text-emerald-600"></span>
-        <button data-m3-role="button"
-          id="sitecss-reset"
-          type="button"
-          class="rounded-md border border-destructive/40 px-4 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
-        >
-          清除自定义
-        </button>
-        <button data-m3-role="button"
-          id="sitecss-save"
-          type="button"
-          class="rounded-md bg-primary px-5 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          保存并应用
-        </button>
-      </div>
-      </ClassicAppearanceSettings>
-    </section>
-    )}
+    {showSiteCss && <section data-settings-section="site-css"><h2 class="text-xl font-bold">统一外观</h2><p class="mt-3 text-muted-foreground">全站已统一使用新粗野主义。明暗模式在导航栏的外观设置中切换，正文排版继续在 Markdown 样式中设置。</p></section>}
 
     <!-- AI 助手（小卿）分区 -->
     {showAi && (<>
@@ -1055,7 +940,7 @@ const siteCssUpdatedAtText =
         </div>
       </div>
       <p class="mt-1 text-xs text-muted-foreground">
-        接入任意 OpenAI 兼容服务（DeepSeek / GLM / Kimi / OpenRouter / Ollama 等）。访客在页面选中文字右键
+        使用 Pi 接入订阅账号或 OpenAI 兼容 API。API 模式下，访客在页面选中文字右键
         「问问小卿」即可唤起 AI 悬浮对话。API Key 仅存数据库不回显，前端通过服务端代理调用。
       </p>
 
@@ -1064,6 +949,36 @@ const siteCssUpdatedAtText =
         启用 AI 助手（关闭后 /api/ai/chat 直接拒绝）
       </label>
 
+      <AiSubscriptionSettings client:load connectionMode={aiConfig.connectionMode} subscriptionProvider={aiConfig.subscriptionProvider} subscriptionModel={aiConfig.subscriptionModel} />
+      <label class="mt-4 block text-xs font-medium text-muted-foreground">文章封面生图服务
+        <select id="ai-image-provider" class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+          <option value="openai" selected={aiConfig.imageProvider === 'openai'}>OpenAI 兼容生图 API</option>
+          <option value="cloudflare" selected={aiConfig.imageProvider === 'cloudflare'}>Cloudflare Workers AI · FLUX.1 Schnell</option>
+        </select>
+      </label>
+      <div id="ai-openai-image-settings" class="mt-3">
+        <label class="block text-xs font-medium text-muted-foreground">封面生图模型
+          <input id="ai-image-model" type="text" value={aiConfig.imageModel} placeholder="gpt-image-2（需 API 服务支持）" class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+        </label>
+      </div>
+      <div id="ai-cloudflare-image-settings" class="mt-3 hidden rounded-xl border border-border p-4">
+        <p class="text-sm font-semibold">Cloudflare FLUX.1 Schnell</p>
+        <p class="mt-1 text-xs text-muted-foreground">文字摘要仍使用上方选定的 AI 接入方式；Cloudflare 仅负责生成图片。免费套餐每天共用 10,000 Neurons，额度用尽时请求会失败。</p>
+        <div data-m3-columns="2" class="mt-3 grid grid-cols-2 gap-3">
+          <label class="block text-xs font-medium text-muted-foreground">Cloudflare Account ID
+            <input id="ai-cloudflare-account" type="text" value={aiConfig.cloudflareAccountId} autocomplete="off" placeholder="32 位账户 ID" class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          </label>
+          <label class="block text-xs font-medium text-muted-foreground">Workers AI API Token（仅存服务端）
+            <input id="ai-cloudflare-token" type="password" autocomplete="new-password" placeholder={aiConfig.hasCloudflareApiToken ? '已保存，留空表示不修改' : '粘贴 Cloudflare Token'} class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          </label>
+        </div>
+        <label class="mt-3 block text-xs font-medium text-muted-foreground">生成步数
+          <select id="ai-cloudflare-steps" class="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+            {Array.from({ length: 8 }, (_, index) => index + 1).map((steps) => <option value={steps} selected={aiConfig.cloudflareImageSteps === steps}>{steps}{steps === 4 ? '（推荐）' : ''}</option>)}
+          </select>
+        </label>
+      </div>
+      <p class="mt-4 text-xs text-muted-foreground">OpenAI 兼容生图使用 API 地址和密钥；Cloudflare 使用上面的账户 ID 和 Token。两种配置互不覆盖，文字接入和系统提示词保持原设置。</p>
       <div data-m3-columns="2" class="mt-4 grid grid-cols-2 gap-3">
         <label class="col-span-2 block text-xs font-medium text-muted-foreground">
           API 地址（根地址即可，自动拼接 /v1/chat/completions）
@@ -1127,6 +1042,15 @@ const siteCssUpdatedAtText =
       </div>
 
       <div class="mt-4 rounded-md border border-border p-3">
+        <div class="mb-4 grid gap-4 sm:grid-cols-2">
+          <label class="block text-xs font-medium text-muted-foreground">文章编辑最大输出 tokens
+            <input id="ai-edit-max" type="number" min="1024" max="32768" value={aiConfig.editMaxTokens} class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          </label>
+          <label class="block text-xs font-medium text-muted-foreground">文章编辑上下文额度 tokens
+            <input id="ai-edit-context" type="number" min="8192" max="262144" value={aiConfig.editContextTokens} class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          </label>
+        </div>
+        <p class="mb-4 text-xs text-muted-foreground">请按服务商实际支持的额度填写。文章与技能完整读取，超过额度会提示缩小处理范围。</p>
         <label for="ai-diary-style" class="block text-xs font-medium text-muted-foreground">日记生成风格</label>
         <select id="ai-diary-style" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring sm:w-64">
           <option value="concise">简洁客观</option>
@@ -1166,6 +1090,7 @@ const siteCssUpdatedAtText =
         <span id="ai-test-result" class="text-xs" role="status"></span>
       </div>
 
+      <AiSkillsSettings client:load />
       <p id="ai-err" class="mt-3 hidden text-xs text-destructive" role="alert"></p>
 
       <div data-m3-role="actions" class="mt-5 flex items-center justify-end gap-3">
@@ -1480,145 +1405,6 @@ const siteCssUpdatedAtText =
       syncLibButtons();
     }
 
-      /* ---------- 全站文字样式（内置默认包 + 自定义覆盖，本页实时预览） ---------- */
-      const siteSection = document.getElementById('site-css');
-      if (siteSection) {
-        const scText = document.getElementById('sitecss-text') as HTMLTextAreaElement | null;
-        const scState = document.getElementById('sitecss-state');
-        const scErr = document.getElementById('sitecss-err');
-        const scHint = document.getElementById('sitecss-saved-hint');
-        const scFileHint = document.getElementById('sitecss-file-hint');
-        const scSaveBtn = document.getElementById('sitecss-save');
-        const scResetBtn = document.getElementById('sitecss-reset');
-        const scFillBtn = document.getElementById('sitecss-fill-default');
-        /** 内置默认风格包（SSR 经 data-* 注入，「填入默认样式」用） */
-        const DEFAULT_CSS = (siteSection.dataset.defaultCss ?? '').trim();
-        let scPreview = document.getElementById('sitecss-preview-style') as HTMLStyleElement | null;
-        /** 保存后的即时生效样式（unlayered，模拟 SSR 注入的 #site-custom-css） */
-        let scLive = document.getElementById('site-custom-css-live') as HTMLStyleElement | null;
-
-        const setScErr = (msg: string): void => {
-          if (!scErr) return;
-          scErr.textContent = msg;
-          scErr.classList.toggle('hidden', !msg);
-        };
-        const flashScHint = (msg: string): void => {
-          if (msg.includes('已保存') || msg.includes('已清空')) toastSuccess(msg);
-          if (!scHint) return;
-          scHint.textContent = msg;
-          window.setTimeout(() => {
-            scHint.textContent = '';
-          }, 2000);
-        };
-        const renderScState = (css: string, updatedAtMs: number | null): void => {
-          if (scState) {
-            scState.textContent =
-              css.trim() !== ''
-                ? `已自定义（${Math.max(1, Math.ceil(css.length / 1024))}KB${updatedAtMs != null ? `，更新于 ${new Date(updatedAtMs).toLocaleString('zh-CN')}` : ''}）`
-                : '当前使用内置默认风格包（豪放 · 活泼）';
-          }
-          if (scFileHint) {
-            scFileHint.textContent = css.trim() !== '' ? '正在使用下方自定义 CSS' : '编辑框为空 = 使用内置默认样式';
-          }
-        };
-        /** 编辑实时预览：与线上生效方式一致——包进 site-text 层、追加在默认包之后（同层源序靠后 = 覆盖默认） */
-        const applyScPreview = (css: string): void => {
-          if (!scPreview) {
-            scPreview = document.createElement('style');
-            scPreview.id = 'sitecss-preview-style';
-            document.head.appendChild(scPreview);
-          }
-          scPreview.textContent = css.trim() !== '' ? `@layer site-text {\n${css}\n}` : '';
-        };
-        /** 保存成功后让本页立刻呈现已保存效果（unlayered，等价于 SSR 的 #site-custom-css） */
-        const applyScLive = (css: string): void => {
-          if (css.trim() === '') {
-            scLive?.remove();
-            scLive = null;
-            return;
-          }
-          if (!scLive) {
-            scLive = document.createElement('style');
-            scLive.id = 'site-custom-css-live';
-            document.head.appendChild(scLive);
-          }
-          scLive.textContent = css;
-        };
-
-        applyScPreview(scText?.value ?? '');
-
-        scText?.addEventListener('input', () => applyScPreview(scText.value));
-
-        /* 填入内置默认风格包（可在此基础上修改后保存） */
-        scFillBtn?.addEventListener('click', () => {
-          if (!scText) return;
-          scText.value = DEFAULT_CSS;
-          applyScPreview(DEFAULT_CSS);
-          setScErr('');
-        });
-
-        /* 内置风格预设：一键填入（可改后保存） */
-        const PRESETS: Array<{ id: string; name: string; css: string }> = JSON.parse(siteSection.dataset.presets ?? '[]');
-        siteSection.querySelectorAll<HTMLElement>('[data-sitecss-preset]').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const preset = PRESETS.find((x) => x.id === btn.dataset.sitecssPreset);
-            if (!preset || !scText) return;
-            scText.value = preset.css;
-            applyScPreview(preset.css);
-            setScErr('');
-            flashScHint(`已填入「${preset.name}」，保存后全站生效`);
-          });
-        });
-
-        /* 保存并应用（unlayered，覆盖内置默认包与元素工具类；游客侧缓存最多延迟 ~60s） */
-        scSaveBtn?.addEventListener('click', async () => {
-          const css = scText?.value ?? '';
-          if (css.length > 64 * 1024) {
-            setScErr('CSS 过长（上限 64KB）');
-            return;
-          }
-          scSaveBtn.setAttribute('disabled', '');
-          try {
-            const res = await fetch('/api/site-css', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ css }),
-            });
-            const d = (await res.json().catch(() => ({}))) as { error?: string; updatedAt?: number | null };
-            if (!res.ok) throw new Error(d.error ?? '保存失败');
-            applyScLive(css);
-            renderScState(css, d.updatedAt ?? Date.now());
-            setScErr('');
-            flashScHint(css.trim() === '' ? '已清空自定义样式' : '已保存并应用');
-          } catch (err) {
-            setScErr(err instanceof Error ? err.message : '保存失败，请重试');
-          } finally {
-            scSaveBtn.removeAttribute('disabled');
-          }
-        });
-
-        /* 清除自定义（回到内置默认风格包） */
-        scResetBtn?.addEventListener('click', async () => {
-          if (!(await confirmDanger('清除自定义全站样式？将回到内置「豪放 · 活泼」默认风格包。'))) return;
-          scResetBtn.setAttribute('disabled', '');
-          try {
-            const res = await fetch('/api/site-css', { method: 'DELETE' });
-            const d = (await res.json().catch(() => ({}))) as { error?: string };
-            if (!res.ok) throw new Error(d.error ?? '恢复失败');
-            if (scText) scText.value = '';
-            applyScPreview('');
-            applyScLive('');
-            renderScState('', null);
-            setScErr('');
-            flashScHint('已回到内置默认风格包');
-          } catch (err) {
-            setScErr(err instanceof Error ? err.message : '恢复失败，请重试');
-          } finally {
-            scResetBtn.removeAttribute('disabled');
-          }
-        });
-      }
-
       /** 站点设置页：诗词轮播配置（增删/调速/保存）。配置来自服务端注入 data-settings。 */
 
       /* ---------- GitHub 图床（配置存 DB；token 留空 = 不修改） ---------- */
@@ -1876,6 +1662,10 @@ const siteCssUpdatedAtText =
           guestDailyLimit: number;
           diaryStyle: 'concise' | 'personal' | 'quotes';
           hasApiKey: boolean;
+          imageProvider: 'openai' | 'cloudflare';
+          cloudflareAccountId: string;
+          cloudflareImageSteps: number;
+          hasCloudflareApiToken: boolean;
         }
         let aiCfg: PublicAiCfg = {
           enabled: false,
@@ -1888,6 +1678,10 @@ const siteCssUpdatedAtText =
           guestDailyLimit: 100,
           diaryStyle: 'concise',
           hasApiKey: false,
+          imageProvider: 'openai',
+          cloudflareAccountId: '',
+          cloudflareImageSteps: 4,
+          hasCloudflareApiToken: false,
         };
         try {
           aiCfg = { ...aiCfg, ...(JSON.parse(aiSection.dataset.aiConfig ?? '{}') as Partial<PublicAiCfg>) };
@@ -1899,6 +1693,12 @@ const siteCssUpdatedAtText =
         const aiBaseUrl = document.getElementById('ai-baseurl') as HTMLInputElement | null;
         const aiModel = document.getElementById('ai-model') as HTMLInputElement | null;
         const aiApiKey = document.getElementById('ai-apikey') as HTMLInputElement | null;
+        const aiImageProvider = document.getElementById('ai-image-provider') as HTMLSelectElement | null;
+        const aiCloudflareAccount = document.getElementById('ai-cloudflare-account') as HTMLInputElement | null;
+        const aiCloudflareToken = document.getElementById('ai-cloudflare-token') as HTMLInputElement | null;
+        const aiCloudflareSteps = document.getElementById('ai-cloudflare-steps') as HTMLSelectElement | null;
+        const openAiImageSettings = document.getElementById('ai-openai-image-settings');
+        const cloudflareImageSettings = document.getElementById('ai-cloudflare-image-settings');
         const aiTemperature = document.getElementById('ai-temperature') as HTMLInputElement | null;
         const aiMaxTokens = document.getElementById('ai-maxtokens') as HTMLInputElement | null;
         const aiSysPrompt = document.getElementById('ai-sysprompt') as HTMLTextAreaElement | null;
@@ -1923,6 +1723,17 @@ const siteCssUpdatedAtText =
         if (aiDiaryStyle) aiDiaryStyle.value = aiCfg.diaryStyle;
         if (aiGuests) aiGuests.checked = aiCfg.allowGuests;
         if (aiGuestLimit) aiGuestLimit.value = String(aiCfg.guestDailyLimit);
+        if (aiImageProvider) aiImageProvider.value = aiCfg.imageProvider;
+        if (aiCloudflareAccount) aiCloudflareAccount.value = aiCfg.cloudflareAccountId;
+        if (aiCloudflareSteps) aiCloudflareSteps.value = String(aiCfg.cloudflareImageSteps);
+        if (aiCloudflareToken) aiCloudflareToken.placeholder = aiCfg.hasCloudflareApiToken ? '已保存，留空表示不修改' : '粘贴 Cloudflare Token';
+        const updateImageProviderFields = (): void => {
+          const cloudflare = aiImageProvider?.value === 'cloudflare';
+          openAiImageSettings?.classList.toggle('hidden', cloudflare);
+          cloudflareImageSettings?.classList.toggle('hidden', !cloudflare);
+        };
+        aiImageProvider?.addEventListener('change', updateImageProviderFields);
+        updateImageProviderFields();
         applyKeyPlaceholder();
 
         const setAiErr = (msg: string): void => {
@@ -1932,7 +1743,7 @@ const siteCssUpdatedAtText =
         };
 
         /* 测试连接：用当前表单值（Key 空 → 后端用已存 Key） */
-        document.getElementById('ai-test')?.addEventListener('click', async () => {
+        for (const [testId, tools] of [['ai-test', false], ['ai-test-tools', true]] as const) document.getElementById(testId)?.addEventListener('click', async () => {
           if (!aiTestResult) return;
           aiTestResult.textContent = '测试中…';
           aiTestResult.className = 'text-xs text-muted-foreground';
@@ -1944,6 +1755,10 @@ const siteCssUpdatedAtText =
                 baseUrl: aiBaseUrl?.value.trim() ?? '',
                 model: aiModel?.value.trim() ?? '',
                 apiKey: aiApiKey?.value.trim() ?? '',
+                connectionMode: (document.getElementById('ai-connection-mode') as HTMLSelectElement | null)?.value || 'api',
+                subscriptionProvider: (document.getElementById('ai-subscription-provider') as HTMLSelectElement | null)?.value || 'openai',
+                subscriptionModel: (document.getElementById('ai-subscription-model') as HTMLSelectElement | null)?.value || '',
+                tools,
               }),
             });
             const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
@@ -1962,24 +1777,38 @@ const siteCssUpdatedAtText =
           const maxNum = Number(aiMaxTokens?.value);
           const limitNum = Number(aiGuestLimit?.value);
           const payload = {
+            connectionMode: (document.getElementById('ai-connection-mode') as HTMLSelectElement | null)?.value || 'api',
+            subscriptionProvider: (document.getElementById('ai-subscription-provider') as HTMLSelectElement | null)?.value || 'openai',
+            subscriptionModel: (document.getElementById('ai-subscription-model') as HTMLSelectElement | null)?.value || '',
+            imageModel: (document.getElementById('ai-image-model') as HTMLInputElement | null)?.value.trim() || 'gpt-image-2',
+            imageProvider: aiImageProvider?.value === 'cloudflare' ? 'cloudflare' as const : 'openai' as const,
+            cloudflareAccountId: aiCloudflareAccount?.value.trim() ?? '',
+            cloudflareApiToken: aiCloudflareToken?.value.trim() ?? '',
+            cloudflareImageSteps: Number(aiCloudflareSteps?.value) || 4,
             enabled: aiEnabled?.checked ?? false,
             baseUrl: aiBaseUrl?.value.trim() ?? '',
             model: aiModel?.value.trim() ?? '',
             apiKey: aiApiKey?.value.trim() ?? '',
             temperature: Number.isFinite(tempNum) ? tempNum : undefined,
             maxTokens: Number.isFinite(maxNum) ? maxNum : undefined,
+            editMaxTokens: Number((document.getElementById('ai-edit-max') as HTMLInputElement | null)?.value) || 8192,
+            editContextTokens: Number((document.getElementById('ai-edit-context') as HTMLInputElement | null)?.value) || 131072,
             systemPrompt: aiSysPrompt?.value.trim() ?? '',
             diaryStyle: aiDiaryStyle?.value ?? 'concise',
             allowGuests: aiGuests?.checked ?? false,
             guestDailyLimit: Number.isFinite(limitNum) ? limitNum : undefined,
           };
+          if (payload.connectionMode === 'subscription' && !payload.subscriptionModel) {
+            setAiErr('请先连接订阅账号并选择文字模型');
+            return;
+          }
           try {
             const res = await fetch('/api/ai/config', {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
             });
-            const d = (await res.json().catch(() => ({}))) as { error?: string; hasApiKey?: boolean };
+            const d = (await res.json().catch(() => ({}))) as { error?: string; hasApiKey?: boolean; hasCloudflareApiToken?: boolean };
             if (!res.ok) throw new Error(d.error ?? '保存失败');
             aiCfg = {
               ...aiCfg,
@@ -1989,10 +1818,16 @@ const siteCssUpdatedAtText =
               systemPrompt: payload.systemPrompt,
               diaryStyle: payload.diaryStyle as PublicAiCfg['diaryStyle'],
               allowGuests: payload.allowGuests,
+              imageProvider: payload.imageProvider,
+              cloudflareAccountId: payload.cloudflareAccountId,
+              cloudflareImageSteps: payload.cloudflareImageSteps,
               hasApiKey: d.hasApiKey ?? aiCfg.hasApiKey,
+              hasCloudflareApiToken: d.hasCloudflareApiToken ?? aiCfg.hasCloudflareApiToken,
             };
             setAiErr('');
             if (aiApiKey) aiApiKey.value = '';
+            if (aiCloudflareToken) aiCloudflareToken.value = '';
+            if (aiCloudflareToken) aiCloudflareToken.placeholder = aiCfg.hasCloudflareApiToken ? '已保存，留空表示不修改' : '粘贴 Cloudflare Token';
             applyKeyPlaceholder();
             if (aiHint) {
               aiHint.textContent = '已保存并应用';
@@ -2102,8 +1937,8 @@ const siteCssUpdatedAtText =
         const row = document.createElement('div');
         row.className = 'qs-row flex items-center gap-1.5';
         row.innerHTML = `
-          <input type="text" class="qs-text min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring" placeholder="诗词内容" value="${esc(q?.text ?? '')}">
-          <input type="number" class="qs-pause w-20 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring" min="0" step="100" placeholder="停留ms" value="${q?.pauseMs ?? ''}">
+          <input type="text" aria-label="诗词内容" class="qs-text min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring" placeholder="诗词内容" value="${esc(q?.text ?? '')}">
+          <input type="number" aria-label="诗词停留毫秒，留空使用默认值" class="qs-pause w-20 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring" min="0" step="100" placeholder="停留ms" value="${q?.pauseMs ?? ''}">
           <button type="button" class="qs-del shrink-0 rounded-md px-2 py-1 text-sm text-destructive hover:bg-destructive/10" title="删除" aria-label="删除该条">×</button>`;
         return row;
       }
@@ -2159,6 +1994,7 @@ const siteCssUpdatedAtText =
             body: JSON.stringify(body),
           });
           if (!res.ok) throw new Error('保存失败');
+          window.dispatchEvent(new CustomEvent('byqx:quotes-saved', { detail: body }));
           setStatus('已保存并应用', 'saved');
         } catch {
           setStatus('保存失败，请重试', 'error');
@@ -2459,7 +2295,7 @@ const siteCssUpdatedAtText =
           if (!res.ok) throw new Error('保存失败');
           if (status) status.classList.add('hidden');
           if (hint) {
-            hint.textContent = '已保存并应用';
+            hint.textContent = '已保存，刷新阅读页后显示';
             window.setTimeout(() => { hint.textContent = ''; }, 2000);
           }
         } catch {
@@ -2743,10 +2579,10 @@ const siteCssUpdatedAtText =
       function renderFontMode(): void {
         if (!fontModeText || !fontFollowTheme) return;
         if (hasManualFonts) {
-          fontModeText.textContent = '当前：手动字体（全站优先于主题，切换主题仍生效）';
+          fontModeText.textContent = '当前：已自定义正文阅读字体';
           fontFollowTheme.classList.remove('hidden');
         } else {
-          fontModeText.textContent = '当前：跟随主题字体（切换主题即更换字体）';
+          fontModeText.textContent = '当前：默认阅读字体';
           fontFollowTheme.classList.add('hidden');
         }
       }
@@ -2757,7 +2593,7 @@ const siteCssUpdatedAtText =
         fontModeStatus.classList.toggle('hidden', !isError);
       }
       fontFollowTheme?.addEventListener('click', async () => {
-        if (!(await confirmDialog('恢复跟随主题字体？将清除当前手动字体设置，全站改用当前主题自带字体。'))) return;
+        if (!(await confirmDialog('恢复默认阅读字体？将清除正文的手动字体与字号设置。'))) return;
         try {
           const res = await fetch('/api/fonts-settings', { method: 'DELETE' });
           if (!res.ok) throw new Error('清除失败');
@@ -2773,7 +2609,7 @@ const siteCssUpdatedAtText =
           initFontSelects();
           setFontModeStatus('', false);
           renderFontMode();
-          toastSuccess('已恢复跟随主题字体');
+          toastSuccess('已恢复默认阅读字体');
         } catch {
           setFontModeStatus('清除失败，请重试', true);
         }
@@ -3027,7 +2863,8 @@ const siteCssUpdatedAtText =
   }
   interface SyncStatusLike {
     running: boolean;
-    progress: { table: string; index: number; total: number } | null;
+    startedAt: number | null;
+    progress: { table: string; index: number; total: number; phase?: 'read' | 'apply' | 'done' | 'skip' } | null;
     lastReport: SyncReportLike | null;
     lastError: string | null;
     cloudConfigured: boolean;
@@ -3092,7 +2929,7 @@ const siteCssUpdatedAtText =
       if (lifetime.signal.aborted || !btn.isConnected) return;
       clearTimeout(pollTimer);
       try {
-        const res = await fetch('/api/desktop/sync', { signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(10000)]) });
+        const res = await fetch('/api/desktop/sync', { cache: 'no-store', signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(10000)]) });
         if (!res.ok) {
           throw new Error('HTTP ' + res.status);
         }
@@ -3104,10 +2941,11 @@ const siteCssUpdatedAtText =
         if (s.running) {
           btn.disabled = true;
           const p = s.progress;
-          setStatus(
-            p ? '同步中：' + p.table + '（' + (p.index + 1) + '/' + p.total + '）' : '同步中…',
-            'text-xs text-muted-foreground',
-          );
+          const elapsed = s.startedAt ? Math.max(0, Math.floor((Date.now() - s.startedAt) / 1000)) : 0;
+          const duration = elapsed ? ' · 已等待 ' + elapsed + ' 秒' : '';
+          setStatus(p
+            ? '同步' + (p.phase === 'apply' ? '写入' : p.phase === 'read' ? '读取' : '处理') + '：' + p.table + '（' + (p.index + 1) + '/' + p.total + '）' + duration
+            : '正在准备本地数据并连接云端' + duration + '；准备阶段最多等待 30 秒', 'text-xs text-muted-foreground');
           progress(p && p.total > 0 ? Math.min(1, p.index / p.total) : null);
           pollTimer = window.setTimeout(() => void poll(), 800);
           return;
@@ -3147,7 +2985,7 @@ const siteCssUpdatedAtText =
       progress(0);
       setStatus('正在启动…', 'text-xs text-muted-foreground');
       try {
-        const res = await fetch('/api/desktop/sync', { method: 'POST', signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(10000)]) });
+        const res = await fetch('/api/desktop/sync', { method: 'POST', cache: 'no-store', signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(10000)]) });
         if (!res.ok) {
           const result = await res.json().catch(() => null);
           throw new Error(result?.error || 'HTTP ' + res.status);
@@ -3158,7 +2996,7 @@ const siteCssUpdatedAtText =
         btn.disabled = false;
         progress(null);
         const msg = err instanceof Error ? err.message : String(err);
-        setStatus('启动请求失败：' + msg + '，正在检查后台状态', 'text-xs text-destructive');
+        setStatus('启动请求未确认：' + msg + '。正在检查后台状态，不会重复启动同步', 'text-xs text-destructive');
         // A timed-out POST may already have started the task. Read before retrying.
         pollTimer = window.setTimeout(() => void poll(), 1000);
       }

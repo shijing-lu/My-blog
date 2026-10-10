@@ -32,7 +32,7 @@ describe('主题动效的业务状态与取消', () => {
       removeAttribute: (key) => { delete root.dataset[key.slice(5).replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())]; },
     };
     callbacks = []; finishes = []; skips = vi.fn();
-    root.dataset.uiStyle = 'classic';
+    root.dataset.uiStyle = 'neobrutalism';
     doc = Object.assign(new EventTarget(), { documentElement: root, hidden: false, querySelectorAll: () => [] });
     doc.startViewTransition = vi.fn((update: () => void) => {
       const done = deferred(); const updated = deferred();
@@ -57,7 +57,7 @@ describe('主题动效的业务状态与取消', () => {
     const theme = await import('../src/lib/theme');
     theme.writeState({ themeId: 'graphite', mode: 'dark' }, { origin: { x: 10, y: 10 } });
     expect(root.classList.contains('dark')).toBe(true);
-    expect(theme.readState()).toEqual({ themeId: 'graphite', mode: 'dark', uiStyle: 'inherit' });
+    expect(theme.readState()).toEqual({ themeId: '', mode: 'dark', uiStyle: 'inherit' });
   });
 
   it('减少动效与程序恢复不创建快照', async () => {
@@ -75,7 +75,7 @@ describe('主题动效的业务状态与取消', () => {
     theme.writeState({ themeId: 'terminal', mode: 'light' }, {});
     callbacks[0]!();
     expect(skips).toHaveBeenCalledOnce();
-    expect(root.dataset.theme).toBe('terminal');
+    expect(root.dataset.theme).toBeUndefined();
     expect(root.classList.contains('dark')).toBe(false);
     expect(root.dataset.themeTransition).toBeUndefined();
   });
@@ -101,7 +101,7 @@ describe('主题动效的业务状态与取消', () => {
     theme.writeState({ themeId: 'cream-minimal', mode: 'light' }, {});
     callbacks[0]!();
     expect(doc.startViewTransition).toHaveBeenCalledOnce();
-    expect(root.dataset.theme).toBe('cream-minimal');
+    expect(root.dataset.theme).toBeUndefined();
     expect(root.classList.contains('dark')).toBe(false);
   });
 
@@ -129,7 +129,7 @@ describe('主题动效的业务状态与取消', () => {
     const theme = await import('../src/lib/theme');
     theme.writeState({ themeId: 'terminal', mode: 'dark' }, {});
     doc.dispatchEvent(new Event('astro:before-preparation'));
-    expect(theme.readState()).toEqual({ themeId: 'terminal', mode: 'dark', uiStyle: 'inherit' });
+    expect(theme.readState()).toEqual({ themeId: '', mode: 'dark', uiStyle: 'inherit' });
     expect(root.classList.contains('dark')).toBe(true);
   });
 });

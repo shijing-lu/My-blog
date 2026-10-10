@@ -22,6 +22,8 @@ import { createPreviewDecorations } from './cm-preview-cache';
 import type { PreviewDecoration } from './cm-preview-cache';
 import type { EditorState, Extension } from '@codemirror/state';
 import { columnBlocks } from './cm-columns-state';
+import { scanMarkdownCallouts } from '../../lib/markdown-callouts';
+import { scanVisualDirectives } from '../../lib/markdown-visual-directives';
 
 /** 隐藏范围（replace 为空，不占视觉空间，仍可编辑） */
 const hide = Decoration.replace({});
@@ -140,6 +142,9 @@ function computeBase(doc: EditorState['doc']): PreviewDecoration[] {
 
   // 被代码块占用的行（行内/标题 pass 跳过）
   const blockedLines = new Set<number>();
+  for (const block of [...scanMarkdownCallouts(doc.toString()), ...scanVisualDirectives(doc.toString())]) {
+    for (let line = doc.lineAt(block.from).number; line <= doc.lineAt(block.to).number; line += 1) blockedLines.add(line - 1);
+  }
   for (const block of columnBlocks(doc)) {
     for (let line = doc.lineAt(block.from).number; line <= doc.lineAt(block.to).number; line += 1) blockedLines.add(line - 1);
   }
@@ -151,13 +156,14 @@ function computeBase(doc: EditorState['doc']): PreviewDecoration[] {
   while (i < lines.length) {
     if (blockedLines.has(i)) { i += 1; continue; }
     const line = lines[i]!;
-    const fence = line.text.match(/^```([\w+-]*)\s*$/);
+    const fence = line.text.match(/^ {0,3}(`{3,}|~{3,})([\w+-]*)\s*$/);
     if (fence) {
       const body: string[] = [];
       let j = i + 1;
       let close = -1;
       while (j < lines.length) {
-        if (/^```\s*$/.test(lines[j]!.text)) {
+        const closing = /^ {0,3}(`+|~+)\s*$/.exec(lines[j]!.text);
+        if (closing && closing[1]![0] === fence[1]![0] && closing[1]!.length >= fence[1]!.length) {
           close = j;
           break;
         }
@@ -167,7 +173,7 @@ function computeBase(doc: EditorState['doc']): PreviewDecoration[] {
       if (close >= 0) {
         const from = line.from;
         const to = Math.min(doc.length, lines[close]!.to + 1);
-        items.push({ from, to, deco: Decoration.replace({ widget: new CodeWidget(fence[1] ?? '', body.join('\n'), from) }), reveal: true });
+        items.push({ from, to, deco: Decoration.replace({ widget: new CodeWidget(fence[2] ?? '', body.join('\n'), from) }), reveal: true });
         for (let k = i; k <= close; k += 1) blockedLines.add(k);
         i = close + 1;
         continue;

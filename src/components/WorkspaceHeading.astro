@@ -1,0 +1,8 @@
+---
+interface Props { title: string; eyebrow: string; description: string }
+const { title, eyebrow, description } = Astro.props;
+---
+<header class="neo-workspace-heading">
+  <div><p class="neo-workspace-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>
+  <div class="neo-workspace-heading-actions"><slot /><img src="/images/neobrutalism/cat-peek.webp" width="88" height="70" alt="" aria-hidden="true" /></div>
+</header>

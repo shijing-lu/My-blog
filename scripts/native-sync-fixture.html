@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>第3阶段 · 隔离双端验收</title>
+<style>
+body{margin:0;background:#faf8f4;color:#171717;font:16px/1.65 system-ui,sans-serif}main{max-width:1100px;margin:40px auto;padding:20px}h1{font-size:32px}section{border:2px solid;border-radius:16px;padding:24px;background:#fff;box-shadow:4px 4px #171717}#workspace{display:grid;grid-template-columns:1fr 1.5fr;gap:24px;margin-top:24px}input,textarea,button{box-sizing:border-box;font:inherit;border:2px solid;border-radius:10px;padding:12px}input,textarea{display:block;width:100%;margin:8px 0 16px}textarea{min-height:260px}button{background:#ffd43b;color:#171717;cursor:pointer;margin:4px 8px 4px 0}button:disabled{opacity:.4;cursor:default}#records button{display:block;width:100%;text-align:left;background:#f5f2ea}small{display:block;color:#555}#status{white-space:pre-wrap;min-height:32px;font-weight:600}@media(max-width:700px){#workspace{grid-template-columns:1fr}main{margin:10px auto}}
+</style>
+<main>
+<small>仅本机隔离测试数据库 · 调用项目真实Web API</small>
+<h1>手机 ↔ Web 随心录验收</h1>
+<p>这是辅助验收页。手机绑定 <strong>http://127.0.0.1:4332</strong>，保持 USB 连接。这里使用合成测试口令，不连接私人站点。</p>
+<button id="login">登录测试站主</button><button id="refresh">刷新记录</button><button id="new">新建</button>
+<button id="offline">模拟手机离线</button><button id="online">恢复手机连接</button>
+<p id="status" role="status">先登录测试站主，然后打开手机端保存的记录。</p>
+<div id="workspace"><section><h2>测试库记录</h2><div id="records"></div></section>
+<section><h2 id="heading">新建记录</h2><label>标题<input id="title" maxlength="120"></label><label>标签<input id="tags"></label><label>正文<textarea id="content" maxlength="20000"></textarea></label>
+<button id="save">保存到Web端</button><button id="delete" disabled>删除</button>
+<small>冲突步骤：先刷新并打开同一记录；模拟手机离线，让手机编辑并保存；在这里修改并保存；恢复手机连接，手机点击同步。手机将保留三份副本供你选择。旧Web基线发生冲突时，本页保留输入。</small></section></div>
+</main>
+<script type="module">
+const $=id=>document.getElementById(id);let current=null;
+const status=message=>$('status').textContent=message;
+async function api(path,method='GET',body,headers={}){
+ const response=await fetch(path,{method,cache:'no-store',headers:{'content-type':'application/json',...headers},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ const data=await response.json();if(!response.ok)throw Error(data.error||`请求失败 ${response.status}`);return data;
+}
+async function list(){const data=await api('/api/quick-notes?limit=30');$('records').replaceChildren();for(const note of data.notes){const button=document.createElement('button');button.textContent=note.title||note.content.slice(0,40);button.onclick=()=>run(async()=>{const data=await api(`/api/quick-notes/${note.id}`);current=data.note;$('title').value=current.title;$('content').value=current.content;$('tags').value=current.tags.join(', ');$('heading').textContent='编辑Web记录';$('delete').disabled=false;status('已读取Web基线版本，可与手机同时修改。')});$('records').append(button)}if(!data.notes.length)$('records').textContent='还没有测试记录；可先在手机端新建并同步。'}
+async function run(work){try{await work()}catch(error){status(error.message+'；当前输入保留。')}}
+$('login').onclick=()=>run(async()=>{await api('/api/admin-auth/login','POST',{password:'native-owner-fixture-only'});await list();status('已登录隔离测试站主。')});
+$('refresh').onclick=()=>run(list);
+$('offline').onclick=()=>run(async()=>{await api('/fixture-control/disconnect','POST');status('手机API连接已暂停，Web API仍可保存。现在让手机编辑并保存。')});
+$('online').onclick=()=>run(async()=>{await api('/fixture-control/reconnect','POST');status('手机API已恢复。回到手机随心录列表点击立即同步。')});
+$('new').onclick=()=>{current=null;$('title').value='';$('content').value='';$('tags').value='';$('heading').textContent='新建记录';$('delete').disabled=true;status('正在编辑新记录。')};
+$('save').onclick=()=>run(async()=>{const result=await api(current?`/api/quick-notes/${current.id}`:'/api/quick-notes',current?'PUT':'POST',{title:$('title').value,content:$('content').value,tags:$('tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),...(current?{baseRevision:current.syncRevision}:{})});current=result.note;$('delete').disabled=false;await list();status('Web端已保存。手机同步后应看到更新或冲突提示。')});
+$('delete').onclick=()=>run(async()=>{if(!current||!confirm('删除此测试记录并同步到手机？'))return;await api(`/api/quick-notes/${current.id}`,'DELETE',undefined,{'if-match':current.syncRevision});current=null;await list();$('new').click();status('已删除，手机同步后收到删除墓碑。')});
+</script></html>

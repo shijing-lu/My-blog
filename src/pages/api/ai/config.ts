@@ -7,6 +7,7 @@
 import type { APIRoute } from 'astro';
 import { badJson, badRequest, guardManager, json, readJson } from '@/lib/api';
 import { getAiConfig, saveAiConfig, serializeAiConfig, type AiConfig } from '@/lib/ai-config';
+import { SUBSCRIPTION_PROVIDERS } from '@/lib/pi-subscription';
 
 export const prerender = false;
 
@@ -32,6 +33,12 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return badRequest('请求体不合法');
   }
+  if (body.imageProvider !== undefined && !['openai', 'cloudflare'].includes(body.imageProvider)) return badRequest('封面生图服务不合法');
+  if (typeof body.cloudflareAccountId === 'string' && body.cloudflareAccountId.trim() && !/^[a-f0-9]{32}$/i.test(body.cloudflareAccountId.trim())) return badRequest('Cloudflare Account ID 应为 32 位十六进制字符');
+  if (body.cloudflareApiToken !== undefined && (typeof body.cloudflareApiToken !== 'string' || body.cloudflareApiToken.length > 300)) return badRequest('Cloudflare API Token 不合法');
+  if (body.cloudflareImageSteps !== undefined && (!Number.isInteger(body.cloudflareImageSteps) || body.cloudflareImageSteps < 1 || body.cloudflareImageSteps > 8)) return badRequest('FLUX 生图步数应在 1 到 8 之间');
+  if (body.connectionMode !== undefined && !['api', 'subscription'].includes(body.connectionMode)) return badRequest('接入方式不合法');
+  if (body.subscriptionProvider !== undefined && !SUBSCRIPTION_PROVIDERS.includes(body.subscriptionProvider as typeof SUBSCRIPTION_PROVIDERS[number])) return badRequest('不支持的订阅提供商');
   try {
     const saved = await saveAiConfig(body);
     return json(serializeAiConfig(saved));

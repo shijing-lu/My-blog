@@ -31,6 +31,7 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
   const saveTimer = useRef<number>(0);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [lastError, setLastError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   // 失效引用列表
   const [brokenRefs, setBrokenRefs] = useState<{ uid: string; text: string; anchorId: string }[]>([]);
 
@@ -40,8 +41,12 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
     let ro: ResizeObserver | null = null;
 
     void (async () => {
-      const mod = await import('simple-mind-map');
+      const [mod, exportPlugin] = await Promise.all([
+        import('simple-mind-map'),
+        import('simple-mind-map/src/plugins/Export.js'),
+      ]);
       if (disposed || !containerRef.current) return;
+      mod.default.usePlugin(exportPlugin.default);
       let data: unknown;
       try {
         data = JSON.parse(initialData);
@@ -105,8 +110,15 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
     function onExport(e: Event): void {
       const type = (e as CustomEvent<{ type: 'png' | 'svg' | 'md' | 'json' }>).detail?.type;
       if (!type || !mmRef.current) return;
-      void mmRef.current.export(type).catch(() => {
-        setSaveState('error');
+      setExportError(null);
+      // Export embeds this CSS in SVG/PNG; resolve theme variables without changing saved graph data.
+      const style = getComputedStyle(document.documentElement);
+      const ink = style.getPropertyValue('--neo-ink').trim(), paper = style.getPropertyValue('--neo-paper').trim(), orange = style.getPropertyValue('--neo-orange').trim();
+      mmRef.current.appendCss('neo-export', `.smm-node-shape{fill:${paper};stroke:${ink};stroke-width:2px}.smm-node-container>.smm-node:first-child .smm-node-shape{fill:${orange}}.smm-text-node-wrap{fill:${ink}}.smm-node-container>.smm-node:first-child .smm-text-node-wrap{fill:#151511}.smm-line-container path{stroke:${ink}}`);
+      void mmRef.current.export(type, true).then((result) => {
+        if (!result) setExportError('导出失败，请重试。');
+      }).catch((error: unknown) => {
+        setExportError(error instanceof Error ? error.message : '导出失败，请重试。');
       });
     }
     document.addEventListener('mindmap-export', onExport);
@@ -150,9 +162,9 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
 
   return (
     <div data-m3-module="mindmap-editor" className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+      <div data-map-canvas ref={containerRef} className="h-full w-full" />
       {/* 右上角：保存状态 + 手动保存 */}
-      <div data-m3-role="editor-toolbar" className="absolute right-3 top-2 flex items-center gap-2 text-xs">
+      <div data-map-tools data-m3-role="editor-toolbar" className="absolute right-3 top-2 flex items-center gap-2 rounded-lg border text-xs">
         <span
           className={
             saveState === 'saved'
@@ -180,6 +192,7 @@ export default function MindMapEditor({ mapId, initialData, blockMap = {} }: Pro
           保存失败：{lastError}
         </div>
       )}
+      {exportError && <p role="alert" className="absolute left-3 bottom-3 rounded-lg border border-destructive bg-card px-3 py-2 text-sm text-destructive">{exportError}</p>}
       {/* 失效引用提示 */}
       {brokenRefs.length > 0 && (
         <div className="absolute left-3 top-2 z-10 flex flex-col gap-1 rounded-md border border-amber-500/50 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-400">

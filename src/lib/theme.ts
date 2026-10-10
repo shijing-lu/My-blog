@@ -22,7 +22,7 @@ export interface ThemeState {
 }
 
 /** Older callers remain compatible while persisted/read state is normalized. */
-type ThemeStateInput = Omit<ThemeState, 'uiStyle'> & { uiStyle?: UiStylePreference };
+type ThemeStateInput = Omit<ThemeState, 'uiStyle'> & { uiStyle?: unknown };
 
 /** 默认状态 */
 export const DEFAULT_STATE: ThemeState = { themeId: '', mode: 'system', uiStyle: 'inherit' };
@@ -36,7 +36,7 @@ let transientState: ThemeState | undefined;
 export function normalizeThemeState(input: unknown): ThemeState {
   const value = input && typeof input === 'object' ? input as Partial<ThemeState> : {};
   return {
-    themeId: typeof value.themeId === 'string' ? value.themeId : '',
+    themeId: '',
     mode: value.mode === 'light' || value.mode === 'dark' ? value.mode : 'system',
     uiStyle: normalizeUiStylePreference(value.uiStyle),
   };
@@ -68,10 +68,10 @@ export function isDark(state: ThemeStateInput): boolean {
 }
 
 /** 将状态应用到 <html>（data-theme + .dark + data-mode） */
-export function syncClassicStyles(doc: Document, style: UiStyle): void {
+export function syncClassicStyles(doc: Document, _style: UiStyle): void {
   doc.querySelectorAll<HTMLStyleElement | HTMLLinkElement>(CLASSIC_STYLE_SELECTOR).forEach((element) => {
     if (!element.hasAttribute('data-classic-media')) element.setAttribute('data-classic-media', element.media || 'all');
-    element.media = style === 'material3' ? 'not all' : element.getAttribute('data-classic-media') || 'all';
+    element.media = element.id === 'custom-theme-css' || element.id === 'theme-styles' || element.id === 'site-custom-css-live' || element.id === 'sitecss-preview-style' ? 'not all' : element.getAttribute('data-classic-media') || 'all';
   });
 }
 
@@ -80,8 +80,7 @@ export function applyThemeToDocument(doc: Document, input: ThemeStateInput = rea
   const state = normalizeThemeState(input);
   const root = doc.documentElement;
   const style = resolveUiStyle(state.uiStyle, root.dataset.siteUiStyle);
-  if (state.themeId && style === 'classic') root.setAttribute('data-theme', state.themeId);
-  else root.removeAttribute('data-theme');
+  root.removeAttribute('data-theme');
   root.classList.toggle('dark', isDark(state));
   root.setAttribute('data-mode', state.mode);
   root.setAttribute('data-ui-style', style);
@@ -147,7 +146,7 @@ function transitionThemeState(state: ThemeState, options?: ThemeTransitionOption
   stopThemeMotion();
   const id = sequence;
   const style = resolveUiStyle(state.uiStyle, root.dataset.siteUiStyle);
-  const unchanged = (root.dataset.theme ?? '') === (style === 'classic' ? state.themeId : '') &&
+  const unchanged = (root.dataset.theme ?? '') === '' &&
     root.classList.contains('dark') === isDark(state) && root.dataset.uiStyle === style;
   const nativeActive = (document as Document & { activeViewTransition?: unknown }).activeViewTransition;
   if (unchanged || busy || navigating || nativeActive || !options || document.hidden ||
@@ -211,7 +210,7 @@ export function applyState(input: ThemeStateInput): void {
  * 恢复主题状态到 <html>（View Transition 导航后调用）
  *
  * 仅应用 data-theme / .dark / data-mode；不注入自定义主题 CSS——
- * 自定义主题 CSS 由调用方（BaseLayout）在恢复时同步注入，避免循环依赖。
+ * 旧 themeId 与 uiStyle 不再恢复，明暗模式继续有效。
  */
 export function restoreTheme(): void {
   applyState(readState());
@@ -238,48 +237,16 @@ export function initSystemThemeWatcher(): void {
     if (event.key === THEME_STORAGE_KEY || event.key === null) {
       transientState = undefined;
       restoreTheme();
-    } else if (event.key === SITE_STYLE_SIGNAL_KEY) {
-      void refreshSiteUiStyle();
     }
   });
-  window.addEventListener('focus', () => { void refreshSiteUiStyle(); });
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) void refreshSiteUiStyle();
-  });
-  document.addEventListener('astro:page-load', () => {
-    siteStyleRevision += 1;
-    restoreTheme();
-    void refreshSiteUiStyle();
-  });
+  document.addEventListener('astro:page-load', restoreTheme);
 }
 
-let siteStyleRequest: Promise<void> | undefined;
-let siteStyleRevision = 0;
-
-/** A failed request retains the last known SSR/server default. */
-export function refreshSiteUiStyle(): Promise<void> {
-  if (siteStyleRequest) return siteStyleRequest;
-  const revision = siteStyleRevision;
-  const root = document.documentElement;
-  siteStyleRequest = (async () => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    try {
-      const response = await fetch('/api/ui-style', { cache: 'no-store', signal: controller.signal });
-      if (!response.ok) return;
-      const result: unknown = await response.json();
-      const style = result && typeof result === 'object' ? (result as Record<string, unknown>).defaultStyle : undefined;
-      if (isUiStyle(style) && revision === siteStyleRevision && root === document.documentElement) setSiteUiStyle(style);
-    } catch { /* Offline clients keep the current default. */ }
-    finally { clearTimeout(timer); }
-  })().finally(() => { siteStyleRequest = undefined; });
-  return siteStyleRequest;
-}
+export async function refreshSiteUiStyle(): Promise<void> { restoreTheme(); }
 
 /** Apply only after the setting has been successfully persisted. */
 export function setSiteUiStyle(style: UiStyle, broadcast = false): void {
   if (typeof document === 'undefined' || !isUiStyle(style)) return;
-  siteStyleRevision += 1;
   document.documentElement.dataset.siteUiStyle = style;
   restoreTheme();
   if (broadcast) {

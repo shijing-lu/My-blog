@@ -15,6 +15,6 @@ describe('shared settings navigation', () => {
   it('makes the new appearance setting discoverable by name and keywords', () => {
     const appearance = getSettingsSections(false).find(section => section.id === 'appearance');
     expect(appearance?.label).toBe('外观');
-    for (const keyword of ['material', 'google', '字体', '背景', '站点默认', '设备']) expect(appearance?.keywords).toContain(keyword);
+    for (const keyword of ['新粗野主义', 'neobrutalism', '明暗', '系统', '字体', '背景']) expect(appearance?.keywords).toContain(keyword);
   });
 });

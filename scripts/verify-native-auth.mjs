@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+const root = 'http://127.0.0.1:4322';
+const path = '/api/mobile/v1/auth/';
+const password = 'native-owner-fixture-only';
+async function request(action, body, headers = {}) {
+  const response = await fetch(root + path + action, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', ...headers }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  return { status: response.status, body: await response.json() };
+}
+assert.equal((await request('info')).body.protocolVersion, 1);
+assert.equal((await request('login', { password: 'wrong', deviceId: randomUUID(), deviceName: 'test' })).status, 401);
+const first = await request('login', { password, deviceId: randomUUID(), deviceName: 'HTTP fixture' });
+assert.equal(first.status, 200); assert.equal(first.body.owner.role, 'owner');
+assert.equal((await request('me', null, { authorization: `Bearer ${first.body.accessToken}` })).status, 200);
+const requestId = randomUUID(), next = await request('refresh', { refreshToken: first.body.refreshToken, requestId });
+assert.equal(next.status, 200);
+const retry = await request('refresh', { refreshToken: first.body.refreshToken, requestId });
+assert.equal(retry.body.refreshToken, next.body.refreshToken);
+assert.equal((await request('me', null, { authorization: `Bearer ${first.body.accessToken}` })).status, 401);
+assert.equal((await request('revoke', { refreshToken: next.body.refreshToken })).status, 200);
+assert.equal((await request('me', null, { authorization: `Bearer ${next.body.accessToken}` })).status, 401);
+const web = await fetch(root + '/api/admin-auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) });
+assert.equal(web.status, 200);
+const cookie = web.headers.get('set-cookie')?.split(';')[0]; assert.ok(cookie);
+assert.equal((await request('me', null, { cookie })).status, 401);
+const unknown = await fetch(root + '/api/mobile/v1/not-yet-delivered', { headers: { cookie } });
+assert.equal(unknown.status, 401); assert.equal(unknown.headers.get('cache-control'), 'private, no-store');
+const oldWeb = await fetch(root + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'native-legacy-fixture-only' }) });
+assert.equal(oldWeb.status, 200); assert.ok(oldWeb.headers.get('set-cookie')?.includes('admin_session='));
+console.log('PASS live Astro HTTP: info, incorrect password, owner binding, me, rotation, retry, revocation, cookie rejection, default-deny, both Web login channels');

@@ -72,3 +72,15 @@ export function renderManageCard(p: ManageCardPhoto): string {
 export function renderManageCards(list: ManageCardPhoto[]): string {
   return list.map(renderManageCard).join('');
 }
+
+/** Public cards also share their SSR and "more" template, including full-size lightbox images. */
+export interface GalleryCardPhoto extends ManageCardPhoto { width?: number | null; height?: number | null }
+export function renderGalleryCard(photo: GalleryCardPhoto): string {
+  const date = photoDateKey(photo.takenAt);
+  const title = photo.title || '未命名照片';
+  const dimensions = photo.width && photo.height ? `style="aspect-ratio:${photo.width} / ${photo.height}"` : '';
+  return `<figure class="photo-card group relative overflow-hidden" data-date="${esc(date)}" data-photo-id="${esc(photo.id)}">` +
+    `<div class="photo-wrap overflow-hidden" ${dimensions} data-lightbox data-full-src="${esc(photo.url)}" data-caption="${esc(photo.title || '')}" tabindex="0" role="button" aria-label="查看大图：${esc(title)}">` +
+    `<img src="${esc(photo.thumbUrl || photo.url)}" alt="${esc(title)}" loading="lazy" decoding="async" class="block w-full cursor-zoom-in object-cover" data-broken-photo /></div>` +
+    `<figcaption><strong title="${esc(title)}">${esc(title)}</strong><span>${esc(date)}</span></figcaption></figure>`;
+}

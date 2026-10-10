@@ -22,7 +22,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
   }
   const body = await readJson<Partial<UiStyleSettings>>(request);
   if (!body || !isUiStyle(body.defaultStyle)) {
-    return json({ error: '请选择现有风格或 Google Material 3' }, { status: 400, headers });
+    return json({ error: '仅支持新粗野主义外观' }, { status: 400, headers });
   }
   try {
     return json({ defaultStyle: await saveSiteUiStyle(body.defaultStyle) }, { headers });

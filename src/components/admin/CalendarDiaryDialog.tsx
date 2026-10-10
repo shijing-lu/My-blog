@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import MarkdownEditor from './MarkdownEditor';
 import { confirmDialog } from '@/lib/confirm';
+import '@/styles/calendar-workspace.css';
 
 type Diary = { date: string; title: string; content: string; contentHtml: string };
 type OpenDetail = { date: string };
@@ -119,7 +120,7 @@ export default function CalendarDiaryDialog(): ReactElement {
 
   return <dialog data-m3-role="dialog" data-m3-module="diary" ref={dialogRef} aria-label={`${date || '每日'}日记`} onCancel={(event) => { event.preventDefault(); void close(); }}
     onClick={(event) => { if (event.target === dialogRef.current) void close(); }}
-    className="m-auto max-h-[90vh] w-[min(96vw,58rem)] overflow-visible rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/55">
+    className="neo-diary-dialog m-auto max-h-[90vh] w-[min(96vw,58rem)] overflow-visible rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/55">
     <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-4 backdrop-blur sm:px-8">
       <div><p className="font-pixel text-[0.6rem] tracking-[0.2em] text-primary">DAILY DIARY</p><p className="mt-1 text-sm text-muted-foreground">{date}</p></div>
       <div className="flex items-center gap-2">

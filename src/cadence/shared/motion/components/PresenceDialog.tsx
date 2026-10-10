@@ -17,7 +17,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useRef, type ReactNode } from "react";
-import { MaterialIcon } from "@/components/ui/MaterialIcon";
+import { X } from "lucide-react";
 
 import {
   AnimatePresence,
@@ -130,20 +130,7 @@ export function PresenceDialog({
                   aria-label="关闭"
                   className="text-ink-3 hover:text-ink-1 craft-transition-fast absolute top-4 right-4 grid h-7 w-7 place-items-center rounded-full"
                 >
-                  <MaterialIcon name="close"><svg
-                    viewBox="0 0 16 16"
-                    width={14}
-                    height={14}
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M3.4 3.1 L12.7 12.8 M12.4 3.4 L3.2 12.6"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={1.8}
-                      strokeLinecap="round"
-                    />
-                  </svg></MaterialIcon>
+                  <X size={17} aria-hidden="true" />
                 </RadixDialog.Close>
               </m.div>
             </RadixDialog.Content>

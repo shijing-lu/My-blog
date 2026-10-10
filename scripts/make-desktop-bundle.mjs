@@ -270,16 +270,16 @@ function installedVersion(dir) {
 }
 
 /** 判断当前包及祖先 node_modules 中是否已经有同一版本可供 Node 正常解析。 */
-function hasAncestorDependency(parentDir, name, version) {
+function ancestorDependencyVersion(parentDir, name) {
   let scope = parentDir;
   while (scope.startsWith(APP)) {
     const candidate = packagePath(path.join(scope, 'node_modules'), name);
-    if (existsSync(candidate)) return installedVersion(candidate) === version;
+    if (existsSync(candidate)) return installedVersion(candidate);
     const next = path.dirname(scope);
     if (next === scope) break;
     scope = next;
   }
-  return false;
+  return undefined;
 }
 
 /** 每个包按 pnpm 源依赖关系在最近的 node_modules 安装所需版本，避免同名包互相覆盖。 */
@@ -303,8 +303,13 @@ function installPackage(srcDir, destDir) {
       continue;
     }
     const version = installedVersion(depSrc);
-    if (version && hasAncestorDependency(destDir, dep.name, version)) continue;
-    const depDest = packagePath(path.join(destDir, 'node_modules'), dep.name);
+    const ancestorVersion = ancestorDependencyVersion(destDir, dep.name);
+    if (version && ancestorVersion === version) continue;
+    // An unshadowed dependency can live at the app root and be shared by siblings.
+    // A different nearest version must stay nested to preserve Node resolution.
+    const depDest = ancestorVersion === undefined
+      ? packagePath(nm, dep.name)
+      : packagePath(path.join(destDir, 'node_modules'), dep.name);
     if (existsSync(depDest) && installedVersion(depDest) !== version) {
       console.error(`  ⚠ 包内依赖版本冲突：${dep.name}@${version}`);
       failed += 1;
@@ -320,6 +325,7 @@ function installPackage(srcDir, destDir) {
 }
 
 const builtinNames = new Set(builtinModules.map((name) => name.replace(/^node:/, '')));
+const runtimePackages = [];
 for (const name of new Set(RUNTIME_ROOTS)) {
   if (builtinNames.has(name)) continue;
   const srcDir = resolvePackageDir(name, ROOT);
@@ -328,8 +334,14 @@ for (const name of new Set(RUNTIME_ROOTS)) {
     failed += 1;
     continue;
   }
-  installPackage(srcDir, packagePath(nm, name));
+  const destDir = packagePath(nm, name);
+  copyPackage(srcDir, destDir);
+  packageSources.set(path.resolve(destDir), srcDir);
+  runtimePackages.push({ srcDir, destDir });
 }
+// Reserve explicit runtime versions before hoisting their transitive dependencies.
+console.log(`✓ 运行依赖根已复制：${runtimePackages.length} 个包`);
+for (const { srcDir, destDir } of runtimePackages) installPackage(srcDir, destDir);
 
 // Windows + pnpm hard-linked package trees can occasionally yield zero-filled package.json
 // files during recursive copies. Recheck installed package roots against their exact sources

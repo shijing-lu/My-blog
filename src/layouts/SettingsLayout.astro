@@ -9,30 +9,35 @@ interface Props {
 const { section } = Astro.props;
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import SettingsForm from '@/components/admin/SettingsForm.astro';
-import EditorShortcutsSettings from '@/components/admin/EditorShortcutsSettings';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/settings-workspace.css';
 import { getSettingsSections } from '@/lib/settings-sections';
 import { serverEnv } from '@/lib/env';
 const tabs = getSettingsSections(serverEnv('DESKTOP_MODE') === '1');
-const titleSuffix = getSettingsSections(true).find(item => item.id === section)?.label ?? '设置';
+const titleSuffix = getSettingsSections(true).find(item => item.id === section)?.label ?? '统一外观';
+const descriptions = { 'site-name': '让每一个页面，都有自己的名字。', 'hero-quotes': '把喜欢的句子，放在首页最醒目的地方。', landing: '选择头图，写下你想分享的一句话。', appearance: '调整明暗、阅读字体和页面背景。', 'image-bed': '连接图床，让图片上传更顺手。', 'md-css': '为文字、代码和笔记选择舒适的排版。', ai: '配置小卿，陪你阅读、整理与写作。', netdisk: '连接文件存储，管理上传与下载。', shortcuts: '让常用的编辑动作，顺手一点。', sync: '连接云端，让记录跟着你走。', 'site-css': '全站使用统一外观，正文排版可单独配置。' };
+const icons = { 'site-name': 'type', 'hero-quotes': 'quote', landing: 'image', appearance: 'palette', 'image-bed': 'image', 'md-css': 'code', ai: 'bot', netdisk: 'folder', shortcuts: 'keyboard', sync: 'cloud' } as const;
 ---
 <AdminLayout title={`设置 · ${titleSuffix}`}>
-  <section data-settings-page class="mx-auto h-full w-full max-w-3xl overflow-y-auto px-4 py-8">
-    <div>
-      <p class="pixel-chip text-primary">SETTINGS</p>
-      <h1 class="mt-1 font-display text-2xl font-semibold">站点设置</h1>
-      <p class="mt-1 text-sm text-muted-foreground">集中管理站点可自定义项，保存后全站生效。</p>
-    </div>
-    <nav class="mt-5 flex flex-wrap gap-2" aria-label="设置分区">
+  <section data-settings-page class="neo-settings-workspace">
+    <div class="neo-settings-inner">
+    <header class="neo-settings-heading">
+      <div><p>SETTINGS / 站点配置</p><h1>站点设置 <NeoIcon name="settings" size={28} /></h1><span>小小的调整，让记录更顺手。</span></div>
+      <div class="neo-settings-sticker"><img src="/images/neobrutalism/cat-peek.webp" width="100" height="80" alt="" aria-hidden="true" /><p>写下热爱<br />布置自己的小天地</p></div>
+    </header>
+    <div class="neo-settings-grid">
+    <aside class="neo-settings-sidebar"><p class="neo-settings-nav-label">设置分区 <small>CONFIGURATION</small></p>
+    <nav aria-label="设置分区" class="neo-settings-nav">
       {tabs.map((t) => (
-        <a href={t.href} data-m3-role="navigation-item" aria-current={t.id === section ? 'page' : undefined} class={`settings-tab${t.id === section ? ' active' : ''}`}>{t.label}</a>
+        <a href={t.href} data-m3-role="navigation-item" aria-current={t.id === section ? 'page' : undefined} class={`settings-tab${t.id === section ? ' active' : ''}`}><NeoIcon name={icons[t.id as keyof typeof icons]} size={17} /><span>{t.label}</span><NeoIcon name="chevron" size={14} /></a>
       ))}
     </nav>
-    {section === 'shortcuts' ? (
-      <div class="mt-6">
-        <EditorShortcutsSettings client:load />
-      </div>
-    ) : (
+    <p class="neo-settings-nav-note">每个分区分别保存。<br />修改后记得点击保存。</p></aside>
+    <div class="neo-settings-content">
+      <header class="neo-settings-section-title"><h2>{titleSuffix}</h2><p>{descriptions[section]}</p></header>
       <SettingsForm section={section} />
-    )}
+    </div></div>
+    <footer class="neo-settings-footer"><span>记录热爱，慢慢生长。</span><a href="/" data-astro-reload>回到首页 →</a><img src="/images/neobrutalism/cat-rest.webp" width="78" height="48" alt="" aria-hidden="true" /></footer>
+    </div>
   </section>
 </AdminLayout>

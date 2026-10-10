@@ -38,7 +38,7 @@ function collectItems(grid: HTMLElement | null): LightboxItem[] {
     .map((fig) => {
       const img = fig.querySelector('img');
       return {
-        src: img?.getAttribute('src') ?? '',
+        src: fig.getAttribute('data-full-src') || img?.getAttribute('src') || '',
         caption: fig.getAttribute('data-caption') ?? img?.alt ?? '',
         el: fig,
       };
@@ -51,6 +51,7 @@ function openLightbox(items: LightboxItem[], index: number, trigger: HTMLElement
   const single = items.length <= 1;
   const overlay = document.createElement('dialog');
   overlay.className = 'lightbox-overlay';
+  if (trigger.closest('.neo-gallery-workspace')) overlay.classList.add('neo-gallery-lightbox');
   overlay.setAttribute('aria-label', '图片预览');
   overlay.tabIndex = -1;
   overlay.innerHTML = `

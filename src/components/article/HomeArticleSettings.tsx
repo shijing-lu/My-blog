@@ -47,6 +47,16 @@ export default function HomeArticleSettings({ article, categories, categoryId }:
   const [availableCategories, setAvailableCategories] = useState(categories);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    const changed = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string; url: string }>).detail;
+      if (detail?.id !== article.id) return;
+      setCover(detail.url);
+      setCurrent(previous => ({ ...previous, cover: detail.url }));
+    };
+    window.addEventListener('article:cover-changed', changed);
+    return () => window.removeEventListener('article:cover-changed', changed);
+  }, [article.id]);
   const byId = new Map(availableCategories.map((category) => [category.id, category]));
 
   useEffect(() => {

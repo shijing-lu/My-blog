@@ -14,7 +14,8 @@
 import type { APIRoute } from 'astro';
 import { isTopAdmin } from '@/lib/admin-auth';
 import { badJson, forbidden, json, readJson } from '@/lib/api';
-import { buildChatUrl, getAiConfig, isAiReady } from '@/lib/ai-config';
+import { getAiConfig, isAiReady } from '@/lib/ai-config';
+import { completeSiteText } from '@/lib/pi-ai';
 import { ensureAiTables } from '@/lib/ai-store';
 import { buildSummaryTranscript } from '@/lib/ai-chat-context';
 import {
@@ -83,27 +84,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
   let raw = '';
   try {
-    const upstream = await fetch(buildChatUrl(cfg.baseUrl), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [
-          { role: 'system', content: SUMMARY_PROMPT },
-          { role: 'user', content: transcript },
-        ],
-        stream: false, // 摘要要整段 JSON，不需要流式
-        temperature: 0.2,
-        max_tokens: 512,
-      }),
-      signal: AbortSignal.timeout(45_000),
-    });
-    if (!upstream.ok) {
-      console.error(`[api/ai/summarize] upstream HTTP ${upstream.status}`);
-      return json({ ok: false, error: `摘要服务返回 HTTP ${upstream.status}` }, 502);
-    }
-    const data = (await upstream.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    raw = data.choices?.[0]?.message?.content ?? '';
+    raw = await completeSiteText(cfg, { systemPrompt: SUMMARY_PROMPT, messages: [{ role: 'user', content: transcript, timestamp: Date.now() }] }, { temperature: 0.2, maxTokens: 512, signal: AbortSignal.timeout(45_000) });
   } catch (err) {
     console.error('[api/ai/summarize] upstream 调用失败:', (err as Error).message);
     return json({ ok: false, error: '摘要服务连接失败' }, 502);

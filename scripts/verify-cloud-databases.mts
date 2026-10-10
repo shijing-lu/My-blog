@@ -58,6 +58,7 @@ if (process.env.VERCEL !== '1') {
     console.log(`[cloud-db-check] settings KV upsert/read ${fallbackProbe ? 'fallback' : 'mirror'} passed`);
     const cadence = createPgCadenceStore(process.env.DATABASE_URL!, process.env.DATABASE_URL_FALLBACK || '');
     const cadenceId = `settings:${id}`;
+    const minuteId = `scheduleEvents:${id}`;
     try {
       const first = await cadence.sync([{ table: 'settings', recordId: id, payload: { key: id, value: 'probe' }, baseRevision: null }]);
       assert.equal(first.conflicts.length, 0);
@@ -73,8 +74,24 @@ if (process.env.VERCEL !== '1') {
         assert.equal(rows[0]?.payload, null);
       }
       console.log(`[cloud-db-check] Cadence CAS revision/tombstone ${fallbackProbe ? 'fallback' : 'mirror'} passed`);
+      // Reserved probe date and unique id; exercise integer minutes through the real mirror.
+      const minute = { id, dateKey: '9900-01-01', startMin: 547, endMin: 548, title: 'minute precision probe', done: false, createdAt: stamp.getTime(), updatedAt: stamp.getTime() };
+      let saved = await cadence.sync([{ table: 'scheduleEvents', recordId: id, payload: minute, baseRevision: null }]);
+      assert.equal(saved.conflicts.length, 0);
+      for (const [startMin, endMin] of [[547, 548], [1439, 1440]]) {
+        if (startMin === 1439) saved = await cadence.sync([{ table: 'scheduleEvents', recordId: id, payload: { ...minute, startMin, endMin }, baseRevision: saved.records[0]!.revision }]);
+        assert.equal(saved.conflicts.length, 0);
+        for (const client of clients) {
+          const rows = await client`SELECT payload FROM cadence_records WHERE id = ${minuteId}`;
+          const payload = JSON.parse(rows[0]!.payload);
+          assert.equal(payload.startMin, startMin); assert.equal(payload.endMin, endMin);
+        }
+      }
+      await cadence.sync([{ table: 'scheduleEvents', recordId: id, payload: null, baseRevision: saved.records[0]!.revision }]);
+      console.log(`[cloud-db-check] 09:07-09:08 / 23:59-24:00 minute precision ${fallbackProbe ? 'fallback' : 'mirror'} passed`);
     } finally {
       await Promise.allSettled(clients.map(client => client`DELETE FROM cadence_records WHERE id = ${cadenceId}`));
+      await Promise.allSettled(clients.map(client => client`DELETE FROM cadence_records WHERE id = ${minuteId}`));
       await cadence.close();
     }
     console.log(`[cloud-db-check] ${fallbackProbe ? 'failed-primary fallback read/write' : 'ORM mirrored insert/update/delete/returning and timestamps'} passed on ${clients.length} endpoint(s)`);

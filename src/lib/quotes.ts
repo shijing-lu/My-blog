@@ -22,6 +22,7 @@ export const QUOTE_PAUSE_MS = 4600;
 
 /** 首页轮播的古诗词/名言列表（可自定义任意条） */
 export const HERO_QUOTES: QuoteConfig[] = [
+  { text: '无路请缨，等终军之弱冠。有怀投笔，慕宗悫之长风。', pauseMs: 8000 },
   { text: '落霞与孤鹜齐飞，秋水共长天一色', pauseMs: 4200 },
   { text: '人生若只如初见，何事秋风悲画扇' },
   { text: '山重水复疑无路，柳暗花明又一村' },

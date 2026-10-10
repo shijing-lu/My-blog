@@ -10,6 +10,8 @@
  *   通过 pendingTableFocus 在重建后恢复焦点与光标
  */
 import { EditorView, WidgetType } from '@codemirror/view';
+import { captureEditorProjection } from './cm-columns-state';
+import { activeAiEditor, requestAiEdit, type FrozenAiSelection } from '../../lib/ai-editor-bridge';
 
 /** 解析分隔行的对齐 */
 export type TableAlign = 'left' | 'center' | 'right';
@@ -439,7 +441,12 @@ export class TableWidget extends WidgetType {
         });
         menu.appendChild(button);
       }
-      document.body.appendChild(menu);
+      const ai = frozenAiSelection;
+      if (ai) {
+        const button = document.createElement('button'); button.type = 'button'; button.role = 'menuitem'; button.textContent = '使用 AI 编辑';
+        button.addEventListener('click', () => { closeMenu(); requestAiEdit({ ...ai, source: ai.root.state.doc.toString() }); }); menu.prepend(button);
+      }
+      (view.dom.closest<HTMLDialogElement>('dialog[open]') ?? document.body).appendChild(menu);
       const menuRect = menu.getBoundingClientRect();
       menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - menuRect.width - 8))}px`;
       menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menuRect.height - 8))}px`;
@@ -447,11 +454,27 @@ export class TableWidget extends WidgetType {
       document.addEventListener('keydown', escapeMenu, true);
       menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
     };
+    let frozenAiSelection: FrozenAiSelection | null = null;
     table.addEventListener('contextmenu', (event) => {
       const td = (event.target as HTMLElement).closest<HTMLTableCellElement>('td,th');
       if (!td || !table.contains(td)) return;
       event.preventDefault();
       event.stopPropagation();
+      frozenAiSelection = null;
+      const selection = window.getSelection(), projection = captureEditorProjection(view);
+      if (projection && activeAiEditor()?.ownsRoot(projection.root) && selection?.rangeCount && !selection.isCollapsed && selection.anchorNode && selection.focusNode && td.contains(selection.anchorNode) && td.contains(selection.focusNode)) {
+        const selected = selection.getRangeAt(0), before = document.createRange(); before.selectNodeContents(td); before.setEnd(selected.startContainer, selected.startOffset);
+        const from = before.toString().length, text = selected.toString(), cellText = td.textContent ?? '';
+        const data = collect(), row = (td.parentElement as HTMLTableRowElement).rowIndex, column = td.cellIndex;
+        const source = view.state.doc.toString(), pos = this.pos, end = pos + this.raw.length;
+        const compose = (replacement: string) => {
+          const cells = { header: [...data.header], rows: data.rows.map(r => [...r]), aligns: [...aligns] };
+          const values = row === 0 ? cells.header : cells.rows[row - 1]!;
+          values[column] = cellText.slice(0, from) + replacement + cellText.slice(from + text.length);
+          return projection.project(source.slice(0,pos) + buildTableMarkdown(cells) + source.slice(end));
+        };
+        frozenAiSelection = { text, root: projection.root, source: compose(text), project: compose };
+      }
       openMenu(event.clientX, event.clientY, (td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex);
     });
 

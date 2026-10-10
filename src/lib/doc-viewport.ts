@@ -48,7 +48,7 @@ const prefetchInflight = new Map<string, Promise<void>>();
 /** 预取正文（幂等：已在缓存或飞行中则直接返回） */
 export function prefetchDocNode(id: string): void {
   if (!id || prefetchCache.has(id) || prefetchInflight.has(id)) return;
-  const p = fetch(`/api/doc/nodes/${id}`)
+  const p = fetch(`/api/doc/nodes/${id}`, { signal: AbortSignal.timeout(15000) })
     .then((r) => (r.ok ? r.json() : null))
     .then((d: { node?: { content?: string } } | null) => {
       if (typeof d?.node?.content === 'string') prefetchCache.set(id, d.node.content);

@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+const root = 'http://127.0.0.1:4332';
+const password = 'native-owner-fixture-only';
+async function call(path, method = 'GET', body, headers = {}) {
+  const r = await fetch(root + path, { method, headers: { 'content-type': 'application/json', ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  assert.equal(r.headers.get('cache-control'), 'private, no-store');
+  return { status: r.status, body: await r.json() };
+}
+const auth = await call('/api/mobile/v1/auth/login', 'POST', { password, deviceId: randomUUID(), deviceName: 'stage3 HTTP' }); assert.equal(auth.status, 200);
+const bearer = { authorization: `Bearer ${auth.body.accessToken}` };
+const serverId = auth.body.serverId;
+const webLogin = await fetch(root + '/api/admin-auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) });
+assert.equal(webLogin.status, 200); const cookie = webLogin.headers.get('set-cookie').split(';')[0];
+const web = { cookie };
+const sync = (operations = [], cursor = '0') => call('/api/mobile/v1/sync', 'POST', { protocolVersion: 1, serverId, cursor, operations }, bearer);
+assert.equal((await call('/api/mobile/v1/sync', 'POST', { protocolVersion: 1, serverId, cursor: '0', operations: [] }, web)).status, 401);
+assert.equal((await call('/api/mobile/v1/sync', 'POST', { protocolVersion: 1, serverId: 'wrong', cursor: '0', operations: [] }, bearer)).status, 400);
+const created = await call('/api/quick-notes', 'POST', { title: '阶段3 HTTP验收', content: '网站基础版本', tags: ['测试'] }, web); assert.equal(created.status, 201);
+const note = created.body.note; assert.ok(note.syncRevision);
+const fetched = await call(`/api/quick-notes/${note.id}`, 'GET', undefined, web); assert.equal(fetched.status, 200);
+const edited = await call(`/api/quick-notes/${note.id}`, 'PUT', { title: note.title, content: '网站远端修改', tags: note.tags, baseRevision: note.syncRevision }, web); assert.equal(edited.status, 200);
+const local = { title: note.title, content: '手机离线修改', tags: note.tags, createdAt: new Date(note.createdAt).getTime(), updatedAt: Date.now() };
+const op = { opId: randomUUID(), recordId: note.id, baseRevision: note.syncRevision, payload: local };
+const conflict = await sync([op]); assert.equal(conflict.status, 200); const ack = conflict.body.acknowledgements[0]; assert.equal(ack.status, 'conflict'); assert.equal(ack.record.payload.content, '网站远端修改');
+const staleWeb = await call(`/api/quick-notes/${note.id}`, 'PUT', { title: note.title, content: '旧Web基线', tags: note.tags, baseRevision: note.syncRevision }, web); assert.equal(staleWeb.status, 409);
+const resolvedOp = { ...op, opId: randomUUID(), baseRevision: ack.record.revision };
+const resolved = await sync([resolvedOp]); assert.equal(resolved.body.acknowledgements[0].status, 'accepted');
+assert.deepEqual((await sync([resolvedOp])).body.acknowledgements, resolved.body.acknowledgements);
+assert.equal((await call(`/api/quick-notes/${note.id}`, 'GET', undefined, web)).body.note.content, '手机离线修改');
+assert.equal((await call(`/api/quick-notes/${note.id}`, 'DELETE', undefined, { ...web, 'if-match': note.syncRevision })).status, 409);
+const deleteOp = { opId: randomUUID(), recordId: note.id, baseRevision: resolved.body.acknowledgements[0].record.revision, payload: null };
+assert.equal((await sync([deleteOp])).body.acknowledgements[0].record.payload, null);
+assert.equal((await call(`/api/quick-notes/${note.id}`, 'GET', undefined, web)).status, 404);
+const delta = await sync([], (await sync()).body.cursor); assert.deepEqual(delta.body.records, []);
+console.log('PASS stage3 actual Astro HTTP: owner-only sync, Web CRUD revision, stale Web rejection, mobile conflict, explicit resolution, idempotent retry, delete tombstone, empty delta');

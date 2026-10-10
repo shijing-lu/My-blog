@@ -1,6 +1,8 @@
 ---
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
+import WorkspaceHeading from '@/components/WorkspaceHeading.astro';
+import '@/styles/completion-workspace.css';
 import { listMindmaps } from '@/lib/mindmaps';
 import { listAdminArticleMeta } from '@/lib/articles';
 
@@ -15,21 +17,16 @@ function formatShort(date: Date): string {
 }
 ---
 <AdminLayout title="思维导图">
-  <section class="mx-auto min-w-0 w-full max-w-4xl px-4 py-8">
-    <div class="flex items-end justify-between gap-4">
-      <div>
-        <p class="pixel-chip text-primary">MIND MAP</p>
-        <h1 class="mt-1 font-display text-2xl font-semibold">思维导图</h1>
-        <p class="mt-1 text-sm text-muted-foreground">共 {maps.length} 张 · 绑定文章后可在文章页联动阅读</p>
-      </div>
-    </div>
+  <section class="neo-workspace neo-mindmaps">
+    <WorkspaceHeading title="思维导图" eyebrow="MIND MAP / 写作与管理" description={`共 ${maps.length} 张 · 绑定文章后可联动阅读，让思路变得清晰。`} />
 
     <!-- 新建 -->
-    <div class="mt-5">
-      <p class="text-xs font-medium text-muted-foreground">新建思维导图</p>
-      <div class="mt-2 flex min-w-0 max-w-full flex-wrap items-center gap-2">
+    <div class="neo-workspace-panel">
+      <h2>新建思维导图</h2>
+      <div class="neo-map-create-fields">
         <input
           id="map-title"
+          aria-label="导图标题"
           type="text"
           maxlength="100"
           placeholder="导图标题"
@@ -37,6 +34,7 @@ function formatShort(date: Date): string {
         />
         <select
           id="map-article"
+          aria-label="绑定文章"
           class="min-w-0 max-w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring"
         >
           <option value="">不绑定文章（独立导图）</option>
@@ -58,15 +56,15 @@ function formatShort(date: Date): string {
     </div>
 
     <!-- 列表 -->
-    <ul class="mt-6 list-blend">
+    <div class="neo-workspace-panel"><h2>我的导图</h2><ul class="neo-map-list">
       {
         maps.length === 0 ? (
-          <li class="px-4 py-8 text-center text-sm text-muted-foreground">还没有思维导图 —— 在上方创建一张吧。</li>
+          <li class="neo-workspace-empty"><img src="/images/neobrutalism/cat-peek.webp" width="90" height="72" alt="" aria-hidden="true" />还没有思维导图，在上方创建第一张吧。</li>
         ) : (
           maps.map((m) => (
             <li class="flex items-center justify-between gap-3 px-4 py-3">
               <div class="min-w-0">
-                <p class="truncate text-sm font-medium">{m.title || '未命名'}</p>
+                <p class="text-sm font-medium" title={m.title || '未命名'}>{m.title || '未命名'}</p>
                 <p class="font-pixel mt-0.5 text-[0.6rem] text-muted-foreground">
                   {m.articleId ? `绑定文章：${articleTitle.get(m.articleId) || '未知'}` : '独立导图'} · {formatShort(m.updatedAt)}
                 </p>
@@ -91,7 +89,7 @@ function formatShort(date: Date): string {
           ))
         )
       }
-    </ul>
+    </ul></div>
   </section>
 </AdminLayout>
 

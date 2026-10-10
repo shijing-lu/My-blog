@@ -4,6 +4,7 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import '@/styles/completion-workspace.css';
 import { getAdminIdentity, isTopAdmin } from '@/lib/admin-auth';
 import { isUserGitHubConfigured, getCurrentUserId } from '@/lib/auth';
 import { getGithubUserById } from '@/lib/github-users';
@@ -29,7 +30,8 @@ const ghLoginUrl = '/api/auth/user/github?next=/manage';
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="管理" description="博客管理入口" indexable={false}>
-  <section class="mx-auto w-full max-w-md px-4 py-16">
+  <section class="neo-workspace neo-access"><div class="neo-access-card">
+    <img class="neo-access-cat" src="/images/neobrutalism/cat-peek.webp" width="92" height="73" alt="" aria-hidden="true" />
     <!-- 普通管理员：无权进入授权管理页 -->
     {
       isAdmin && account && (
@@ -95,9 +97,10 @@ const ghLoginUrl = '/api/auth/user/github?next=/manage';
             <div class="border-t border-border pt-5">
               <p class="text-sm font-medium">站主登录</p>
               <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">站主即顶级管理员，登录后进入授权管理页。</p>
-              <form id="top-login-form" class="mt-2 space-y-2">
+              <form id="top-login-form" data-astro-reload class="mt-2 space-y-2">
                 <input
                   id="top-login-password"
+                  aria-label="站主密码"
                   type="password"
                   required
                   autocomplete="current-password"
@@ -157,9 +160,10 @@ const ghLoginUrl = '/api/auth/user/github?next=/manage';
               }
               <details>
                 <summary class="cursor-pointer text-sm text-muted-foreground transition-colors hover:text-foreground">站主登录</summary>
-                <form id="top-login-form" class="mt-2 space-y-2">
+              <form id="top-login-form" data-astro-reload class="mt-2 space-y-2">
                   <input
                     id="top-login-password"
+                    aria-label="站主密码"
                     type="password"
                     required
                     autocomplete="current-password"
@@ -180,7 +184,7 @@ const ghLoginUrl = '/api/auth/user/github?next=/manage';
         </div>
       )
     }
-  </section>
+  </div></section>
 </BaseLayout>
 
 <script>

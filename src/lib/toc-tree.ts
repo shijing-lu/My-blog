@@ -53,7 +53,7 @@ function renderNode(node: TocNode): string {
       : '<span class="toc-fold-spacer" aria-hidden="true"></span>';
   const kids =
     children.length > 0 ? `<div class="toc-children">${children.map(renderNode).join('')}</div>` : '';
-  return `<div class="toc-node"><div class="toc-row">${toggle}<a class="toc-item toc-l${item.level}" data-doc-anchor href="#${item.id}">${inner}</a></div>${kids}</div>`;
+  return `<div class="toc-node"><div class="toc-row">${toggle}<a class="toc-item toc-l${item.level}" data-doc-anchor data-directory-title="${escHtml(item.text)}" title="${escHtml(item.text)}" href="#${item.id}"><span class="toc-title">${inner}</span></a></div>${kids}</div>`;
 }
 
 /** 渲染整棵目录树为 HTML 字符串（无目录返回空串） */

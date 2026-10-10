@@ -4,6 +4,8 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import { listNav } from '@/lib/nav';
 import { canManage } from '@/lib/admin-auth';
 import { navMain, navTopTabs } from '@/lib/nav-render';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/discovery-workspace.css';
 
 /* ===== Logic ===== */
 const categories = await listNav();
@@ -29,7 +31,13 @@ const categoriesJson = JSON.stringify(
 
 ---
 <BaseLayout title="导航" description="精选网站导航 —— My Blog Navigation">
-  <section data-authed={isAuthed ? '1' : '0'}>
+  <section class="neo-discovery neo-nav-workspace" data-authed={isAuthed ? '1' : '0'}>
+    <header class="neo-discovery-heading">
+      <div><p class="neo-discovery-eyebrow">NAVIGATION / 阅读与发现</p><h1>网站导航</h1><p>收藏值得再次打开的网站。</p></div>
+      <div class="neo-discovery-heading-actions">{isAuthed && <a class="neo-discovery-button" href="/admin/nav" data-astro-reload>导航管理</a>}<div class="neo-discovery-note" aria-hidden="true"><img src="/images/neobrutalism/cat-peek.webp" alt="" width="78" height="62" /><p>好用的网站<br />认真收藏起来</p></div></div>
+    </header>
+    <div class="neo-nav-search"><NeoIcon name="search" size={20} /><input id="nav-search" type="search" placeholder="查找收藏的网站…" aria-label="查找收藏的网站" /><button id="nav-search-clear" type="button" aria-label="清除网站搜索" class="hidden"><NeoIcon name="close" size={18} /></button></div>
+    <p id="nav-search-status" class="neo-nav-search-status" role="status" aria-live="polite">搜索当前分类中的名称、简介与网址。</p>
     {/* 顶部吸顶分类横条（<1720px 显示）：超宽屏改用左侧悬浮栏，故此处 min-[1720px]:hidden。
         无分类时隐藏 —— 服务端按数据写好 style，客户端 renderAll() 同步维护 */}
     <div
@@ -41,15 +49,16 @@ const categoriesJson = JSON.stringify(
 
     {/* 主体内容：与页脚同宽（max-w-6xl）居中，两条虚线左右对齐；分类栏锚定在内容区左侧。
         整块由 nav-render 的 navMain() 生成，客户端 renderAll() 用同一函数就地重建 */}
-    <main
+    <div
       id="nav-main"
-      class="relative mx-auto w-full max-w-6xl px-4 py-10"
+      class="relative w-full"
       set:html={navMain(categories, isAuthed, totalSites)}
     />
+    <p id="nav-search-empty" class="neo-discovery-empty hidden">没有找到匹配的网站，试试其他关键词或分类。</p>
   </section>
 
   <!-- 添加网址弹框（管理员，居中） -->
-  <dialog id="nav-add-dialog" class="m-auto w-96 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
+  <dialog id="nav-add-dialog" aria-label="添加网址" class="m-auto w-96 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
     <h3 class="font-medium">添加网址</h3>
     <p id="nav-add-target" class="mt-0.5 text-xs text-muted-foreground"></p>
     <label class="mt-3 block text-xs font-medium text-muted-foreground">
@@ -86,7 +95,7 @@ const categoriesJson = JSON.stringify(
   </dialog>
 
   <!-- 编辑网址弹框（管理员，居中） -->
-  <dialog id="nav-edit-dialog" class="m-auto w-96 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
+  <dialog id="nav-edit-dialog" aria-label="编辑网址" class="m-auto w-96 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
     <h3 class="font-medium">编辑网址</h3>
     <p id="nav-edit-target" class="mt-0.5 text-xs text-muted-foreground"></p>
     <label class="mt-3 block text-xs font-medium text-muted-foreground">
@@ -139,7 +148,7 @@ const categoriesJson = JSON.stringify(
   </dialog>
 
   <!-- 添加分类弹框（管理员，居中） -->
-  <dialog id="nav-cat-add-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
+  <dialog id="nav-cat-add-dialog" aria-label="添加分类" class="m-auto w-80 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
     <h3 class="font-medium">添加分类</h3>
     <label class="mt-3 block text-xs font-medium text-muted-foreground">
       分类名
@@ -176,7 +185,7 @@ const categoriesJson = JSON.stringify(
   </dialog>
 
   <!-- 编辑分类弹框（管理员，居中） -->
-  <dialog id="nav-cat-edit-dialog" class="m-auto w-80 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
+  <dialog id="nav-cat-edit-dialog" aria-label="编辑分类" class="m-auto w-80 rounded-lg border border-border bg-card p-4 text-foreground shadow-xl backdrop:bg-black/40">
     <h3 class="font-medium">编辑分类</h3>
     <p id="nav-cat-edit-target" class="mt-0.5 text-xs text-muted-foreground"></p>
     <label class="mt-3 block text-xs font-medium text-muted-foreground">
@@ -295,12 +304,35 @@ const categoriesJson = JSON.stringify(
       t.classList.toggle('bg-primary/10', active);
       t.classList.toggle('text-primary', active);
       t.classList.toggle('text-muted-foreground', !active);
+      t.setAttribute('aria-pressed', String(active));
     });
     // 标题跟随当前分类
     const navTitle = document.getElementById('nav-title');
     const activeTab = tabs.find((t) => t.dataset.catTab === next);
     if (navTitle && activeTab?.dataset.catName) navTitle.textContent = activeTab.dataset.catName;
+    filterSites();
   }
+
+  function filterSites(): void {
+    const input = document.getElementById('nav-search') as HTMLInputElement | null;
+    if (!input) return;
+    const query = input.value.trim().toLocaleLowerCase();
+    const panel = document.querySelector<HTMLElement>(`[data-cat-panel="${CSS.escape(currentCatId)}"]`);
+    const cards = Array.from(panel?.querySelectorAll<HTMLElement>('[data-nav-search]') ?? []);
+    let matched = 0;
+    cards.forEach(card => { const show = !query || (card.dataset.navSearch ?? '').includes(query); card.hidden = !show; if (show) matched += 1; });
+    panel?.querySelectorAll<HTMLElement>('[data-group]').forEach(group => { group.hidden = Boolean(query) && !group.querySelector('[data-nav-search]:not([hidden])'); });
+    document.getElementById('nav-search-clear')?.classList.toggle('hidden', !input.value);
+    document.getElementById('nav-search-empty')?.classList.toggle('hidden', !query || matched > 0);
+    const status = document.getElementById('nav-search-status');
+    if (status) status.textContent = query ? `当前分类匹配 ${matched} / ${cards.length} 个网站。` : '搜索当前分类中的名称、简介与网址。';
+  }
+  document.addEventListener('input', event => { if ((event.target as HTMLElement).id === 'nav-search') filterSites(); });
+  document.addEventListener('click', event => {
+    if (!(event.target as HTMLElement).closest('#nav-search-clear')) return;
+    const input = document.getElementById('nav-search') as HTMLInputElement | null;
+    if (input) { input.value = ''; filterSites(); input.focus(); }
+  });
 
   /**
    * 就地重建分类栏与主体（**不刷新页面**）：

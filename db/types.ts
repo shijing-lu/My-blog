@@ -97,6 +97,8 @@ export interface ArticleMeta {
 
 /** 保存/创建文章的入参（saveDraft 按 id upsert） */
 export interface ArticleUpsertInput {
+  /** Optional content CAS, independent of title/settings updates. */
+  expectedContentHash?: string;
   id: string;
   title: string;
   type: ArticleType;

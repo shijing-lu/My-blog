@@ -36,7 +36,7 @@ export const DEFAULT_LANDING: LandingHero = {
 };
 
 /** 默认副标题（页面兜底文案） */
-export const DEFAULT_SUBTITLE = '全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。';
+export const DEFAULT_SUBTITLE = '敢于斗争，善于斗争';
 
 /** 规范化校验 */
 function normalize(input: Partial<LandingHero> & { imageUrl?: string }): LandingHero {

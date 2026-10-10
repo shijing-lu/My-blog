@@ -12,14 +12,17 @@ import { guardManager, json, serverError } from '@/lib/api';
 import { startSync, syncStatus } from '@/sync';
 
 export const prerender = false;
+const privateJson = (data: unknown, status = 200) => json(data, { status, headers: { 'cache-control': 'private, no-store' } });
 
 export const GET: APIRoute = async ({ cookies }) => {
   const denied = await guardManager(cookies);
   if (denied) return denied;
   try {
-    return json(syncStatus());
+    return privateJson(syncStatus());
   } catch (err) {
-    return serverError('desktop/sync', err, '读取同步状态失败');
+    const response = serverError('desktop/sync', err, '读取同步状态失败');
+    response.headers.set('cache-control', 'private, no-store');
+    return response;
   }
 };
 
@@ -28,11 +31,13 @@ export const POST: APIRoute = async ({ cookies }) => {
   if (denied) return denied;
   try {
     const status = syncStatus();
-    if (status.running) return json({ started: false, running: true }, 202);
+    if (status.running) return privateJson({ started: false, running: true }, 202);
     // 非阻塞启动：长任务在进程内跑，前端轮询 GET /api/desktop/sync
     const res = await startSync(false);
-    return json(res, res.started ? 202 : 409);
+    return privateJson(res, res.started || res.running ? 202 : 409);
   } catch (err) {
-    return serverError('desktop/sync', err, '启动同步失败');
+    const response = serverError('desktop/sync', err, '启动同步失败');
+    response.headers.set('cache-control', 'private, no-store');
+    return response;
   }
 };

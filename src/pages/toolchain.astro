@@ -1,0 +1,19 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import WorkspaceHeading from '@/components/WorkspaceHeading.astro';
+import Toolchain from '@/components/toolchain/Toolchain';
+import { isOwnerSession } from '@/lib/admin-auth';
+import { serverEnv } from '@/lib/env';
+import '@/styles/completion-workspace.css';
+import '@/styles/toolchain.css';
+export const prerender = false;
+if (!isOwnerSession(Astro.cookies)) return Astro.redirect('/login?next=%2Ftoolchain');
+if (serverEnv('DESKTOP_MODE') !== '1') { Astro.response.status = 404; }
+Astro.response.headers.set('cache-control', 'private, no-store');
+---
+<BaseLayout title="工具链" description="让常用工具各就其位" indexable={false}>
+  <section class="neo-workspace toolchain-page">
+    <WorkspaceHeading title="工具链" eyebrow="TOOLCHAIN / 本机工具入口" description="软件、源码项目和网页工具，各自独立，随手打开。仅此电脑的站主可见。" />
+    {serverEnv('DESKTOP_MODE') === '1' ? <Toolchain client:load /> : <p class="neo-workspace-empty">请在 Windows 桌面端使用工具链。</p>}
+  </section>
+</BaseLayout>

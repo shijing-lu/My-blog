@@ -12,8 +12,23 @@
  * 任一处漂移，「不整页刷新」就会静默失效 —— 页面不报错，只是新卡长得不一样或排序错位。
  */
 import { describe, expect, it } from 'vitest';
-import { photoDateKey, renderManageCard, renderManageCards } from '../src/lib/photo-card-render';
+import { photoDateKey, renderManageCard, renderManageCards, renderGalleryCard } from '../src/lib/photo-card-render';
 import type { ManageCardPhoto } from '../src/lib/photo-card-render';
+
+describe('public gallery card', () => {
+  it('uses the thumbnail in the collection and the original in the lightbox', () => {
+    const html=renderGalleryCard({id:'original',url:'https://cdn.example.com/original.jpg',thumbUrl:'https://cdn.example.com/small.jpg',title:'原图',takenAt:new Date(2026,9,8)});
+    expect(html).toContain('src="https://cdn.example.com/small.jpg"');
+    expect(html).toContain('data-full-src="https://cdn.example.com/original.jpg"');
+    expect(html).toContain('data-broken-photo');
+  });
+  it('escapes captions and retains a labelled untitled photo', () => {
+    const html=renderGalleryCard({id:'safe',url:'/image.jpg',title:'<script>"标题"</script>',takenAt:new Date(2026,9,8)});
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(renderGalleryCard({id:'empty',url:'/image.jpg',title:'',takenAt:new Date(2026,9,8)})).toContain('查看大图：未命名照片');
+  });
+});
 
 function photo(over: Partial<ManageCardPhoto> = {}): ManageCardPhoto {
   return {

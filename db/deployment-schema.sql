@@ -1,3 +1,24 @@
+CREATE TABLE IF NOT EXISTS "ai_skill_versions" (
+  "id" text PRIMARY KEY NOT NULL,
+  "skill_id" text NOT NULL,
+  "parent_id" text,
+  "source" text NOT NULL,
+  "resources" text DEFAULT '{}' NOT NULL,
+  "created_at" text NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "ai_edit_runs" (
+  "id" text PRIMARY KEY NOT NULL,
+  "domain" text NOT NULL,
+  "target_id" text NOT NULL,
+  "before" text NOT NULL,
+  "after" text NOT NULL,
+  "base_version" text NOT NULL,
+  "status" text NOT NULL,
+  "metadata" text DEFAULT '{}' NOT NULL,
+  "created_at" text NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "admin_accounts" (
 	"id" text PRIMARY KEY NOT NULL,
 	"github_id" integer NOT NULL,
@@ -403,4 +424,39 @@ CREATE INDEX "study_tasks_created_idx" ON "study_tasks" USING btree ("created_at
 CREATE INDEX "web_categories_sort_idx" ON "web_categories" USING btree ("sort");--> statement-breakpoint
 CREATE INDEX "websites_category_idx" ON "websites" USING btree ("category_id");--> statement-breakpoint
 CREATE INDEX "websites_sub_category_idx" ON "websites" USING btree ("sub_category_id");--> statement-breakpoint
-CREATE INDEX "websites_sort_idx" ON "websites" USING btree ("sort");
+CREATE INDEX "websites_sort_idx" ON "websites" USING btree ("sort");--> statement-breakpoint
+CREATE TABLE "mobile_sessions" (
+  "id" text PRIMARY KEY NOT NULL,
+  "device_id" text NOT NULL,
+  "device_name" text NOT NULL,
+  "credential_version" text NOT NULL,
+  "access_hash" text NOT NULL,
+  "refresh_hash" text NOT NULL,
+  "previous_refresh_hash" text,
+  "refresh_request_id" text,
+  "access_expires_at" text NOT NULL,
+  "refresh_expires_at" text NOT NULL,
+  "created_at" text NOT NULL,
+  "updated_at" text NOT NULL,
+  "revoked_at" text
+);
+--> statement-breakpoint
+CREATE TABLE "mobile_sync_head" (
+  "id" text PRIMARY KEY NOT NULL,
+  "seq" integer NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "mobile_sync_records" (
+  "id" text PRIMARY KEY NOT NULL,
+  "revision" text NOT NULL,
+  "seq" integer NOT NULL,
+  "payload" text
+);
+--> statement-breakpoint
+CREATE INDEX "mobile_sync_records_seq" ON "mobile_sync_records" ("seq");
+--> statement-breakpoint
+CREATE TABLE "mobile_sync_receipts" (
+  "id" text PRIMARY KEY NOT NULL,
+  "digest" text NOT NULL,
+  "reply" text NOT NULL
+);

@@ -5,8 +5,11 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
-import { getPhotoTags, listPhotosAlive } from '@/lib/photos';
+import { getPhotoTags, getPhotoPageAlive } from '@/lib/photos';
 import { canManage } from '@/lib/admin-auth';
+import { renderGalleryCard } from '@/lib/photo-card-render';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/discovery-workspace.css';
 
 /* ===== Logic ===== */
 /** 每页照片数（与 /api/photos 默认一致） */
@@ -16,7 +19,7 @@ const PAGE_SIZE = 30;
 const activeTag = Astro.url.searchParams.get('tag')?.trim().slice(0, 20) || undefined;
 const filter = activeTag ? { tag: activeTag } : {};
 // 治本：过滤"DB 行存在但 R2 文件已删"的孤儿（详见 lib/photos.ts listPhotosAlive 注释）
-const photos = await listPhotosAlive(PAGE_SIZE, 0, filter);
+const { photos, total, timeline } = await getPhotoPageAlive(PAGE_SIZE, 0, filter);
 const isAuthed = await canManage(Astro.cookies, 'photos');
 
 /** 日期 → 本地时区 YYYY-MM-DD（与时间线聚合一致） */
@@ -45,41 +48,38 @@ photos.forEach((p) => {
   g.photos.push(p);
 });
 
-/** 仅就"已过滤的照片"重新聚合衍生数据，避免孤儿行污染顶部计数 / 时间线 / 标签 chips */
-const total = photos.length;
-const timeline = groups.map((g) => ({ date: g.date, count: g.photos.length }));
 // 标签 chip：仍走原接口（DB 全量聚合；标签分布与孤儿比例无关，统计上可接受）
 const photoTags = await getPhotoTags();
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="影集" description="收集好看的、有意义的照片 —— My Blog Gallery">
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+  <section class="neo-discovery neo-gallery-workspace mx-auto w-full max-w-6xl px-4 py-10">
     <!-- 页头 -->
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <header class="neo-discovery-heading flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">GALLERY</p>
+        <p class="neo-discovery-eyebrow">GALLERY / 阅读与发现</p>
         <h1 class="ghost-text mt-2 font-display text-3xl font-semibold tracking-tight sm:text-4xl">影集</h1>
         <p class="mt-2 text-sm text-muted-foreground">
-          收集记录的好看与有意义的照片 —— 共 <span class="text-primary">{total}</span> 张。
+          把那些舍不得忘记的瞬间收好 · {activeTag ? '当前标签 ' : '共 '}<span class="text-primary">{total}</span> 张。
         </p>
       </div>
-      {
+      <div class="neo-discovery-heading-actions">{
         isAuthed && (
           <a
             href="/gallery/upload"
-            class="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+            class="neo-discovery-button"
           >
-            + 上传照片
+            <NeoIcon name="plus" size={17} /> 上传与管理
           </a>
         )
-      }
-    </div>
-    <div class="pixel-divider mt-6" />
+      }<div class="neo-discovery-note" aria-hidden="true"><img src="/images/neobrutalism/cat-peek.webp" alt="" width="78" height="62" /><p>把日常的温柔<br />好好收进影集</p></div></div>
+    </header>
 
     <!-- 标签筛选 -->
-    <div class="mt-4 flex flex-wrap items-center gap-1.5">
+    <nav class="neo-gallery-tags mt-4 flex flex-wrap items-center gap-1.5" aria-label="照片标签">
       <a
         href="/gallery"
+        aria-current={!activeTag ? 'page' : undefined}
         class={`rounded px-2 py-0.5 text-xs transition-colors ${!activeTag ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-primary'}`}
       >
         全部
@@ -88,31 +88,23 @@ const photoTags = await getPhotoTags();
         photoTags.map((t) => (
           <a
             href={`/gallery?tag=${encodeURIComponent(t.tag)}`}
+            aria-current={activeTag === t.tag ? 'page' : undefined}
             class={`rounded px-2 py-0.5 text-xs transition-colors ${activeTag === t.tag ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent hover:text-primary'}`}
           >
             {t.tag} ({t.count})
           </a>
         ))
       }
-    </div>
+    </nav>
 
-    <!-- 三栏：左侧留白 | 中间瀑布流 | 右侧时间线 -->
-    <div class="mt-6 grid gap-6 lg:grid-cols-[190px_minmax(0,1fr)_170px]">
-      <!-- 左侧：预留区 -->
-      <aside class="hidden lg:block">
-        <div class="sticky top-20">
-          <p class="pixel-chip mb-2 text-muted-foreground">SIDE</p>
-          <p class="text-xs leading-relaxed text-muted-foreground">
-            左侧区域预留 —— 未来可放随机照片 / 标签筛选 / 统计等。
-          </p>
-        </div>
-      </aside>
-
+    <!-- 照片瀑布流与可收起的日期时间线 -->
+    <div class="neo-gallery-layout mt-6 grid gap-6">
       <!-- 中间：瀑布流 -->
       <div class="min-w-0">
         {
           photos.length === 0 ? (
-            <div class="py-10 text-center">
+            <div class="neo-discovery-empty py-10 text-center">
+              <img src="/images/neobrutalism/cat-peek.webp" alt="" width="96" height="76" aria-hidden="true" />
               <p class="font-display text-lg font-semibold">影集还是空的</p>
               <p class="mt-2 text-sm text-muted-foreground">
                 {
@@ -134,43 +126,14 @@ const photoTags = await getPhotoTags();
                       </div>
                       <div class="masonry mt-4 grid grid-cols-2 gap-0 sm:grid-cols-3">
                         {
-                          g.photos.map((p) => (
-                            <figure
-                              class="photo-card group relative overflow-hidden"
-                              data-date={dateKey(p.takenAt)}
-                              data-photo-id={p.id}
-                            >
-                              <div
-                                class="photo-wrap overflow-hidden"
-                                style={p.width && p.height ? `aspect-ratio: ${p.width} / ${p.height}` : undefined}
-                                data-lightbox
-                                tabindex="0" role="button" aria-label={p.title ? `查看大图：${p.title}` : '查看大图'}
-                                data-caption={p.title}
-                              >
-                                <img
-                                  src={p.thumbUrl ?? p.url}
-                                  alt={p.title}
-                                  loading="lazy"
-                                  decoding="async"
-                                  class="block w-full cursor-zoom-in object-cover"
-                                  data-broken-photo
-                                />
-                              </div>
-                              {
-                                p.title && (
-                                  <figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                                    {p.title}
-                                  </figcaption>
-                                )
-                              }
-                            </figure>
-                          ))
+                          g.photos.map((p) => <Fragment set:html={renderGalleryCard(p)} />)
                         }
                       </div>
                     </section>
                   ))
                 }
               </div>
+              <p id="gallery-broken-empty" class="neo-discovery-empty hidden" role="status">这些照片暂时无法加载，稍后刷新再试。</p>
 
               <!-- 加载更多：滚动到底显示按钮，点击加载 -->
               <div id="gallery-sentinel" aria-hidden="true" class="h-px" />
@@ -189,11 +152,11 @@ const photoTags = await getPhotoTags();
       </div>
 
       <!-- 右侧：时间线（上最新下最旧，真时间线样式） -->
-      <aside class="hidden lg:block">
-        <div class="sticky top-20">
-          <p class="pixel-chip mb-2 text-muted-foreground">时间线 / TIMELINE</p>
+      <aside class="neo-gallery-timeline">
+        <details open class="sticky top-20">
+          <summary>拍摄时间线 <small>TIMELINE</small></summary>
           <Timeline items={timeline.map((t) => ({ date: t.date, label: t.date, count: t.count }))} emptyText="暂无照片" />
-        </div>
+        </details>
       </aside>
     </div>
   </section>
@@ -201,6 +164,7 @@ const photoTags = await getPhotoTags();
 
 <script>
   import { revealWithin } from '@/lib/motion';
+  import { renderGalleryCard, photoDateKey } from '@/lib/photo-card-render';
   /** 相册交互：瀑布流列分配 / 加载更多 / 时间线定位（原生 JS，document 委托兼容 View Transitions） */
   const PAGE_SIZE = 30;
   /** 首屏已渲染照片数 / 总数（init 时从 #masonry 的 data-* 读取） */
@@ -294,21 +258,14 @@ const photoTags = await getPhotoTags();
     height: number | null;
     takenAt: string;
   }): string {
-    const date = p.takenAt.slice(0, 10);
-    const ratioStyle = p.width && p.height ? `style="aspect-ratio: ${p.width} / ${p.height}"` : '';
-    return `<figure class="photo-card group relative overflow-hidden" data-date="${esc(date)}" data-photo-id="${esc(p.id)}">
-      <div class="photo-wrap overflow-hidden" ${ratioStyle} data-lightbox data-caption="${esc(p.title)}" tabindex="0" role="button" aria-label="查看大图">
-        <img src="${esc(p.thumbUrl ?? p.url)}" alt="${esc(p.title)}" loading="lazy" decoding="async" class="block w-full cursor-zoom-in object-cover" />
-      </div>
-      ${p.title ? `<figcaption class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-8 text-xs text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">${esc(p.title)}</figcaption>` : ''}
-    </figure>`;
+    return renderGalleryCard(p);
   }
 
   /** 按指定列数建列（masonry 为空时调用；已建列请先清空） */
   function createColumns(masonry: HTMLElement, n: number): HTMLElement[] {
     for (let i = 0; i < n; i += 1) {
       const col = document.createElement('div');
-      col.className = 'min-w-0 self-start';
+      col.className = 'neo-gallery-column min-w-0 self-start';
       masonry.appendChild(col);
     }
     masonry.dataset.ready = '1';
@@ -376,7 +333,7 @@ const photoTags = await getPhotoTags();
     columns[min]!.insertAdjacentHTML('beforeend', html);
     const inserted = columns[min]!.lastElementChild;
     if (inserted) revealWithin(inserted);
-    heights[min] = heights[min]! + colWidth * ratio;
+    heights[min] = heights[min]! + colWidth * ratio + 82;
   }
 
   /** 把已有卡片节点移动到 masonry 的最短列（参数同 appendToShortestColumn） */
@@ -387,7 +344,7 @@ const photoTags = await getPhotoTags();
     const heights = heightsOf(masonry, columns);
     const min = shortestIndex(heights);
     columns[min]!.appendChild(card);
-    heights[min] = heights[min]! + colWidth * ratioOf(card);
+    heights[min] = heights[min]! + colWidth * ratioOf(card) + 82;
   }
 
   /** 按日期把照片插入对应分组（无则新建分组，更旧日期追加到末尾） */
@@ -405,6 +362,8 @@ const photoTags = await getPhotoTags();
     const masonry = section.querySelector<HTMLElement>('.masonry');
     if (!masonry) return;
     appendToShortestColumn(masonry, html, ratio, colWidth);
+    section.classList.remove('hidden');
+    el('gallery-broken-empty')?.classList.add('hidden');
     const count = section.querySelector('.gallery-date-count');
     if (count) count.textContent = `${masonry.querySelectorAll('.photo-card').length} 张`;
     scheduleRemeasure(masonry);
@@ -444,7 +403,7 @@ const photoTags = await getPhotoTags();
       const container = el<HTMLElement>('gallery-groups');
       const colWidth = container ? container.clientWidth / columnCount() : 320;
       data.photos.forEach((p) =>
-        insertPhoto(cardHtml(p), p.takenAt.slice(0, 10), ratioFrom(p.width, p.height), colWidth),
+        insertPhoto(cardHtml(p), photoDateKey(p.takenAt), ratioFrom(p.width, p.height), colWidth),
       );
       offset += data.photos.length;
       total = data.total;
@@ -477,8 +436,10 @@ const photoTags = await getPhotoTags();
    */
   function setupBrokenPhotoFallback(): void {
     document.querySelectorAll<HTMLImageElement>('img[data-broken-photo]').forEach((img) => {
+      if (img.dataset.errorBound) return;
+      img.dataset.errorBound = '1';
       if (img.complete && img.naturalWidth > 0) return;
-      img.addEventListener('error', () => {
+      const removeBroken = (): void => {
         const figure = img.closest<HTMLElement>('figure.photo-card');
         if (!figure || !figure.isConnected) return;
         const section = figure.closest<HTMLElement>('section.gallery-group');
@@ -489,7 +450,11 @@ const photoTags = await getPhotoTags();
           if (countNode) countNode.textContent = `${remaining} 张`;
           if (remaining === 0) section.classList.add('hidden');
         }
-      }, { once: true });
+        el('gallery-broken-empty')?.classList.toggle('hidden', Boolean(document.querySelector('#gallery-groups .photo-card')));
+      };
+      // A cached failure may have fired before this page's script started.
+      if (img.complete && img.naturalWidth === 0) removeBroken();
+      else img.addEventListener('error', removeBroken, { once: true });
     });
   }
 

@@ -28,6 +28,7 @@ import { makeClickToPos } from './cm-live-preview';
 import { isTableRow, isTableSeparator, parseTable, TableWidget } from './cm-table';
 import { columnBlocks } from './cm-columns-state';
 import { scanVisualDirectives } from '../../lib/markdown-visual-directives';
+import { scanMarkdownCallouts } from '../../lib/markdown-callouts';
 // katex 必须静态 import（勿改回 import('katex')）：
 // 1) vite build 会把 katex 并入本模块所属 chunk，随 MarkdownEditor 的动态 import 按需加载，
 //    写作台（非 wysiwyg 模式）不加载本模块 → 零 katex 负担；
@@ -295,6 +296,9 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
 
   /** 被块级结构（代码围栏 / $$ 数学块）占用的行：行内 pass 跳过 */
   const blocked = new Set<number>();
+  for (const block of scanMarkdownCallouts(doc.toString())) {
+    for (let line = doc.lineAt(block.from).number; line <= doc.lineAt(block.to).number; line += 1) blocked.add(line - 1);
+  }
   for (const block of columnBlocks(doc)) {
     for (let line = doc.lineAt(block.from).number; line <= doc.lineAt(block.to).number; line += 1) blocked.add(line - 1);
   }
@@ -314,13 +318,14 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
   while (i < lines.length) {
     if (blocked.has(i)) { i += 1; continue; }
     const line = lines[i]!;
-    const fence = line.text.match(/^```([\w+-]*)\s*$/);
+    const fence = line.text.match(/^ {0,3}(`{3,}|~{3,})([\w+-]*)\s*$/);
     if (fence) {
       const body: string[] = [];
       let j = i + 1;
       let close = -1;
       while (j < lines.length) {
-        if (/^```\s*$/.test(lines[j]!.text)) {
+        const closing = /^ {0,3}(`+|~+)\s*$/.exec(lines[j]!.text);
+        if (closing && closing[1]![0] === fence[1]![0] && closing[1]!.length >= fence[1]!.length) {
           close = j;
           break;
         }
@@ -334,7 +339,7 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
           from,
           to,
           deco: Decoration.replace({
-            widget: new CodeBlockWidget(fence[1] ?? '', body.join('\n'), from),
+            widget: new CodeBlockWidget(fence[2] ?? '', body.join('\n'), from),
           }),
           reveal: true,
         });

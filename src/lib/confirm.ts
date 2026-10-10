@@ -8,6 +8,8 @@
  *   document 不销毁，dialog 节点挂在 body 上持续有效。
  */
 
+import '@/styles/completion-dialogs.css';
+
 export interface ConfirmOptions {
   /** 标题（默认"请确认"） */
   title?: string;
@@ -31,7 +33,7 @@ function ensureDialog(): boolean {
   dialogEl = document.createElement('dialog');
   dialogEl.setAttribute('aria-label', '操作确认');
   dialogEl.dataset.m3Role = 'dialog';
-  dialogEl.className = 'm-auto w-80 rounded-lg border border-border bg-card p-4 shadow-xl backdrop:bg-black/40';
+  dialogEl.className = 'neo-confirm-dialog m-auto backdrop:bg-black/40';
   dialogEl.innerHTML = `
     <h3 data-confirm-title class="text-sm font-medium"></h3>
     <p data-confirm-message class="mt-2 text-sm text-muted-foreground whitespace-pre-wrap break-words"></p>

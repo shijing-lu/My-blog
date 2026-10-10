@@ -78,6 +78,7 @@ export function googleFaviconUrl(url: string): string {
 // HTML 转义集中在 html-escape.ts（各渲染模块共用一份，避免规则分叉）。
 // 既 import（本模块内部大量使用）又 re-export（保持既有 API 不变）。
 import { esc } from './html-escape';
+import { articleUiIcon } from './article-ui-icons';
 export { esc };
 
 /** 与「＋ 添加网址」一致的虚线圆角按钮样式 */
@@ -106,13 +107,13 @@ export function renderSite(site: NavSiteRenderable, authed: boolean): string {
   const actions = authed
     ? `<span class="absolute -right-1.5 -top-2 z-10 flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">` +
       `<button type="button" data-site-edit="${esc(site.id)}" title="编辑" aria-label="编辑" ` +
-      `class="${ICON_BTN_CLASS} hover:border-primary/50 hover:text-primary">✎</button>` +
+      `class="${ICON_BTN_CLASS} hover:border-primary/50 hover:text-primary">${articleUiIcon('pencil')}</button>` +
       `<button type="button" data-site-del="${esc(site.id)}" data-site-name="${esc(name)}" title="删除" aria-label="删除" ` +
-      `class="${ICON_BTN_CLASS} hover:border-destructive/50 hover:text-destructive">×</button>` +
+      `class="${ICON_BTN_CLASS} hover:border-destructive/50 hover:text-destructive">${articleUiIcon('trash')}</button>` +
       `</span>`
     : '';
   return (
-    `<div class="group relative">` +
+    `<div class="neo-nav-site group relative" data-nav-search="${esc([name, site.desc ?? '', site.url].join(' ').toLocaleLowerCase())}">` +
     `<a href="${esc(site.url)}"${dragAttr} target="_blank" rel="noopener noreferrer" ` +
     (site.groupLabel ? `title="${esc(site.groupLabel)}" ` : '') +
     `class="flex items-center gap-2.5 p-2.5 transition-colors duration-200 hover:bg-accent/60">` +
@@ -120,7 +121,8 @@ export function renderSite(site: NavSiteRenderable, authed: boolean): string {
     `<img class="nav-icon size-5 object-contain" src="${esc(iconSrc)}" alt="" loading="lazy" data-google="${esc(google)}" data-name="${esc(name)}" />` +
     `<span class="nav-icon-fallback hidden font-display text-sm font-semibold text-primary">${esc(name.slice(0, 1))}</span>` +
     `</span>` +
-    `<span class="min-w-0"><span class="block truncate text-xs font-medium">${esc(name)}</span>${desc}</span>` +
+    `<span class="neo-nav-site-copy min-w-0"><span class="neo-nav-site-name block truncate text-xs font-medium" title="${esc(name)}">${esc(name)}</span>${desc}</span>` +
+    `<span class="neo-nav-open">打开网站 <span aria-hidden="true">↗</span></span>` +
     `</a>${actions}</div>`
   );
 }
@@ -229,7 +231,7 @@ export function navTopTabs(categories: NavCategoryRenderable[], authed: boolean)
   const tabClass =
     'shrink-0 rounded-full border border-border px-3 py-1 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary';
   let html =
-    `<button type="button" data-cat-tab="all" data-cat-name="全部网站" class="${tabClass}">🧭 全部</button>`;
+    `<button type="button" data-cat-tab="all" data-cat-name="全部网站" class="${tabClass}">全部</button>`;
   for (const c of categories) {
     html +=
       `<button type="button" data-cat-tab="${esc(c.id)}" data-cat-name="${esc(c.name)}" class="${tabClass}">` +
@@ -252,7 +254,7 @@ export function navSidebar(categories: NavCategoryRenderable[], authed: boolean)
     'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 pr-6 text-left text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground';
   let items =
     `<button type="button" data-cat-tab="all" data-cat-name="全部网站" class="${tabClass}">` +
-    `<span aria-hidden="true">🧭</span><span>全部网站</span></button>`;
+    `<span>全部网站</span></button>`;
   for (const c of categories) {
     const dragAttrs = authed
       ? ` data-drop-cat="${esc(c.id)}" draggable="true" title="拖拽可排序；拖拽网站卡片到此处可移动"`
@@ -301,7 +303,8 @@ export function navMain(
 ): string {
   if (categories.length === 0) {
     return (
-      `<div class="mt-10 text-center">` +
+      `<div class="neo-nav-empty mt-10 text-center">` +
+      `<h2 id="nav-title">全部网站</h2><img src="/images/neobrutalism/cat-peek.webp" alt="" width="96" height="76" aria-hidden="true" />` +
       `<p class="text-sm text-muted-foreground">暂无分类 —— 管理员可到后台添加。</p>` +
       (authed
         ? `<button type="button" data-cat-add ` +
@@ -324,20 +327,18 @@ export function navMain(
   );
 
   let html =
-    `<div data-hero class="text-center">` +
-    `<p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">NAVIGATION</p>` +
-    `<h1 id="nav-title" class="mt-1 font-display text-3xl font-semibold tracking-tight">全部网站</h1>` +
+    `<div data-hero class="neo-nav-panel-heading">` +
+    `<h2 id="nav-title" class="mt-1 font-display text-3xl font-semibold tracking-tight">全部网站</h2>` +
     `<p class="mt-1 text-sm text-muted-foreground">共 ${categories.length} 个分类 · ${totalSites} 个网站</p>` +
     `</div>`;
   html +=
-    `<div class="relative mt-5"><div class="pixel-divider"></div>` +
-    navSidebar(categories, authed) +
-    `</div>`;
-  html += `<div class="mt-6">`;
+    `<div class="neo-nav-layout">` +
+    navSidebar(categories, authed);
+  html += `<div class="neo-nav-panels">`;
   html += `<div data-cat-panel="all">${siteGrid(allSites, '', false)}</div>`;
   for (const c of categories) {
     html += `<div data-cat-panel="${esc(c.id)}" class="hidden">${categoryPanel(c, authed)}</div>`;
   }
-  html += `</div>`;
+  html += `</div></div>`;
   return html;
 }

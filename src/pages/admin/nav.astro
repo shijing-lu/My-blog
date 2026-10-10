@@ -3,6 +3,7 @@
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import { listNav } from '@/lib/nav';
 import { adminCatList, adminCatOptions, adminSiteGroups } from '@/lib/admin-nav-render';
+import '@/styles/discovery-workspace.css';
 
 /* ===== Logic ===== */
 const categories = await listNav();
@@ -24,26 +25,26 @@ const categoriesJson = JSON.stringify(
 );
 ---
 <AdminLayout title="导航管理">
-  <section class="mx-auto w-full max-w-4xl px-4 py-8">
-    <div>
+  <section class="neo-discovery neo-discovery-admin neo-nav-manager mx-auto w-full max-w-4xl px-4 py-8">
+    <header class="neo-discovery-heading"><div>
       <p class="pixel-chip text-primary">NAV MANAGER</p>
       <h1 class="mt-1 font-display text-2xl font-semibold">导航管理</h1>
       <p class="mt-1 text-sm text-muted-foreground">管理分类与网站；改网站所属分类即可移动。数据存服务端。</p>
-    </div>
+    </div><div class="neo-discovery-heading-actions"><a class="neo-discovery-button" href="/nav" data-astro-reload>查看导航</a><div class="neo-discovery-note" aria-hidden="true"><img src="/images/neobrutalism/cat-peek.webp" alt="" width="78" height="62" /><p>整理收藏<br />留住每一次发现</p></div></div></header>
 
     <!-- 分类管理 -->
-    <div class="mt-6">
+    <div class="neo-discovery-panel mt-6">
       <div class="flex items-center justify-between">
         <h2 class="font-medium">分类</h2>
         <span id="cat-count" class="text-xs text-muted-foreground">共 {categories.length} 个</span>
       </div>
       <!-- 新增/编辑表单 -->
       <div class="mt-3 flex flex-wrap items-center gap-2">
-        <input id="cat-name" type="text" maxlength="50" placeholder="分类名（如 AI 工具）"
+        <input id="cat-name" aria-label="分类名" type="text" maxlength="50" placeholder="分类名（如 AI 工具）"
           class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
-        <input id="cat-icon" type="text" maxlength="20" placeholder="图标（emoji，可选）"
+        <input id="cat-icon" aria-label="分类图标" type="text" maxlength="20" placeholder="图标（emoji，可选）"
           class="w-28 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
-        <input id="cat-sort" type="number" min="0" value="0"
+        <input id="cat-sort" aria-label="分类排序" type="number" min="0" value="0"
           class="w-20 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
         <button id="cat-save" type="button" data-mode="create"
           class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground transition-opacity hover:opacity-90">
@@ -56,22 +57,22 @@ const categoriesJson = JSON.stringify(
     </div>
 
     <!-- 网站管理 -->
-    <div class="mt-6">
+    <div class="neo-discovery-panel mt-6">
       <h2 class="font-medium">网站</h2>
       <p class="mt-0.5 text-xs text-muted-foreground">图标留空自动抓 favicon（域名 /favicon.ico → Google 兜底）。</p>
       <!-- 新增/编辑表单 -->
       <div class="mt-3 grid gap-2 sm:grid-cols-2">
-        <input id="site-name" type="text" maxlength="80" placeholder="网站名"
+        <input id="site-name" aria-label="网站名" type="text" maxlength="80" placeholder="网站名"
           class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
-        <input id="site-url" type="url" maxlength="300" placeholder="网址 https://…"
+        <input id="site-url" aria-label="网站网址" type="url" maxlength="300" placeholder="网址 https://…"
           class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
-        <input id="site-desc" type="text" maxlength="200" placeholder="一句话简介（可选）"
+        <input id="site-desc" aria-label="网站简介" type="text" maxlength="200" placeholder="一句话简介（可选）"
           class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
-        <input id="site-icon" type="text" maxlength="500" placeholder="图标 URL（可选，留空自动）"
+        <input id="site-icon" aria-label="网站图标 URL" type="text" maxlength="500" placeholder="图标 URL（可选，留空自动）"
           class="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring" />
         <div class="flex items-center gap-2">
-          <select id="site-cat" class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" set:html={adminCatOptions(categories)} />
-          <input id="site-sort" type="number" min="0" value="0" title="排序"
+          <select id="site-cat" aria-label="所属分类" class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" set:html={adminCatOptions(categories)} />
+          <input id="site-sort" aria-label="网站排序" type="number" min="0" value="0" title="排序"
             class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
         </div>
       </div>

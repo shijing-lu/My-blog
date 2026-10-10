@@ -15,6 +15,7 @@
  */
 import { esc } from './html-escape';
 import { toTime } from './ordered-list';
+import { articleUiIcon } from './article-ui-icons';
 
 /** 树渲染所需的最小节点形状：服务端 `DocNodeView` 与客户端 `data-nodes` 都满足 */
 export interface DocTreeItem {
@@ -140,12 +141,12 @@ export function renderDocTree(items: DocTreeItem[], opts: DocTreeRenderOpts): st
         const virtual = n.id === virtualRootId;
         out +=
           `<details class="group doc-folder" open data-folder="${n.id}">` +
-          `<summary class="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${authed ? ` data-doc-folder-target="${n.id}" data-tree-node-id="${virtual ? '' : n.id}" data-tree-node-kind="${virtual ? 'root' : 'folder'}" data-tree-node-title="${esc(n.title)}" tabindex="0"` : ''}>` +
+          `<summary title="${esc(n.title)}" data-directory-title="${esc(n.title)}" class="doc-tree-row flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"${authed ? ` data-doc-folder-target="${n.id}" data-tree-node-id="${virtual ? '' : n.id}" data-tree-node-kind="${virtual ? 'root' : 'folder'}" data-tree-node-title="${esc(n.title)}" tabindex="0"` : ''}>` +
           `<span class="text-[0.7rem]">▸</span>` +
-          `<span class="min-w-0 flex-1 truncate">${esc(n.title)}</span>` +
-          (authed ? `<button type="button" data-tree-menu-trigger title="目录操作" aria-label="${esc(n.title)}的操作" class="ml-auto rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">⋯</button>` : '') +
+          `<span class="doc-tree-title" data-directory-title="${esc(n.title)}">${esc(n.title)}</span>` +
+          (authed ? `<button type="button" data-tree-menu-trigger title="目录操作" aria-label="${esc(n.title)}的操作" class="ml-auto rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">${articleUiIcon('more')}</button>` : '') +
           `</summary>` +
-          (children ? `<div class="ml-3 border-l border-border pl-2">${children}</div>` : '') +
+          (children ? `<div class="doc-tree-children ml-3 border-l border-border pl-2">${children}</div>` : '') +
           `</details>`;
       } else {
         // href 为完整 URL：JS 正常时 preventDefault 走前端即时切换；新标签打开 / 无 JS 时直达正确文章
@@ -153,11 +154,11 @@ export function renderDocTree(items: DocTreeItem[], opts: DocTreeRenderOpts): st
           ? `/edit/${encodeURIComponent(n.id)}`
           : `/doc/${bundleId}?article=${encodeURIComponent(n.id)}`;
         out +=
-          `<div${authed ? ` ${articlePath === 'docs' ? 'draggable="true" ' : ''}data-doc-node-id="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="article" data-tree-node-title="${esc(n.title)}" tabindex="-1"` : ''} class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
+          `<div${authed ? ` ${articlePath === 'docs' ? 'draggable="true" ' : ''}data-doc-node-id="${n.id}" data-tree-node-id="${n.id}" data-tree-node-kind="article" data-tree-node-title="${esc(n.title)}" tabindex="-1"` : ''} data-active="${n.id === activeId}" class="doc-tree-row group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ` +
           (n.id === activeId ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground') +
           `">` +
-          `<a href="${href}" data-article-switch="${n.id}" class="min-w-0 flex-1 truncate">${esc(n.title)}</a>` +
-          (authed ? `<button type="button" data-tree-menu-trigger title="文章操作" aria-label="${esc(n.title)}的操作" class="shrink-0 rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">⋯</button>` : '') +
+          `<a href="${href}" data-article-switch="${n.id}" class="doc-tree-title" title="${esc(n.title)}" data-directory-title="${esc(n.title)}" aria-current="${n.id === activeId ? 'page' : 'false'}">${esc(n.title)}</a>` +
+          (authed ? `<button type="button" data-tree-menu-trigger title="文章操作" aria-label="${esc(n.title)}的操作" class="shrink-0 rounded px-1.5 text-xs text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-primary">${articleUiIcon('more')}</button>` : '') +
           `</div>`;
       }
     }

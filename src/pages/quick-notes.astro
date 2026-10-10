@@ -1,5 +1,8 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import WorkspaceHeading from '@/components/WorkspaceHeading.astro';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/completion-workspace.css';
 import { isTopAdmin } from '@/lib/admin-auth';
 import { getQuickNoteFacets, listQuickNotes, toQuickNoteView } from '@/lib/quick-notes';
 
@@ -38,29 +41,24 @@ const href = (next: { tag?: string; month?: string; page?: number }) => {
 };
 ---
 <BaseLayout title="随心录" description="私密记录，随时回看" indexable={false}>
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <div class="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">QUICK NOTES</p>
-        <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">随心录</h1>
-        <p class="mt-2 text-sm text-muted-foreground">记下当时的想法，想起时再读。</p>
-      </div>
-      <button type="button" data-note-open="" class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90">写一条</button>
-    </div>
-    <div class="pixel-divider mt-6" />
-    <div class="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_220px]">
+  <section class="neo-workspace neo-notes">
+    <WorkspaceHeading title="随心录" eyebrow="QUICK NOTES / 私密记录" description={`记下当时的想法，想起时再读。共 ${total} 条，仅站主可见。`}><button type="button" data-note-open="" class="neo-workspace-primary"><NeoIcon name="plus" size={16} />写一条</button></WorkspaceHeading>
+    <div class="neo-workspace-search"><NeoIcon name="search" size={18} /><input id="quick-note-search" type="search" aria-label="查找本页记录" placeholder="查找本页记录…" /></div>
+    <p class="neo-workspace-search-help" id="quick-note-search-status" role="status" aria-live="polite">查找当前页的标题、正文和标签；月份与标签筛选涵盖全部记录。</p>
+    <div class="neo-workspace-grid">
       <div>
         {(tag || month) && <div class="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <span>筛选：{tag && `#${tag}`}{tag && month && ' · '}{month && `${month.slice(0, 4)} 年 ${Number(month.slice(5))} 月`}</span>
           <a href="/quick-notes" class="text-primary hover:underline">清除筛选</a>
         </div>}
-        {cards.length === 0 ? <div class="rounded-xl border border-dashed border-border px-6 py-16 text-center text-sm text-muted-foreground">
+        {cards.length === 0 ? <div class="neo-workspace-empty">
+          <img src="/images/neobrutalism/cat-peek.webp" width="90" height="72" alt="" aria-hidden="true" />
           <p>{tag || month ? '没有符合条件的记录' : '还没有记录，随手写下第一条吧。'}</p>
           {(tag || month) && <a href="/quick-notes" class="mt-3 inline-block text-primary hover:underline">查看全部记录</a>}
         </div> : <div class="space-y-5">
           {cards.map((note, i) => <Fragment>
-            {(i === 0 || monthOf(cards[i - 1]!.createdAt) !== monthOf(note.createdAt)) && <div class="flex items-center gap-3 pt-2"><span class="font-display text-sm font-semibold text-primary">{monthOf(note.createdAt).replace('-', ' / ')}</span><span class="h-px flex-1 bg-border" /></div>}
-            <article class="group rounded-xl border border-border bg-card/70 p-5 pr-16 transition-colors hover:border-primary/40 sm:pr-5" data-note-id={note.id}>
+            {(i === 0 || monthOf(cards[i - 1]!.createdAt) !== monthOf(note.createdAt)) && <div data-note-month class="flex items-center gap-3 pt-2"><span class="font-display text-sm font-semibold text-primary">{monthOf(note.createdAt).replace('-', ' / ')}</span><span class="h-px flex-1 bg-border" /></div>}
+            <article class="neo-note-card" data-note-id={note.id} data-note-search={`${note.title} ${note.content} ${note.tags.join(' ')}`}>
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <p class="text-xs text-muted-foreground">{dateFmt.format(note.createdAt)}{note.updatedAt.getTime() - note.createdAt.getTime() > 1000 && ' · 已编辑'}</p>
@@ -68,27 +66,28 @@ const href = (next: { tag?: string; month?: string; page?: number }) => {
                 </div>
                 <button type="button" data-note-open={note.id} aria-label={`编辑${note.title || '记录'}`} class="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary">编辑</button>
               </div>
-              <div class="prose mt-3 max-h-48 max-w-none overflow-hidden text-sm" set:html={note.contentHtml} />
+              <div class="prose mt-3 max-w-none text-sm" set:html={note.contentHtml} />
               {note.tags.length > 0 && <div class="mt-4 flex flex-wrap gap-2 border-t border-border pt-3">
                 {note.tags.map((item) => <a href={href({ tag: item, month })} class="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary">#{item}</a>)}
               </div>}
             </article>
           </Fragment>)}
         </div>}
+        <p id="quick-note-search-empty" class="neo-workspace-empty hidden">本页没有匹配的记录，试试其他关键词或标签。</p>
         {maxPage > 1 && <nav aria-label="随心录分页" class="mt-8 flex items-center justify-center gap-4 text-sm">
           {page > 1 && <a href={href({ tag, month, page: page - 1 })} class="rounded-md border border-border px-3 py-1.5 hover:border-primary">上一页</a>}
           <span class="text-muted-foreground">{Math.min(page, maxPage)} / {maxPage}</span>
           {page < maxPage && <a href={href({ tag, month, page: page + 1 })} class="rounded-md border border-border px-3 py-1.5 hover:border-primary">下一页</a>}
         </nav>}
       </div>
-      <aside class="space-y-6 lg:sticky lg:top-24 lg:self-start" aria-label="随心录筛选">
-        <div class="rounded-xl border border-border bg-card/70 p-4">
+      <aside class="neo-workspace-sidebar neo-notes-sidebar" aria-label="随心录筛选">
+        <div class="neo-workspace-panel">
           <h2 class="font-display text-sm font-semibold">标签</h2>
           <div class="mt-3 flex flex-wrap gap-2">
             {facets.tags.length ? facets.tags.map((item) => <a href={href({ tag: tag === item.name ? '' : item.name, month })} aria-current={tag === item.name ? 'true' : undefined} class={`rounded-full px-2.5 py-1 text-xs transition-colors ${tag === item.name ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-primary'}`}>#{item.name} <span class="opacity-70">{item.count}</span></a>) : <p class="text-xs text-muted-foreground">暂无标签</p>}
           </div>
         </div>
-        <div class="rounded-xl border border-border bg-card/70 p-4">
+        <div class="neo-workspace-panel">
           <h2 class="font-display text-sm font-semibold">时间线</h2>
           <nav class="mt-3 max-h-72 space-y-1 overflow-y-auto" aria-label="按月份筛选">
             {facets.months.length ? facets.months.map((item) => <a href={href({ tag, month: month === item.name ? '' : item.name })} aria-current={month === item.name ? 'true' : undefined} class={`flex justify-between rounded-md px-2 py-1.5 text-xs ${month === item.name ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}><span>{item.name.slice(0, 4)} 年 {Number(item.name.slice(5))} 月</span><span>{item.count}</span></a>) : <p class="text-xs text-muted-foreground">暂无记录</p>}
@@ -102,6 +101,22 @@ const href = (next: { tag?: string; month?: string; page?: number }) => {
 <script>
   if (!(window as unknown as { __quickNotePageBound?: boolean }).__quickNotePageBound) {
     (window as unknown as { __quickNotePageBound?: boolean }).__quickNotePageBound = true;
+    document.addEventListener('input', (event) => {
+      const input = event.target as HTMLInputElement;
+      if (input.id !== 'quick-note-search') return;
+      const query = input.value.trim().toLocaleLowerCase();
+      const cards = document.querySelectorAll<HTMLElement>('[data-note-search]');
+      let shown = 0;
+      cards.forEach((card) => { const match = !query || (card.dataset.noteSearch ?? '').toLocaleLowerCase().includes(query); card.classList.toggle('hidden', !match); if (match) shown++; });
+      document.querySelectorAll<HTMLElement>('[data-note-month]').forEach((heading) => {
+        let item = heading.nextElementSibling; let visible = false;
+        while (item && !item.hasAttribute('data-note-month')) { if (item.hasAttribute('data-note-id') && !item.classList.contains('hidden')) visible = true; item = item.nextElementSibling; }
+        heading.classList.toggle('hidden', !visible);
+      });
+      const status = document.getElementById('quick-note-search-status');
+      if (status) status.textContent = query ? `本页匹配 ${shown} / ${cards.length} 条记录。` : '查找当前页的标题、正文和标签；月份与标签筛选涵盖全部记录。';
+      document.getElementById('quick-note-search-empty')?.classList.toggle('hidden', !query || shown > 0);
+    });
     document.addEventListener('click', (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-note-open]');
       if (!button) return;

@@ -115,10 +115,13 @@ export async function runSync(deps: SyncDeps): Promise<SyncReport> {
   const perTable: TableReport[] = [];
   const warnings: string[] = [];
 
-  // 老版本本地库自动升级（幂等建表；失败则后续读写会给出明确错误）
-  await deps.store.ensureSchema();
+  // 本地数据检查也设置上限，避免进度尚未进入逐表阶段时一直显示“正在准备”。
+  const mirrorEmpty = await withTimeout((async () => {
+    await deps.store.ensureSchema();
+    return deps.store.isMirrorEmpty();
+  })(), 30_000, '准备本地同步数据');
 
-  if (await deps.store.isMirrorEmpty()) {
+  if (mirrorEmpty) {
     warnings.push('首次同步：尚无镜像快照，本次不会传播删除；建立镜像后恢复正常语义。');
   }
 

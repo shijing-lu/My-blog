@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+const out = path.resolve('outputs/moments-workspace');
+const report = JSON.parse(fs.readFileSync(path.join(out, 'browser-report.json'), 'utf8'));
+const fixture = JSON.parse(fs.readFileSync(path.join(out, 'fixtures.json'), 'utf8'));
+assert.equal(report.layouts.length, 70); assert.deepEqual(report.errors, []);
+const base = 'http://127.0.0.1:43224';
+const screenshots = fs.readdirSync(out).filter(name => name.endsWith('.png')).sort();
+const labels = { 'guest': '游客', 'owner': '站主', 'feed': '动态列表', 'detail': '动态详情', 'light': '亮色', 'dark': '暗色', 'edit': '编辑弹窗', 'empty-search': '搜索空态', 'media-failure': '图片失败状态' };
+const label = name => name.replace('.png', '').split('-').map(word => labels[word] ?? word).join(' · ');
+fs.writeFileSync(path.join(out, 'screenshots.html'), `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>动态模块 · 验收截图</title><style>body{margin:0;padding:30px;background:#fbf7ee;color:#151511;font-family:system-ui,sans-serif}h1{font-size:28px}a{color:#c6370c}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:24px}figure{margin:0;border:2px solid #151511;border-radius:16px;background:#fffaf1;box-shadow:4px 5px 0 #ff541f;padding:12px}img{width:100%;height:auto;border-radius:8px}figcaption{font-weight:700;margin-bottom:12px}</style><h1>动态模块 · 验收截图</h1><p>列表、详情、发布与编辑；使用隔离数据库中的内容与验收示例。小猫复用首页素材。</p><p><a href="${base}/moments">打开本地预览</a> · 站主密码：article-review-local</p><main>${screenshots.map(name => `<figure><figcaption>${label(name)}</figcaption><a href="${name}"><img src="${name}" alt="${label(name)}" loading="lazy"></a></figure>`).join('')}</main></html>`);
+const lines = [
+  '# 动态模块验收记录', '',
+  '本批完成动态列表、动态详情、发布区、编辑弹窗及本批删除确认弹窗的扁平主义与新粗野主义外观。沿用首页视觉令牌和明暗模式，标题与空态复用首页探头猫，页脚继续使用公共趴猫。', '',
+  '## 本地预览', '',
+  `- [动态列表](${base}/moments)`,
+  `- [图文详情](${base}/moments/${fixture.grid})`,
+  `- [长内容详情](${base}/moments/${fixture.long})`,
+  `- [媒体失败状态](${base}/moments/${fixture.video})`,
+  '- 本地站主密码：`article-review-local`。登录后显示发布、编辑、删除及私密动态。',
+  '- 当前服务器：`scripts/serve-moments-review.mjs`，43224 端口；数据仅写入 `outputs/moments-workspace/test.db`。',
+  '- 数据库从上一批隔离验收副本复制，新增 29 条标明“验收示例”的动态。副本中保留了上一批的特殊字符昵称用例；没有修改实际资料和内容。', '',
+  '## 本批变化', '',
+  '- 暖白纸面、橙红页签、黑色描边和硬阴影；操作图标沿用 Lucide。阅读正文与共享评论组件内核保持原有功能。',
+  '- 桌面日期时间线独立滚动，并预留工具条空间；手机日期区可收起，标签栏局部横向滚动，操作目标至少 44px。',
+  '- 卡片时间链接打开详情；详情标签返回列表筛选。首屏、筛选、加载更多、发布与编辑后的卡片共用同一服务端模板。',
+  '- 编辑弹窗默认整宽输入，点击预览后桌面分栏、手机上下排列；Esc 和取消后恢复编辑按钮焦点。',
+  '- 页面切换时解绑旧事件并清理观察器、筛选请求及定时器。URL 筛选刷新后恢复，避免旧响应覆盖新筛选。',
+  '- 上传时禁止发布／保存；保存和删除失败保留正文／卡片供重试；成功发布与删除同步实际总数和时间线计数。',
+  '- 图片失败显示稳定占位，避免残留无效灯箱入口。',
+  '- 未修改公共 API、数据库结构、内容类型、权限判定或共享评论组件；未开发其他模块。', '',
+  '## 已完成检查', '',
+  '- Astro check：675 个文件，0 errors、0 warnings、43 hints。',
+  '- 5 个既有测试文件，共 48 项通过：动态纯函数、Markdown 管线、管理员权限／权限渲染、图片校验。',
+  '- 直接 Astro Node 构建通过；存在构建器既有大文件提示。未调用包含迁移和云数据库验证的总构建命令。',
+  '- 浏览器：Edge Chromium 无头模式，游客／站主身份，1440、1320、1280、941、768、390、360px，亮色／暗色，共 70 组布局检查；无页面级横向溢出，页面只有一个主标题。',
+  '- 运行时检查：',
+  ...report.cases.slice(1).map(item => '  - ' + item),
+  '- 保存 ' + screenshots.length + ' 张截图；浏览器未捕获页面 JavaScript 错误。完整结果：`outputs/moments-workspace/browser-report.json`。', '',
+  '## 验证边界与人工确认', '',
+  '- 图片／GIF 的文件选择、压缩请求、等待反馈及移除操作已验证；上传接口使用模拟成功响应，未向真实 GitHub 图床或 R2 写入文件。真实存储、系统剪贴板粘贴仍需人工测试。',
+  '- 直接视频、B站与 YouTube 的既有渲染路径保留；第三方网络、解码、全屏播放仍需人工验证。',
+  '- 点赞和匿名评论使用隔离数据库中的真实 API；GitHub OAuth 登录依赖外部授权，未进行真人授权测试。',
+  '- 暗色和减少动态已检查；文字、布局、手机工具条的视觉舒适度请人工确认。',
+  '- 本批浏览器验收不能替代真实 Electron 桌面客户端或 Android 设备验收；未重新打包客户端。',
+  '- 未发布网站，停在本批验收。', '',
+  '## 截图与复现', '',
+  '- 截图索引：`outputs/moments-workspace/screenshots.html`。',
+  '- 启动：`node scripts/serve-moments-review.mjs`。',
+  '- 如需重新生成隔离示例：`node scripts/seed-moments-review.mjs`（已有示例会保留）。',
+  '- 回归：`node scripts/verify-moments-workspace.mjs`。',
+];
+fs.writeFileSync('docs/moments-workspace-validation.md', lines.join('\n') + '\n');
+fs.writeFileSync(path.join(out, 'README.md'), lines.join('\n') + '\n');
+console.log(`Moments handoff written: ${screenshots.length} screenshots, ${report.layouts.length} layouts`);

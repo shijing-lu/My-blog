@@ -18,6 +18,15 @@ const KEY = 'ai_config';
 
 /** AI 助手配置 */
 export interface AiConfig {
+  connectionMode: 'api' | 'subscription';
+  subscriptionProvider: string;
+  subscriptionModel: string;
+  imageProvider: 'openai' | 'cloudflare';
+  imageModel: string;
+  cloudflareAccountId: string;
+  /** Cloudflare Workers AI token; stored server-side and never serialized to the browser. */
+  cloudflareApiToken: string;
+  cloudflareImageSteps: number;
   /** 总开关（关闭时 /api/ai/chat 直接拒绝） */
   enabled: boolean;
   /** API 根地址，如 https://api.deepseek.com（自动规范化拼接 /v1/chat/completions） */
@@ -38,6 +47,9 @@ export interface AiConfig {
   guestDailyLimit: number;
   /** 日记生成口吻；不影响聊天或已保存的日记。 */
   diaryStyle: DiaryStyle;
+  /** Article editing has a separate budget; legacy short chat settings remain unchanged. */
+  editMaxTokens: number;
+  editContextTokens: number;
 }
 
 export const DIARY_STYLES = ['concise', 'personal', 'quotes'] as const;
@@ -45,6 +57,14 @@ export type DiaryStyle = (typeof DIARY_STYLES)[number];
 
 /** 未配置时的默认值 */
 export const DEFAULT_AI_CONFIG: AiConfig = {
+  connectionMode: 'api',
+  subscriptionProvider: 'openai',
+  subscriptionModel: '',
+  imageProvider: 'openai',
+  imageModel: 'gpt-image-2',
+  cloudflareAccountId: '',
+  cloudflareApiToken: '',
+  cloudflareImageSteps: 4,
   enabled: false,
   baseUrl: '',
   apiKey: '',
@@ -55,6 +75,8 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   allowGuests: true,
   guestDailyLimit: 100,
   diaryStyle: 'concise',
+  editMaxTokens: 8192,
+  editContextTokens: 131072,
 };
 
 /** 内置系统提示词（systemPrompt 留空时使用） */
@@ -63,8 +85,8 @@ export const DEFAULT_SYSTEM_PROMPT = [
   '回答要求：使用简体中文；简洁准确，直接回答问题；适当使用短段落与列表；代码放在代码块中；不确定的内容如实说明，不要编造。',
 ].join('\n');
 
-/** 前端可见的配置形态：apiKey 换成 hasApiKey 布尔 */
-export type PublicAiConfig = Omit<AiConfig, 'apiKey'> & { hasApiKey: boolean };
+/** 前端可见的配置形态：密钥只返回是否已保存，不回传明文。 */
+export type PublicAiConfig = Omit<AiConfig, 'apiKey' | 'cloudflareApiToken'> & { hasApiKey: boolean; hasCloudflareApiToken: boolean };
 
 /** 文本字段清洗：trim + 长度上限 */
 function cleanText(v: unknown, maxLen: number): string {
@@ -80,8 +102,19 @@ function cleanNumber(v: unknown, min: number, max: number, fallback: number): nu
 }
 
 /** 规范化并校验配置（PATCH 语义：文本字段留空 = 保留原值，防止部分更新误清空） */
-function normalizeConfig(input: Partial<AiConfig>, base: AiConfig): AiConfig {
+export function normalizeConfig(input: Partial<AiConfig>, base: AiConfig): AiConfig {
   return {
+    connectionMode: input.connectionMode === undefined ? base.connectionMode : input.connectionMode === 'subscription' ? 'subscription' : 'api',
+    subscriptionProvider: cleanText(input.subscriptionProvider, 80) || base.subscriptionProvider,
+    subscriptionModel: input.subscriptionModel === undefined ? base.subscriptionModel : cleanText(input.subscriptionModel, 160),
+    imageProvider: input.imageProvider === 'cloudflare' ? 'cloudflare' : input.imageProvider === 'openai' ? 'openai' : base.imageProvider,
+    imageModel: cleanText(input.imageModel, 160) || base.imageModel,
+    cloudflareAccountId: input.cloudflareAccountId === undefined ? base.cloudflareAccountId : cleanText(input.cloudflareAccountId, 80),
+    cloudflareApiToken:
+      typeof input.cloudflareApiToken === 'string' && input.cloudflareApiToken.trim() !== ''
+        ? input.cloudflareApiToken.trim().slice(0, 300)
+        : base.cloudflareApiToken,
+    cloudflareImageSteps: Math.round(cleanNumber(input.cloudflareImageSteps, 1, 8, base.cloudflareImageSteps)),
     enabled: typeof input.enabled === 'boolean' ? input.enabled : base.enabled,
     baseUrl: cleanText(input.baseUrl, 300) || base.baseUrl,
     // apiKey：非空字符串才更新（空 = 保留原值）
@@ -90,7 +123,9 @@ function normalizeConfig(input: Partial<AiConfig>, base: AiConfig): AiConfig {
     model: cleanText(input.model, 100) || base.model,
     temperature: cleanNumber(input.temperature, 0, 2, base.temperature),
     maxTokens: cleanNumber(input.maxTokens, 64, 8192, base.maxTokens),
-    systemPrompt: cleanText(input.systemPrompt, 2000),
+    editMaxTokens: Math.round(cleanNumber(input.editMaxTokens, 1024, 32768, base.editMaxTokens)),
+    editContextTokens: Math.round(cleanNumber(input.editContextTokens, 8192, 262144, base.editContextTokens)),
+    systemPrompt: input.systemPrompt === undefined ? base.systemPrompt : cleanText(input.systemPrompt, 2000),
     allowGuests: typeof input.allowGuests === 'boolean' ? input.allowGuests : base.allowGuests,
     guestDailyLimit: cleanNumber(input.guestDailyLimit, 0, 100000, base.guestDailyLimit),
     diaryStyle: input.diaryStyle === undefined
@@ -131,12 +166,13 @@ export async function saveAiConfig(input: Partial<AiConfig>): Promise<AiConfig> 
 
 /** 序列化给前端：apiKey 不回传明文，仅给 hasApiKey 布尔 */
 export function serializeAiConfig(c: AiConfig): PublicAiConfig {
-  const { apiKey, ...rest } = c;
-  return { ...rest, hasApiKey: apiKey.trim() !== '' };
+  const { apiKey, cloudflareApiToken, ...rest } = c;
+  return { ...rest, hasApiKey: apiKey.trim() !== '', hasCloudflareApiToken: cloudflareApiToken.trim() !== '' };
 }
 
 /** AI 是否就绪（开关开 + baseUrl/apiKey/model 齐全）。连通性交给「测试连接」验证 */
 export function isAiReady(c: AiConfig): boolean {
+  if (c.connectionMode === 'subscription') return c.enabled && !!c.subscriptionProvider && !!c.subscriptionModel;
   return c.enabled && c.baseUrl.trim() !== '' && c.apiKey.trim() !== '' && c.model.trim() !== '';
 }
 

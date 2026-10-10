@@ -15,6 +15,7 @@ import { slugifyOrFallback } from './slugify';
 import { extractFirstImage } from './images';
 import { hashPassword, parsePasswordHash, ArticlePasswordError, type PasswordHashMeta } from './article-password';
 import { clearArticleCategories } from './article-categories';
+import { contentVersion, ArticleConflictError } from './article-content-version';
 
 /** 数据库原始行类型（sqlite 形态，tags 为 JSON 文本） */
 type ArticleRow = typeof articles.$inferSelect;
@@ -426,7 +427,7 @@ export async function getArticlePasswordMeta(
 }
 
 /**
- * 保存文章（按 id upsert），保存后立即公开
+ * 保存文章（按 id upsert），已有文章保留其发布状态
  *
  * - 已存在 → 更新内容并刷新 updatedAt（slug 沿用原值，除非显式传入新 slug）。
  * - 不存在 → 插入新行；slug 优先取显式传入值，否则由标题生成并保证唯一。
@@ -438,6 +439,7 @@ export async function getArticlePasswordMeta(
 export async function saveDraft(input: ArticleUpsertInput): Promise<Article> {
   const now = new Date();
   const existing = await getArticleById(input.id);
+  if(input.expectedContentHash!==undefined && input.expectedContentHash!==contentVersion(existing?.content??''))throw new ArticleConflictError();
   const enc = resolveEncryption(input, existing);
 
   if (existing) {
@@ -455,11 +457,12 @@ export async function saveDraft(input: ArticleUpsertInput): Promise<Article> {
         encrypted: enc.encrypted,
         encryptHint: enc.encryptHint,
         encryptMeta: enc.encryptMeta,
-        published: true,
+        published: existing.published,
         updatedAt: now,
       })
-      .where(eq(articles.id, input.id))
+      .where(and(eq(articles.id, input.id), ...(input.expectedContentHash!==undefined?[eq(articles.content,existing.content)]:[])))
       .returning();
+    if(!rows[0])throw new ArticleConflictError();
     return mapRow(rows[0] as ArticleRow);
   }
 

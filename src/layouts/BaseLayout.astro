@@ -21,13 +21,11 @@ const {
 
 /* ===== Imports ===== */
 import '../styles/global.css';
+import '../styles/soft-code-blocks.css';
 import '../styles/print.css'; // 「导出 PDF」打印样式表（@media print，零屏显开销）
 import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
 import '@/styles/mobile-reading.css';
 import '@/styles/body-heading-folding.css';
-import '@/styles/material3-resources.css';
-import '@/styles/material3.css';
-import '@/styles/material3-navigation.css';
 // KaTeX 关键字体预热：?url 取打包后哈希 URL，head 里 preload（见模板）。
 // 国内网络下 KaTeX 字体加载失败会导致公式 vlist 行盒塌缩、糊成一团（诊断结论），
 // preload 提前并行拉取 + 页面脚本检测失败后切 MathML 兜底（.katex-font-fallback）。
@@ -41,19 +39,22 @@ import { ClientRouter } from 'astro:transitions';
 import ThemeHead from '@/components/ThemeHead.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import ThemeSettings from '@/components/ThemeSettings.astro';
-import MaterialNavigation from '@/components/MaterialNavigation.astro';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/neobrutalism.css';
 import { getSiteUiStyle } from '@/lib/ui-style-server';
 import RightToolbar from '@/components/RightToolbar.astro';
 import ProfileDialog from '@/components/ProfileDialog.astro';
 import ManageDialog from '@/components/ManageDialog.astro';
 import SettingsModal from '@/components/admin/SettingsModal.astro';
-import { canManage, isTopAdmin } from '@/lib/admin-auth';
+import { canManage, isTopAdmin, isOwnerSession } from '@/lib/admin-auth';
 import { isUserGitHubConfigured } from '@/lib/auth';
 import AiChatFloat from '@/components/ai/AiChatFloat';
+import AiEditDialog from '@/components/ai/AiEditDialog';
+import '@/styles/ai-edit.css';
 import QuickNoteFloat from '@/components/quick-notes/QuickNoteFloat';
 import { getAiConfig, isAiReady } from '@/lib/ai-config';
 import { getSiteBackground, resolveBackgroundForPath } from '@/lib/background';
-import { buildFontCss, getFontsByIds, getSiteFontState } from '@/lib/fonts';
+import { buildArticleFontCss, getFontsByIds, getSiteFontState } from '@/lib/fonts';
 import { getSiteName } from '@/lib/site-name';
 import { getHeroQuoteSettings } from '@/lib/quote-settings';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
@@ -91,6 +92,7 @@ const isAuthed = await canManage(Astro.cookies, 'articles');
 /** 是否具备站点设置权限（设置弹窗仅对管理端渲染，游客零输出） */
 const canSettings = await canManage(Astro.cookies, 'settings');
 const canQuickNotes = await isTopAdmin(Astro.cookies);
+const canToolchain = isDesktop && isOwnerSession(Astro.cookies);
 /** AI 助手是否就绪（SSR 判定；未配置时岛不渲染交互 UI） */
 const aiReady = isAiReady(await getAiConfig());
 /** 全站背景配置（统一背景 / 按页面独立，设置页可配） */
@@ -103,7 +105,7 @@ const customFontIds = [fontSettings.article, fontSettings.ui]
   .filter((f) => f.type === 'custom')
   .map((f) => f.value);
 const customFonts = await getFontsByIds(customFontIds);
-const fontCss = hasManualFonts ? buildFontCss(fontSettings, customFonts) : '';
+const fontCss = hasManualFonts ? buildArticleFontCss(fontSettings, customFonts) : '';
 /** 自定义 Markdown 样式（设置页上传）：作用域化后全站注入，覆盖所有 .prose 渲染处 */
 const mdCustomCss = await getCustomMdCss();
 const mdCssScoped = mdCustomCss.css.trim() !== '' ? scopeMdCss(mdCustomCss.css) : '';
@@ -259,7 +261,6 @@ const needsKatexFonts =
     <script is:inline>window.__applyUiStyleHead?.();</script>
   </head>
   <body class="flex min-h-dvh flex-col" data-layout="base">
-    <MaterialNavigation siteTitle={siteTitle} />
     {/* 跳转到主内容（无障碍 P1-5）：默认视觉隐藏，键盘 Tab 聚焦时才显形。
         全站导航有 6 个链接 + 若干图标按钮，键盘/读屏用户无需逐个跳过即可直达正文。 */}
     <a
@@ -285,12 +286,10 @@ const needsKatexFonts =
     <div id="nav-progress" class="nav-progress" aria-hidden="true"></div>
     <div id="nav-loader" class="nav-loader" aria-hidden="true"></div>
     <!-- 暗色主题星尘粒子背景（转场时保留；设置页可开关） -->
-    {
-      bg.stardust && <div class="stardust" transition:persist="stardust" aria-hidden="true" />
-    }
-    <header id="site-header" transition:persist="site-header" class="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur-sm">
-      <div class="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
-        <div class="flex shrink-0 items-center gap-1">
+
+    <header id="site-header" transition:persist="site-header" class="neo-site-header">
+      <div class="neo-header-inner">
+        <div class="neo-brand-group">
           {isDesktop && (
             <button type="button" data-desktop-back aria-label="后退" title="后退" disabled class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
@@ -298,10 +297,9 @@ const needsKatexFonts =
           )}
           <a
             href="/"
-            data-site-name
-            class="shrink-0 font-pixel text-sm tracking-wider text-primary glow-text transition-opacity duration-200 hover:opacity-80"
+            class="neo-brand"
           >
-            {siteTitle}
+            <NeoIcon name="feather" size={23} /><span data-site-name>{siteTitle}</span>
           </a>
           {isDesktop && (
             <button type="button" data-desktop-forward aria-label="前进" title="前进" disabled class="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground">
@@ -309,33 +307,34 @@ const needsKatexFonts =
             </button>
           )}
         </div>
-        <nav class="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm" aria-label="主导航">
-          <a href="/" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+        <nav id="site-navigation" class="neo-site-navigation" aria-label="主导航">
+          <a href="/" aria-current={Astro.url.pathname === '/' ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             首页
           </a>
-          <a href="/doc" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/doc" aria-current={Astro.url.pathname .startsWith('/doc') ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             文档
           </a>
-          <a href="/nav" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/nav" aria-current={Astro.url.pathname .startsWith('/nav') ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             导航
           </a>
-          <a href="/gallery" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/gallery" aria-current={Astro.url.pathname .startsWith('/gallery') ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             影集
           </a>
-          <a href="/calendar" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/calendar" aria-current={Astro.url.pathname .startsWith('/calendar') ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             日历
           </a>
           <a href="/schedule" aria-current={Astro.url.pathname.startsWith('/schedule') ? 'page' : undefined} class:list={['rounded-md px-3 py-1.5 transition-colors duration-200 hover:bg-accent hover:text-foreground', Astro.url.pathname.startsWith('/schedule') ? 'bg-accent text-foreground' : 'text-muted-foreground']}>
             日程
           </a>
-          <a href="/moments" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/moments" aria-current={Astro.url.pathname .startsWith('/moments') ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             动态
           </a>
-          <a href="/archive" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
+          <a href="/archive" aria-current={Astro.url.pathname .startsWith('/archive') ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">
             归档
           </a>
-          {canQuickNotes && <a href="/quick-notes" class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">随心录</a>}
-          <span class="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+          {canQuickNotes && <a href="/quick-notes" aria-current={Astro.url.pathname .startsWith('/quick-notes') ? 'page' : undefined} class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground">随心录</a>}
+          {canToolchain && <a href="/toolchain" aria-current={Astro.url.pathname === '/toolchain' ? 'page' : undefined}>工具链</a>}
+          </nav><div class="neo-header-actions"><a href="/#search-input" data-home-search aria-label="搜索文章" title="搜索文章" class="neo-search-entry"><NeoIcon name="search" size={20} /></a>
           <ThemeToggle />
           <ThemeSettings />
           <ProfileDialog isAuthed={isAuthed} />
@@ -343,7 +342,7 @@ const needsKatexFonts =
           <ManageDialog githubEnabled={isUserGitHubConfigured()} />
           <!-- 站点设置弹窗（Obsidian 式左右分栏；仅 settings 权限渲染） -->
           {canSettings && <SettingsModal />}
-        </nav>
+        </div><button type="button" class="neo-mobile-menu" data-site-menu aria-controls="site-navigation" aria-expanded="false" aria-label="打开导航菜单"><NeoIcon name="menu" size={22} /></button>
       </div>
     </header>
 
@@ -353,19 +352,14 @@ const needsKatexFonts =
       <slot />
     </main>
 
-    <footer id="site-footer" transition:persist="site-footer" class="border-t">
-      <div class="mx-auto w-full max-w-6xl px-4 py-6">
-        <div class="pixel-divider mb-4" />
-        <p class="text-center text-sm text-muted-foreground">
-          {footerQuote}
-        </p>
-        <p class="mt-2 text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()} <span data-site-name>{siteTitle}</span> · Powered by Astro
-        </p>
-      </div>
+    <footer id="site-footer" transition:persist="site-footer" class="neo-site-footer">
+      <span class="neo-footer-dots" aria-hidden="true"></span>
+      <div><p class="neo-footer-quote">{footerQuote}</p><p class="neo-footer-copyright">© {new Date().getFullYear()} <span data-site-name>{siteTitle}</span> · Powered by Astro</p></div>
+      <span class="neo-footer-dots" aria-hidden="true"></span>
+      <img class="neo-footer-cat" src="/images/neobrutalism/cat-rest.webp" alt="" width="110" height="54" loading="lazy" />
     </footer>
 
-    <RightToolbar aiEnabled={aiReady} />
+    <RightToolbar aiEnabled={aiReady && !pathname.startsWith('/schedule')} />
 
     <!-- 图标 sprite：代码块/行内代码的复制与折叠图标按 `<use href="#id">` 引用。
          ⚠️ 不能用内联 SVG 逐个复制：行内代码可高频出现（实测 31KB 文章 331 处），
@@ -389,6 +383,7 @@ const needsKatexFonts =
 
     <!-- AI 助手「小卿」：选中文本右键 → 悬浮对话（全站，client:idle 惰性水合） -->
     {aiReady && !Astro.url.pathname.startsWith('/schedule') && <AiChatFloat client:idle enabled={true} />}
+    {aiReady && <AiEditDialog client:load />}
     {canQuickNotes && <QuickNoteFloat client:load />}
 
     <!-- 公开页交互：代码块折叠 + 代码复制（块级/行内） + Callout 复制按钮 + 图片灯箱 + 选项卡组 + 黑幕开关（document 委托，View Transitions 下依然有效） -->
@@ -409,8 +404,7 @@ const needsKatexFonts =
     <script>
       import { initMotion } from '@/lib/motion';
       initMotion();
-      import { restoreTheme, readState, applyThemeToDocument, initSystemThemeWatcher } from '@/lib/theme';
-      import { getCustomThemes, injectCustomThemeCss } from '@/lib/custom-theme';
+      import { restoreTheme, applyThemeToDocument, initSystemThemeWatcher } from '@/lib/theme';
 
       // 幂等守卫：View Transition 重执行本脚本时监听只绑定一次
       if (!(window as unknown as { __blogGlobalsBound?: boolean }).__blogGlobalsBound) {
@@ -466,15 +460,6 @@ const needsKatexFonts =
         try {
           const doc = (ev as unknown as { newDocument?: Document }).newDocument;
           if (!doc) return;
-          // 自定义主题：把当前注入的 #custom-theme-css 原样复制进新文档 head，
-          // 否则 swap 替换 head 后自定义主题 CSS 丢失（内置主题 CSS 在 #theme-styles 里会随 head 一并替换，无需处理）
-          const existing = document.getElementById('custom-theme-css') as HTMLStyleElement | null;
-          if (existing && !doc.getElementById('custom-theme-css')) {
-            const st = doc.createElement('style');
-            st.id = 'custom-theme-css';
-            st.textContent = existing.textContent;
-            doc.head.appendChild(st);
-          }
           applyThemeToDocument(doc);
         } catch (e) { /* 失败则回落 after-swap/page-load 兜底，不影响导航 */ }
       });
@@ -485,11 +470,6 @@ const needsKatexFonts =
         // 这里仅作幂等兜底（before-swap 覆盖不到的极端场景），重复应用无害。
         try {
           restoreTheme();
-          const state = readState();
-          if (state.themeId) {
-            const custom = getCustomThemes().find(function (t) { return t.id === state.themeId; });
-            if (custom && !document.getElementById('custom-theme-css')) injectCustomThemeCss(custom);
-          }
           // 跟随系统明暗偏好（幂等，仅首次生效）
           initSystemThemeWatcher();
         } catch (e) { /* 主题恢复失败不影响页面 */ }
@@ -500,4 +480,19 @@ const needsKatexFonts =
     </script>
   </body>
 </html>
-<script>import '@/scripts/material3-icons';</script>
+<script>
+  const closeMenu = () => { const header = document.getElementById('site-header'); if (header) delete header.dataset.menuOpen; const button = document.querySelector<HTMLElement>('[data-site-menu]'); button?.setAttribute('aria-expanded', 'false'); button?.setAttribute('aria-label', '打开导航菜单'); };
+  document.addEventListener('click', event => {
+    const target = event.target instanceof Element ? event.target : null;
+    const button = target?.closest<HTMLElement>('[data-site-menu]');
+    if (button) { const header = document.getElementById('site-header'); const open = header?.dataset.menuOpen !== 'true'; if (header) header.dataset.menuOpen = String(open); button.setAttribute('aria-expanded', String(open)); button.setAttribute('aria-label', open ? '关闭导航菜单' : '打开导航菜单'); }
+    else if (!target?.closest('#site-header') || target?.closest('#site-navigation a')) closeMenu();
+    if (target?.closest('[data-home-search]') && location.pathname === '/') { event.preventDefault(); const input = document.getElementById('search-input'); input?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); input?.focus({ preventScroll: true }); }
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && document.getElementById('site-header')?.dataset.menuOpen === 'true') { closeMenu(); document.querySelector<HTMLElement>('[data-site-menu]')?.focus(); } });
+  document.addEventListener('astro:before-swap', closeMenu);
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLAnchorElement>('#site-navigation a').forEach(link => { const path = new URL(link.href).pathname; const selected = path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(path + '/'); if (selected) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); });
+    if (location.pathname === '/' && location.hash === '#search-input') document.getElementById('search-input')?.focus({ preventScroll: true });
+  });
+</script>

@@ -1,0 +1,22 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const require = createRequire(import.meta.url);
+const { projectMetadata, parseCommand, validateEntry, webUrl, cleanEnvironment, atomicJson, resolveCommand } = require('../desktop/toolchain/core.cjs');
+let directory: string;
+beforeEach(() => { directory = fs.mkdtempSync(path.join(os.tmpdir(), 'byqx-toolchain-test-')); fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: 'fixture', scripts: { dev: 'vite --port 5123', start: 'node server.cjs' }, devDependencies: { vite: '1' } })); });
+afterEach(() => { if (!path.resolve(directory).startsWith(path.resolve(os.tmpdir()) + path.sep)) throw Error('Unsafe fixture cleanup'); fs.rmSync(directory, { recursive: true, force: true }); });
+describe('toolchain metadata and command boundaries', () => {
+  it('reads bounded startup files and preserves real scripts/port', () => { fs.writeFileSync(path.join(directory, 'README.md'), 'npm run dev\ntoken=secret-do-not-send'); fs.writeFileSync(path.join(directory, '.env'), 'PRIVATE_TEST=NEVER_SEND'); const value = projectMetadata(directory); expect(value.suggestion).toEqual({ command: 'npm run dev', url: 'http://127.0.0.1:5123' }); expect(JSON.stringify(value)).not.toContain('NEVER_SEND'); expect(value.readme).not.toContain('secret-do-not-send'); });
+  it('rejects oversized startup documents', () => { fs.writeFileSync(path.join(directory, 'README.md'), 'a'.repeat(300000)); expect(() => projectMetadata(directory)).toThrow('过大'); });
+  it.each(['npm run dev && calc', 'npm run dev; calc', 'node -e "foo"', 'powershell calc', 'npm install', 'npm run missing', 'npm run dev\ncalc', 'npm run dev | calc'])('rejects unreviewed arbitrary execution: %s', command => { expect(() => parseCommand(command, { dev: 'vite' })).toThrow(); });
+  it('passes quoted arguments without shell interpolation', () => { expect(parseCommand('npm run dev -- --title "two words"', { dev: 'vite' }).args).toEqual(['run', 'dev', '--', '--title', 'two words']); });
+  it('cannot use node to launch a sibling entry', () => { fs.writeFileSync(path.join(directory, 'ok.cjs'), ''); expect(() => resolveCommand(directory, 'node ../outside.cjs', process.execPath)).toThrow(); expect(resolveCommand(directory, 'node ok.cjs', process.execPath).args[0]).toBe(path.join(directory, 'ok.cjs')); });
+  it.each(['file:///C:/Windows', 'javascript:alert(1)', 'https://user:secret@example.com', 'ftp://example.com'])('rejects unsupported web address %s', value => { expect(() => webUrl(value)).toThrow(); });
+  it('requires local source URL, accepts external HTTP websites', () => { expect(() => webUrl('https://example.com', true)).toThrow(); expect(webUrl('http://127.0.0.1:5123', true)).toBe('http://127.0.0.1:5123/'); expect(webUrl('https://example.com')).toBe('https://example.com/'); });
+  it('never inherits blog or subscription credentials', () => { expect(cleanEnvironment({ PATH: 'node', ADMIN_PASSWORD: 'secret', OPENAI_API_KEY: 'secret', SYNC_DATABASE_URL: 'secret', NODE_OPTIONS: '--require attacker', ELECTRON_RUN_AS_NODE: '1', SystemRoot: 'windows' })).toEqual({ PATH: 'node', SystemRoot: 'windows' }); });
+  it('validates saved entries and refuses nonsoftware files', () => { expect(() => validateEntry({ kind: 'software', path: path.join(directory, 'package.json'), name: 'wrong' })).toThrow(); const value = validateEntry({ kind: 'source', path: directory, command: 'npm run dev', url: 'http://localhost:5123', name: ' Source ', tags: 'AI,AI,笔记', favorite: true }); expect(value.name).toBe('Source'); expect(value.tags).toEqual(['AI', '笔记']); expect(value.favorite).toBe(true); });
+  it('writes versioned registry atomically without changing project', () => { const before = fs.readFileSync(path.join(directory, 'package.json'), 'utf8'); atomicJson(path.join(directory, 'registry.json'), { version: 1, entries: [] }); expect(fs.readFileSync(path.join(directory, 'package.json'), 'utf8')).toBe(before); expect(fs.readdirSync(directory).filter(file => file.endsWith('.tmp'))).toEqual([]); });
+});

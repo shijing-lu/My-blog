@@ -29,7 +29,7 @@ import {
   localTzOffsetMinutes,
   DAY_MS,
 } from "@/cadence/shared/db/time";
-import { HandRule, StickyNoteStatic } from "@/cadence/shared/motion";
+import { HandRule, PresenceDialog, StickyNoteStatic } from "@/cadence/shared/motion";
 import { countByZone } from "@/cadence/features/stats";
 import { createTodo, createTodoDeps } from "@/cadence/features/todos";
 import { toast } from "@/cadence/shared/store/toast-store";
@@ -41,7 +41,7 @@ import { TodayPlanCard } from "./ui/TodayPlanCard";
 import { CountdownHero } from "./ui/CountdownHero";
 
 const SLOT_FILL = {
-  done: "radial-gradient(closest-side, var(--color-fabric-base), var(--color-fabric-soft))",
+  done: "var(--color-fabric-base)",
   pending: "transparent",
   future: "transparent",
 } as const;
@@ -174,7 +174,7 @@ export function DashboardPage() {
 
   return (
     <div className="cadence-overview space-y-4">
-      <header className="flex items-baseline gap-3">
+      <header className="neo-schedule-section-title flex items-baseline gap-3">
         <p className="text-ink-3 text-[11px] tracking-[0.22em] uppercase">
           Today
         </p>
@@ -194,7 +194,7 @@ export function DashboardPage() {
           <span className="watercolor-blot h-40 w-40 -right-6 -bottom-8 bg-[radial-gradient(closest-side,var(--color-clay-soft),transparent)]" />
 
           <div
-            className="relative bg-amber-soft px-5 pt-5 pb-6"
+            className="neo-schedule-investment relative bg-amber-soft px-5 pt-5 pb-6"
             style={{
               borderRadius: "var(--radius-hand-md)",
               transform: "none",
@@ -440,17 +440,7 @@ export function DashboardPage() {
       </section>
 
       {/* 双击新建：标题 + 象限类型（坐标取象限中心，落点与看板拖拽同一坐标系） */}
-      {creating ? (
-        <div
-          className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-[var(--scrim)]"
-          onClick={() => setCreating(false)}
-        >
-          <div
-            className="surface-card w-[min(440px,92vw)] p-6"
-            onClick={(event) => event.stopPropagation()}
-            style={{ borderRadius: "var(--radius-hand-lg)" }}
-          >
-            <h3 className="text-ink-1 font-serif text-lg">记一条待办</h3>
+      <PresenceDialog open={creating} onOpenChange={setCreating} title="记一条待办">
             <HandRule shape="gentle" className="my-3" />
             <TextField
               label="待办内容"
@@ -502,9 +492,7 @@ export function DashboardPage() {
                 记下
               </Button>
             </div>
-          </div>
-        </div>
-      ) : null}
+      </PresenceDialog>
     </div>
   );
 }

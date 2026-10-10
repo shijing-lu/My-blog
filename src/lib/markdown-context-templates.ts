@@ -2,6 +2,13 @@ import type { CalloutType, MarkVariant } from './markdown-format-catalog';
 import { serializeMarkdownColumns } from './markdown-columns';
 
 export interface MarkdownTemplate { source: string; focusFrom: number; focusTo: number }
+export function codeBlockTemplate(content = ''): MarkdownTemplate {
+  let length = 3;
+  for (const match of content.matchAll(/`+/g)) length = Math.max(length, match[0].length + 1);
+  const fence = '`'.repeat(length);
+  const focusFrom = fence.length + 1;
+  return { source: `${fence}\n${content}\n${fence}`, focusFrom, focusTo: focusFrom + content.length };
+}
 function template(source: string, focusText: string): MarkdownTemplate {
   const focusFrom = Math.max(0, source.indexOf(focusText));
   return { source, focusFrom, focusTo: focusFrom + focusText.length };

@@ -12,6 +12,7 @@ interface NotePayload {
   title: string;
   content: string;
   tags: string[];
+  syncRevision?: string;
 }
 
 function tagsFromInput(value: string): string[] {
@@ -31,6 +32,7 @@ export default function QuickNoteFloat(): ReactElement | null {
   const [initialContent, setInitialContent] = useState('');
   const [editorKey, setEditorKey] = useState(0);
   const idRef = useRef<string | null>(null);
+  const serverRevisionRef = useRef<string | undefined>(undefined);
   const titleRef = useRef('');
   const contentRef = useRef('');
   const tagsRef = useRef('');
@@ -49,7 +51,7 @@ export default function QuickNoteFloat(): ReactElement | null {
       while (dirtyRef.current) {
         setStatus('保存中…');
         const version = revisionRef.current;
-        const body = { title: titleRef.current.trim(), content: contentRef.current, tags: tagsFromInput(tagsRef.current) };
+        const body = { title: titleRef.current.trim(), content: contentRef.current, tags: tagsFromInput(tagsRef.current), baseRevision: serverRevisionRef.current };
         try {
           const id = idRef.current;
           const response = await fetch(id ? `/api/quick-notes/${id}` : '/api/quick-notes', {
@@ -60,6 +62,7 @@ export default function QuickNoteFloat(): ReactElement | null {
           const data = await response.json() as { note?: NotePayload; error?: string };
           if (!response.ok || !data.note) throw new Error(data.error || '保存失败');
           idRef.current = data.note.id;
+          serverRevisionRef.current = data.note.syncRevision;
           changedRef.current = true;
           if (revisionRef.current === version) {
             dirtyRef.current = false;
@@ -99,6 +102,7 @@ export default function QuickNoteFloat(): ReactElement | null {
     dirtyRef.current = false;
     revisionRef.current = 0;
     idRef.current = id ?? null;
+    serverRevisionRef.current = undefined;
     titleRef.current = '';
     contentRef.current = '';
     tagsRef.current = '';
@@ -112,6 +116,7 @@ export default function QuickNoteFloat(): ReactElement | null {
       const data = await response.json() as { note?: NotePayload; error?: string };
       if (!response.ok || !data.note) throw new Error(data.error || '读取失败');
       titleRef.current = data.note.title;
+      serverRevisionRef.current = data.note.syncRevision;
       contentRef.current = data.note.content;
       tagsRef.current = data.note.tags.join(', ');
       setTitle(data.note.title);
@@ -144,14 +149,14 @@ export default function QuickNoteFloat(): ReactElement | null {
       if (savingRef.current) await savingRef.current;
       unsaved = dirtyRef.current;
       dirtyRef.current = false;
-      const response = await fetch(`/api/quick-notes/${idRef.current}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('删除失败');
+      const response = await fetch(`/api/quick-notes/${idRef.current}`, { method: 'DELETE', headers: serverRevisionRef.current ? { 'if-match': serverRevisionRef.current } : {} });
+      if (!response.ok) throw new Error(response.status === 409 ? '记录已在其他设备修改，删除已停止；本地输入保留' : '删除失败');
       dirtyRef.current = false;
       changedRef.current = true;
       await close();
-    } catch {
+    } catch (error) {
       dirtyRef.current = unsaved;
-      setStatus('删除失败，请重试');
+      setStatus(error instanceof Error ? error.message : '删除失败，请重试');
     }
   }, [close]);
 

@@ -2,8 +2,9 @@ import type { Text } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { isolateHistory } from '@codemirror/commands';
 import { CALLOUT_LABELS, CALLOUT_TYPES, MARK_LABELS, MARK_VARIANTS } from '../../lib/markdown-format-catalog';
-import { calloutTemplate, collapseTemplate, columnsTemplate, galleryTemplate, inlineTemplate, tableTemplate, tabsTemplate } from '../../lib/markdown-context-templates';
+import { calloutTemplate, codeBlockTemplate, collapseTemplate, columnsTemplate, galleryTemplate, inlineTemplate, tableTemplate, tabsTemplate } from '../../lib/markdown-context-templates';
 import type { MarkdownTemplate } from '../../lib/markdown-context-templates';
+import { freezeAiSelection, openAiSelection } from './cm-ai-selection';
 
 type CustomPanel = 'callout' | 'gallery' | 'tabs';
 interface MenuItem {
@@ -69,7 +70,7 @@ export class MarkdownContextMenu {
 
   open(event: MouseEvent, view: EditorView, parent?: EditorView): boolean {
     if ((event.target as Element | null)?.closest('.md-table-widget')) return false;
-    if ((event.target as Element | null)?.closest('.cm-visual-directive, .cm-columns-widget') && !parent) return false;
+    if ((event.target as Element | null)?.closest('.cm-visual-directive, .cm-columns-widget, .cm-callout-widget') && !parent) return false;
     event.preventDefault();
     event.stopPropagation();
     const selection = view.state.selection.main;
@@ -135,15 +136,16 @@ export class MarkdownContextMenu {
     context.view.focus();
   }
 
-  private addBlock(context: Context, block: MarkdownTemplate): void {
-    if (!blockAllowed(context) || !this.valid(context)) return;
-    const pos = context.pointer;
+  private addBlock(context: Context, block: MarkdownTemplate, wrapSelection = false): void {
+    const pos = wrapSelection ? context.from : context.pointer;
+    const to = wrapSelection ? context.to : pos;
+    if (!blockAllowed({ ...context, pointer: pos }) || !this.valid(context)) return;
     const prev = pos > 0 ? context.doc.sliceString(pos - 1, pos) : '';
-    const next = pos < context.doc.length ? context.doc.sliceString(pos, pos + 1) : '';
+    const next = to < context.doc.length ? context.doc.sliceString(to, to + 1) : '';
     const prefix = pos === 0 ? '' : prev === '\n' ? '\n' : '\n\n';
-    const suffix = pos === context.doc.length ? '' : next === '\n' ? '\n' : '\n\n';
+    const suffix = to === context.doc.length ? '' : next === '\n' ? '\n' : '\n\n';
     const start = pos + prefix.length;
-    this.write(context, pos, pos, `${prefix}${block.source}${suffix}`,
+    this.write(context, pos, to, `${prefix}${block.source}${suffix}`,
       start + block.focusFrom, start + block.focusTo);
   }
 
@@ -158,8 +160,11 @@ export class MarkdownContextMenu {
 
   private rootItems(context: Context): MenuItem[] {
     const selected = context.from < context.to;
+    const aiSelection = selected ? freezeAiSelection(context.view, context.from, context.to) : null;
     const inlineAllowed = selected && !context.doc.sliceString(context.from, context.to).includes('\n');
     const canBlock = !selected && blockAllowed(context);
+    const code: MenuItem = { label: '添加代码块', disabled: !blockAllowed({ ...context, pointer: context.from }),
+      action: () => this.addBlock(context, codeBlockTemplate(context.doc.sliceString(context.from, context.to)), true) };
     const inline: MenuItem[] = [
       { label: '荧光高亮', disabled: !inlineAllowed, children: MARK_VARIANTS.map((variant) => ({
         label: MARK_LABELS[variant], action: () => this.format(context, 'mark', variant),
@@ -171,6 +176,7 @@ export class MarkdownContextMenu {
       { label: '删除线', disabled: !inlineAllowed, action: () => this.format(context, 'strike') },
     ];
     const blocks: MenuItem[] = [
+      code,
       { label: '普通引用', disabled: !canBlock, action: () => this.addBlock(context, { source: '> 引用内容', focusFrom: 2, focusTo: 6 }) },
       { label: 'Callout 引用', disabled: !canBlock, custom: 'callout' },
       { label: '表格', disabled: !canBlock, action: () => this.addBlock(context, tableTemplate()) },
@@ -188,6 +194,8 @@ export class MarkdownContextMenu {
       ] },
     ];
     return [
+      ...(aiSelection ? [{ label: '使用 AI 编辑', action: () => { if (this.valid(context)) openAiSelection(aiSelection); } }] : []),
+      ...(selected ? [code] : []),
       { label: '新增链接', action: () => this.link(context) },
       { label: '段落设置', children: selected ? inline : blocks },
       { label: '文本格式', disabled: !selected, children: inline },

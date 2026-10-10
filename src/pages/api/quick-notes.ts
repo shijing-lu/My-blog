@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { mobileError } from '@/lib/mobile-auth';
 import { badJson, badRequest, json, readJson } from '@/lib/api';
 import { cleanNoteTags, createQuickNote, getQuickNoteFacets, listQuickNotes, NOTE_MAX_CONTENT, NOTE_MAX_TITLE, toQuickNoteView } from '@/lib/quick-notes';
 
@@ -28,6 +29,8 @@ export const POST: APIRoute = async ({ request }) => {
   if (typeof body.content !== 'string' || body.content.length > NOTE_MAX_CONTENT || !body.content.trim()) return badRequest('正文不能为空或过长');
   const tags = cleanNoteTags(body.tags);
   if (!tags) return badRequest('标签格式不合法');
-  const note = await createQuickNote({ title: body.title.trim(), content: body.content, tags });
-  return privateJson({ note }, 201);
+  try {
+    const note = await createQuickNote({ title: body.title.trim(), content: body.content, tags });
+    return privateJson({ note }, 201);
+  } catch (error) { return mobileError(error); }
 };

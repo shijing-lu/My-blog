@@ -9,6 +9,8 @@ const { isAuthed } = Astro.props;
 
 /* ===== Imports ===== */
 import { getProfile } from '@/lib/profile';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/completion-dialogs.css';
 
 /* ===== Logic ===== */
 const profile = await getProfile();
@@ -41,7 +43,8 @@ const profileJson = JSON.stringify(profile);
       <p class="pixel-chip text-primary">PROFILE</p>
       <h2 id="profile-title" class="mt-1 font-display text-xl font-semibold">个人中心</h2>
     </div>
-    <button id="profile-close" type="button" aria-label="关闭" class="settings-close">×</button>
+    <img class="neo-profile-cat" src="/images/neobrutalism/cat-peek.webp" width="62" height="50" alt="" aria-hidden="true" />
+    <button id="profile-close" type="button" aria-label="关闭" class="settings-close"><NeoIcon name="close" size={20} /></button>
   </div>
   <div class="pixel-divider" />
 
@@ -88,6 +91,7 @@ const profileJson = JSON.stringify(profile);
           <div class="w-full min-w-0">
             <input
               id="profile-avatar"
+              aria-label="头像 URL"
               type="text"
               placeholder="头像 URL"
               class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring"
@@ -102,10 +106,10 @@ const profileJson = JSON.stringify(profile);
           </div>
         </div>
         <div class="mt-4 grid gap-2">
-          <input id="profile-nickname" type="text" maxlength="30" placeholder="昵称" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
-          <input id="profile-motto" type="text" maxlength="100" placeholder="座右铭" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
-          <textarea id="profile-bio" rows="2" maxlength="500" placeholder="简介" class="block w-full min-w-0 resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
-          <input id="profile-location" type="text" maxlength="100" placeholder="位置" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+          <input id="profile-nickname" aria-label="昵称" type="text" maxlength="30" placeholder="昵称" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+          <input id="profile-motto" aria-label="座右铭" type="text" maxlength="100" placeholder="座右铭" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+          <textarea id="profile-bio" aria-label="简介" rows="2" maxlength="500" placeholder="简介" class="block w-full min-w-0 resize-y rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
+          <input id="profile-location" aria-label="位置" type="text" maxlength="100" placeholder="位置" class="block w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus-visible:border-ring" />
         </div>
         <div class="mt-4 flex justify-end gap-2">
           <button id="profile-cancel" type="button" class="rounded-md border border-border px-4 py-1.5 text-sm transition-colors hover:bg-accent">取消</button>

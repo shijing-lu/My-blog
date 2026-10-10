@@ -236,3 +236,11 @@ export function buildFontCss(fonts: SiteFonts, customFonts: BlogFont[]): string 
     fonts.scale && fonts.scale !== 100 ? `html{font-size:${fonts.scale}% !important;}` : '';
   return `${faces}${size}html{--font-sans-family:${article} !important;--font-display-family:${ui} !important;--font-pixel-family:${ui} !important;}`;
 }
+
+/** New shell typography is fixed; preserve only the configured reading face and scale. */
+export function buildArticleFontCss(fonts: SiteFonts, customFonts: BlogFont[]): string {
+  const faces = customFonts.filter(font => fonts.article.type === 'custom' && font.id === fonts.article.value).map(fontFaceCss).join('');
+  const article = choiceStack(fonts.article, customFonts);
+  const scale = fonts.scale && fonts.scale !== 100 ? `font-size:${fonts.scale}% !important;` : '';
+  return `${faces}.prose{--font-sans-family:${article};font-family:${article};${scale}}`;
+}

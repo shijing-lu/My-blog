@@ -10,6 +10,8 @@ import { photoStorageReady } from '@/lib/photo-storage';
    顶部注释）：URL 导入成功后客户端向 /gallery/manage-cards 取回 HTML 就地插入，
    标记必须与首屏完全一致，故这里不再手写一遍卡片模板。 */
 import { photoDateKey, renderManageCards } from '@/lib/photo-card-render';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/discovery-workspace.css';
 
 /* ===== Logic ===== */
 /** 管理列表最多展示数 */
@@ -27,17 +29,18 @@ const storageReady = await photoStorageReady();
 ---
 <!-- ===== Template ===== -->
 <AdminLayout title="影集上传">
-  <section class="mx-auto h-full w-full max-w-5xl space-y-6 overflow-y-auto px-4 py-8">
-    <div>
+  <section class="neo-discovery neo-discovery-admin neo-gallery-manager mx-auto w-full max-w-5xl space-y-6 px-4 py-8">
+    <header class="neo-discovery-heading"><div>
       <p class="pixel-chip text-primary">GALLERY UPLOAD</p>
       <h1 class="mt-1 font-display text-2xl font-semibold">影集上传与管理</h1>
       <p class="mt-1 text-sm text-muted-foreground">
         一次上传多张照片 · 每批统一日期（默认今日）· 可选标题
       </p>
-    </div>
+    </div><div class="neo-discovery-heading-actions"><a class="neo-discovery-button" href="/gallery" data-astro-reload>查看影集</a><div class="neo-discovery-note" aria-hidden="true"><img src="/images/neobrutalism/cat-peek.webp" alt="" width="78" height="62" /><p>收好每张照片<br />把瞬间变成回忆</p></div></div></header>
 
     <!-- ===== 上传表单 ===== -->
-    <div class="pt-2">
+    <div class="neo-discovery-panel pt-2">
+      <h2><NeoIcon name="image" size={22} /> 照片上传</h2>
       <div class="flex flex-wrap items-end gap-4">
         <label class="block text-xs font-medium text-muted-foreground">
           展示日期（默认今日）
@@ -118,8 +121,9 @@ const storageReady = await photoStorageReady();
               <strong>推荐</strong>：在「设置 → 图床」里启用 GitHub 图床（与文章、动态的图片上传同一套通道），
               保存后<strong>刷新本页</strong>即可出现上传区，无需重启应用。
             </p>
+            <details class="neo-gallery-storage-help"><summary>查看 Cloudflare R2 配置说明</summary>
             <p class="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
-              或者配置 Cloudflare R2：桌面端的 R2 凭据需写入
+              桌面端的 R2 凭据需写入
               <code class="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono">%APPDATA%\byqx-blog-desktop\config.json</code>
               的
               <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_ACCOUNT_ID</code>
@@ -128,7 +132,7 @@ const storageReady = await photoStorageReady();
               <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_BUCKET</code>
               （自定义域名再填 <code class="rounded bg-amber-500/15 px-1 py-0.5 font-mono">R2_PUBLIC_BASE_URL</code>），
               然后<strong>重启应用</strong>。
-            </p>
+            </p></details>
             <p class="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
               都不配置也可以直接用下方「URL 导入」添加照片（PicGo / GitHub 图床工作流，照片存外链、不占站内存储）。
             </p>
@@ -138,7 +142,7 @@ const storageReady = await photoStorageReady();
     </div>
 
     <!-- ===== URL 导入（PicGo / GitHub 图床） ===== -->
-    <div class="pt-8">
+    <div class="neo-discovery-panel pt-8">
       <p class="pixel-chip text-muted-foreground">URL 导入 / IMPORT</p>
       <p class="mt-1 text-xs text-muted-foreground">
         用 PicGo 等工具把照片传到 GitHub 后，粘贴图片直链即可入库（直存外链，不占站内 R2 存储）。
@@ -194,7 +198,7 @@ const storageReady = await photoStorageReady();
     </div>
 
     <!-- ===== 已有照片管理 ===== -->
-    <div class="pt-8">
+    <div class="neo-discovery-panel pt-8">
       <div class="flex items-center justify-between">
         <p class="pixel-chip text-muted-foreground">
           已有照片 / <span id="manage-photo-count" data-initial={photos.length}>{photos.length}</span>

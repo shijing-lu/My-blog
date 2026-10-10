@@ -9,6 +9,9 @@
  * 数据：SSR 只注入「是否就绪」与初始路径，树的每一层都由前端按需拉取。
  */
 import AdminLayout from '@/layouts/AdminLayout.astro';
+import WorkspaceHeading from '@/components/WorkspaceHeading.astro';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/completion-workspace.css';
 import { getNetdiskConfig, isNetdiskReady } from '@/lib/netdisk-config';
 
 const cfg = await getNetdiskConfig();
@@ -23,28 +26,15 @@ const boot = {
 ---
 
 <AdminLayout title="网盘">
-  <section class="mx-auto w-full max-w-5xl px-4 py-8" id="netdisk-page" data-boot={JSON.stringify(boot)}>
-    <div class="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <p class="pixel-chip text-primary">CLOUD DRIVE</p>
-        <h1 class="mt-1 font-display text-2xl font-semibold">网盘</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          只读浏览 AList 中转层下的文件树。点节点右侧的复制图标可取分享直链（目录会递归收集其下全部文件的直链）。
-        </p>
-      </div>
-      <div class="flex shrink-0 items-center gap-2">
-        <a href="/admin/settings/netdisk" data-astro-reload class="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
-          ⚙ 对接设置
-        </a>
-      </div>
-    </div>
+  <section class="neo-workspace neo-netdisk" id="netdisk-page" data-boot={JSON.stringify(boot)}>
+    <WorkspaceHeading title="网盘" eyebrow="CLOUD DRIVE / 写作与管理" description="按文件夹浏览收藏的文件，一键复制分享直链。"><a href="/admin/settings/netdisk" data-astro-reload class="neo-workspace-button"><NeoIcon name="settings" size={17} />对接设置</a></WorkspaceHeading>
 
     {
       !ready && (
-        <div class="mt-6 rounded-md border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+        <div class="neo-workspace-panel">
           <p class="font-medium text-amber-600">网盘对接尚未就绪</p>
           <p class="mt-1 text-xs text-muted-foreground">
-            请先到「⚙ 对接设置」填写 AList 中转服务地址与管理员账号，并点「测试连接」确认可用。
+            请先到「对接设置」填写中转服务地址与管理员账号，并点「测试连接」确认可用。
             {!cfg.enabled && ' 当前总开关为关闭状态。'}
           </p>
         </div>
@@ -54,7 +44,7 @@ const boot = {
     {/* 工具栏 */}
     <div class="mt-6 flex flex-wrap items-center gap-2">
       <button type="button" id="nd-refresh" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
-        ⟳ 刷新
+        刷新
       </button>
       <button type="button" id="nd-collapse" class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
         全部折叠
@@ -65,11 +55,11 @@ const boot = {
     <p id="nd-error" class="mt-2 hidden text-xs text-destructive" role="alert"></p>
 
     {/* 文件树 */}
-    <div class="mt-3 overflow-hidden rounded-md border border-border">
+    <div class="neo-workspace-panel mt-4"><h2>文件目录</h2>
       <div id="nd-tree" class="py-1"></div>
     </div>
 
-    <details class="mt-6 rounded-md border border-border px-4 py-3 text-xs text-muted-foreground">
+    <details class="neo-workspace-panel text-xs text-muted-foreground">
       <summary class="cursor-pointer font-medium text-foreground">使用说明与限制</summary>
       <ul class="mt-2 list-disc space-y-1 pl-4">
         <li><strong>本页为只读</strong>：不含上传、下载、新建、删除等任何写操作。</li>

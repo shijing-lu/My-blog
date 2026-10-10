@@ -58,7 +58,10 @@ describe('local cloud configuration', () => {
       mocks.query.mockImplementation(() => new Promise(() => {}));
       const pending = testCloudConnections({ primaryUrl: primary });
       await vi.advanceTimersByTimeAsync(8000);
-      expect((await pending).ok).toBe(false); expect(mocks.end).toHaveBeenCalledTimes(1);
+      const result = await pending;
+      expect(result.ok).toBe(false); expect(result.primary.error).toContain('超时');
+      expect(result.primary.elapsedMs).toBeGreaterThanOrEqual(8000);
+      expect(mocks.end).toHaveBeenCalledTimes(1);
     } finally { vi.useRealTimers(); }
   });
   it('encrypted transfer round-trips two connections and rejects wrong passwords or tampering', () => {

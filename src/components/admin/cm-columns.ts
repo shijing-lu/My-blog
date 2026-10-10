@@ -5,13 +5,17 @@ import type { DecorationSet } from '@codemirror/view';
 import { defaultKeymap, isolateHistory, redo, undo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { mdKeymap } from './md-keymap';
-import { columnBlocks, columnsEdit, columnsSource, columnsTransactionCache, pendingColumnFocus, setColumnTarget, setColumnsSource } from './cm-columns-state';
+import { searchKeymap, searchPanelOpen, closeSearchPanel } from '@codemirror/search';
+import { searchFoldRestoration } from './cm-search-folds';
+import { columnBlocks, columnsEdit, columnsSource, columnsTransactionCache, pendingColumnFocus, registerEditorOwner, rootEditor, setColumnTarget, setColumnsSource } from './cm-columns-state';
 import { buildMarkdownColumns, removeMarkdownColumn, serializeMarkdownColumns } from '../../lib/markdown-columns';
 import type { MarkdownColumns } from '../../lib/markdown-columns';
 import { revealVisualHeading, visualDirectivesExtension } from './cm-visual-directives';
 import { headingFolding, rememberChildHeadingFolds, restoreChildHeadingFolds, unfoldHeadingAt } from './cm-heading-folding';
+import { scanMarkdownCallouts } from '../../lib/markdown-callouts';
+import { scanVisualDirectives } from '../../lib/markdown-visual-directives';
 
-interface Options { preview: Extension; foldHeadings?: boolean; onSave: () => void; onPaste: (event: ClipboardEvent) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
+interface Options { childExtensions?: () => Extension; preview: Extension; foldHeadings?: boolean; onSave: () => void; onPaste: (event: ClipboardEvent) => boolean; onContextMenu?: (event: MouseEvent, child: EditorView, parent: EditorView) => boolean }
 const controllers = new WeakMap<HTMLElement, ColumnController>();
 
 function button(label: string, run: () => void): HTMLButtonElement {
@@ -98,12 +102,12 @@ class ColumnController {
         state: EditorState.create({
           doc: column.content,
           extensions: [
-            EditorView.lineWrapping, drawSelection(), markdown(), mdKeymap, this.options.preview, visualDirectivesExtension({
+            EditorView.lineWrapping, drawSelection(), markdown(), searchFoldRestoration, this.options.childExtensions?.() ?? [mdKeymap, this.options.preview, visualDirectivesExtension({
               foldHeadings: this.options.foldHeadings,
               onSave: this.options.onSave,
               onUndo: (redo) => this.history(redo),
               onContextMenu: this.options.onContextMenu,
-            }),
+            })],
             ...(this.options.foldHeadings ? [headingFolding()] : []),
             placeholder('在这里写 Markdown…'),
             EditorView.contentAttributes.of({ 'aria-label': `第 ${index + 1} 栏，共 ${this.block.columns.length} 栏` }),
@@ -114,12 +118,13 @@ class ColumnController {
               { key: 'Mod-s', run: () => { this.options.onSave(); return true; } },
               { key: 'Tab', run: () => this.focusNeighbour(index, 1) },
               { key: 'Shift-Tab', run: () => this.focusNeighbour(index, -1) },
-              { key: 'Escape', run: () => this.exit() },
+              { key: 'Escape', run: () => searchPanelOpen(child.state) ? closeSearchPanel(child) : this.exit() },
               ...defaultKeymap,
+              ...searchKeymap,
             ]),
             EditorView.domEventHandlers({
               contextmenu: (event) => this.options.onContextMenu?.(event, child, this.parent) ?? false,
-              focus: () => { setColumnTarget(this.parent, child); return false; },
+              focus: (event) => { if (event.target === child.contentDOM) { setColumnTarget(this.parent, child); setColumnTarget(child); } return false; },
               paste: (event) => { setColumnTarget(this.parent, child); return this.options.onPaste(event); },
               drop: (event) => {
                 setColumnTarget(this.parent, child);
@@ -144,6 +149,11 @@ class ColumnController {
             }),
           ],
         }),
+      });
+      registerEditorOwner(child, this.parent, () => {
+        const { from, to } = this.block, source = this.parent.state.doc.toString();
+        const values = this.block.columns.map(item => item.content);
+        return body => source.slice(0, from) + serializeMarkdownColumns(values.map((text, at) => at === index ? body : text)).source + source.slice(to);
       });
       if (this.options.foldHeadings) restoreChildHeadingFolds(this.parent, `column:${this.block.from}:${index}`, child);
       this.editors.push(child);
@@ -229,7 +239,7 @@ class ColumnController {
   }
 
   private history(forward: boolean): boolean {
-    (forward ? redo : undo)(this.parent);
+    (forward ? redo : undo)(rootEditor(this.parent));
     return true;
   }
 
@@ -332,11 +342,14 @@ export function revealColumnHeading(parent: EditorView, pos: number): boolean {
 }
 
 export function columnsExtension(options: Options): Extension {
-  const build = (state: EditorState): DecorationSet => state.field(columnsSource)
-    ? Decoration.none
-    : Decoration.set(columnBlocks(state.doc).map((block) => Decoration.replace({
+  const build = (state: EditorState): DecorationSet => {
+    if (state.field(columnsSource)) return Decoration.none;
+    const source = state.doc.toString();
+    const owners = [...scanMarkdownCallouts(source), ...scanVisualDirectives(source)];
+    return Decoration.set(columnBlocks(state.doc).filter(block => !owners.some(owner => owner.from <= block.from && owner.to >= block.to)).map(block => Decoration.replace({
       block: true, widget: new ColumnsWidget(block, state.sliceDoc(block.from, block.to), options),
     }).range(block.from, block.to)));
+  };
   const field = StateField.define<DecorationSet>({
     create: build,
     update: (value, transaction) => transaction.docChanged || transaction.effects.some((effect) => effect.is(setColumnsSource)) ? build(transaction.state) : value,

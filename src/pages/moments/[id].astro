@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import MomentCard from '@/components/moments/MomentCard.astro';
+import '@/styles/moments-workspace.css';
 import { canManage } from '@/lib/admin-auth';
 import { getMoment, toMomentView } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
@@ -17,10 +18,18 @@ const [moment, profile, likes] = await Promise.all([
 ]);
 ---
 <BaseLayout title="动态" description="查看动态原文" indexable={raw.visibility !== 'private'}>
-  <section class="mx-auto w-full max-w-3xl px-4 py-10">
-    <a href="/moments" class="text-sm text-muted-foreground hover:text-primary">← 返回动态</a>
+  <section class="neo-moments moments-detail">
+    <header class="moments-heading"><div><a href="/moments" class="moments-back">← 返回动态</a><p class="moments-eyebrow">MOMENT / 这一刻</p><h1>一条动态</h1><p>留住生活里的小小片刻</p></div><img class="moment-detail-cat" src="/images/neobrutalism/cat-peek.webp" width="100" height="80" alt="" aria-hidden="true" /></header>
     <div class="mt-6">
       <MomentCard m={moment} avatarSrc={profile.avatar || ''} nickname={profile.nickname || '博主'} isAuthed={isAuthed} now={new Date()} likeCount={likes[id] ?? 0} showActions={false} />
     </div>
   </section>
 </BaseLayout>
+<script>
+  import '@/scripts/moments-media';
+  // Card tags navigate back to the feed; the detail page has no filter controller.
+  document.addEventListener('click', (event) => {
+    const tag = (event.target as HTMLElement).closest<HTMLElement>('.moments-detail [data-moment-tag]');
+    if (tag) window.location.assign(`/moments?tag=${encodeURIComponent(tag.dataset.momentTag ?? '')}`);
+  });
+</script>

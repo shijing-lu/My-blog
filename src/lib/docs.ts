@@ -6,7 +6,7 @@
  * - 聚合视图 listDocTree() 供公共页渲染（不含文章 content，减载荷）；
  * - 搜索对 分类名/文档名/简介/文章标题/正文 做大小写不敏感 LIKE 匹配。
  */
-import { and, asc, eq, ilike, inArray, like, or, sql, type AnyColumn } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNull, like, or, sql, type AnyColumn } from 'drizzle-orm';
 import { isPostgres } from '../../db/dialect';
 import { randomUUID } from 'node:crypto';
 import { docArticles, docBundles, docCategories, docNodes } from '../../db/schema.sqlite';
@@ -22,6 +22,13 @@ import type {
 } from '../../db/types';
 
 /* ---------------- 聚合视图 ---------------- */
+
+/** Bounded full-site scan, including nested article nodes. Orphan nodes are not public targets. */
+export async function listDocSearchPage(offset: number, limit: number) {
+  return db.select({ id: docNodes.id, title: docNodes.title, content: docNodes.content, bundleId: docNodes.bundleId, bundleName: docBundles.name, updatedAt: docNodes.updatedAt })
+    .from(docNodes).innerJoin(docBundles, eq(docNodes.bundleId, docBundles.id))
+    .where(eq(docNodes.kind, 'article')).orderBy(asc(docNodes.id)).limit(limit).offset(offset);
+}
 
 /** 按分类聚合的文档树（分类 → 文档 → 文章元信息；不含文章 content） */
 export async function listDocTree(): Promise<DocCategoryView[]> {
@@ -344,7 +351,14 @@ export async function getDocNode(id: string): Promise<DocNode | null> {
 }
 
 /** 新建节点（folder=目录 / article=文章） */
+export async function nextDocNodeSort(bundleId: string, parentId: string | null): Promise<number> {
+  const [row] = await db.select({ sort: sql<number>`coalesce(max(${docNodes.sort}), -1)` }).from(docNodes)
+    .where(and(eq(docNodes.bundleId, bundleId), parentId ? eq(docNodes.parentId, parentId) : isNull(docNodes.parentId)));
+  return Number(row?.sort ?? -1) + 1;
+}
+
 export async function createDocNode(input: {
+  id?: string;
   bundleId: string;
   parentId: string | null;
   kind: 'folder' | 'article';
@@ -356,7 +370,7 @@ export async function createDocNode(input: {
   const rows = await db
     .insert(docNodes)
     .values({
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       bundleId: input.bundleId,
       parentId: input.parentId,
       kind: input.kind,

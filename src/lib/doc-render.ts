@@ -14,6 +14,7 @@
  */
 
 import { esc } from './nav-render';
+import { articleUiIcon } from './article-ui-icons';
 
 /* ================= 数据类型 ================= */
 
@@ -46,7 +47,7 @@ export interface DocCategoryRenderable {
 
 const NAV_BTN_CLASS = 'filter-category';
 const SECTION_EMPTY_CLASS = 'mt-2 text-sm text-muted-foreground';
-const BUNDLE_GRID_CLASS = 'mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2';
+const BUNDLE_GRID_CLASS = 'mt-4 grid gap-3 sm:grid-cols-2';
 const ADD_CAT_CLASS =
   'doc-manage-only rounded-full border border-dashed border-border px-5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary';
 const ADD_CAT_EMPTY_CLASS =
@@ -98,7 +99,7 @@ export function docStats(catCount: number, bundleCount: number, articleCount: nu
 /** 无分类时的空态 */
 export function docEmptyState(authed: boolean): string {
   return (
-    `<p class="text-sm text-muted-foreground">暂无文档 —— 管理员可在这里添加分类与文档。</p>` +
+    `<img class="doc-empty-cat" src="/images/neobrutalism/cat-peek.webp" alt="" aria-hidden="true" width="120" height="72" /><p class="text-sm text-muted-foreground">暂无文档 —— 管理员可在这里添加分类与文档。</p>` +
     (authed
       ? `<button type="button" data-doc-cat-add class="${ADD_CAT_EMPTY_CLASS}">＋ 添加分类</button>`
       : '')
@@ -129,8 +130,8 @@ export function docSections(categories: DocCategoryRenderable[], authed: boolean
       `</h2>` +
       (authed
         ? `<span class="doc-manage-only flex items-center gap-1">` +
-          `<button type="button" data-doc-cat-edit="${esc(c.id)}" title="编辑分类" aria-label="编辑分类「${esc(c.name)}」" class="${iconBtn('5', false)}">✎</button>` +
-          `<button type="button" data-doc-cat-del="${esc(c.id)}" data-doc-name="${esc(c.name)}" title="删除分类" aria-label="删除分类「${esc(c.name)}」" class="${iconBtn('5', true)}">×</button>` +
+          `<button type="button" data-doc-cat-edit="${esc(c.id)}" title="编辑分类" aria-label="编辑分类「${esc(c.name)}」" class="${iconBtn('5', false)}">${articleUiIcon('pencil')}</button>` +
+          `<button type="button" data-doc-cat-del="${esc(c.id)}" data-doc-name="${esc(c.name)}" title="删除分类" aria-label="删除分类「${esc(c.name)}」" class="${iconBtn('5', true)}">${articleUiIcon('trash')}</button>` +
           `</span>`
         : '') +
       `</div>` +
@@ -147,12 +148,13 @@ export function docSections(categories: DocCategoryRenderable[], authed: boolean
                 `<p class="flex items-center gap-2 font-medium">` +
                 `<span class="doc-card-name min-w-0 truncate">${esc(b.name)}</span>` +
                 `</p>` +
+                (b.summary ? `<p class="doc-card-summary">${esc(b.summary)}</p>` : '') +
                 `<p class="mt-1.5 text-[0.6rem] text-muted-foreground">${b.articleCount} 篇${b.folderCount > 0 ? ` · ${b.folderCount} 个目录` : ''}</p>` +
                 `</a>` +
                 (authed
                   ? `<span class="doc-manage-only absolute right-1.5 top-1.5 z-10 flex items-center gap-1">` +
-                    `<button type="button" data-doc-bundle-edit="${esc(b.id)}" title="编辑文档" aria-label="编辑文档「${esc(b.name)}」" class="${iconBtn('4', false)}">✎</button>` +
-                    `<button type="button" data-doc-bundle-del="${esc(b.id)}" data-doc-name="${esc(b.name)}" title="删除文档" aria-label="删除文档「${esc(b.name)}」" class="${iconBtn('4', true)}">×</button>` +
+                    `<button type="button" data-doc-bundle-edit="${esc(b.id)}" title="编辑文档" aria-label="编辑文档「${esc(b.name)}」" class="${iconBtn('4', false)}">${articleUiIcon('pencil')}</button>` +
+                    `<button type="button" data-doc-bundle-del="${esc(b.id)}" data-doc-name="${esc(b.name)}" title="删除文档" aria-label="删除文档「${esc(b.name)}」" class="${iconBtn('4', true)}">${articleUiIcon('trash')}</button>` +
                     `</span>`
                   : '') +
                 `</div>`,

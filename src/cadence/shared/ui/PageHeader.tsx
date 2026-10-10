@@ -26,7 +26,7 @@ export function PageHeader({
   action,
 }: PageHeaderProps) {
   return (
-    <header data-m3-role="page-header" className="space-y-1">
+    <header data-m3-role="page-header" className="neo-schedule-section-title space-y-1">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-ink-3 text-[11px] tracking-[0.22em] uppercase">

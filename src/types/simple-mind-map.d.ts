@@ -60,7 +60,9 @@ declare module 'simple-mind-map' {
   export type ExportType = 'png' | 'svg' | 'json' | 'pdf' | 'md' | 'markdown' | 'smm';
 
   export default class MindMap {
+    static usePlugin(plugin: unknown): typeof MindMap;
     constructor(options: MindMapOptions);
+    appendCss(key: string, css: string): void;
     /** 绑定事件（node_click / node_dblclick / data_change / view_data_change 等） */
     on(event: string, fn: (...args: unknown[]) => void): void;
     off(event: string, fn?: (...args: unknown[]) => void): void;
@@ -91,4 +93,9 @@ declare module 'simple-mind-map' {
     };
     [key: string]: unknown;
   }
+}
+
+declare module 'simple-mind-map/src/plugins/Export.js' {
+  const ExportPlugin: unknown;
+  export default ExportPlugin;
 }

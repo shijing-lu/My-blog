@@ -13,6 +13,7 @@ import type { NewPhoto, Photo } from '../../db/types';
 import { headObject, r2Enabled } from '@/lib/object-storage';
 import { MAX_TAG_LEN, MAX_TAGS, combineTags, normalizeTags } from './photo-tags';
 import type { TagOp } from './photo-tags';
+import { selectAlivePhotoPage } from './photo-pagination';
 
 /** 数据库原始行类型 */
 type PhotoRow = typeof photos.$inferSelect;
@@ -185,6 +186,14 @@ export async function countPhotos(filter: PhotoFilter = {}): Promise<number> {
   // P2-12：PG 的 count() 返回 bigint（驱动层给出的是字符串），SQLite 返回 number。
   // 直接返回会让 `count + 1` 变成字符串拼接，故统一显式转数值。
   return Number(rows[0]?.n ?? 0);
+}
+
+/** Public page and API share one visible collection for totals, dates and logical pagination. */
+export async function getPhotoPageAlive(limit: number, offset: number, filter: PhotoFilter = {}) {
+  const where = filter.tag ? like(photos.tags, `%"${filter.tag}"%`) : undefined;
+  const rows = await db.select().from(photos).where(where).orderBy(desc(photos.takenAt), desc(photos.createdAt));
+  const page = await selectAlivePhotoPage(rows.map(mapRow), limit, offset, isR2Alive);
+  return { photos: page.photos, total: page.total, timeline: buildTimeline(page.visible) };
 }
 
 /** 按 id 查询照片 */

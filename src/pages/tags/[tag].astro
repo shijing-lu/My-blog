@@ -4,6 +4,9 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import WorkspaceHeading from '@/components/WorkspaceHeading.astro';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/completion-workspace.css';
 import { listArticles } from '@/lib/articles';
 import { countChars } from '@/lib/reading';
 
@@ -31,16 +34,14 @@ function formatShort(date: Date): string {
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title={`标签：${tagName}`} description={`标签 ${tagName} 下的全部文章`}>
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">TAG ARCHIVE</p>
-    <h1 class="mt-3 font-display text-3xl font-semibold tracking-tight">标签：{tagName}</h1>
-    <p class="mt-2 text-sm text-muted-foreground">共 {articles.length} 篇</p>
-    <div class="pixel-divider mt-6" />
+  <section class="neo-workspace neo-tags">
+    <WorkspaceHeading title={`标签：${tagName}`} eyebrow="TAG ARCHIVE / 阅读与发现" description={`共 ${articles.length} 篇文章，沿着一个关键词继续阅读。`}><a href="/archive" class="neo-workspace-button">全部归档</a></WorkspaceHeading>
 
-    <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="neo-tags-grid">
       {
         articles.map((article) => (
-          <a href={`/blog/${article.slug}`} class="post-card block overflow-hidden">
+          <a href={`/blog/${article.slug}`} class="neo-tag-card">
+            <img src={article.cover || '/images/neobrutalism/article-fallback.webp'} alt="" width="480" height="270" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/images/neobrutalism/article-fallback.webp'" />
             <div class="p-4">
               <div class="flex items-center gap-2">
                 <time class="font-pixel text-xs text-muted-foreground" datetime={article.updatedAt.toISOString()}>
@@ -50,6 +51,7 @@ function formatShort(date: Date): string {
               <h2 class="mt-2.5 font-display text-lg font-semibold leading-snug">{article.title}</h2>
               <p class="font-readable mt-1.5 text-sm text-muted-foreground line-clamp-2">{article.summary}</p>
               <p class="mt-3 font-pixel text-xs text-primary">{countChars(article.content)} 字</p>
+              {article.encrypted && <span class="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><NeoIcon name="lock" size={14} />已加密</span>}
             </div>
           </a>
         ))
@@ -58,7 +60,7 @@ function formatShort(date: Date): string {
 
     {
       articles.length === 0 && (
-        <p class="mt-8 text-sm text-muted-foreground">该标签下暂无文章。</p>
+        <div class="neo-workspace-empty"><img src="/images/neobrutalism/cat-peek.webp" width="90" height="72" alt="" aria-hidden="true" /><p>该标签下暂无文章。</p><a href="/archive" class="neo-workspace-button">浏览全部文章</a></div>
       )
     }
   </section>

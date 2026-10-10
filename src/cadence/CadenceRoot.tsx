@@ -3,6 +3,7 @@ import { bootstrapAtStartup } from "./data/db/bootstrap";
 import { db } from "./data/db/database";
 import { purgeExpiredTrash } from "./data/repo/soft-delete";
 import "./styles/blog.css";
+import "./styles/neobrutalism.css";
 const App = lazy(() =>
   import("./app/App").then((module) => ({ default: module.App })),
 );

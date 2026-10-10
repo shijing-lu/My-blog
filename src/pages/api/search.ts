@@ -55,6 +55,16 @@ const MAX_CONTENT_SCAN = 300;
  */
 export const GET: APIRoute = async ({ url }) => {
   const q = (url.searchParams.get('q') ?? '').trim().slice(0, 100).toLowerCase();
+  const scope = url.searchParams.get('scope');
+  if (scope && !['site', 'articles'].includes(scope)) return badRequest('scope 不合法');
+  if (scope === 'site') {
+    const page = Number(url.searchParams.get('page') ?? '1'), pageSize = Number(url.searchParams.get('pageSize') ?? '20');
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) return badRequest('分页参数不合法');
+    try {
+      const { searchSite } = await import('@/lib/site-search');
+      return json(await searchSite(q, page, pageSize), { headers: { 'cache-control': 'private, no-store' } });
+    } catch { return json({ error: '搜索失败，请稍后重试' }, { status: 500, headers: { 'cache-control': 'private, no-store' } }); }
+  }
   const type = url.searchParams.get('type') ?? 'all';
   if (type !== 'all' && !isArticleType(type)) {
     return badRequest('type 不合法');

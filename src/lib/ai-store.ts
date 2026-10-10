@@ -33,6 +33,8 @@ import { aiBond } from '../../db/schema.sqlite';
 
 /** 4 张 AI 表的物理表名（顺序与 DDL 一致，供单测与巡检复用） */
 export const AI_TABLE_NAMES = [
+  'ai_skill_versions',
+  'ai_edit_runs',
   'ai_conversations',
   'ai_messages',
   'ai_memories',
@@ -41,6 +43,8 @@ export const AI_TABLE_NAMES = [
 
 /** 建表 DDL（SQLite）：布尔列用 0/1（与 booleanFlag 的 driverData 一致） */
 export const AI_DDL_SQLITE: string[] = [
+  `CREATE TABLE IF NOT EXISTS ai_skill_versions (id text PRIMARY KEY, skill_id text NOT NULL, parent_id text, source text NOT NULL, resources text NOT NULL DEFAULT '{}', created_at text NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS ai_edit_runs (id text PRIMARY KEY, domain text NOT NULL, target_id text NOT NULL, before text NOT NULL, after text NOT NULL, base_version text NOT NULL, status text NOT NULL, metadata text NOT NULL DEFAULT '{}', created_at text NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS ai_conversations (
     id text PRIMARY KEY,
     title text NOT NULL DEFAULT '',
@@ -91,6 +95,8 @@ export const AI_DDL_SQLITE: string[] = [
 
 /** 建表 DDL（PostgreSQL）：布尔用原生 boolean、时间用 timestamptz */
 export const AI_DDL_PG: string[] = [
+  `CREATE TABLE IF NOT EXISTS ai_skill_versions (id text PRIMARY KEY, skill_id text NOT NULL, parent_id text, source text NOT NULL, resources text NOT NULL DEFAULT '{}', created_at text NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS ai_edit_runs (id text PRIMARY KEY, domain text NOT NULL, target_id text NOT NULL, before text NOT NULL, after text NOT NULL, base_version text NOT NULL, status text NOT NULL, metadata text NOT NULL DEFAULT '{}', created_at text NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS ai_conversations (
     id text PRIMARY KEY,
     title text NOT NULL DEFAULT '',

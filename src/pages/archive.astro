@@ -5,6 +5,8 @@
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import ArticleFilterPanel from '@/components/ArticleFilterPanel.astro';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/archive-workspace.css';
 import { listArticlePageMeta } from '@/lib/articles';
 import { listArticleCategories, articleCategoryMap } from '@/lib/article-categories';
 import { countViewsByTargets } from '@/lib/article-views';
@@ -52,20 +54,20 @@ const categoryFacets = aggregateCategories(categories, catMap);
 
 <!-- ===== Template ===== -->
 <BaseLayout title="归档" description="按时间线倒序浏览全部文章 —— My Blog Archive">
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <!-- 页头（居中）置于两栏之外：左右两栏因此从同一基线开始，
-         右侧标签/分类面板顶部即与时间轴顶部对齐 -->
-    <div class="text-center">
-      <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">ARCHIVE</p>
-      <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">归档</h1>
-      <p class="mt-1 text-sm text-muted-foreground">
-        以时间线倒序浏览 —— 共 <span class="text-primary">{total}</span> 篇。
-      </p>
-    </div>
-    <div class="pixel-divider mt-5" />
+  <section class="neo-archive">
+    <!-- 页头与常用分类置于两栏之外；装饰复用首页素材。 -->
+    <header class="neo-archive-heading">
+      <div><p class="neo-archive-eyebrow">ARCHIVE / 阅读与发现</p><h1>归档</h1>
+        <p>沿着时间线，重新遇见过去的文字。<span>共 {total} 篇</span></p></div>
+      <img src="/images/neobrutalism/cat-peek.webp" alt="" aria-hidden="true" width="100" height="80" />
+    </header>
+    <nav class="neo-archive-categories" aria-label="按文章分类筛选">
+      <button type="button" data-archive-all aria-pressed="true" class="active">全部文章 <span>{total}</span></button>
+      {categoryFacets.map((category) => <button type="button" data-filter-category={category.key} aria-pressed="false" disabled={category.count === 0} title={category.count === 0 ? `「${category.label}」下暂无文章` : category.label}><span class="filter-category-name">{category.label}</span><span>{category.count}</span></button>)}
+    </nav>
 
-    <!-- 两栏：左正文时间线 | 右标签/分类筛选（窄屏时筛选面板下移） -->
-    <div class="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_230px]">
+    <!-- 两栏：左时间线、右筛选；窄屏以正文顶部的折叠区承载筛选。 -->
+    <div class="neo-archive-layout">
       <!-- ===== 左：归档主体 ===== -->
       <div class="min-w-0">
         <!-- 筛选状态条：由脚本控制显隐（选中标签/分类后才出现） -->
@@ -78,10 +80,10 @@ const categoryFacets = aggregateCategories(categories, catMap);
           </button>
         </div>
 
-        <!-- 窄屏筛选面板：桌面端侧栏在 lg 以下会隐藏，但「筛选」是功能而非导航，
+        <!-- 窄屏筛选面板：桌面端侧栏在 1200px 以下会隐藏，但「筛选」是功能而非导航，
              窄屏也必须可达，故折叠为 <details> 放在正文流里（同一份按钮，脚本无需区分） -->
-        <details class="archive-filter-mobile mt-5 lg:hidden">
-          <summary class="archive-filter-mobile-summary pixel-chip">筛选 / FILTER</summary>
+        <details class="archive-filter-mobile">
+          <summary class="archive-filter-mobile-summary">标签与分类筛选</summary>
           <div class="mt-3">
             <ArticleFilterPanel tags={tagFacets} categories={categoryFacets} />
           </div>
@@ -89,9 +91,9 @@ const categoryFacets = aggregateCategories(categories, catMap);
 
         {
           total === 0 ? (
-            <p class="mt-8 text-sm text-muted-foreground">暂无文章。</p>
+            <div class="neo-archive-empty"><img src="/images/neobrutalism/cat-peek.webp" alt="" aria-hidden="true" width="100" height="80" /><h2>文字还在酝酿中</h2><p>暂无文章，写下的故事会在这里留下足迹。</p></div>
           ) : (
-            <div class="archive-timeline mt-5 lg:mt-0">
+            <div class="archive-timeline">
               {years.map((year) => (
                 <section class="archive-year" data-archive-year id={yearAnchorId(year.year)}>
                   <h2 class="archive-year-heading">
@@ -108,7 +110,7 @@ const categoryFacets = aggregateCategories(categories, catMap);
                     >
                       <div class="archive-month-heading">
                         <span class="archive-month-label">{month.month} 月</span>
-                        <span class="archive-month-count">{month.count}</span>
+                        <span class="archive-month-count">{month.count} 篇</span>
                       </div>
 
                       {month.entries.map((entry) => {
@@ -124,21 +126,20 @@ const categoryFacets = aggregateCategories(categories, catMap);
                           >
                             {/* 轴上节点（纯装饰） */}
                             <span class="archive-node" aria-hidden="true" />
-                            {/* 整卡可点：进入详情页。保留 .post-card 以继承入场动画
-                                （卡片观感已由 global.css 剥离：无底色/圆角/阴影，仅条目下实线） */}
+                            {/* 整卡链接保留详情路由，避免添加列表加载动画。 */}
                             <a
                               href={`/blog/${entry.meta.slug}`}
-                              class="archive-card post-card"
+                              class="archive-card"
                               aria-label={`阅读《${entry.meta.title || '未命名'}》`}
                             >
-                              {/* 中：标题 + 元信息 + 摘要（版式精修：不展示日期/星期与封面） */}
+                              <time class="archive-date" datetime={entry.meta.createdAt.toISOString()} title={`${entry.year} 年 ${entry.month} 月 ${entry.day} 日（北京时间）`}><span>{String(entry.month).padStart(2, '0')} / {String(entry.day).padStart(2, '0')}</span><NeoIcon name="file" size={20} /></time>
                               <div class="archive-card-main">
                                 <h3 class="archive-card-title">{entry.meta.title || '未命名'}</h3>
                                 <div class="archive-chips">
                                   {cat && <span class="pixel-chip archive-chip">{cat.name}</span>}
                                   <span class="archive-chip-meta">{formatWordCount(entry.contentLength)} 字</span>
                                   <span class="archive-chip-meta">{views} 阅读</span>
-                                  {entry.meta.encrypted && <span class="archive-chip-meta">已加密</span>}
+                                  {entry.meta.encrypted && <span class="archive-chip-meta archive-protected"><NeoIcon name="lock" size={13} />已加密</span>}
                                 </div>
                                 {entry.meta.summary && (
                                   <p class="archive-card-summary">{entry.meta.summary}</p>
@@ -157,14 +158,14 @@ const categoryFacets = aggregateCategories(categories, catMap);
         }
 
         <!-- 筛选后无任何命中：由脚本切换显隐（初态隐藏） -->
-        <p id="archive-filter-empty" class="mt-8 hidden text-sm text-muted-foreground">
+        <p id="archive-filter-empty" class="neo-archive-empty hidden" role="status">
           没有符合该条件的文章。
         </p>
       </div>
 
       <!-- ===== 右：标签 + 分类筛选 ===== -->
-      <aside class="hidden lg:block">
-        <div class="sticky top-20">
+      <aside class="neo-archive-sidebar">
+        <div>
           <ArticleFilterPanel tags={tagFacets} categories={categoryFacets} />
         </div>
       </aside>
@@ -214,6 +215,12 @@ const categoryFacets = aggregateCategories(categories, catMap);
     activeTag = tag;
     activeCategory = category;
 
+    document.querySelectorAll<HTMLElement>('[data-archive-all]').forEach((button) => {
+      const on = !tag && !category;
+      button.classList.toggle('active', on);
+      button.setAttribute('aria-pressed', String(on));
+    });
+
     const items = document.querySelectorAll<HTMLElement>('[data-archive-item]');
     let shown = 0;
 
@@ -236,6 +243,10 @@ const categoryFacets = aggregateCategories(categories, catMap);
     document.querySelectorAll<HTMLElement>('[data-archive-year]').forEach((year) => {
       const visible = year.querySelector<HTMLElement>('[data-archive-month]:not(.hidden)');
       year.classList.toggle('hidden', !visible);
+    });
+    document.querySelectorAll<HTMLElement>('[data-archive-month], [data-archive-year]').forEach((group) => {
+      const count = group.querySelector<HTMLElement>(group.hasAttribute('data-archive-year') ? '.archive-year-count' : '.archive-month-count');
+      if (count) count.textContent = `${group.querySelectorAll('[data-archive-item]:not(.hidden)').length} 篇`;
     });
 
     // 同步按钮选中态（两组都刷，保证互斥后另一组自动熄灭）
@@ -313,7 +324,7 @@ const categoryFacets = aggregateCategories(categories, catMap);
         return;
       }
 
-      if (target.closest('#archive-filter-clear')) applyFilter('', '');
+      if (target.closest('#archive-filter-clear, [data-archive-all]')) applyFilter('', '');
     });
   }
 

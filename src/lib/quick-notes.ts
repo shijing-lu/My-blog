@@ -1,16 +1,18 @@
 /** 随心录：独立的私密记录，不与公开动态或按日覆盖的日记共表。 */
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, desc, gte, lt, sql } from 'drizzle-orm';
 import { quickNotes } from '../../db/schema.sqlite';
 import { db } from '../../db';
 import { renderMomentContent } from './moments';
+import { mobileSyncStore, type SyncRecord, type NotePayload } from './mobile-sync-store';
+import { MobileAuthError } from './mobile-auth-core';
 
 export const NOTE_MAX_CONTENT = 20_000;
 export const NOTE_MAX_TITLE = 120;
 export const NOTE_MAX_TAGS = 10;
 export const NOTE_MAX_TAG_LENGTH = 20;
 
-export type QuickNote = Omit<typeof quickNotes.$inferSelect, 'tags'> & { tags: string[] };
+export type QuickNote = Omit<typeof quickNotes.$inferSelect, 'tags'> & { tags: string[]; syncRevision?: string };
 
 export function cleanNoteTags(input: unknown): string[] | null {
   if (!Array.isArray(input) || input.length > NOTE_MAX_TAGS || input.some((v) => typeof v !== 'string')) return null;
@@ -80,25 +82,47 @@ export async function getQuickNoteFacets() {
 }
 
 export async function getQuickNote(id: string): Promise<QuickNote | null> {
-  const rows = await db.select().from(quickNotes).where(eq(quickNotes.id, id)).limit(1);
-  return rows[0] ? fromRow(rows[0]) : null;
+  const record = await getVersion(id);
+  return record?.payload ? fromVersion(record) : null;
+}
+
+async function getVersion(id: string): Promise<SyncRecord | undefined> {
+  let cursor = 0;
+  do {
+    const page = await mobileSyncStore().sync([], cursor);
+    const record = page.records.find(r => r.recordId === id);
+    if (record) return record;
+    if (!page.hasMore) return undefined;
+    cursor = Number(page.cursor);
+  } while (true);
+}
+function fromVersion(record: SyncRecord): QuickNote {
+  const n = record.payload!;
+  return { id: record.recordId, title: n.title, content: n.content, tags: n.tags, createdAt: new Date(n.createdAt), updatedAt: new Date(n.updatedAt), syncRevision: record.revision };
+}
+async function writeVersion(id: string, baseRevision: string | null, payload: NotePayload | null): Promise<SyncRecord> {
+  const result = await mobileSyncStore().sync([{ opId: randomUUID(), recordId: id, baseRevision, payload }], 0);
+  const ack = result.acknowledgements[0]!;
+  if (ack.status === 'conflict') throw new MobileAuthError(409, 'note_conflict', '这条随心录已在其他设备修改。输入已保留，请先复制本地内容再重新打开核对');
+  return ack.record;
 }
 
 export async function createQuickNote(input: { title: string; content: string; tags: string[] }): Promise<QuickNote> {
-  const now = new Date();
-  const [row] = await db.insert(quickNotes).values({ id: randomUUID(), ...input, tags: JSON.stringify(input.tags), createdAt: now, updatedAt: now }).returning();
-  return fromRow(row!);
+  const now = Date.now();
+  return fromVersion(await writeVersion(randomUUID(), null, { ...input, createdAt: now, updatedAt: now }));
 }
 
-export async function updateQuickNote(id: string, input: { title: string; content: string; tags: string[] }): Promise<QuickNote | null> {
-  const [row] = await db.update(quickNotes).set({ ...input, tags: JSON.stringify(input.tags), updatedAt: new Date() })
-    .where(eq(quickNotes.id, id)).returning();
-  return row ? fromRow(row) : null;
+export async function updateQuickNote(id: string, input: { title: string; content: string; tags: string[] }, baseRevision?: string): Promise<QuickNote | null> {
+  const old = await getVersion(id);
+  if (!old?.payload) return null;
+  return fromVersion(await writeVersion(id, baseRevision ?? old.revision, { ...input, createdAt: old.payload.createdAt, updatedAt: Math.max(Date.now(), old.payload.createdAt) }));
 }
 
-export async function deleteQuickNote(id: string): Promise<boolean> {
-  const rows = await db.delete(quickNotes).where(eq(quickNotes.id, id)).returning({ id: quickNotes.id });
-  return rows.length > 0;
+export async function deleteQuickNote(id: string, baseRevision?: string): Promise<boolean> {
+  const old = await getVersion(id);
+  if (!old?.payload) return false;
+  await writeVersion(id, baseRevision ?? old.revision, null);
+  return true;
 }
 
 export async function toQuickNoteView(note: QuickNote) {

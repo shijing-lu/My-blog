@@ -14,8 +14,10 @@ import * as sqliteSchema from '../db/schema.sqlite';
 import * as pgSchema from '../db/schema.pg';
 import { policyFor, tablesMissingPolicy } from '../src/sync/tables';
 
-/** 本功能新增的 4 张表（逻辑名 = 导出名） */
-const AI_TABLES = ['aiConversations', 'aiMessages', 'aiMemories', 'aiBond'] as const;
+/** 参与同步的 AI 表（逻辑名 = 导出名） */
+const AI_SYNC_TABLES = ['aiConversations', 'aiMessages', 'aiMemories', 'aiBond'] as const;
+/** AI 存储及本地编辑审计使用的表 */
+const AI_STORAGE_TABLES = [...AI_SYNC_TABLES, 'aiSkillVersions', 'aiEditRuns'] as const;
 
 /** drizzle 表类型（sqlite/pg 各自结构不同，此处只取公共能力） */
 type AnyTable = Parameters<typeof getTableColumns>[0];
@@ -28,7 +30,7 @@ function tableOf(mod: Record<string, unknown>, name: string): AnyTable {
 }
 
 it('4 张 AI 表的双方言列定义完全一致（逻辑键 + 物理列名）', () => {
-  for (const key of AI_TABLES) {
+  for (const key of AI_STORAGE_TABLES) {
     const s = tableOf(sqliteSchema, key);
     const p = tableOf(pgSchema, key);
 
@@ -45,7 +47,7 @@ it('4 张 AI 表的双方言列定义完全一致（逻辑键 + 物理列名）'
 });
 
 it('4 张 AI 表都登记了 lww/updated_at 同步策略', () => {
-  const names = AI_TABLES.map((k) => getTableName(tableOf(sqliteSchema, k)));
+  const names = AI_SYNC_TABLES.map((k) => getTableName(tableOf(sqliteSchema, k)));
   expect(names).toEqual(['ai_conversations', 'ai_messages', 'ai_memories', 'ai_bond']);
   for (const n of names) {
     const policy = policyFor(n);
@@ -56,35 +58,32 @@ it('4 张 AI 表都登记了 lww/updated_at 同步策略', () => {
 });
 
 it('新增表不会被"缺策略"巡检误报', () => {
-  const all = ['articles', 'settings', ...AI_TABLES.map((k) => getTableName(tableOf(sqliteSchema, k)))];
+  const all = ['articles', 'settings', ...AI_SYNC_TABLES.map((k) => getTableName(tableOf(sqliteSchema, k)))];
   expect(tablesMissingPolicy(all)).toEqual([]);
 });
 
 it('惰性建表 DDL 覆盖全部 4 张表，且列名与 schema 不漂移', async () => {
   const { AI_DDL_SQLITE, AI_DDL_PG, AI_TABLE_NAMES } = await import('../src/lib/ai-store');
-  const expected = AI_TABLES.map((k) => getTableName(tableOf(sqliteSchema, k))).sort();
+  const expected = AI_STORAGE_TABLES.map((k) => getTableName(tableOf(sqliteSchema, k))).sort();
   expect([...AI_TABLE_NAMES].sort()).toEqual(expected);
 
   for (const [ddlList, mod, label] of [
     [AI_DDL_SQLITE, sqliteSchema, 'SQLite'] as const,
     [AI_DDL_PG, pgSchema, 'PG'] as const,
   ]) {
-    for (const k of AI_TABLES) {
+    for (const k of AI_STORAGE_TABLES) {
       const physical = getTableName(tableOf(mod, k));
       expect(
         ddlList.some((d) => d.includes(`CREATE TABLE IF NOT EXISTS ${physical} `)),
         `${label} DDL 缺少建表：${physical}`,
       ).toBe(true);
     }
-    for (const k of AI_TABLES) {
+    for (const k of AI_STORAGE_TABLES) {
       const physical = getTableName(tableOf(mod, k));
       const stmt = ddlList.find((d) => d.includes(`CREATE TABLE IF NOT EXISTS ${physical} `))!;
       const body = stmt.slice(stmt.indexOf('(') + 1, stmt.lastIndexOf(')'));
-      const ddlCols = body
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .map((l) => l.split(/\s+/)[0]!)
+      const ddlCols = [...body.matchAll(/(?:^|,)\s*([a-z_]+)\s+/g)]
+        .map((match) => match[1]!)
         .sort();
       const schemaCols = Object.values(getTableColumns(tableOf(mod, k))).map((c) => c.name).sort();
       expect(ddlCols, `${label} ${physical} 的 DDL 列与 schema 漂移`).toEqual(schemaCols);

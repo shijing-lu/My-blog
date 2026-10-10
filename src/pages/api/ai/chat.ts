@@ -27,7 +27,7 @@ import type { APIRoute } from 'astro';
 import { badJson, forbidden, json, readJson } from '@/lib/api';
 import { isManagerSession, isTopAdmin } from '@/lib/admin-auth';
 import { MAX_CHAT_MESSAGES, MAX_CHAT_MESSAGE_CHARS, sanitizeChatMessages } from '@/lib/ai-chat-context';
-import { readOpenAiDeltas } from '@/lib/ai-stream';
+import { streamSiteText, siteChatMessages } from '@/lib/pi-ai';
 import { ensureAiTables, readOwnerBond, type OwnerBondSnapshot } from '@/lib/ai-store';
 import { bumpBondOnMessage, levelBehaviorText } from '@/lib/ai-bond';
 import {
@@ -42,7 +42,6 @@ import {
 import {
   getAiConfig,
   isAiReady,
-  buildChatUrl,
   bumpGuestUsage,
   DEFAULT_SYSTEM_PROMPT,
 } from '@/lib/ai-config';
@@ -76,6 +75,7 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   // 1. 身份与开关（主人=顶级管理员：站主会话或 role=top 的 GitHub 管理员；判定在服务端，不受前端传参影响）
   const [isManager, isOwner] = await Promise.all([isManagerSession(cookies), isTopAdmin(cookies)]);
   const cfg = await getAiConfig();
+  if (cfg.connectionMode === 'subscription' && !isOwner) return forbidden('订阅接入仅供站主使用');
   if (!isAiReady(cfg)) return forbidden('AI 功能未启用或配置不完整');
   if (!isManager && !cfg.allowGuests) return forbidden('AI 功能仅对管理员开放');
 
@@ -146,44 +146,6 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
     cleanup();
     return json({ error: '请求已取消' }, 499);
   }
-  let upstream: Response;
-  try {
-    upstream = await fetch(buildChatUrl(cfg.baseUrl), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [{ role: 'system', content: systemPrompt }, ...messages],
-        stream: true,
-        temperature: cfg.temperature,
-        max_tokens: cfg.maxTokens,
-      }),
-      // 60s 上游保护（headers/首包超时即失败，避免服务端请求挂满 undici 默认 300s）
-      signal: AbortSignal.any([upstreamController.signal, AbortSignal.timeout(60_000)]),
-    });
-  } catch (err) {
-    cleanup();
-    if (upstreamController.signal.aborted) return json({ error: '请求已取消' }, 499);
-    console.error('[api/ai/chat] upstream fetch failed:', err);
-    return json({ error: 'AI 服务连接失败，请检查 API 地址' }, 502);
-  }
-
-  if (!upstream.ok || !upstream.body) {
-    const text = (await upstream.text().catch(() => '')).slice(0, 300);
-    cleanup();
-    upstreamController.abort();
-    console.error(`[api/ai/chat] upstream HTTP ${upstream.status}:`, text);
-    const hint =
-      upstream.status === 401
-        ? 'AI 服务鉴权失败（API Key 无效）'
-        : upstream.status === 404
-          ? 'AI 服务接口或模型不存在'
-          : upstream.status === 429
-            ? 'AI 服务限流，请稍后再试'
-            : `AI 服务返回 HTTP ${upstream.status}`;
-    return json({ error: hint }, 502);
-  }
-
   // 5. 重帧：解析上游 SSE delta → 自定义轻量帧下发
   const encoder = new TextEncoder();
   const sse = (payload: string): Uint8Array => encoder.encode(`data: ${payload}\n\n`);
@@ -201,7 +163,7 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
         await appendMessage({ conversationId, role: 'assistant', content: assistantText });
       };
       try {
-        for await (const delta of readOpenAiDeltas(upstream.body!)) {
+        for await (const delta of streamSiteText(cfg, { systemPrompt, messages: siteChatMessages(cfg, messages) }, { signal: AbortSignal.any([upstreamController.signal, AbortSignal.timeout(60_000)]) })) {
           // 落库只保留已声明的 8000 字上限，仍完整转发回答。
           if (assistantText.length < 8000) assistantText += delta.slice(0, 8000 - assistantText.length);
           controller.enqueue(sse(JSON.stringify({ delta })));

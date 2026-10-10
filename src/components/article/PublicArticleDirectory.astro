@@ -1,0 +1,40 @@
+---
+import ArticleDirectory from './ArticleDirectory.astro';
+import { renderTocTreeHtml } from '@/lib/toc-tree';
+interface Props { toc: import('@/lib/mdx-plugins').TocItem[]; }
+const { toc } = Astro.props;
+---
+<ArticleDirectory tocHtml={renderTocTreeHtml(toc)}><slot /></ArticleDirectory>
+<script>
+  import { setupArticleDetailRails } from '@/lib/article-detail-rails';
+  function setupPublicDirectory() {
+    if (!document.querySelector('.neo-reader')) return;
+    setupArticleDetailRails();
+    const list = document.getElementById('doc-toc-list');
+    if (!list || list.dataset.publicBound === '1') return;
+    list.dataset.publicBound = '1';
+    list.addEventListener('click', event => {
+      if (!(event.target instanceof Element)) return;
+      const fold = event.target.closest<HTMLButtonElement>('.toc-fold');
+      if (fold) {
+        const folded = fold.closest('.toc-node')?.classList.toggle('folded');
+        fold.setAttribute('aria-expanded', String(!folded));
+        fold.setAttribute('aria-label', folded ? '展开子目录' : '折叠子目录');
+      }
+    });
+    const links = [...list.querySelectorAll<HTMLAnchorElement>('a[data-doc-anchor]')];
+    const highlight = (id: string) => links.forEach(link => {
+      const active = decodeURIComponent(link.hash.slice(1)) === id;
+      link.classList.toggle('toc-active', active);
+      active ? link.setAttribute('aria-current', 'location') : link.removeAttribute('aria-current');
+    });
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(entry => entry.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) highlight(visible[0].target.id);
+    }, { rootMargin: '-90px 0px -65% 0px' });
+    document.querySelectorAll('.neo-reader article :is(h2,h3,h4)[id]').forEach(heading => observer.observe(heading));
+    document.addEventListener('astro:before-swap', () => observer.disconnect(), { once:true });
+  }
+  setupPublicDirectory();
+  document.addEventListener('astro:page-load', setupPublicDirectory);
+</script>

@@ -14,16 +14,7 @@ import type {
   Slot,
 } from "@/cadence/entities/review";
 import { clockOf, localTzOffsetMinutes } from "@/cadence/shared/db/time";
-import {
-  AnimatePresence,
-  HandRule,
-  m,
-  useResolvedVariants,
-} from "@/cadence/shared/motion";
-import {
-  backdrop,
-  modalPanel,
-} from "@/cadence/shared/motion/variants/surfaces";
+import { HandRule, PresenceDialog } from "@/cadence/shared/motion";
 import { toast } from "@/cadence/shared/store/toast-store";
 import { Button } from "@/cadence/shared/ui/Button";
 import { TextField } from "@/cadence/shared/ui/TextField";
@@ -52,9 +43,6 @@ export function EntryEditor({
   ) => Promise<void>;
   onDelete: (entryId: string) => Promise<void>;
 }) {
-  const backdropVariants = useResolvedVariants(backdrop);
-  const panelVariants = useResolvedVariants(modalPanel);
-
   const [content, setContent] = useState("");
   const [mood, setMood] = useState<number | undefined>(undefined);
   const [hydratedFor, setHydratedFor] = useState("");
@@ -72,23 +60,9 @@ export function EntryEditor({
   }
 
   return (
-    <AnimatePresence>
+    <PresenceDialog open={target !== undefined} onOpenChange={(open) => { if (!open) onClose(); }} title="记录复盘">
       {target !== undefined ? (
-        <m.div
-          key="review-editor"
-          variants={backdropVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-[var(--scrim)]"
-          onClick={onClose}
-        >
-          <m.div
-            variants={panelVariants}
-            className="surface-card w-[min(480px,92vw)] p-6"
-            onClick={(event) => event.stopPropagation()}
-            style={{ borderRadius: "var(--radius-hand-lg)" }}
-          >
+        <div>
             <p className="text-ink-4 numeric text-[11px]">
               {target.schedule.title} ·{" "}
               {clockOf(target.slot.start, localTzOffsetMinutes())} –{" "}
@@ -182,9 +156,8 @@ export function EntryEditor({
                 </Button>
               </div>
             </div>
-          </m.div>
-        </m.div>
+        </div>
       ) : null}
-    </AnimatePresence>
+    </PresenceDialog>
   );
 }

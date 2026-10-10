@@ -31,12 +31,12 @@ export interface ScheduleEvent extends Timestamped {
   done: boolean;
 }
 
-/** 最小时长 15 分钟（与拖拽吸附粒度一致）；上限一整天 */
-export const MIN_DURATION_MIN = 15;
+/** 最小时长 1 分钟（与拖拽吸附粒度一致）；上限一整天 */
+export const MIN_DURATION_MIN = 1;
 export const DAY_TOTAL_MIN = 24 * 60;
 
-/** 拖拽/新建的时间吸附粒度（业界标准 15 分钟） */
-export const SNAP_MIN = 15;
+/** 拖拽/新建的时间吸附粒度（业界标准 1 分钟） */
+export const SNAP_MIN = 1;
 
 export function snapDown(min: number): number {
   return Math.floor(min / SNAP_MIN) * SNAP_MIN;

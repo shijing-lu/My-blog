@@ -7,7 +7,7 @@
  *        →「编辑当前文章」（文档详情或首页文章编辑页，点击进入/退出就地编辑）→ 回到顶部
  */
 import { isTopAdmin, permissionChecker } from '@/lib/admin-auth';
-import MaterialIcon from './MaterialIcon.astro';
+import NeoIcon from './NeoIcon.astro';
 
 /* ===== Props ===== */
 interface Props {
@@ -95,7 +95,7 @@ const isHomeArticleDetail = /^\/edit\/(?!new\/?$)[^/]+\/?$/.test(Astro.url.pathn
     </svg>
   </button>
   </div>
-  <button class="m3-tools-toggle" type="button" data-m3-tools-toggle aria-label="展开快捷工具" aria-expanded="false"><MaterialIcon name="tune" /></button>
+  <button class="m3-tools-toggle" type="button" data-m3-tools-toggle aria-label="展开快捷工具" aria-expanded="false"><NeoIcon name="menu" size={21} /></button>
 </aside>
 
 <script>

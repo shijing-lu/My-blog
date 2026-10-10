@@ -5,7 +5,7 @@
  * 真云端（PG）与替身（SQLite）在语义上等价 —— 于是无需云库、无需 mock，
  * 就能把「收敛 / 删除传播 / 冲突留痕 / 幂等 / 镜像推进 / 断点续传」全部验证。
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -130,6 +130,20 @@ afterEach(() => {
 });
 
 describe('同步引擎 · 端到端（SQLite 替身云端）', () => {
+  it('本地同步准备卡住时在 30 秒内返回明确超时', async () => {
+    vi.useFakeTimers();
+    try {
+      const stalledStore = Object.create(env.store) as LocalSyncStore;
+      stalledStore.ensureSchema = () => new Promise<void>(() => {});
+      const pending = runSync({ local: env.local, cloud: env.cloud, store: stalledStore, policies: POLICIES });
+      const rejected = expect(pending).rejects.toThrow('准备本地同步数据 超时（30s）');
+      await vi.advanceTimersByTimeAsync(30_000);
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('首次同步：云端行全量拉到本地，并提示"删除不传播"', async () => {
     env.cloudRaw.exec(`INSERT INTO demo_lww (id,title,updated_at) VALUES ('a','云端A',1000), ('b','云端B',1000);`);
     const report = await env.sync();

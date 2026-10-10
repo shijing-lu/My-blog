@@ -8,6 +8,20 @@
 import { pgTable, text, timestamp, jsonb, integer, boolean, check, unique, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
+export const mobileSyncHead = pgTable('mobile_sync_head', { id: text('id').primaryKey(), seq: integer('seq').notNull() });
+export const mobileSyncRecords = pgTable('mobile_sync_records', { id: text('id').primaryKey(), revision: text('revision').notNull(), seq: integer('seq').notNull(), payload: text('payload') });
+export const mobileSyncReceipts = pgTable('mobile_sync_receipts', { id: text('id').primaryKey(), digest: text('digest').notNull(), reply: text('reply').notNull() });
+
+/** Same contract as SQLite; credentials never participate in desktop content sync. */
+export const mobileSessions = pgTable('mobile_sessions', {
+  id: text('id').primaryKey(), deviceId: text('device_id').notNull(), deviceName: text('device_name').notNull(),
+  credentialVersion: text('credential_version').notNull(), accessHash: text('access_hash').notNull(),
+  refreshHash: text('refresh_hash').notNull(), previousRefreshHash: text('previous_refresh_hash'),
+  refreshRequestId: text('refresh_request_id'), accessExpiresAt: text('access_expires_at').notNull(),
+  refreshExpiresAt: text('refresh_expires_at').notNull(), createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(), revokedAt: text('revoked_at'),
+});
+
 /** 与 SQLite 一致；CAS revision 防止两设备覆盖同一实体。 */
 export const cadenceRecords = pgTable('cadence_records', {
   id: text('id').primaryKey(), kind: text('kind').notNull(), recordId: text('record_id').notNull(),
@@ -15,6 +29,18 @@ export const cadenceRecords = pgTable('cadence_records', {
 });
 
 /** articles 表（PostgreSQL 方言） */
+export const aiSkillVersions = pgTable('ai_skill_versions', {
+  id: text('id').primaryKey(), skillId: text('skill_id').notNull(),
+  parentId: text('parent_id'), source: text('source').notNull(),
+  resources: text('resources').notNull().default('{}'), createdAt: text('created_at').notNull(),
+});
+export const aiEditRuns = pgTable('ai_edit_runs', {
+  id: text('id').primaryKey(), domain: text('domain').notNull(), targetId: text('target_id').notNull(),
+  before: text('before').notNull(), after: text('after').notNull(),
+  baseVersion: text('base_version').notNull(), status: text('status').notNull(),
+  metadata: text('metadata').notNull().default('{}'), createdAt: text('created_at').notNull(),
+});
+
 export const articles = pgTable(
   'articles',
   {

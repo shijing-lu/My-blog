@@ -64,13 +64,30 @@ export async function saveCloudConnections(input: Record<string, unknown>) {
   } finally { saving = false; await fs.unlink(temp).catch(() => {}); }
 }
 async function probe(url: string) {
-  const sql = postgres(url, { max: 1, connect_timeout: 5, idle_timeout: 1 });
+  const startedAt = Date.now();
+  const sql = postgres(url, { max: 1, connect_timeout: 5, idle_timeout: 1, max_lifetime: 10 });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([sql.unsafe('SELECT 1'), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('timeout')), 8000); })]);
-    return { ok: true };
-  } catch { return { ok: false, error: '连接失败，请检查连接串、网络和数据库服务状态' }; }
-  finally { if (timer) clearTimeout(timer); await sql.end({ timeout: 1 }).catch(() => {}); }
+    return { ok: true, elapsedMs: Date.now() - startedAt };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error && error.message === 'timeout'
+        ? '连接超时（8 秒），请检查网络和数据库服务状态'
+        : '连接失败，请检查连接串、网络和数据库服务状态',
+      elapsedMs: Date.now() - startedAt,
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+    // Closing a client with a stalled query must not hold the HTTP response open.
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      sql.end({ timeout: 1 }).catch(() => {}),
+      new Promise<void>(resolve => { closeTimer = setTimeout(resolve, 1500); }),
+    ]);
+    if (closeTimer) clearTimeout(closeTimer);
+  }
 }
 export async function testCloudConnections(input: Record<string, unknown>) {
   const connections = mergeConnections(input);

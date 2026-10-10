@@ -83,6 +83,13 @@ function createDrizzle(ep: DbEndpoint, index: number): BlogDb {
   const ctor = betterSqlite3Ctor ?? (betterSqlite3Ctor = requireHere(SQLITE_PKG));
   const client = new ctor(file);
   client.pragma('journal_mode = WAL');
+  // Additive mobile-auth upgrade for existing SQLite workspaces; no business rows are changed.
+  client.exec(`CREATE TABLE IF NOT EXISTS mobile_sessions (
+    id text PRIMARY KEY NOT NULL, device_id text NOT NULL, device_name text NOT NULL,
+    credential_version text NOT NULL, access_hash text NOT NULL, refresh_hash text NOT NULL,
+    previous_refresh_hash text, refresh_request_id text, access_expires_at text NOT NULL,
+    refresh_expires_at text NOT NULL, created_at text NOT NULL, updated_at text NOT NULL, revoked_at text
+  )`);
   // 旧桌面/开发 SQLite 在打开 ORM 前补列；模板新库由 schema 直接建列。
   const articleColumns = client.pragma('table_info(articles)') as Array<{ name: string }>;
   if (articleColumns.length > 0 && !articleColumns.some((column) => column.name === 'published')) {
@@ -193,6 +200,13 @@ export const db: BlogDb = new Proxy({} as BlogDb, {
 /** 兼容旧导出：返回统一句柄（db / getDb 二者等价） */
 export function getDb(): BlogDb {
   return db;
+}
+
+/** Authentication has one authority: never fail over to a stale revocation record. */
+export function getPrimaryDb(): BlogDb {
+  const ep = endpoints[0]!;
+  if (!ep.db) ep.db = createDrizzle(ep, 0);
+  return ep.db;
 }
 
 /**

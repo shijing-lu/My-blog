@@ -6,7 +6,7 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import HeroQuote from '@/components/HeroQuote.astro';
 import ActivityHeatmap from '@/components/ActivityHeatmap.astro';
-import DeerDots from '@/components/DeerDots.astro';
+import NeoIcon from '@/components/NeoIcon.astro';
 import SearchBox from '@/components/SearchBox.astro';
 import Pagination from '@/components/Pagination.astro';
 import { listArticleMeta, listArticlePageMeta } from '@/lib/articles';
@@ -16,11 +16,10 @@ import { cardCoverUrl } from '@/lib/images';
 import { getLandingHero } from '@/lib/landing';
 import { pageInfo } from '@/lib/pagination';
 import { canManage } from '@/lib/admin-auth';
-import type { ArticleType } from '../../db/types';
 
 /* ===== Logic ===== */
-/** 每页文章数（故事流为单列交替，仍按 9 篇分页） */
-const PAGE_SIZE = 9;
+/** 每页固定五篇，所有明暗模式共享分页 */
+const PAGE_SIZE = 5;
 
 /* ---- 并行取数（P1-1）----
  * 这三个请求彼此**完全独立**：全量元信息（列表/标签/统计 + 推导总数与分页）、
@@ -49,7 +48,7 @@ const rawPage = Number(Astro.url.searchParams.get('page') ?? '1');
 const info = pageInfo(rawPage, total, PAGE_SIZE);
 
 /* 当页文章（**不取正文**，只带 contentLength 聚合列 —— P1-2：
- * 一页 9 篇 × 30KB 正文 = 270KB 无谓传输，而页面只用字数） */
+ * 一页 5 篇 × 30KB 正文 = 270KB 无谓传输，而页面只用字数） */
 const articles = await listArticlePageMeta(info.page, PAGE_SIZE);
 
 /** Hero 大图取值。
@@ -62,21 +61,7 @@ const heroRaw =
   articles.map((a) => a.cover).find((c): c is string => !!c) ||
   null;
 const heroCover = cardCoverUrl(heroRaw, 1920);
-const heroSubtitle = landing.subtitle || '全面自由地发展吧，同志！让我们用知识武装自己，打败世间一切邪祟。';
-const heroType: ArticleType = articles[0]?.type ?? 'tech';
-
-/** 全部标签总数（去重） */
-const uniqueTags = new Set(allMeta.flatMap((a) => a.tags)).size;
-/** 最近更新时间 */
-const lastUpdated = allMeta[0]?.updatedAt;
-
-/** 文章类型 → 封面大字字形（Hero 装饰；type 仅作内部元数据，分类体系用自定义分类） */
-const typeGlyph: Record<ArticleType, string> = {
-  tech: '技',
-  note: '记',
-  photo: '影',
-};
-
+const heroSubtitle = landing.subtitle || '敢于斗争，善于斗争';
 /**
  * 粗略字数展示（>1000 显示 x.xk）。
  *
@@ -111,286 +96,52 @@ function formatShort(date?: Date): string {
   return `${y}-${m}-${d} ${h}:${min}`;
 }
 ---
-<!-- ===== Template ===== -->
-<BaseLayout title="首页" description="技术教程 · 学习笔记 · 随笔与摄影 —— My Blog" image={heroCover ?? undefined}>
-  <!-- ===== 落地页 Hero：全屏大图 + 文字叠层 ===== -->
-  <section class="landing-hero">
-    {
-      heroSlides.length > 1 ? (
-        <div class="landing-hero-slides" data-animation={landing.animation} data-interval={landing.intervalSec}>
-          {
-            heroSlides.map((src, i) => (
-              <img
-                class={`landing-hero-bg landing-hero-slide${i === 0 ? ' is-active' : ''}`}
-                src={src}
-                alt=""
-                fetchpriority={i === 0 ? 'high' : undefined}
-                loading={i === 0 ? undefined : 'lazy'}
-              />
-            ))
-          }
+<BaseLayout title="首页" description="技术教程 · 学习笔记 · 随笔与摄影" image={heroCover ?? undefined}>
+  <div class="neo-home">
+    <section class="neo-hero landing-hero" aria-label={siteTitle + ' · 个人知识库'}>
+      {heroSlides.length > 1 ? <div class="landing-hero-slides" data-interval={landing.intervalSec}>{heroSlides.map((src, index) => <img class={'landing-hero-bg landing-hero-slide' + (index === 0 ? ' is-active' : '')} src={src} alt="" fetchpriority={index === 0 ? 'high' : undefined} loading={index === 0 ? 'eager' : 'lazy'} />)}</div> : <img class="landing-hero-bg" src={heroCover ?? '/images/neobrutalism/article-fallback.webp'} alt="" fetchpriority="high" />}
+      <div class="neo-hero-paper">
+        <span class="neo-hero-eyebrow">PERSONAL KNOWLEDGE BASE</span>
+        <HeroQuote />
+        <p class="neo-hero-subtitle">{heroSubtitle}</p>
+        <div class="neo-socials">
+          {SOCIALS.map(social => <a href={social.href} target="_blank" rel="noopener noreferrer" class="social-link" aria-label={social.label} title={social.label}><span class={'social-icon icon-' + social.key} aria-hidden="true" /></a>)}
+          <button type="button" id="wechat-btn" class="social-link" title="微信" aria-label="微信"><span class="social-icon icon-wechat" aria-hidden="true" /></button>
         </div>
-      ) : heroCover ? (
-        <img class="landing-hero-bg" src={heroCover} alt="" fetchpriority="high" />
-      ) : (
-        <div class="landing-hero-bg landing-hero-bg--gradient" data-type={heroType} aria-hidden="true">
-          <span class="post-cover-glyph" aria-hidden="true">{typeGlyph[heroType]}</span>
-        </div>
-      )
-    }
-    <div class="landing-hero-scrim" aria-hidden="true" />
-    <div class="landing-hero-content relative z-[1] mx-auto w-full max-w-6xl px-4">
-      {/* 页面唯一 h1（P1-6：此前首页全文无 h1，标题层级从 h2 起跳）。
-          视觉上是 Hero 主标题，语义上是首页的顶层标题——两条信息线合并，
-          对读屏与 SEO 都更正确；下方社交入口等保持原字号不变。 */}
-      <h1 class="contents">
-        <span class="sr-only">{siteTitle} —— 个人知识库</span>
-        <span data-hero class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary" aria-hidden="true">
-          Personal Knowledge Base
-        </span>
-      </h1>
-      <HeroQuote />
-      <p data-hero class="mt-3 max-w-2xl text-base text-white/85">{heroSubtitle}</p>
-      <!-- 社交入口（GitHub / Bilibili / 微博 / 微信） -->
-      <div data-hero class="mt-8 flex flex-wrap gap-3">
-        {
-          SOCIALS.map((s) => (
-            <a
-              href={s.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="social-link"
-              title={s.label}
-              aria-label={s.label}
-            >
-              <span class={`social-icon icon-${s.key}`} aria-hidden="true" />
-            </a>
-          ))
-        }
-        <!-- 微信：点击弹出好友二维码 -->
-        <button type="button" id="wechat-btn" class="social-link" title="微信" aria-label="微信">
-          <span class="social-icon icon-wechat" aria-hidden="true" />
-        </button>
+        <span class="neo-blog-script" aria-hidden="true">Blog</span>
+        <span class="neo-paper-rays" aria-hidden="true"></span>
       </div>
-    </div>
-    <!-- 滚动提示：点击平滑滚到文章区 -->
-    <a href="#latest" class="scroll-cue" aria-label="向下浏览文章">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true">
-        <path d="M12 5v14M19 12l-7 7-7-7" />
-      </svg>
-    </a>
-  </section>
-
-  <!-- ===== 落地页以下整体区域（小鹿点阵背景全宽贯穿，顶部渐隐衔接 Hero） ===== -->
-  <div class="relative isolate">
-    <DeerDots />
-    <!-- ===== 数据条 + 文章故事流 ===== -->
-    <section class="mx-auto w-full max-w-6xl px-4 py-12" aria-labelledby="latest-heading">
-      <!-- 文章活跃热力图 + 月度写作量 -->
+      <aside class="neo-hero-note" aria-label="记录热爱，分享知识，遇见更好的自己"><NeoIcon name="star" size={22} /><p>记录热爱<br />分享知识<br />遇见更好的自己<br />……</p></aside>
+    </section>
+    <div class="neo-home-content">
       <ActivityHeatmap />
-
-    <!-- 像素统计条 -->
-    <div class="pixel-divider mt-8" />
-    <div
-      class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 font-pixel text-xs text-muted-foreground"
-      role="group"
-      aria-label="站点统计"
-    >
-      <span>
-        <span class="stat-count text-primary" data-num={total}>{total.toLocaleString()}</span> ARTICLES
-      </span>
-      <span>
-        <span class="stat-count text-primary" data-num={uniqueTags}>{uniqueTags.toLocaleString()}</span> TAGS
-      </span>
-      <span>
-        UPDATED <span class="text-primary">{formatShort(lastUpdated)}</span>
-      </span>
+      <section id="latest" class="neo-latest neo-panel" aria-labelledby="latest-heading">
+        <div class="neo-latest-header"><div class="neo-latest-tab"><NeoIcon name="file" size={30} /><h2 id="latest-heading">最新文章</h2><span>LATEST ARTICLES</span></div><span class="neo-articles-script" aria-hidden="true">Articles</span><p class="neo-page-summary">第 {info.page} / {info.totalPages} 页 · 共 {total} 篇</p></div>
+        <div class="neo-latest-body">
+          <SearchBox canEdit={isAuthed} total={total} categories={categories.map(category => ({ id: category.id, name: category.name }))} />
+          <div id="tag-filter-bar" class="hidden neo-tag-filter"><span>筛选当前页</span><span id="tag-filter-name"></span><span id="tag-filter-count"></span><a id="tag-filter-all" href="#">在全站查看 →</a><button type="button" id="tag-filter-clear">清除筛选 ×</button></div>
+          <div id="post-grid" class="post-list">
+            {articles.map(article => <article class="post-row" data-tags={article.tags.join('|').toLowerCase()}>
+              <a href={'/blog/' + article.slug} class="neo-post-link" aria-label={'阅读《' + (article.title || '未命名') + '》'}></a>
+              <img class="neo-post-cover" src={cardCoverUrl(article.cover, 480) ?? '/images/neobrutalism/article-fallback.webp'} data-article-cover alt="" width="164" height="84" loading="lazy" />
+              <div class="post-row-main"><h3>{article.title || '未命名'}{article.encrypted && <span class="neo-encrypted" title="加密文章" aria-label="加密文章"><NeoIcon name="lock" size={15} /></span>}</h3>
+                <div class="neo-post-tags">{article.tags.slice(0, 4).map(tag => <button type="button" data-tag-filter={tag} class="post-tag" title={'只筛选当前页的「' + tag + '」'}>{tag}</button>)}{article.tags.length > 4 && <span>+{article.tags.length - 4}</span>}</div>
+                <p class="neo-post-summary">{article.summary}</p>
+              </div>
+              <div class="post-row-meta"><time datetime={article.updatedAt.toISOString()}>{formatShort(article.updatedAt)}</time><span class="neo-word-count"><NeoIcon name="file" size={15} />{article.encrypted ? '已加密' : countChars(article.contentLength) + ' 字'}</span></div>
+              {isAuthed && <a href={'/edit/' + article.id} class="post-row-edit" aria-label={'编辑《' + article.title + '》'} title="编辑文章"><NeoIcon name="more" size={20} /></a>}
+            </article>)}
+          </div>
+          {total === 0 && <p class="neo-empty">还没有文章，新的故事即将开始。</p>}
+          <div id="post-pagination">{info.totalPages > 1 && <Pagination page={info.page} totalPages={info.totalPages} />}</div>
+        </div>
+      </section>
     </div>
-
-    <!-- 最新文章 -->
-    <div id="latest" class="mt-10 scroll-mt-24">
-      <div class="flex items-center gap-2.5">
-        <h2 id="latest-heading" class="font-display text-2xl font-semibold">最新文章</h2>
-        <span class="pixel-chip rounded bg-muted px-2 py-1 text-muted-foreground">LATEST ARTICLES</span>
-        {
-          info.totalPages > 1 && (
-            <span class="ml-auto font-pixel text-xs text-muted-foreground">
-              第 {info.page} / {info.totalPages} 页
-            </span>
-          )
-        }
-      </div>
-
-      <!-- 检索：服务端搜索 + 自定义分类筛选（内置类型已从 UI 退役） -->
-      <div class="mt-4">
-        <SearchBox total={total} categories={categories.map((c) => ({ id: c.id, name: c.name }))} />
-      </div>
-
-      <!-- 标签筛选状态条（点击文章标签后显示；仅筛选当前页，全站请跳标签页） -->
-      <div id="tag-filter-bar" class="mt-4 hidden flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
-        <span class="text-muted-foreground">正在筛选</span>
-        <span id="tag-filter-name" class="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">#</span>
-        <span id="tag-filter-count" class="text-muted-foreground tabular-nums">0 篇</span>
-        <a id="tag-filter-all" href="#" class="text-muted-foreground underline underline-offset-2 transition-colors hover:text-primary">在全站查看 →</a>
-        <button type="button" id="tag-filter-clear" class="ml-auto rounded border border-border px-2 py-0.5 text-muted-foreground transition-colors hover:border-primary hover:text-primary">
-          清除筛选 ✕
-        </button>
-      </div>
-
-      <!-- 文章行式列表（Claude 简约表格风格：无图、细分割线、大留白） -->
-      <div id="post-grid" class="post-list mt-8">
-        {
-          articles.map((article) => {
-            return (
-              <article class="post-row group relative" data-tags={article.tags.join('|').toLowerCase()}>
-                {/* 整行可点：进入详情页（stretched-link） */}
-                <a href={`/blog/${article.slug}`} class="absolute inset-0 z-0" aria-label={`阅读《${article.title || '未命名'}》`} />
-                {/* 左：标题 + 一行摘要 + 标签 */}
-                <div class="post-row-main">
-                  <div class="flex items-center gap-2.5">
-                    <h3 class="font-display text-lg font-medium leading-snug transition-colors duration-200 group-hover:text-primary">
-                      {article.title}
-                    </h3>
-                    {
-                      article.encrypted && (
-                        /* 加密文章：锁标识（标题摘要仍可见，正文需解锁） */
-                        <span
-                          class="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground"
-                          title="加密文章"
-                          aria-label="加密文章"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            class="size-3.5"
-                            aria-hidden="true"
-                          >
-                            <rect x="4" y="11" width="16" height="10" rx="2" />
-                            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                          </svg>
-                        </span>
-                      )
-                    }
-                  </div>
-                  <p class="mt-1.5 text-sm text-muted-foreground line-clamp-1">{article.summary}</p>
-                  {
-                    article.tags.length > 0 && (
-                      /* 标签行：点击即在当前列表内按该标签过滤（再点一次取消）；
-                         relative z-[1] 抬到整行链接之上，否则点不到 */
-                      <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                        {article.tags.slice(0, 4).map((tag) => (
-                          <button
-                            type="button"
-                            data-tag-filter={tag}
-                            class="post-tag relative z-[1] rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-primary"
-                            title={`只看「${tag}」`}
-                          >
-                            {tag}
-                          </button>
-                        ))}
-                        {article.tags.length > 4 && (
-                          <span class="relative z-[1] text-xs text-muted-foreground/70">+{article.tags.length - 4}</span>
-                        )}
-                      </div>
-                    )
-                  }
-                </div>
-                {/* 右：时间 + 字数（右对齐，等宽对齐） */}
-                <div class="post-row-meta">
-                  <span class="text-xs text-muted-foreground tabular-nums">{formatShort(article.updatedAt)}</span>
-                  <span class="font-pixel text-xs text-primary tabular-nums">
-                    {article.encrypted ? '已加密' : `${countChars(article.contentLength)}字`}
-                  </span>
-                </div>
-                {
-                  isAuthed && (
-                    <a
-                      href={`/edit/${article.id}`}
-                      aria-label="编辑文章"
-                      title="编辑"
-                      class="post-row-edit inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-primary"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
-                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                      </svg>
-                    </a>
-                  )
-                }
-              </article>
-            );
-          })
-        }
-      </div>
-
-      {
-        total === 0 && (
-          <p class="mt-6 text-sm text-muted-foreground">
-            暂无文章 —— 请先运行 <code class="rounded bg-muted px-1.5 py-0.5">pnpm db:push:dev && pnpm db:seed</code>
-          </p>
-        )
-      }
-
-      <!-- 分页栏（搜索激活时由 SearchBox 隐藏） -->
-      <div id="post-pagination" class="mt-8">
-        {
-          info.totalPages > 1 && <Pagination page={info.page} totalPages={info.totalPages} />
-        }
-      </div>
-    </div>
-  </section>
   </div>
-
-  <!-- 微信好友二维码弹窗 -->
-  <dialog id="wechat-dialog" class="wechat-dialog" aria-labelledby="wechat-dialog-title">
-    <div class="settings-header">
-      <div>
-        <p class="pixel-chip text-primary">WECHAT</p>
-        <h2 id="wechat-dialog-title" class="mt-1 font-display text-lg font-semibold">微信好友</h2>
-      </div>
-      <button id="wechat-close" type="button" aria-label="关闭" class="settings-close">×</button>
-    </div>
-    <img
-      id="wechat-qr"
-      src="/qrcodes/wechat.png"
-      alt="微信二维码"
-      class="mx-auto mt-4 w-44 rounded-lg border border-border"
-    />
-    <p id="wechat-qr-fallback" class="mt-4 hidden text-xs text-muted-foreground">
-      二维码待上传 —— 请将图片放到 <code class="font-mono">public/qrcodes/wechat.png</code>。
-    </p>
-  </dialog>
+  <dialog id="wechat-dialog" class="wechat-dialog" aria-labelledby="wechat-dialog-title"><div class="settings-header"><h2 id="wechat-dialog-title">微信好友</h2><button id="wechat-close" type="button" aria-label="关闭" class="settings-close">×</button></div><img id="wechat-qr" src="/qrcodes/wechat.png" alt="微信二维码" class="mx-auto mt-4 w-44 rounded-lg" width="176" height="176" /><p id="wechat-qr-fallback" class="mt-4 hidden">二维码暂时无法加载，请稍后重试。</p></dialog>
 </BaseLayout>
-
 <script>
-  /** 首页动效：Hero 轻量入场序列 + 统计终值（原生动效，reduced-motion 时跳过） */
-  import { heroIn, counterInView } from '@/lib/anim';
   import { feedback, reducedMotion } from '@/lib/motion';
-
-  const homeW = window as unknown as { __homeAnimsBound?: boolean };
-  async function runHomeAnims(): Promise<void> {
-    // 进场序列只在首次加载播放一次（刷新/SPA 转场后直接显示，避免重复动画卡隐藏）
-    if (!homeW.__homeAnimsBound) {
-      homeW.__homeAnimsBound = true;
-      await heroIn();
-    }
-    void counterInView('.stat-count');
-  }
-  // 初始加载播放；View Transition 后新页面元素重新进场
-  document.addEventListener('astro:page-load', () => void runHomeAnims());
-  void runHomeAnims();
-
-  /** 落地页滚动提示：点击平滑滚到文章区 */
-  document.addEventListener('click', (e) => {
-    const cue = (e.target as HTMLElement).closest<HTMLAnchorElement>('.scroll-cue');
-    if (!cue) return;
-    e.preventDefault();
-    document.getElementById('latest')?.scrollIntoView({ behavior: reducedMotion() ? 'instant' : 'smooth' });
-  });
-
   /** ================= 首页标签筛选（点击文章下方标签即时过滤） =================
    *  - 只筛选**当前页**的服务端列表（无请求、无刷新）；全站检索走 /tags/[tag] 链接；
    *  - 与搜索框互斥：点击标签时先清空搜索词回到静态列表，再执行过滤；
@@ -406,12 +157,7 @@ function formatShort(date?: Date): string {
     const allLink = document.getElementById('tag-filter-all') as HTMLAnchorElement | null;
     const pagination = document.getElementById('post-pagination');
 
-    // 让标签过滤与搜索互斥：有搜索词时先清空（SearchBox 监听 input 事件回到静态列表）
-    const input = document.getElementById('search-input') as HTMLInputElement | null;
-    if (input && input.value.trim()) {
-      input.value = '';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    }
+    document.dispatchEvent(new CustomEvent('byqx:home-reset-search'));
 
     const needle = tag.toLowerCase();
     let shown = 0;
@@ -426,6 +172,7 @@ function formatShort(date?: Date): string {
       const on = !!needle && (btn.dataset.tagFilter ?? '').toLowerCase() === needle;
       btn.classList.toggle('bg-primary/15', on);
       btn.classList.toggle('text-primary', on);
+      btn.setAttribute('aria-pressed', String(on));
     });
 
     if (!tag) {
@@ -441,6 +188,7 @@ function formatShort(date?: Date): string {
     pagination?.classList.add('hidden');
   }
 
+  document.addEventListener('byqx:home-clear-tag', () => { activeTag = ''; document.getElementById('tag-filter-bar')?.classList.add('hidden'); document.querySelectorAll('#post-grid .post-row').forEach(row => row.classList.remove('hidden')); document.querySelectorAll('#post-grid [data-tag-filter]').forEach(button => { button.classList.remove('bg-primary/15','text-primary'); button.setAttribute('aria-pressed','false'); }); });
   document.addEventListener('click', (e) => {
     const tagBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-tag-filter]');
     if (tagBtn) {
@@ -476,63 +224,22 @@ function formatShort(date?: Date): string {
     if (img.complete && img.naturalWidth === 0) img.onerror?.(new Event('error'));
   });
 
-  /**
-   * 落地页 Hero 轮播（多图；单图不轮播）
-   *
-   * P3-6：定时器改为脚本作用域变量 + `astro:before-swap` 钩子清理，
-   * 不再挂 window 全局。同时把切图动画的收尾 setTimeout 也纳入清理——
-   * 原先这些短定时器换页后仍会触发，操作已被替换掉的旧 DOM。
-   */
+
   let carouselTimer = 0;
-  const carouselCleanups = new Set<number>();
-
-  /** 停止轮播：清掉周期定时器与全部收尾定时器 */
-  function stopCarousel(): void {
-    if (carouselTimer) {
-      window.clearInterval(carouselTimer);
-      carouselTimer = 0;
-    }
-    carouselCleanups.forEach((t) => window.clearTimeout(t));
-    carouselCleanups.clear();
-  }
-
-  /** 登记一个收尾定时器（动画结束后移除过渡 class） */
-  function scheduleCarouselCleanup(fn: () => void, ms: number): void {
-    const id = window.setTimeout(() => {
-      carouselCleanups.delete(id);
-      fn();
-    }, ms);
-    carouselCleanups.add(id);
-  }
-
-  const heroCarousel = (): void => {
-    stopCarousel(); // 重入（View Transition / 重复调用）先清旧定时器
+  function stopCarousel(): void { window.clearInterval(carouselTimer); carouselTimer = 0; }
+  function startCarousel(): void {
+    stopCarousel();
+    if (reducedMotion() || document.hidden) return;
     const wrap = document.querySelector<HTMLElement>('.landing-hero-slides');
-    if (!wrap) return;
-    const slides = Array.from(wrap.querySelectorAll<HTMLElement>('.landing-hero-slide'));
-    const n = slides.length;
-    if (n < 2) return;
-    const intervalMs = Number(wrap.dataset.interval ?? 6) * 1000;
-    const anim = wrap.dataset.animation ?? 'slide';
-    let cur = 0;
-    carouselTimer = window.setInterval(() => {
-      const prev = slides[cur];
-      const next = slides[(cur + 1) % n];
-      if (!prev || !next) return;
-      if (anim === 'break') {
-        prev.classList.add('is-breaking');
-        next.classList.add('is-active');
-        scheduleCarouselCleanup(() => prev.classList.remove('is-breaking'), 800);
-      } else {
-        prev.classList.remove('is-active');
-        prev.classList.add('is-leaving');
-        next.classList.add('is-active');
-        scheduleCarouselCleanup(() => prev.classList.remove('is-leaving'), 950);
-      }
-      cur = (cur + 1) % n;
-    }, intervalMs);
-  };
-  document.addEventListener('astro:before-swap', stopCarousel);
-  document.addEventListener('astro:page-load', heroCarousel);
-  heroCarousel();
+    const slides = Array.from(wrap?.querySelectorAll<HTMLElement>('.landing-hero-slide') ?? []);
+    if (slides.length < 2) return;
+    let current = Math.max(0, slides.findIndex(slide => slide.classList.contains('is-active')));
+    carouselTimer = window.setInterval(() => { slides[current]?.classList.remove('is-active'); current = (current + 1) % slides.length; slides[current]?.classList.add('is-active'); }, Math.max(2, Number(wrap?.dataset.interval ?? 6)) * 1000);
+  }
+  document.addEventListener('astro:before-swap', () => { stopCarousel(); activeTag = ''; });
+  document.addEventListener('astro:page-load', startCarousel);
+  document.addEventListener('visibilitychange', () => document.hidden ? stopCarousel() : startCarousel());
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', startCarousel);
+  document.addEventListener('error', event => { const image = event.target; if (image instanceof HTMLImageElement && image.matches('[data-article-cover]') && !image.src.endsWith('/article-fallback.webp')) image.src = '/images/neobrutalism/article-fallback.webp'; }, true);
+  startCarousel();
 </script>

@@ -28,9 +28,13 @@ function isPublicAdminAuth(pathname: string, method: string): boolean {
 export function requiredApiPermission(pathname: string, method: string): PermissionKey[] | 'top' | null {
   // Astro 可接受尾斜杠；权限匹配必须与实际路由保持一致。
   pathname = pathname.replace(/\/+$/, '') || '/';
+  if (pathname === '/api/toolchain' || pathname.startsWith('/api/toolchain/')) return 'top';
   // handler 再按身份 kind='top' 收紧至站主本人，授权 top 管理员也不共享私人日程。
   if (pathname === '/api/cadence' || pathname.startsWith('/api/cadence/')) return 'top';
   const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+  if (pathname === '/api/ai/subscription' || pathname.startsWith('/api/ai/subscription/') || pathname === '/api/ai/cover' || pathname.startsWith('/api/ai/cover/')) return 'top';
+  if (pathname === '/api/ai/edit' || pathname.startsWith('/api/ai/edit/') ||
+      pathname === '/api/ai/skills' || pathname.startsWith('/api/ai/skills/')) return 'top';
   // 这些端点自身只有通用 manager 守卫，需要在此补齐逐项权限。
   if (pathname === '/api/article-categories') return ['articles'];
   if (pathname === '/api/mindmaps' || pathname.startsWith('/api/mindmaps/')) {

@@ -10,6 +10,20 @@ import { sqliteTable, text, integer, check, customType, unique, index, primaryKe
 import { sql } from 'drizzle-orm';
 import { isPostgres } from './dialect';
 
+export const mobileSyncHead = sqliteTable('mobile_sync_head', { id: text('id').primaryKey(), seq: integer('seq').notNull() });
+export const mobileSyncRecords = sqliteTable('mobile_sync_records', { id: text('id').primaryKey(), revision: text('revision').notNull(), seq: integer('seq').notNull(), payload: text('payload') });
+export const mobileSyncReceipts = sqliteTable('mobile_sync_receipts', { id: text('id').primaryKey(), digest: text('digest').notNull(), reply: text('reply').notNull() });
+
+/** Mobile credentials are primary-server authority, never exported by desktop sync. */
+export const mobileSessions = sqliteTable('mobile_sessions', {
+  id: text('id').primaryKey(), deviceId: text('device_id').notNull(), deviceName: text('device_name').notNull(),
+  credentialVersion: text('credential_version').notNull(), accessHash: text('access_hash').notNull(),
+  refreshHash: text('refresh_hash').notNull(), previousRefreshHash: text('previous_refresh_hash'),
+  refreshRequestId: text('refresh_request_id'), accessExpiresAt: text('access_expires_at').notNull(),
+  refreshExpiresAt: text('refresh_expires_at').notNull(), createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(), revokedAt: text('revoked_at'),
+});
+
 /** Cadence 使用实体信封保留原始 schema，payload=null 是永久删除墓碑。 */
 export const cadenceRecords = sqliteTable('cadence_records', {
   id: text('id').primaryKey(),
@@ -62,6 +76,19 @@ const booleanFlag = customType<{ data: boolean; driverData: boolean | number }>(
 });
 
 /** articles 表（SQLite 方言） */
+/** Immutable skill revisions form a graph; divergent synced heads remain visible. */
+export const aiSkillVersions = sqliteTable('ai_skill_versions', {
+  id: text('id').primaryKey(), skillId: text('skill_id').notNull(),
+  parentId: text('parent_id'), source: text('source').notNull(),
+  resources: text('resources').notNull().default('{}'), createdAt: text('created_at').notNull(),
+});
+export const aiEditRuns = sqliteTable('ai_edit_runs', {
+  id: text('id').primaryKey(), domain: text('domain').notNull(), targetId: text('target_id').notNull(),
+  before: text('before').notNull(), after: text('after').notNull(),
+  baseVersion: text('base_version').notNull(), status: text('status').notNull(),
+  metadata: text('metadata').notNull().default('{}'), createdAt: text('created_at').notNull(),
+});
+
 export const articles = sqliteTable(
   'articles',
   {

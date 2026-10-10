@@ -7,58 +7,14 @@ import { useMemo, useState } from "react";
 
 import type { ScheduleEvent } from "@/cadence/entities/schedule";
 import type { DailyPlanItem } from "@/cadence/entities/daily-plan";
-import {
-  AnimatePresence,
-  m,
-  useResolvedVariants,
-} from "@/cadence/shared/motion";
-import {
-  backdrop,
-  modalPanel,
-} from "@/cadence/shared/motion/variants/surfaces";
+import { PresenceDialog } from "@/cadence/shared/motion";
 import { Button } from "@/cadence/shared/ui/Button";
 import { ConfirmDialog } from "@/cadence/shared/ui/ConfirmDialog";
 import { TextField } from "@/cadence/shared/ui/TextField";
 
-const TIME_STEPS = Array.from({ length: 24 * 4 + 1 }, (_, index) => index * 15); // 00:00–24:00，15 分钟步进
-
-function minuteLabel(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function TimeSelect({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (value: number) => void;
-}) {
-  const options = TIME_STEPS.filter((step) => step >= min && step <= max);
-  return (
-    <label className="text-ink-2 block text-[12.5px]">
-      {label}
-      <select
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="text-ink-1 surface-inset numeric mt-1 block w-full rounded-[var(--radius-hand-sm)] px-3 py-2 text-[13px]"
-      >
-        {options.map((step) => (
-          <option key={step} value={step}>
-            {minuteLabel(step)}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+import { TimeField } from "./TimeField";
+import { validTimeSpan } from "@/cadence/entities/schedule/time-input";
+function minuteLabel(min: number): string { return min === 1440 ? "24:00" : String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0"); }
 
 export interface CreateDialogState {
   startMin: number;
@@ -81,9 +37,6 @@ export function CreateEventDialog({
   }) => void;
   onCancel: () => void;
 }) {
-  const backdropVariants = useResolvedVariants(backdrop);
-  const panelVariants = useResolvedVariants(modalPanel);
-
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(9 * 60);
   const [end, setEnd] = useState(10 * 60);
@@ -107,24 +60,9 @@ export function CreateEventDialog({
   );
 
   return (
-    <AnimatePresence>
+    <PresenceDialog open={state !== undefined} onOpenChange={(open) => { if (!open) onCancel(); }} title="新建日程">
       {state !== undefined ? (
-        <m.div
-          key="schedule-create"
-          variants={backdropVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-[var(--scrim)]"
-          onClick={onCancel}
-        >
-          <m.div
-            variants={panelVariants}
-            className="surface-card w-[min(440px,92vw)] p-6"
-            onClick={(event) => event.stopPropagation()}
-            style={{ borderRadius: "var(--radius-hand-lg)" }}
-          >
-            <h3 className="text-ink-1 font-serif text-lg">新建日程</h3>
+        <div>
             <div className="mt-4 space-y-4">
               <TextField
                 label="标题"
@@ -137,6 +75,7 @@ export function CreateEventDialog({
                 placeholder="这段时间做什么"
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
+                    if (!validTimeSpan(start, end)) return;
                     event.preventDefault();
                     onCreate({
                       title:
@@ -151,22 +90,20 @@ export function CreateEventDialog({
                   }
                 }}
               />
-              <div className="grid grid-cols-2 gap-3">
-                <TimeSelect
+              <div className="neo-schedule-time-fields grid grid-cols-2 gap-3">
+                <TimeField
                   label="开始"
                   value={start}
-                  min={0}
-                  max={24 * 60 - 15}
                   onChange={setStart}
                 />
-                <TimeSelect
+                <TimeField
                   label="结束"
-                  value={Math.max(end, start + 15)}
-                  min={start + 15}
-                  max={24 * 60}
+                  value={end}
+                  allowDayEnd
                   onChange={setEnd}
                 />
               </div>
+              {!validTimeSpan(start, end) && <p role="alert" className="text-xs text-destructive">请输入有效时间，结束须晚于开始，最短 1 分钟。</p>}
               {planItems.length > 0 ? (
                 <label className="text-ink-2 block text-[12.5px]">
                   关联今日计划项（可选）
@@ -191,6 +128,7 @@ export function CreateEventDialog({
               </Button>
               <Button
                 size="sm"
+                disabled={!validTimeSpan(start, end)}
                 onClick={() =>
                   onCreate({
                     title:
@@ -198,7 +136,7 @@ export function CreateEventDialog({
                         ? linkedTitle
                         : title,
                     startMin: start,
-                    endMin: Math.max(end, start + 15),
+                    endMin: end,
                     planItemId: planItemId.length > 0 ? planItemId : undefined,
                   })
                 }
@@ -206,10 +144,9 @@ export function CreateEventDialog({
                 创建
               </Button>
             </div>
-          </m.div>
-        </m.div>
+        </div>
       ) : null}
-    </AnimatePresence>
+    </PresenceDialog>
   );
 }
 
@@ -222,21 +159,21 @@ export function EditEventDialog({
   onClose,
 }: {
   event: ScheduleEvent | undefined;
-  onSave: (id: string, draft: { title: string; note?: string }) => void;
+  onSave: (id: string, draft: { title: string; note?: string; startMin: number; endMin: number }) => void;
   onDelete: (id: string) => void;
   onToggleDone: (id: string, done: boolean) => void;
   onFocus: (event: ScheduleEvent) => void;
   onClose: () => void;
 }) {
-  const backdropVariants = useResolvedVariants(backdrop);
-  const panelVariants = useResolvedVariants(modalPanel);
-
+  const [start, setStart] = useState(0);
+  const [end, setEnd] = useState(1);
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [hydratedFor, setHydratedFor] = useState("");
 
   if (event !== undefined && event.id !== hydratedFor) {
+    setStart(event.startMin); setEnd(event.endMin);
     setTitle(event.title);
     setNote(event.note ?? "");
     setHydratedFor(event.id);
@@ -247,26 +184,14 @@ export function EditEventDialog({
 
   return (
     <>
-      <AnimatePresence>
+      <PresenceDialog open={event !== undefined} onOpenChange={(open) => { if (!open) onClose(); }} title="编辑日程">
         {event !== undefined ? (
-          <m.div
-            key="schedule-edit"
-            variants={backdropVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            className="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-[var(--scrim)]"
-            onClick={onClose}
-          >
-            <m.div
-              variants={panelVariants}
-              className="surface-card w-[min(440px,92vw)] p-6"
-              onClick={(stopEvent) => stopEvent.stopPropagation()}
-              style={{ borderRadius: "var(--radius-hand-lg)" }}
-            >
+          <div>
               <p className="text-ink-4 numeric text-[11px]">
                 {minuteLabel(event.startMin)} – {minuteLabel(event.endMin)}
               </p>
+              <div className="neo-schedule-time-fields mt-3 grid grid-cols-2 gap-3"><TimeField label="开始" value={start} onChange={setStart} /><TimeField label="结束" value={end} onChange={setEnd} allowDayEnd /></div>
+              {!validTimeSpan(start, end) && <p role="alert" className="text-xs text-destructive">请输入有效时间，结束须晚于开始。</p>}
               <TextField
                 label="标题"
                 value={title}
@@ -322,18 +247,18 @@ export function EditEventDialog({
                   ) : null}
                   <Button
                     size="sm"
+                    disabled={!validTimeSpan(start, end)}
                     onClick={() => {
-                      onSave(event.id, { title, note });
+                      onSave(event.id, { title, note, startMin: start, endMin: end });
                     }}
                   >
                     保存
                   </Button>
                 </div>
               </div>
-            </m.div>
-          </m.div>
+          </div>
         ) : null}
-      </AnimatePresence>
+      </PresenceDialog>
 
       <ConfirmDialog
         open={confirmingDelete}

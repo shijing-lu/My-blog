@@ -222,7 +222,7 @@ describe('renderDocTree', () => {
       ]),
       opts,
     );
-    expect(html).toContain('class="ml-3 border-l border-border pl-2"');
+    expect(html).toContain('class="doc-tree-children ml-3 border-l border-border pl-2"');
   });
 });
 

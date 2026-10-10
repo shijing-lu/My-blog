@@ -2,6 +2,7 @@
 import type { Node, Root } from 'mdast';
 import { jsxAttr, jsxFlow, type MdxDirectiveNode } from './nodes';
 import { scanMarkdownColumns } from '../markdown-columns';
+import { quotedMarkdownSegments } from '../markdown-callouts';
 
 type Container = MdxDirectiveNode & { children: Node[] };
 
@@ -44,6 +45,12 @@ function convert(children: Node[], source: string, validStarts: Set<number>): vo
 export function remarkColumns() {
   return (tree: Root, file: { value: unknown }): void => {
     const source = String(file.value);
-    convert(tree.children, source, new Set(scanMarkdownColumns(source).map((block) => block.from + (source.slice(block.from).match(/^ */)?.[0].length ?? 0))));
+    const validStarts = new Set<number>();
+    const collect = (text: string, originalOffset: (offset: number) => number): void => {
+      for (const block of scanMarkdownColumns(text)) validStarts.add(originalOffset(block.from + (text.slice(block.from).match(/^ */)?.[0].length ?? 0)));
+      for (const segment of quotedMarkdownSegments(text)) collect(segment.source, offset => originalOffset(segment.originalOffset(offset)));
+    };
+    collect(source, offset => offset);
+    convert(tree.children, source, validStarts);
   };
 }

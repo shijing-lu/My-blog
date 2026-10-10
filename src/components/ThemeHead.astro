@@ -1,77 +1,21 @@
 ---
-/*
- * ThemeHead.astro —— 主题系统 <head> 片段（供各布局复用）
- * 包含：各主题的 data-theme CSS 注入 + 首帧防闪烁内联脚本。
- * Props: 无
- */
-import { buildThemeCss } from '@/themes';
-import { getSiteUiStyle } from '@/lib/ui-style-server';
 import type { UiStyle } from '@/lib/ui-style';
-
 interface Props { defaultStyle?: UiStyle }
-const defaultStyle = Astro.props.defaultStyle ?? await getSiteUiStyle();
-
-/* ===== Logic ===== */
-const themeCss = buildThemeCss();
 ---
-<!-- ===== Template ===== -->
-<Fragment set:html={`<style id="theme-styles" data-classic-style>${themeCss}</style>`} />
-<meta name="site-ui-style" content={defaultStyle} />
+<meta name="site-ui-style" content="neobrutalism" />
 <script is:inline>
-  (function () {
-    const r = document.documentElement;
-    let s = {};
+  (() => {
+    const root = document.documentElement;
+    let mode = 'system';
     try {
-      const stored = JSON.parse(localStorage.getItem('my-blog-theme') || '{}');
-      if (stored && typeof stored === 'object') s = stored;
-    } catch (e) { /* Private mode still receives the server style. */ }
-    const validStyle = function (value) { return value === 'classic' || value === 'material3'; };
-    r.dataset.siteUiStyle = validStyle(r.dataset.siteUiStyle) ? r.dataset.siteUiStyle : document.querySelector('meta[name="site-ui-style"]').content;
-    const style = validStyle(s.uiStyle) ? s.uiStyle : r.dataset.siteUiStyle;
-    r.dataset.uiStyle = validStyle(style) ? style : 'classic';
-    const themeId = typeof s.themeId === 'string' ? s.themeId : '';
-    if (themeId && r.dataset.uiStyle === 'classic') r.setAttribute('data-theme', themeId);
-    else r.removeAttribute('data-theme');
-    const m = s.mode === 'light' || s.mode === 'dark' ? s.mode : 'system';
-    const d = m === 'dark' || (m === 'system' && typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
-    r.classList.toggle('dark', d);
-    r.setAttribute('data-mode', m);
-    const legacySelector = '[data-classic-style], #custom-theme-css, #theme-styles, #site-custom-css-live, #sitecss-preview-style, #mdcss-preview-style, [id^="font-face-"]';
-    const gateLegacyStyle = function (element) {
-      const material = document.documentElement.dataset.uiStyle === 'material3';
-      if (!element.hasAttribute('data-classic-media')) element.setAttribute('data-classic-media', element.media || 'all');
-      element.media = material ? 'not all' : element.getAttribute('data-classic-media') || 'all';
-    };
-    window.__applyUiStyleHead = function () {
-      document.querySelectorAll(legacySelector).forEach(gateLegacyStyle);
-    };
-    // Preview/font styles can arrive after the initial head or be inserted by settings.
-    // Filter added style nodes only, without rescanning large rendered articles.
-    if (window.__uiStyleObserver) window.__uiStyleObserver.disconnect();
-    window.__uiStyleObserver = new MutationObserver(function (records) {
-      records.forEach(function (record) {
-        record.addedNodes.forEach(function (node) {
-          if (node.nodeType === 1 && (node.tagName === 'STYLE' || node.tagName === 'LINK') && node.matches(legacySelector)) gateLegacyStyle(node);
-        });
-      });
-    });
-    window.__uiStyleObserver.observe(document.documentElement, { childList: true, subtree: true });
-    try {
-      // 自定义主题：若当前主题是导入的，首帧前注入其 CSS（_css 由导入时预生成）
-      const customs = JSON.parse(localStorage.getItem('my-blog-custom-themes') || '[]');
-      if (Array.isArray(customs) && themeId) {
-        const t = customs.find(function (x) { return x.id === themeId; });
-        if (t && typeof t._css === 'string') {
-          const st = document.createElement('style');
-          st.id = 'custom-theme-css';
-          st.textContent = t._css;
-          st.dataset.classicStyle = '';
-          st.media = r.dataset.uiStyle === 'material3' ? 'not all' : 'all';
-          st.dataset.classicMedia = 'all';
-          document.head.appendChild(st);
-        }
-      }
-    } catch (e) { /* Imported CSS is optional. */ }
-    window.__applyUiStyleHead();
+      const value = JSON.parse(localStorage.getItem('my-blog-theme') || '{}');
+      if (value?.mode === 'light' || value?.mode === 'dark') mode = value.mode;
+    } catch { /* Storage is optional. */ }
+    root.dataset.uiStyle = root.dataset.siteUiStyle = 'neobrutalism';
+    root.removeAttribute('data-theme');
+    root.dataset.mode = mode;
+    root.classList.toggle('dark', mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches));
+    window.__uiStyleObserver?.disconnect();
+    window.__applyUiStyleHead = () => {};
   })();
 </script>

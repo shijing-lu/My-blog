@@ -1,0 +1,8 @@
+---
+import { Feather, Search, FileText, CalendarDays, ChartColumnIncreasing, Star, LockKeyhole, ChevronRight, Menu, Ellipsis, Pencil, Flame, Bold, Italic, Image, Settings, Palette, Cloud, Keyboard, Bot, Folder, Code, Type, Quote, X, Plus } from 'lucide-react';
+const icons = { feather: Feather, search: Search, file: FileText, calendar: CalendarDays, chart: ChartColumnIncreasing, star: Star, lock: LockKeyhole, chevron: ChevronRight, menu: Menu, more: Ellipsis, pencil: Pencil, flame: Flame, bold: Bold, italic: Italic, image: Image, settings: Settings, palette: Palette, cloud: Cloud, keyboard: Keyboard, bot: Bot, folder: Folder, code: Code, type: Type, quote: Quote, close: X, plus: Plus };
+interface Props { name: keyof typeof icons; size?: number; class?: string }
+const { name, size = 24, class: className = '' } = Astro.props;
+const Icon = icons[name];
+---
+<Icon size={size} strokeWidth={2.4} className={className} aria-hidden="true" />

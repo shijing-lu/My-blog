@@ -9,6 +9,8 @@ import { getDiaryByDate, listDiaryDates, listEvents, listTodos } from '@/lib/cal
 import { canManage, isTopAdmin } from '@/lib/admin-auth';
 import CalendarDiaryDialog from '@/components/admin/CalendarDiaryDialog';
 import { shanghaiDateKey } from '@/lib/diary-log';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/calendar-workspace.css';
 
 /* ===== Logic ===== */
 const isAuthed = await canManage(Astro.cookies, 'calendar');
@@ -62,18 +64,18 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="日历" description="待办 · 日记 · 重要日期 · 农历节气 —— My Blog Calendar">
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
+  <section class="neo-calendar-workspace mx-auto w-full max-w-6xl px-4 py-10">
     <!-- 头部 -->
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <div class="neo-calendar-heading flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">CALENDAR</p>
+        <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">CALENDAR / 日历手账</p>
         <h1 id="cal-month-title" class="mt-1 font-display text-3xl font-semibold tracking-tight">{monthTitle}</h1>
         <p class="mt-1 text-sm text-muted-foreground">待办 · 日记 · 重要日期 · 农历与二十四节气</p>
       </div>
       <div class="flex items-center gap-2">
-        <a href={`/calendar?month=${prevKey}`} class="cal-nav-btn" aria-label="上个月">←</a>
+        <a href={`/calendar?month=${prevKey}`} class="cal-nav-btn" aria-label="上个月"><NeoIcon name="chevron" size={16} class="neo-calendar-prev" /></a>
         <a href={`/calendar?month=${todayKey.slice(0, 7)}&date=${todayKey}`} class="cal-nav-btn">今天</a>
-        <a href={`/calendar?month=${nextKey}`} class="cal-nav-btn" aria-label="下个月">→</a>
+        <a href={`/calendar?month=${nextKey}`} class="cal-nav-btn" aria-label="下个月"><NeoIcon name="chevron" size={16} /></a>
       </div>
     </div>
     {canDiary && <div class="mt-5 flex flex-wrap items-center gap-2">
@@ -81,11 +83,11 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
       <button type="button" data-diary-generate="today" class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:opacity-90">生成当日</button>
       <span id="diary-generate-status" role="status" aria-live="polite" class="text-xs text-muted-foreground"></span>
     </div>}
-    <div class="pixel-divider mt-5" />
+    <div class="neo-calendar-note"><img src="/images/neobrutalism/cat-peek.webp" width="75" height="60" alt="" aria-hidden="true" /><span>记录每一个小小的日子。</span>{canDiary && <a href="/schedule" data-astro-reload>打开日程 →</a>}</div>
 
     <div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
       <!-- 月视图 -->
-      <div class="min-w-0">
+      <div class="neo-calendar-month min-w-0">
         <div class="grid grid-cols-7 gap-1 text-center font-pixel text-[0.6rem] uppercase tracking-wider text-muted-foreground">
           {WEEK_HEAD.map((w) => <span class="py-1">{w}</span>)}
         </div>
@@ -191,12 +193,13 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
                 <form id="todo-add-form" class="mt-2 flex gap-1.5" data-date={selectedKey}>
                   <input
                     id="todo-add-input"
+                    aria-label="添加日历待办"
                     type="text"
                     placeholder="添加待办…"
                     maxlength="200"
                     class="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring"
                   />
-                  <button type="submit" class="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">+</button>
+                  <button type="submit" aria-label="添加待办" class="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"><NeoIcon name="plus" size={16} /></button>
                 </form>
               </div>
             )
@@ -237,6 +240,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
                 <form id="event-add-form" class="mt-2 flex flex-wrap gap-1.5" data-date={selectedKey}>
                   <input
                     id="event-add-title"
+                    aria-label="重要日期标题"
                     type="text"
                     placeholder="纪念日/生日…"
                     maxlength="200"
@@ -302,7 +306,7 @@ const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
   </section>
 
   <!-- 全部重要日期弹窗 -->
-  <dialog id="all-events-dialog" class="all-events-dialog w-full max-w-lg rounded-lg border border-border bg-card p-0 text-foreground">
+  <dialog id="all-events-dialog" aria-label="全部重要日期" class="neo-calendar-dialog all-events-dialog w-full max-w-lg rounded-lg border border-border bg-card p-0 text-foreground">
     <div class="flex items-center justify-between border-b border-border px-5 py-4">
       <div>
         <p class="pixel-chip text-primary">ALL EVENTS</p>

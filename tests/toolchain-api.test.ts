@@ -1,0 +1,21 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+const mocks = vi.hoisted(() => ({ owner: true, desktop: true, ready: true, model: vi.fn() }));
+vi.mock('@/lib/admin-auth', () => ({ isOwnerSession: () => mocks.owner }));
+vi.mock('@/lib/env', () => ({ serverEnv: () => mocks.desktop ? '1' : '' }));
+vi.mock('@/lib/ai-config', () => ({ getAiConfig: async () => ({ systemPrompt: 'unchanged blog persona' }), isAiReady: () => mocks.ready }));
+vi.mock('@/lib/pi-ai', () => ({ completeSiteText: mocks.model }));
+import { GET } from '../src/pages/api/toolchain/access';
+import { POST } from '../src/pages/api/toolchain/analyze';
+import { requiredApiPermission } from '../src/lib/route-permissions';
+import { sanitizeToolchainMetadata } from '../src/lib/toolchain-analysis';
+const ctx = (body = { name: 'fixture', scripts: { dev: 'vite' }, readme: 'token=never-send-this', directory: 'C:/private', apiKey: 'never-send-key' }, origin = 'http://127.0.0.1:43217') => ({ cookies: { get: () => undefined }, url: new URL('http://127.0.0.1:43217/api/toolchain/analyze'), request: new Request('http://127.0.0.1:43217/api/toolchain/analyze', { method: 'POST', headers: { origin }, body: JSON.stringify(body) }) }) as any;
+beforeEach(() => { mocks.owner = true; mocks.desktop = true; mocks.ready = true; mocks.model.mockReset(); mocks.model.mockResolvedValue(JSON.stringify({ command: 'npm run dev', url: 'http://127.0.0.1:5173', explanation: 'existing script', preparation: 'manual dependencies' })); });
+describe('owner-only desktop toolchain APIs', () => {
+  it('registers all toolchain API methods with permission middleware', () => { for (const route of ['/api/toolchain/access', '/api/toolchain/analyze/', '/api/toolchain/unknown']) expect(requiredApiPermission(route, 'POST')).toBe('top'); });
+  it('rejects delegated/nonowner sessions and web deployments', async () => { mocks.owner = false; expect((await GET(ctx())).status).toBe(403); expect((await POST(ctx())).status).toBe(403); mocks.owner = true; mocks.desktop = false; expect((await GET(ctx())).status).toBe(403); expect((await POST(ctx())).status).toBe(403); expect(mocks.model).not.toHaveBeenCalled(); });
+  it('sets private no-store and rejects cross-origin analysis', async () => { const access = await GET(ctx()); expect(access.headers.get('cache-control')).toBe('private, no-store'); expect((await POST(ctx(undefined, 'https://other.example'))).status).toBe(403); expect(mocks.model).not.toHaveBeenCalled(); });
+  it('keeps chat persona untouched and only sends sanitized startup metadata', async () => { const response = await POST(ctx()); expect(response.status).toBe(200); const [config, context] = mocks.model.mock.calls[0]!; expect(config.systemPrompt).toBe('unchanged blog persona'); expect(context.systemPrompt).toContain('项目启动分析器'); expect(JSON.stringify(context.messages)).not.toMatch(/never-send|C:\/private/); });
+  it('preserves manual mode if AI is unavailable', async () => { mocks.ready = false; expect((await POST(ctx())).status).toBe(503); expect(mocks.model).not.toHaveBeenCalled(); });
+  it('redacts quoted credential examples and bearer headers before serialization', () => { const sanitized = JSON.stringify(sanitizeToolchainMetadata({ readme: 'token="quoted-private-value"\nAuthorization: Bearer abcdef-private\n{"api_key": "json-private-value"}\nhttps://user:password-private@example.com' })); expect(sanitized).not.toMatch(/quoted-private|abcdef-private|json-private|password-private/); });
+  it('rejects malformed, nonlocal and shell-chain AI recommendations', async () => { for (const value of ['not-json', JSON.stringify({ command: 'npm run dev', url: 'https://example.com', explanation: '', preparation: '' }), JSON.stringify({ command: 'npm run dev && calc', url: 'http://127.0.0.1:5173', explanation: '', preparation: '' })]) { mocks.model.mockResolvedValue(value); expect((await POST(ctx())).status).toBe(502); } });
+});

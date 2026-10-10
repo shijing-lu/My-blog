@@ -10,7 +10,7 @@ import type { ReactElement } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import { EditorView, drawSelection, keymap, lineNumbers } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { nthHeading, normHeadingText, scanHeadings } from '../../lib/heading-index';
 import type { HeadingHit } from '../../lib/heading-index';
@@ -20,7 +20,8 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark, oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 import { MaterialIcon } from '@/components/ui/MaterialIcon';
-import { searchKeymap } from '@codemirror/search';
+import { searchKeymap, openSearchPanel } from '@codemirror/search';
+import { searchFoldRestoration } from './cm-search-folds';
 import { livePreview } from './cm-live-preview';
 import { buildMdKeymap, mdKeymap } from './md-keymap';
 import { compressImageForUpload } from '../../lib/client-image-upload';
@@ -28,6 +29,7 @@ import { characterCount } from './cm-character-count';
 import { pickNearestViewAnchor } from '../../lib/view-anchor';
 import type { ViewAnchor } from '../../lib/view-anchor';
 import { columnsExtension, revealColumnHeading } from './cm-columns';
+import { calloutsExtension } from './cm-callouts';
 import { columnTarget, setColumnTarget } from './cm-columns-state';
 import { MarkdownContextMenu } from './cm-context-menu';
 import { revealVisualHeading, setVisualSource, visualDirectivesExtension } from './cm-visual-directives';
@@ -35,6 +37,12 @@ import { headingFolding, isHeadingFolded, unfoldHeadingAt } from './cm-heading-f
 
 /** 对外暴露的编辑器句柄 */
 export interface MarkdownEditorHandle {
+  ownsRoot(root: EditorView): boolean;
+  getSource(): string;
+  applyAiSource(source: string): void;
+  flushInputs(): void;
+  lockAiInput(locked: boolean): void;
+  openSearch(): boolean;
   /** 在光标处插入文本（无焦点时追加到末尾） */
   insertAtCursor(text: string): void;
   /** 在当前行之后插入表格、引用等块级 Markdown。 */
@@ -451,6 +459,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const focusEditor = useCallback((): void => {
     viewRef.current?.focus();
   }, []);
+  const openEditorSearch = useCallback((): boolean => {
+    const active = document.activeElement instanceof HTMLElement ? EditorView.findFromDOM(document.activeElement) : null;
+    const view = active?.dom.isConnected ? active : columnTarget(viewRef.current);
+    return view ? openSearchPanel(view) : false;
+  }, []);
 
   /* ---- 视口标题跟踪（目录高亮联动；仅在传入 onViewportHeading 时启用） ---- */
   const onViewportHeadingRef = useRef(onViewportHeading);
@@ -582,6 +595,14 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   useImperativeHandle(
     ref,
     () => ({
+      ownsRoot: root => viewRef.current === root,
+      getSource: () => viewRef.current?.state.doc.toString() ?? '',
+      flushInputs: () => { for (const table of viewRef.current?.dom.querySelectorAll('.md-table-widget') ?? []) table.dispatchEvent(new Event('md-editor-flush')); },
+      lockAiInput: (locked) => { if (viewRef.current) viewRef.current.dom.inert = locked; },
+      applyAiSource: (source) => {
+        const view = viewRef.current; if (!view) return;
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source }, annotations: isolateHistory.of('full'), userEvent: 'input.ai' });
+      },
       insertAtCursor,
       insertBlock,
       jumpToLine,
@@ -593,9 +614,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       scrollHeadingToOffset,
       getSelectionText,
       focus: focusEditor,
+      openSearch: openEditorSearch,
       refreshVisualLayout,
     }),
-    [insertAtCursor, insertBlock, jumpToLine, jumpToHeading, getHeadings, emitViewportHeading, computeViewportHeading, getViewportAnchor, scrollHeadingToOffset, getSelectionText, focusEditor, refreshVisualLayout],
+    [insertAtCursor, insertBlock, jumpToLine, jumpToHeading, getHeadings, emitViewportHeading, computeViewportHeading, getViewportAnchor, scrollHeadingToOffset, getSelectionText, focusEditor, openEditorSearch, refreshVisualLayout],
   );
 
   /** 上传图片并插入 Markdown */
@@ -703,12 +725,26 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const host = hostRef.current;
     if (!host) return;
     const ghostMode = ghost;
+    let childKeymap: Extension = mdKeymap;
+    const childExtensions = (preview: Extension): Extension => [
+      shortcutsCompartment.current.of(childKeymap), searchFoldRestoration,
+      keymap.of([{ key: 'Shift-F10', run: target => { if (!contextMenuRef.current) return false; contextMenuRef.current.openAtCaret(target, viewRef.current ?? undefined); return true; } }]),
+      visualExtensions(preview),
+    ];
     const visualExtensions = (preview: Extension): Extension[] => [preview, visualDirectivesExtension({
+      childExtensions: () => childExtensions(preview),
+      onPaste: event => onPasteRef.current(event),
       foldHeadings,
       onSave: () => onSaveRef.current?.(),
       onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
     }), columnsExtension({
+      childExtensions: () => childExtensions(preview),
       preview, foldHeadings, onSave: () => onSaveRef.current?.(), onPaste: (event) => onPasteRef.current(event),
+      onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
+    }), calloutsExtension({
+      foldHeadings,
+      childExtensions: () => childExtensions(preview),
+      onSave: () => onSaveRef.current?.(), onPaste: event => onPasteRef.current(event),
       onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
     })];
     const view = new EditorView({
@@ -723,6 +759,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           ...(wysiwyg ? [] : [lineNumbers()]),
           drawSelection(),
           history(),
+          searchFoldRestoration,
           characterCount,
           shortcutsCompartment.current.of(mdKeymap),
           keymap.of([
@@ -780,10 +817,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           ...(foldHeadings ? [headingFolding()] : []),
           // 装饰扩展互斥：wysiwyg 模块动态加载后注入（见下方 import('./cm-wysiwyg')），
           // 写作台等非 wysiwyg 场景零 katex 负担；livePreview 为写作台轻量版
-          wysiwyg ? wysiwygCompartment.current.of(initialWysiwyg ? visualExtensions(initialWysiwyg.wysiwygPreview()) : []) : [livePreview(), columnsExtension({
-            preview: livePreview(), onSave: () => onSaveRef.current?.(), onPaste: (event) => onPasteRef.current(event),
-            onContextMenu: (event, child, parent) => contextMenuRef.current?.open(event, child, parent) ?? false,
-          })],
+          wysiwyg ? wysiwygCompartment.current.of(initialWysiwyg ? visualExtensions(initialWysiwyg.wysiwygPreview()) : []) : visualExtensions(livePreview()),
           themeCompartment.current.of(buildTheme(editorIsDark(), ghostMode, autoHeight && ghostMode)),
         ],
       }),
@@ -803,7 +837,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
         const data = (await res.json()) as { bindings?: Record<string, string> };
         if (!data.bindings) return;
         if (viewRef.current === view) {
-          view.dispatch({ effects: shortcutsCompartment.current.reconfigure(buildMdKeymap(data.bindings)) });
+          childKeymap = buildMdKeymap(data.bindings);
+          view.dispatch({ effects: shortcutsCompartment.current.reconfigure(childKeymap) });
+          for (const dom of view.dom.querySelectorAll<HTMLElement>('.cm-editor')) {
+            const child = EditorView.findFromDOM(dom);
+            if (child && child !== view && shortcutsCompartment.current.get(child.state)) child.dispatch({ effects: shortcutsCompartment.current.reconfigure(childKeymap) });
+          }
         }
       } catch {
         /* 离线/未登录：保持默认键位 */
@@ -842,6 +881,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     };
     const onDrop = (e: DragEvent): void => {
       host.classList.remove('cm-drop-target');
+      const target = e.target instanceof HTMLElement ? EditorView.findFromDOM(e.target) : null;
+      if (target && view.dom.contains(target.dom)) {
+        setColumnTarget(target);
+        if (target !== view) setColumnTarget(view, target);
+        const pos = target.posAtCoords({ x: e.clientX, y: e.clientY });
+        if (pos !== null) target.dispatch({ selection: { anchor: pos } });
+      }
       onDropRef.current(e);
     };
     host.addEventListener('dragover', onDragOver);

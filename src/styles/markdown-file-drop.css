@@ -1,0 +1,8 @@
+.markdown-file-drop-target {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-radius: .5rem;
+}
+.markdown-import-dialog progress { accent-color: var(--color-primary); }
+.markdown-import-dialog { max-height: 90dvh; overflow-y: auto; }

@@ -13,10 +13,21 @@ import { defineMiddleware } from 'astro:middleware';
 import type { AstroCookies } from 'astro';
 import { hasAnyPermission, isOwnerSession, isTopAdmin } from '@/lib/admin-auth';
 import { pagePermission, requiredApiPermission } from '@/lib/route-permissions';
+import { mobileError, requireMobileOwner } from '@/lib/mobile-auth';
 
 /** 中间件 */
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;
+  if (pathname.startsWith('/api/mobile/')) {
+    // Only these auth actions can enter without a mobile Bearer. Web cookies cannot grant mobile access.
+    try {
+      if (!/^\/api\/mobile\/v1\/auth\/(info|login|me|refresh|revoke)\/?$/.test(pathname)) await requireMobileOwner(context.request);
+      const response = await next();
+      const headers = new Headers(response.headers);
+      headers.set('cache-control', 'private, no-store');
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    } catch (error) { return mobileError(error); }
+  }
   const method = context.request.method;
   const pagePerm = pagePermission(pathname);
   const apiPerm = requiredApiPermission(pathname, method);
@@ -57,6 +68,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
  * 静态资源（/_astro/*.js 带 hash）仍由平台长缓存，不受影响。
  */
 function withCachePolicy(response: Response, request: Request): Response {
+  if (/^\/api\/quick-notes(?:\/|$)/.test(new URL(request.url).pathname)) {
+    const headers = new Headers(response.headers);
+    headers.set('cache-control', 'private, no-store');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
   const type = response.headers.get('content-type') ?? '';
   // P3-3：先按 content-type 过滤（非 HTML 直接原样返回，不做任何克隆），
   // 再按请求类型算出目标值；与现有值一致时连 Headers 都不复制，省掉整次重建。

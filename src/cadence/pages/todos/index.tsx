@@ -502,7 +502,7 @@ function TodoListView({
   if (axis === undefined) return null;
 
   return (
-    <div className="space-y-2">
+    <div className="neo-schedule-todo-list space-y-2">
       {todos.map((todo, index) => {
         const region = axis.regions.find((item) => item.id === zoneIds[index]);
         const tone = pigmentClasses(region?.color ?? "todo");
@@ -510,7 +510,7 @@ function TodoListView({
         return (
           <div
             key={todo.id}
-            className="surface-card flex items-center gap-3 px-4 py-3"
+            className="neo-schedule-todo-row surface-card flex items-center gap-3 px-4 py-3"
           >
             <input
               type="checkbox"
@@ -521,7 +521,7 @@ function TodoListView({
             />
             <span
               className={[
-                "flex-1 text-[13.5px]",
+                "min-w-0 flex-1 break-words text-[13.5px]",
                 todo.status === "done"
                   ? "text-ink-4 line-through"
                   : "text-ink-1",

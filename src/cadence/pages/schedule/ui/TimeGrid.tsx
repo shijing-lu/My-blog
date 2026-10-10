@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------------------
  * 交互规范（业界调研结论的落地，docs/08 §2）：
  *   - 双击空白 → 以吸附后的时刻为起点回调新建
- *   - 拖事件主体 = 平移（时长不变），拖底缘 = 调时长；15 分钟吸附
+ *   - 拖事件主体 = 平移（时长不变），拖底缘 = 调时长；1 分钟吸附
  *   - 拖拽中渲染 ghost + 浮动 HH:MM–HH:MM 提示；松手才提交，失败自然回弹
  *     （useLiveQuery 未变 = 数据未变 = 块回到原位，"回弹"不需要专门代码）
  *   - 点击（位移 < 4px）= 打开详情；拖拽与点击共存
@@ -12,12 +12,14 @@
 import {
   useRef,
   useState,
+  useMemo,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
 import type { ScheduleEvent } from "@/cadence/entities/schedule";
 import { snapDown } from "@/cadence/entities/schedule";
 import { pigmentClasses } from "@/cadence/shared/ui/pigment-classes";
+import { eventLayout } from "./event-layout";
 
 /**
  * 每分钟对应的像素高度。
@@ -69,6 +71,7 @@ export function TimeGrid({
     | undefined
   >(undefined);
   const [preview, setPreview] = useState<DragPreview | undefined>(undefined);
+  const positions = useMemo(() => eventLayout(events.map(item => preview?.id === item.id ? { ...item, ...preview } : item), PX_PER_MIN), [events, preview]);
 
   const previewEvent =
     preview !== undefined
@@ -117,7 +120,7 @@ export function TimeGrid({
       setPreview({ id: drag.id, startMin: start, endMin: start + duration });
     } else {
       const end = Math.min(
-        Math.max(snapDown(drag.origEnd + delta), drag.origStart + 15),
+        Math.max(snapDown(drag.origEnd + delta), drag.origStart + 1),
         24 * 60,
       );
       setPreview({ id: drag.id, startMin: drag.origStart, endMin: end });
@@ -146,7 +149,7 @@ export function TimeGrid({
   const onDoubleClick = (event: React.MouseEvent) => {
     // 只响应网格空白处（事件块自己 stopPropagation）
     const min = snapDown(minutesFromY(event.clientY));
-    onCreateAt(Math.min(min, 24 * 60 - 60));
+    onCreateAt(Math.min(Math.max(min, 0), 24 * 60 - 1));
   };
 
   return (
@@ -216,18 +219,15 @@ export function TimeGrid({
             preview !== undefined && preview.id === item.id
               ? preview
               : undefined;
-          const top = (ghost?.startMin ?? item.startMin) * PX_PER_MIN;
-          const height = Math.max(
-            ((ghost?.endMin ?? item.endMin) -
-              (ghost?.startMin ?? item.startMin)) *
-              PX_PER_MIN,
-            18,
-          );
+          const { top, height, lane, columns } = positions.get(item.id)!;
           const tone = pigmentClasses("session");
           return (
             <div
               key={item.id}
               role="gridcell"
+              tabIndex={0}
+              aria-label={`${item.title} ${clockOfMinutes(item.startMin)}–${clockOfMinutes(item.endMin)}`}
+              onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(item); } }}
               className={[
                 "absolute z-[6] overflow-hidden rounded-[var(--radius-hand-sm)] px-2 py-1",
                 ghost !== undefined
@@ -238,8 +238,8 @@ export function TimeGrid({
               style={{
                 top,
                 height,
-                left: 6,
-                right: 6,
+                left: `calc(${lane * 100 / columns}% + 6px)`,
+                width: `calc(${100 / columns}% - 12px)`,
                 background:
                   "var(--color-session-soft, var(--color-amber-soft))",
                 boxShadow: `inset 0 0 0 1.5px var(--color-session-base, var(--color-amber-base))`,

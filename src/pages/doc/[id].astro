@@ -212,6 +212,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   import { installTreeContextMenu, installArticleContextMenu, type TreeCommand, type TreeTarget } from '@/lib/tree-context-menu';
   import { setupArticleDetailRails } from '@/lib/article-detail-rails';
   import { enhanceBodyHeadings, revealBodyHeading } from '@/lib/body-heading-folding';
+  import { installMarkdownFileDrop } from '@/lib/markdown-file-drop';
 
   const isAuthed = (): boolean => document.querySelector('[data-article-domain="docs"]') !== null
     && document.getElementById('doc-detail-data')?.dataset.authed === '1';
@@ -335,12 +336,12 @@ const folderOptionsJson = JSON.stringify(folderOptions);
 
   /** 把渲染结果落到页面（缓存命中与网络返回共用同一路径） */
   function applyArticleHtml(id: string, d: { html: string; toc?: TocItem[]; title?: string }): void {
+    document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
     const h1 = document.querySelector('main h1');
     if (h1 && d.title) h1.textContent = d.title;
     const article = document.querySelector<HTMLElement>('main article.prose');
     if (article) article.innerHTML = d.html;
     // 正文重写后重建 / 清理黑幕开关（spoiler.ts 监听；幂等：新文章无 :spoiler 时自动移除旧按钮）
-    document.dispatchEvent(new CustomEvent('spoiler:refresh'));
     // 重建树形目录（与 SSR 同一实现：层级折叠 + KaTeX 富文本）
     // ⚠️ 容器 `#doc-toc-list` 仅在 SSR 的 toc 非空时渲染（见模板 `toc.length > 0` 分支）：
     //   延迟渲染（SSR 不渲染正文故无 toc）或从无标题文章切到有标题文章时容器不存在，
@@ -363,8 +364,8 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       // 重写后回放标题目录折叠态（否则手动折叠全被重置为展开）
       applyTocFoldState(tocWrap);
     }
-    document.getElementById('doc-detail-data')?.setAttribute('data-active-node', id);
     if (article) enhanceBodyHeadings(article);
+    document.dispatchEvent(new CustomEvent('spoiler:refresh'));
     document.dispatchEvent(new CustomEvent('article:body-updated'));
   }
 
@@ -401,6 +402,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     if (!id) return;
     setActiveArticle(id);
     if (id === currentActiveId()) {
+      switchCtrl?.abort();
+      switchCtrl = null;
+      setArticleLoading(false);
       window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
       return;
     }
@@ -424,13 +428,16 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     const v = meta?.updatedAt ? `?v=${encodeURIComponent(meta.updatedAt)}` : '';
     const cacheKey = `${id}:${meta?.updatedAt ?? ''}`;
 
+    // A cache hit also supersedes the previous network request and owns loading cleanup.
+    switchCtrl?.abort();
+    switchCtrl = null;
+    setArticleLoading(false);
     const cached = ARTICLE_HTML_CACHE.get(cacheKey);
     if (cached) {
       applyArticleHtml(id, cached);
       return true;
     }
 
-    switchCtrl?.abort();
     const ctrl = new AbortController();
     switchCtrl = ctrl;
     setArticleLoading(true);
@@ -439,7 +446,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       const d = (await res.json().catch(() => ({}))) as { title?: string; html?: string; toc?: TocItem[]; error?: string };
       if (!res.ok || typeof d.html !== 'string') throw new Error(d.error ?? '加载失败');
       const html = d.html; // 收窄为 string：对象本身仍保留可选 html，故渲染处需显式传值
-      if (ctrl.signal.aborted) return false; // 已被更新的一次点击取代：静默放弃
+      if (ctrl.signal.aborted || switchCtrl !== ctrl) return false;
       // LRU 写缓存
       ARTICLE_HTML_CACHE.set(cacheKey, { html, toc: Array.isArray(d.toc) ? d.toc : [], title: d.title });
       while (ARTICLE_HTML_CACHE.size > ARTICLE_CACHE_MAX) {
@@ -450,6 +457,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       applyArticleHtml(id, { html, toc: d.toc, title: d.title });
       return true;
     } catch (err) {
+      if (ctrl.signal.aborted || switchCtrl !== ctrl) return false;
       if ((err as Error)?.name === 'AbortError') return false; // 被新点击取代：静默
       if (onError === 'navigate') {
         window.location.href = `/doc/${readBundle().id}?article=${encodeURIComponent(id)}`;
@@ -485,7 +493,9 @@ const folderOptionsJson = JSON.stringify(folderOptions);
   function setActiveArticle(id: string): void {
     document.querySelectorAll<HTMLElement>('[data-article-switch]').forEach((a) => {
       const active = a.dataset.articleSwitch === id;
-      const row = a.closest<HTMLElement>('[data-tree-node-id]') ?? a;
+      const row = a.closest<HTMLElement>('.doc-tree-row,[data-tree-node-id]') ?? a;
+      row.dataset.active = String(active);
+      a.setAttribute('aria-current', active ? 'page' : 'false');
       row.classList.toggle('bg-primary/10', active);
       row.classList.toggle('text-primary', active);
       row.classList.toggle('text-muted-foreground', !active);
@@ -1253,7 +1263,14 @@ const folderOptionsJson = JSON.stringify(folderOptions);
       if (treeRoot && !boundMenus.has(treeRoot)) {
         boundMenus.add(treeRoot);
         const cleanup = installTreeContextMenu(treeRoot, onTreeCommand);
-        document.addEventListener('astro:before-swap', () => { cleanup(); boundMenus.delete(treeRoot); }, { once: true });
+        const cleanupImport = installMarkdownFileDrop(treeRoot, {
+          nodes: readNodes, endpoint: '/api/doc/import', bundleId: readBundle().id, rootLabel: '本册根目录',
+          onImported: node => {
+            writeNodes([...readNodes().filter(item => item.id !== node.id), node as NodeMeta]);
+            refreshFolderOptions(); renderTree();
+          },
+        });
+        document.addEventListener('astro:before-swap', () => { cleanup(); cleanupImport(); boundMenus.delete(treeRoot); }, { once: true });
       }
       const main = document.querySelector<HTMLElement>('[data-article-domain="docs"] #doc-3col > main');
       if (main && !boundMenus.has(main)) {

@@ -6,6 +6,8 @@
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import Timeline from '@/components/Timeline.astro';
 import MomentCard from '@/components/moments/MomentCard.astro';
+import NeoIcon from '@/components/NeoIcon.astro';
+import '@/styles/moments-workspace.css';
 import { listMoments, getMomentTimeline, getAllMomentTags, toMomentView, type MomentView } from '@/lib/moments';
 import { getProfile } from '@/lib/profile';
 import { canManage } from '@/lib/admin-auth';
@@ -26,22 +28,23 @@ const profile = await getProfile();
 const now = new Date();
 const avatarSrc = profile.avatar || '';
 const nickname = profile.nickname || '博主';
+const totalMoments = momentTimeline.reduce((total, day) => total + day.count, 0);
 /** 各动态点赞数（批量查询一次，防按钮初始闪烁） */
 const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="动态" description="随手记录，分享生活 —— My Blog Moments">
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <div class="grid min-w-0 grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_190px]">
+  <section class="neo-moments">
+    <header class="moments-heading">
+      <div><p class="moments-eyebrow">MOMENTS / 生活切片</p><h1>动态<NeoIcon name="star" size={29} /></h1><p>随手记录，分享生活</p></div>
+      <div class="moments-heading-note"><img src="/images/neobrutalism/cat-peek.webp" width="100" height="80" alt="" aria-hidden="true" /><p>把小小的日常，<br />写成自己的故事。</p></div>
+    </header>
+    <div class="moments-layout">
     <!-- 主面板：与背景相融（无盒），用像素分割线分区 -->
-    <div class="min-w-0 p-4 sm:p-6">
+    <div class="moments-main">
       <!-- 头部 -->
-      <div class="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p class="font-pixel text-[0.6rem] uppercase tracking-[0.2em] text-primary">MOMENTS</p>
-          <h1 class="mt-1 font-display text-3xl font-semibold tracking-tight">动态</h1>
-          <p class="mt-1 text-sm text-muted-foreground">随手记录，分享生活</p>
-        </div>
+      <div class="moments-feed-heading">
+        <h2><NeoIcon name="pencil" size={20} /> 最新记录</h2>
         <div class="flex items-center gap-3">
           {/* data-profile-* ：保存资料后就地更新（见 ProfileDialog 的 applyProfileDom） */}
           <img data-profile-avatar src={avatarSrc} alt={nickname} decoding="async" class="size-10 rounded-full border border-border object-cover" hidden={!avatarSrc} />
@@ -51,12 +54,13 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
           <span data-profile-nickname class="text-sm font-medium">{nickname}</span>
         </div>
       </div>
-      <div class="pixel-divider mt-5" />
 
       <!-- 发布框（管理员） -->
       {
         isAuthed && (
-          <div class="mt-6">
+          <div class="moments-composer">
+            <div class="moments-composer-heading"><h3>今天有什么新鲜事？</h3><span>文字 · 图片 · 视频</span></div>
+            <label for="moment-content" class="sr-only">动态正文</label>
             <textarea
               id="moment-content"
               rows="3"
@@ -65,6 +69,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
               class="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring"
             />
             <div id="moment-content-preview" class="prose mt-2 hidden max-h-64 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm"></div>
+            <label for="moment-tags-input" class="sr-only">动态标签，逗号分隔</label>
             <input
               id="moment-tags-input"
               type="text"
@@ -79,10 +84,11 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
                 预览
               </button>
               <button id="moment-upload" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:border-primary hover:text-primary">
-                图片 / GIF
+                <NeoIcon name="image" size={16} /> 图片 / GIF
               </button>
               <input
                 id="moment-video-url"
+                aria-label="视频链接"
                 type="url"
                 placeholder="视频链接（B站/YouTube/直链 mp4）"
                 class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring"
@@ -110,14 +116,14 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
               </button>
             </div>
             <p id="moment-upload-status" class="mt-1 hidden text-xs text-primary" role="status"></p>
-            <p id="moment-status" class="mt-2 text-xs text-destructive"></p>
+            <p id="moment-status" class="mt-2 text-xs text-destructive" role="status" aria-live="polite"></p>
           </div>
         )
       }
 
       <!-- 搜索 + 标签筛选 -->
-      <div class="mt-6">
-        <div class="flex items-center gap-2 border-b border-border pb-2">
+      <div class="moments-filters">
+        <div class="moments-search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true">
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.35-4.35" />
@@ -130,8 +136,8 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
             class="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             aria-label="搜索动态"
           />
-          <span id="moment-filter-state" class="shrink-0 text-xs text-muted-foreground"></span>
         </div>
+        <span id="moment-filter-state" class="moments-filter-state" role="status" aria-live="polite"></span>
         <div id="moment-tags" class="mt-2 flex flex-wrap gap-1.5" data-all-tags={JSON.stringify(allTags.map((t) => t.tag))}></div>
       </div>
 
@@ -139,7 +145,8 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       <div id="moment-stream" class="mt-4 space-y-4" data-offset={moments.length} data-authed={isAuthed ? '1' : '0'}>
         {
           moments.length === 0 ? (
-            <div class="py-10 text-center">
+            <div class="moments-empty">
+              <img src="/images/neobrutalism/cat-peek.webp" width="100" height="80" alt="" aria-hidden="true" />
               <p class="font-display text-lg font-semibold">还没有动态</p>
               <p class="mt-2 text-sm text-muted-foreground">{isAuthed ? '在上面记录第一条吧。' : '博主还没有发布动态。'}</p>
             </div>
@@ -160,41 +167,46 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       </div>
     </div>
     <!-- 右侧：动态时间线（按天定位） -->
-    <aside class="hidden lg:block">
-      <div class="sticky top-20">
-        <p class="pixel-chip mb-2 text-muted-foreground">时间线 / TIMELINE</p>
+    <aside class="moments-aside" aria-label="动态时间线">
+      <div class="moments-aside-inner">
+        <div class="moments-summary"><span>已记录</span><strong><span data-moment-total>{totalMoments}</span><small> 条动态</small></strong><p>{isAuthed ? '包含仅自己可见的记录' : '每一个瞬间，都值得留下'}</p></div>
+        <details class="moments-timeline" open>
+        <summary><NeoIcon name="calendar" size={18} /> 时间线 <span>按日期筛选</span></summary>
         <Timeline items={momentTimeline.map((t) => ({ date: t.date, label: t.date, count: t.count }))} emptyText="暂无动态" />
+        </details>
+        <div class="moments-aside-note"><NeoIcon name="star" size={20} /><p>记录热爱<br />分享知识<br />遇见更好的自己</p></div>
       </div>
     </aside>
     </div>
   </section>
 
   <!-- 编辑动态弹窗 -->
-  <dialog id="moment-edit-dialog" class="m-auto w-[min(92vw,40rem)] rounded-lg border border-border bg-card p-5 text-foreground shadow-xl backdrop:bg-black/40">
+  {isAuthed && <dialog id="moment-edit-dialog" class="neo-moment-dialog" aria-labelledby="moment-edit-title">
     <div class="flex items-center justify-between gap-2">
-      <h3 class="font-medium">编辑动态</h3>
+      <h2 id="moment-edit-title">编辑动态</h2>
       <span class="text-xs text-muted-foreground">支持 Markdown（粗体、列表、链接、引用、代码…）</span>
     </div>
     <div class="mt-3 flex items-center justify-end gap-1">
       <button id="moment-edit-preview-btn" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">预览</button>
     </div>
-    <div class="mt-2 grid gap-2 md:grid-cols-2">
+    <div id="moment-edit-panes" class="mt-2 grid gap-2">
       <textarea
         id="moment-edit-content"
+        aria-label="编辑动态正文"
         spellcheck="false"
         rows="3"
         maxlength="2000"
         placeholder="Markdown 正文…"
         class="h-48 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring"
       ></textarea>
-      <div id="moment-edit-preview" class="prose h-48 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm empty:border-dashed"></div>
+      <div id="moment-edit-preview" class="prose hidden h-48 overflow-y-auto rounded-md border border-border bg-background/50 px-3 py-2 text-sm empty:border-dashed"></div>
     </div>
     <div class="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
       <span>在正文输入框内 Ctrl+V 粘贴图片即可上传</span>
       <span id="moment-edit-upload-status" class="text-primary" role="status"></span>
     </div>
     <div id="moment-edit-media-preview" class="mt-2 grid grid-cols-4 gap-2"></div>
-    <input id="moment-edit-tags" type="text" maxlength="200" placeholder="标签（逗号分隔）" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring" />
+    <input id="moment-edit-tags" type="text" aria-label="编辑动态标签" maxlength="200" placeholder="标签（逗号分隔）" class="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring" />
     <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
       <label for="moment-edit-visibility">可见性</label>
       <select
@@ -210,20 +222,40 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       <button id="moment-edit-cancel" type="button" class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">取消</button>
       <button id="moment-edit-save" type="button" class="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90">保存</button>
     </div>
-  </dialog>
+  </dialog>}
 </BaseLayout>
 
 <script>
+  import '@/scripts/moments-media';
   import { revealWithin } from '@/lib/motion';
   import { compressImageForUpload } from '../../lib/client-image-upload';
   import { confirmDanger } from '@/lib/confirm';
-  import { on } from '@/lib/dom';
+
+
+  let currentPage: AbortController | null = null;
+  function mountMoments(): void {
+    currentPage?.abort();
+    if (!document.getElementById('moment-stream')) return;
+    currentPage = new AbortController();
+    const signal = currentPage.signal;
+    function listenDocument<K extends keyof DocumentEventMap>(type: K, handler: (event: DocumentEventMap[K]) => void): void {
+      document.addEventListener(type, handler as EventListener, { signal });
+    }
+    function on(id: string, type: 'click', handler: EventListener): void {
+      listenDocument(type, event => {
+        if ((event.target as HTMLElement | null)?.closest('#' + id)) handler(event);
+      });
+    }
+    const timeline = document.querySelector<HTMLDetailsElement>('.moments-timeline');
+    if (timeline && matchMedia('(max-width:767px)').matches) timeline.open = false;
   /** 动态页交互：发布（图片/GIF 上传 + 视频链接）、加载更多、删除（管理员） */
 
   const PAGE_SIZE = 20;
   let offset = 0;
   let loading = false;
   let done = false;
+  let cardRequest: AbortController | null = null;
+  signal.addEventListener('abort', () => cardRequest?.abort(), { once: true });
   /** 当前筛选：关键词 / 标签 / 日期（以 URL 查询参数为唯一事实源，可分享、可还原） */
   const filter = { q: '', tag: '', date: '' };
 
@@ -244,7 +276,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     if (filter.date) sp.set('date', filter.date);
     if (filter.q) sp.set('q', filter.q);
     const qs = sp.toString();
-    window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+    window.history.replaceState(window.history.state, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
   }
 
   function el<T extends HTMLElement>(id: string): T | null {
@@ -266,11 +298,13 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     if (!previewEl) return;
     try {
       const res = await fetch('/api/moments/preview', {
+        signal,
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ source }),
       });
       const d = (await res.json().catch(() => ({}))) as { html?: string; error?: string };
+      if (signal.aborted) return;
       previewEl.innerHTML = d.html ?? `<p class="text-destructive">${esc(d.error ?? '渲染失败')}</p>`;
     } catch {
       previewEl.innerHTML = '<p class="text-destructive">渲染失败</p>';
@@ -280,6 +314,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   /** 简易防抖（预览输入实时刷新用） */
   function debounce(fn: () => void, wait = 400): () => void {
     let t = 0;
+    signal.addEventListener('abort', () => window.clearTimeout(t), { once: true });
     return () => {
       window.clearTimeout(t);
       t = window.setTimeout(fn, wait);
@@ -292,6 +327,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     url: string;
   }
   const pendingMedia: PendingMedia[] = [];
+  let uploadsInFlight = 0;
 
   /** 媒体缩略图网格渲染（发布框 / 编辑弹窗共用；× 删除 operate 操作 list） */
   function renderMediaInto(box: HTMLElement | null, list: PendingMedia[]): void {
@@ -309,6 +345,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       btn.type = 'button';
       btn.className = 'absolute right-0.5 top-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-xs text-white';
       btn.textContent = '×';
+      btn.setAttribute('aria-label', '移除已添加的媒体');
       btn.addEventListener('click', () => {
         const i = list.indexOf(m);
         if (i >= 0) list.splice(i, 1);
@@ -329,8 +366,15 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   }
 
   async function uploadFile(file: File): Promise<string> {
+    uploadsInFlight++;
+    const publishButton = el<HTMLButtonElement>('moment-publish');
+    const saveButton = el<HTMLButtonElement>('moment-edit-save');
+    if (publishButton) publishButton.disabled = true;
+    if (saveButton) saveButton.disabled = true;
+    try {
     const { base64, mime } = await prepareImage(file);
     const res = await fetch('/api/images', {
+      signal,
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ filename: file.name, mime, data: base64 }),
@@ -339,6 +383,11 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     const out = (await res.json()) as { url?: string; error?: string };
     if (!out.url) throw new Error(out.error ?? '上传失败');
     return out.url;
+    } finally {
+      uploadsInFlight--;
+      if (publishButton) publishButton.disabled = uploadsInFlight > 0;
+      if (saveButton) saveButton.disabled = uploadsInFlight > 0;
+    }
   }
 
   async function publish(): Promise<void> {
@@ -350,8 +399,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     }
     const btn = el<HTMLButtonElement>('moment-publish');
     // 粘贴图片上传中拦截发布
-    const upStatus = el('moment-upload-status');
-    if (upStatus && !upStatus.classList.contains('hidden')) {
+    if (uploadsInFlight > 0) {
       if (status) status.textContent = '图片还在上传中，请稍候再发布';
       return;
     }
@@ -383,7 +431,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       if (tagsEl) tagsEl.value = '';
       pendingMedia.length = 0;
       renderPending();
-      if (status) status.textContent = '';
+      if (status) status.textContent = '已发布';
       if (btn) {
         btn.disabled = false;
         btn.textContent = '发布';
@@ -397,7 +445,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     }
   }
 
-  document.addEventListener('click', (e) => {
+  listenDocument('click', (e) => {
     const target = e.target as HTMLElement;
     if (target.closest('#moment-upload')) {
       (el<HTMLInputElement>('moment-file'))?.click();
@@ -420,21 +468,26 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     }
   });
 
-  document.addEventListener('change', (e) => {
+  listenDocument('change', (e) => {
     const input = e.target as HTMLInputElement;
     if (input.id !== 'moment-file') return;
     const files = Array.from(input.files ?? []);
     input.value = '';
     void (async () => {
+      const uploadStatus = el('moment-upload-status');
+      let uploaded = 0;
       for (const f of files) {
+        if (uploadStatus) { uploadStatus.classList.remove('hidden'); uploadStatus.textContent = `图片上传中… (${uploaded + 1}/${files.length})`; }
         try {
           const url = await uploadFile(f);
           pendingMedia.push({ type: f.type === 'image/gif' ? 'gif' : 'image', url });
+          uploaded++;
         } catch (err) {
           if (el('moment-status')) el('moment-status')!.textContent = err instanceof Error ? err.message : '上传失败';
         }
         renderPending();
       }
+      if (uploadStatus) uploadStatus.textContent = uploaded > 0 ? `已添加 ${uploaded} 张图片` : '上传失败，请重试';
     })();
   });
 
@@ -447,11 +500,11 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     if (!publishPreviewOn) return;
     void renderPreview(el<HTMLTextAreaElement>('moment-content')?.value ?? '', pubBox);
   });
-  document.addEventListener('input', (e) => {
+  listenDocument('input', (e) => {
     const t = e.target as HTMLElement;
     if (t.id === 'moment-content') pubPreviewSoon();
   });
-  document.addEventListener('click', (e) => {
+  listenDocument('click', (e) => {
     if (!(e.target as HTMLElement).closest('#moment-preview-toggle')) return;
     publishPreviewOn = !publishPreviewOn;
     if (pubToggle) pubToggle.textContent = publishPreviewOn ? '收起预览' : '预览';
@@ -464,13 +517,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     offset = Number(el('moment-stream')?.dataset.offset ?? 0);
     done = offset < PAGE_SIZE;
   }
-  document.addEventListener('astro:page-load', () => {
-    // SPA 重入：以新页面 URL 为准恢复筛选/搜索状态，并按新 DOM 重渲染 chips 与分页
-    syncFilterFromUrl();
-    syncPagination();
-    renderTagChips();
-    renderFilterState();
-  });
+
   syncFilterFromUrl();
   syncPagination();
 
@@ -485,6 +532,8 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   async function loadMore(): Promise<void> {
     if (loading || done) return;
     loading = true;
+    const request = new AbortController();
+    cardRequest = request;
     const btn = el<HTMLButtonElement>('moment-more');
     if (btn) btn.textContent = '加载中…';
     try {
@@ -492,9 +541,10 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       if (filter.q) params.set('q', filter.q);
       if (filter.tag) params.set('tag', filter.tag);
       if (filter.date) params.set('date', filter.date);
-      const res = await fetch(`/moments/cards?${params}`);
+      const res = await fetch(`/moments/cards?${params}`, { signal: request.signal });
       if (!res.ok) throw new Error('bad status');
       const html = await res.text();
+      if (request.signal.aborted || signal.aborted) return;
       const tpl = document.createElement('template');
       tpl.innerHTML = html;
       const cards = tpl.content.querySelectorAll('.moment-card').length;
@@ -506,14 +556,16 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       if (cards === 0 && stream && stream.children.length === 0) {
         // 筛选后无结果 → 客户端空态
         stream.innerHTML =
-          '<div class="py-10 text-center"><p class="font-display text-lg font-semibold">没有符合条件的动态</p><p class="mt-2 text-sm text-muted-foreground">换个关键词或清除筛选试试。</p></div>';
+          '<div class="moments-empty"><img src="/images/neobrutalism/cat-peek.webp" width="100" height="80" alt="" aria-hidden="true"><p class="font-display text-lg font-semibold">没有符合条件的动态</p><p class="mt-2 text-sm text-muted-foreground">换个关键词或清除筛选试试。</p></div>';
       }
       renderTagChips();
     } catch {
-      if (btn) btn.textContent = '加载失败，点击重试';
+      if (!request.signal.aborted && btn) btn.textContent = '加载失败，点击重试';
     } finally {
-      loading = false;
-      if (btn && btn.textContent === '加载中…') btn.textContent = '更多';
+      if (cardRequest === request) {
+        loading = false;
+        if (btn && btn.textContent === '加载中…') btn.textContent = '更多';
+      }
     }
   }
 
@@ -543,6 +595,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     // 首屏空态不是卡片；不清掉的话它会残留在新卡上方
     if (stream.querySelectorAll('.moment-card').length === 0) stream.innerHTML = '';
     stream.prepend(card);
+    updateSummary(card, 1);
     revealWithin(card);
     // 分页偏移 +1：否则「更多」会从旧偏移再拉一次，把这条重复渲染一遍
     const next = Number(stream.dataset.offset ?? 0) + 1;
@@ -570,6 +623,32 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     return Array.from(card.querySelectorAll<HTMLElement>('[data-moment-tag]'))
       .map((b) => b.dataset.momentTag ?? '')
       .filter(Boolean);
+  }
+
+  /** Keep the displayed real count and date rows in sync with successful local mutations. */
+  function updateSummary(card: HTMLElement, delta: number): void {
+    const total = document.querySelector<HTMLElement>('[data-moment-total]');
+    if (total) total.textContent = String(Math.max(0, Number(total.textContent) + delta));
+    const date = card.dataset.momentDate;
+    if (!date) return;
+    const list = document.querySelector<HTMLElement>('.moments-timeline .timeline');
+    const row = list?.querySelector<HTMLElement>(`[data-timeline-date="${CSS.escape(date)}"]`);
+    if (row) {
+      const count = row.querySelector<HTMLElement>('.timeline-count');
+      const next = Math.max(0, Number(count?.textContent ?? 0) + delta);
+      if (next === 0) row.remove();
+      else if (count) count.textContent = String(next);
+    } else if (delta > 0) {
+      const parent = document.querySelector('.moments-timeline');
+      if (!parent) return;
+      const target = list ?? document.createElement('div');
+      if (!list) { parent.querySelector('p')?.remove(); target.className = 'timeline'; target.setAttribute('role', 'list'); parent.appendChild(target); }
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'timeline-item'; button.dataset.timelineDate = date;
+      button.setAttribute('role', 'listitem'); button.setAttribute('aria-pressed', 'false');
+      button.innerHTML = `<span class="timeline-dot" aria-hidden="true"></span><span class="timeline-label">${esc(date)}</span><span class="timeline-count">1</span>`;
+      target.prepend(button);
+    }
   }
 
   // ---------- 搜索 / 标签 / 时间线筛选 ----------
@@ -607,6 +686,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
         (filter.tag === t
           ? 'bg-primary text-primary-foreground'
           : 'bg-muted text-muted-foreground hover:bg-accent hover:text-primary');
+      chip.setAttribute('aria-pressed', String(filter.tag === t));
       chip.textContent = `# ${t}`;
       box.appendChild(chip);
     }
@@ -614,6 +694,8 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
 
   /** 重置列表并按当前筛选重新加载第一页（筛选状态已由调用方写入 URL） */
   async function reload(): Promise<void> {
+    cardRequest?.abort();
+    loading = false;
     const stream = el('moment-stream');
     if (stream) stream.innerHTML = '';
     offset = 0;
@@ -632,6 +714,11 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     if (filter.tag) parts.push(`#${filter.tag}`);
     if (filter.date) parts.push(filter.date);
     if (filter.q) parts.push(`"${filter.q}"`);
+    document.querySelectorAll<HTMLElement>('.neo-moments [data-timeline-date]').forEach((item) => {
+      const active = item.dataset.timelineDate === filter.date;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-pressed', String(active));
+    });
     if (parts.length === 0) {
       s.textContent = '';
       return;
@@ -641,7 +728,8 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
 
   // 搜索输入（防抖）
   let searchTimer = 0;
-  document.addEventListener('input', (e) => {
+  signal.addEventListener('abort', () => window.clearTimeout(searchTimer), { once: true });
+  listenDocument('input', (e) => {
     const input = e.target as HTMLInputElement;
     if (input.id !== 'moment-search') return;
     window.clearTimeout(searchTimer);
@@ -653,7 +741,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   });
 
   // 标签 / 时间线 / 清除筛选（document 委托）——每次变更同步 URL，清除即还原初始状态
-  document.addEventListener('click', (e) => {
+  listenDocument('click', (e) => {
     const tagBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-filter-tag]');
     if (tagBtn) {
       filter.tag = filter.tag === tagBtn.dataset.filterTag ? '' : (tagBtn.dataset.filterTag ?? '');
@@ -691,14 +779,22 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   // 初始：渲染标签 chips 与筛选状态
   renderTagChips();
   renderFilterState();
+  if (filter.q || filter.tag || filter.date) void reload();
 
   // 删除动态（document 委托）
-  document.addEventListener('click', async (e) => {
+  listenDocument('click', async (e) => {
     const del = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-del]');
     if (!del) return;
     if (!(await confirmDanger('确定删除这条动态？'))) return;
-    await fetch(`/api/moments/${del.dataset.momentDel}`, { method: 'DELETE' });
-    del.closest<HTMLElement>('.moment-card')?.remove();
+    try {
+      const response = await fetch(`/api/moments/${del.dataset.momentDel}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('删除失败');
+    } catch {
+      del.textContent = '删除失败，重试';
+      return;
+    }
+    const removedCard = del.closest<HTMLElement>('.moment-card');
+    if (removedCard) { updateSummary(removedCard, -1); removedCard.remove(); }
     // 分页偏移 −1：与服务端少了一条对齐，否则「更多」会跳过一条
     const stream = el('moment-stream');
     if (stream) {
@@ -720,19 +816,26 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       { rootMargin: '300px' },
     );
     observer.observe(sentinel);
+    signal.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
   on('moment-more', 'click', () => void loadMore());
 
   // ---------- 编辑动态（管理员）----------
   let editingMomentId = '';
+  let editTrigger: HTMLElement | null = null;
+  el<HTMLDialogElement>('moment-edit-dialog')?.addEventListener('close', () => {
+    const restored = document.querySelector<HTMLElement>(`[data-moment-edit="${CSS.escape(editingMomentId)}"]`);
+    (restored ?? editTrigger)?.focus({ preventScroll: true });
+  }, { signal });
   /** 编辑弹窗中的媒体（打开时从动态回显；粘贴上传/×删除维护；保存随 PATCH 提交） */
   const editMedia: PendingMedia[] = [];
   function renderEditMedia(): void {
     renderMediaInto(el('moment-edit-media-preview'), editMedia);
   }
-  document.addEventListener('click', (e) => {
+  listenDocument('click', (e) => {
     const editBtn = (e.target as HTMLElement).closest<HTMLElement>('[data-moment-edit]');
     if (editBtn) {
+      editTrigger = editBtn;
       editingMomentId = editBtn.dataset.momentEdit ?? '';
       fetch(`/api/moments/${editingMomentId}`)
         .then((r) => r.json())
@@ -753,7 +856,8 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
           // 重置预览状态
           editPreviewOn = false;
           const pv = el('moment-edit-preview');
-          if (pv) pv.innerHTML = '';
+          if (pv) { pv.innerHTML = ''; pv.classList.add('hidden'); }
+          el('moment-edit-panes')?.classList.remove('md:grid-cols-2');
           const pvBtn = el<HTMLButtonElement>('moment-edit-preview-btn');
           if (pvBtn) pvBtn.textContent = '预览';
           el('moment-edit-status')?.classList.add('hidden');
@@ -767,7 +871,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   });
 
   /** 发布正文框：Ctrl+V 粘贴图片 → 自动上传 → 缩略图展示 */
-  document.addEventListener('paste', (e) => {
+  listenDocument('paste', (e) => {
     const t = e.target as HTMLElement;
     // 发布框与编辑框分别响应；非图片内容走默认文本粘贴（仅在图片命中时拦截）
     const isPublish = t.id === 'moment-content' || !!t.closest('#moment-content');
@@ -808,7 +912,7 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
   });
 
   /** 编辑正文框：Ctrl+V 粘贴图片 → 自动上传 → 缩略图展示 */
-  document.addEventListener('paste', (e) => {
+  listenDocument('paste', (e) => {
     const t = e.target as HTMLElement;
     if (t.id !== 'moment-edit-content') return;
     const imgs = Array.from(e.clipboardData?.items ?? []).filter((it) => it.type.startsWith('image/'));
@@ -838,11 +942,13 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     const tags = tagsRaw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
     const visibility = el<HTMLSelectElement>('moment-edit-visibility')?.value === 'private' ? 'private' : 'public';
     const status = el('moment-edit-status');
-    const up = el('moment-edit-upload-status');
-    if (up && up.textContent) {
+    if (uploadsInFlight > 0) {
       if (status) { status.textContent = '图片还在上传中，请稍候再保存'; status.classList.remove('hidden'); }
       return;
     }
+    const saveButton = el<HTMLButtonElement>('moment-edit-save');
+    if (saveButton?.disabled) return;
+    if (saveButton) { saveButton.disabled = true; saveButton.textContent = '保存中…'; }
     try {
       const res = await fetch(`/api/moments/${editingMomentId}`, {
         method: 'PATCH',
@@ -861,6 +967,8 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
       }
     } catch (err) {
       if (status) { status.textContent = err instanceof Error ? err.message : '保存失败'; status.classList.remove('hidden'); }
+    } finally {
+      if (saveButton) { saveButton.disabled = false; saveButton.textContent = '保存'; }
     }
   });
 
@@ -870,15 +978,22 @@ const likeMap = await countLikesByTargets('moment', moments.map((m) => m.id));
     if (!editPreviewOn) return;
     void renderPreview(el<HTMLTextAreaElement>('moment-edit-content')?.value ?? '', el('moment-edit-preview'));
   });
-  document.addEventListener('click', (e) => {
+  listenDocument('click', (e) => {
     if (!(e.target as HTMLElement).closest('#moment-edit-preview-btn')) return;
     editPreviewOn = !editPreviewOn;
     const pvBtn = el<HTMLButtonElement>('moment-edit-preview-btn');
     if (pvBtn) pvBtn.textContent = editPreviewOn ? '收起预览' : '预览';
+    el('moment-edit-preview')?.classList.toggle('hidden', !editPreviewOn);
+    el('moment-edit-panes')?.classList.toggle('md:grid-cols-2', editPreviewOn);
     if (editPreviewOn) void renderPreview(el<HTMLTextAreaElement>('moment-edit-content')?.value ?? '', el('moment-edit-preview'));
   });
-  document.addEventListener('input', (e) => {
+  listenDocument('input', (e) => {
     const t = e.target as HTMLElement;
     if (t.id === 'moment-edit-content') editPreviewSoon();
   });
+
+  }
+  document.addEventListener('astro:before-swap', () => currentPage?.abort());
+  document.addEventListener('astro:page-load', mountMoments);
+  mountMoments();
 </script>

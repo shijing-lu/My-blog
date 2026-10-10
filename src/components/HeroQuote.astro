@@ -1,178 +1,62 @@
 ---
-/* ===== Props ===== */
-/* （无） */
-
-/* ===== Imports ===== */
 import { getHeroQuoteSettings, serializeSettings } from '@/lib/quote-settings';
 import { canManage } from '@/lib/admin-auth';
-
-/* ===== Logic ===== */
-/** 服务端读取配置（DB 优先，未配置用内置默认） */
+import { heroQuoteLines } from '@/lib/hero-quote-lines';
+import NeoIcon from './NeoIcon.astro';
 const settings = await getHeroQuoteSettings();
-/** 仅具备站点设置权限者显示「管理诗词」入口（跳转设置页） */
 const isAuthed = await canManage(Astro.cookies, 'settings');
-/** 首条随机选取（客户端按 SSR 文本回推同一条，避免首屏闪变） */
-const firstQuote =
-  settings.quotes.length > 0
-    ? settings.quotes[Math.floor(Math.random() * settings.quotes.length)]!.text
-    : '';
-const settingsJson = JSON.stringify(serializeSettings(settings));
+const firstQuote = settings.quotes[0]?.text ?? '';
+const lines = heroQuoteLines(firstQuote);
 ---
-<!-- ===== Template ===== -->
-<div class="relative mt-4">
-  <h1
-    id="hero-quote"
-    class="ghost-text pr-10 text-6xl font-semibold tracking-tight sm:text-7xl"
-    data-settings={settingsJson}
-  >
-    {firstQuote}
+<div class="neo-quote-wrap">
+  <h1 id="hero-quote" class:list={['neo-quote', { 'neo-quote-long': firstQuote.length > 60 }]} data-settings={JSON.stringify(serializeSettings(settings))}>
+    {lines.map((line, index) => <span class:list={['neo-quote-line', { 'neo-quote-accent': index >= Math.ceil(lines.length / 2) }]}>{line}</span>)}
   </h1>
-  {
-    isAuthed && (
-      <button
-        type="button"
-        data-open-settings="hero-quotes"
-        aria-label="管理诗词"
-        title="管理诗词"
-        class="absolute right-0 top-1 inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-60 transition-colors duration-200 hover:bg-accent hover:text-primary hover:opacity-100"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4" aria-hidden="true">
-          <path d="M12 20h9" />
-          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-        </svg>
-      </button>
-    )
-  }
+  {isAuthed && <button type="button" data-open-settings="hero-quotes" class="neo-quote-edit" aria-label="管理诗词" title="管理诗词"><NeoIcon name="pencil" size={16} /></button>}
 </div>
-
 <script>
-  /** 首页 Hero 古诗词轮播（配置驱动；管理在 /admin/settings）
-   *  - 配置来源：服务端注入（data-settings），DB 可在线修改；
-   *  - 效果：逐字闪烁出现 → 全部显示后停留 → 倒序逐字还原 → 下一条。 */
-
-  interface QuoteConfig {
-    text: string;
-    pauseMs?: number;
-  }
-  interface HeroSettings {
-    quotes: QuoteConfig[];
-    charIntervalMs: number;
-    defaultPauseMs: number;
-  }
-
-  /** 每个字动画时长（与 global.css keyframes 一致） */
-  const CHAR_ANIM_MS = 1100;
-  /** 兜底配置（data-settings 缺失/损坏时） */
-  const FALLBACK: HeroSettings = { quotes: [], charIntervalMs: 480, defaultPauseMs: 4600 };
-
-  let timers: number[] = [];
+  import { heroQuoteLines } from '@/lib/hero-quote-lines';
+  type Settings = { quotes: { text: string; pauseMs?: number }[]; defaultPauseMs: number };
+  let timer = 0;
   let current = 0;
-  let currentSettings: HeroSettings = readSettings();
-
-  function readSettings(): HeroSettings {
-    const el = document.getElementById('hero-quote');
-    const raw = el?.dataset.settings;
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Partial<HeroSettings>;
-        if (Array.isArray(parsed.quotes) && typeof parsed.charIntervalMs === 'number') {
-          return parsed as HeroSettings;
-        }
-      } catch {
-        /* 解析失败走兜底 */
-      }
-    }
-    return FALLBACK;
+  const stop = () => { window.clearTimeout(timer); timer = 0; document.getElementById('hero-quote')?.classList.remove('is-changing'); };
+  function start(): void {
+    stop();
+    const heading = document.getElementById('hero-quote');
+    if (!heading || document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let settings: Settings;
+    try { settings = JSON.parse(heading.dataset.settings ?? '{}') as Settings; } catch { return; }
+    if (!Array.isArray(settings.quotes) || settings.quotes.length < 2) return;
+    const next = () => {
+      timer = window.setTimeout(() => {
+        heading.classList.add('is-changing');
+        timer = window.setTimeout(() => {
+          current = (current + 1) % settings.quotes.length;
+          const text = settings.quotes[current]?.text ?? '';
+          const lines = heroQuoteLines(text);
+          heading.replaceChildren(...lines.map((line, index) => { const span = document.createElement('span'); span.className = 'neo-quote-line' + (index >= Math.ceil(lines.length / 2) ? ' neo-quote-accent' : ''); span.textContent = line; return span; }));
+          heading.classList.toggle('neo-quote-long', text.length > 60);
+          heading.classList.remove('is-changing');
+          next();
+        }, 180);
+      }, Math.max(0, settings.quotes[current]?.pauseMs ?? settings.defaultPauseMs ?? 8000));
+    };
+    next();
   }
-
-  function clearTimers(): void {
-    timers.forEach((t) => window.clearTimeout(t));
-    timers = [];
-  }
-
-  function later(fn: () => void, ms: number): void {
-    timers.push(window.setTimeout(fn, ms));
-  }
-
-  /** 随机选取下一条（避免与当前重复；单条时固定返回 0） */
-  function randomIndex(exclude: number): number {
-    const n = currentSettings.quotes.length;
-    if (n <= 1) return 0;
-    let idx: number;
-    do {
-      idx = Math.floor(Math.random() * n);
-    } while (idx === exclude);
-    return idx;
-  }
-
-  function play(): void {
-    clearTimers();
-    if (document.hidden) return;
-    const el = document.getElementById('hero-quote');
-    if (!el || currentSettings.quotes.length === 0) return;
-    clearTimers();
-
-    const quote = currentSettings.quotes[current]!;
-    // 减少动态偏好下保留静态语录，不逐字播报，也不继续自动轮播内容。
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      el.textContent = quote.text;
-      return;
-    }
-    const chars = Array.from(quote.text);
-    el.textContent = '';
-
-    const spans = chars.map((ch) => {
-      const s = document.createElement('span');
-      s.className = 'hero-char';
-      s.textContent = ch;
-      el.appendChild(s);
-      return s;
-    });
-
-    const interval = currentSettings.charIntervalMs;
-
-    // 1) 逐字闪烁出现（每字闪一次）
-    chars.forEach((_, i) => {
-      later(() => {
-        spans[i]?.classList.add('hero-char-in');
-      }, i * interval);
-    });
-
-    const totalIn = chars.length * interval + CHAR_ANIM_MS;
-    const pause = quote.pauseMs ?? currentSettings.defaultPauseMs;
-
-    // 2) 全部显示后停留，再倒序逐字还原
-    later(() => {
-      chars.forEach((_, i) => {
-        const idx = chars.length - 1 - i;
-        later(() => {
-          spans[idx]?.classList.remove('hero-char-in');
-          spans[idx]?.classList.add('hero-char-out');
-        }, i * interval);
-      });
-      later(() => {
-        current = randomIndex(current);
-        play();
-      }, chars.length * interval + CHAR_ANIM_MS);
-    }, totalIn + pause);
-  }
-
-  // 初始加载与每次 View Transition 后重播（配置来自服务端注入的 data-settings）
-  // 初始 current 按 SSR 渲染出的文本回推，保证首屏与客户端第一条一致
-  function syncCurrentFromDom(): void {
-    const el = document.getElementById('hero-quote');
-    const text = el?.textContent?.trim() ?? '';
-    const idx = currentSettings.quotes.findIndex((q) => q.text === text);
-    current = idx >= 0 ? idx : randomIndex(-1);
-  }
-  document.addEventListener('astro:page-load', () => {
-    currentSettings = readSettings();
-    syncCurrentFromDom();
-    play();
+  document.addEventListener('astro:before-swap', stop);
+  document.addEventListener('astro:page-load', () => { current = 0; start(); });
+  window.addEventListener('byqx:quotes-saved', event => {
+    const heading = document.getElementById('hero-quote');
+    if (!heading) return;
+    const settings = (event as CustomEvent<Settings>).detail;
+    heading.dataset.settings = JSON.stringify(settings);
+    const text = settings.quotes[0]?.text ?? '';
+    const lines = heroQuoteLines(text);
+    heading.replaceChildren(...lines.map((line, index) => { const span = document.createElement('span'); span.className = 'neo-quote-line' + (index >= Math.ceil(lines.length / 2) ? ' neo-quote-accent' : ''); span.textContent = line; return span; }));
+    heading.classList.toggle('neo-quote-long', text.length > 60);
+    current = 0; start();
   });
-  syncCurrentFromDom();
-  play();
-  document.addEventListener('astro:before-preparation', clearTimers);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimers(); else play(); });
-  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', play);
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', start);
+  start();
 </script>

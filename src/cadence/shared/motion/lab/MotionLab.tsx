@@ -68,7 +68,7 @@ export function MotionLab() {
   const active = TABS.find((item) => item.id === tab) ?? TABS[0];
 
   return (
-    <div className="space-y-6">
+    <div className="neo-motion-lab space-y-6">
       <header className="space-y-1">
         <p className="text-ink-3 text-[11px] tracking-[0.22em] uppercase">
           Motion Lab

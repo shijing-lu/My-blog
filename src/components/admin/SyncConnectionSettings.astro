@@ -55,8 +55,17 @@ import { serverEnv } from '@/lib/env';
     let busy = false;
     function message(text: string, error = false) { feedback.textContent = text; feedback.classList.toggle('text-destructive', error); }
     function body() { return { primaryUrl: input('sync-primary-url').value, fallbackUrl: input('sync-fallback-url').value, clearFallback: input('sync-clear-fallback').checked }; }
-    async function request(method: string, value?: unknown) {
-      const response = await fetch('/api/desktop/sync-config', { method, signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]), ...(value === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }) });
+    async function request(method: string, value?: unknown, timeoutMs = 15000) {
+      const timeout = AbortSignal.timeout(timeoutMs);
+      let response: Response;
+      try {
+        response = await fetch('/api/desktop/sync-config', { method, cache: 'no-store', signal: AbortSignal.any([lifetime.signal, timeout]), ...(value === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }) });
+      } catch (error) {
+        if (!lifetime.signal.aborted && timeout.aborted) {
+          throw new Error(method === 'POST' ? '连接测试超时，未能及时收到数据库响应。请检查网络和数据库服务后重试。' : '请求超时，请检查网络后重试。');
+        }
+        throw error;
+      }
       const result = await response.json();
       if (!response.ok) throw Error(result.error || '配置操作失败，请重试');
       return result;
@@ -74,12 +83,22 @@ import { serverEnv } from '@/lib/env';
       if (busy) return;
       busy = true; buttons.forEach(button => { button.disabled = true; });
       message(name === 'test' ? '正在测试主库和备库连接…' : '正在处理连接配置…');
+      let elapsedSeconds = 0;
+      const testTimer = name === 'test' ? window.setInterval(() => {
+        elapsedSeconds += 1;
+        message(`正在测试主库和备库连接…已等待 ${elapsedSeconds} 秒（最长约 12 秒）`);
+      }, 1000) : 0;
       try {
         if (name === 'save') {
           await request('PUT', body()); message('连接配置已保存并立即生效，无需重启。可点击「立即同步」。');
         } else if (name === 'test') {
-          const result = await request('POST', { action: 'test', ...body() });
-          message(`主库：${result.primary.ok ? '连接成功' : result.primary.error}；备库：${result.fallback ? result.fallback.ok ? '连接成功' : result.fallback.error : '未配置（可选）'}`, !result.ok);
+          const result = await request('POST', { action: 'test', ...body() }, 12000);
+          const describe = (label: string, connection: { ok: boolean; error?: string; elapsedMs?: number } | null) => {
+            if (!connection) return `${label}：未配置（可选）`;
+            const duration = typeof connection.elapsedMs === 'number' ? `（${Math.ceil(connection.elapsedMs / 1000)} 秒）` : '';
+            return `${label}：${connection.ok ? '连接成功' : connection.error || '连接失败'}${duration}`;
+          };
+          message(`${describe('主库', result.primary)}；${describe('备库', result.fallback)}`, !result.ok);
           return;
         } else if (name === 'import') {
           const file = input('sync-transfer-file').files?.[0];
@@ -115,7 +134,10 @@ import { serverEnv } from '@/lib/env';
         root.querySelector<HTMLTextAreaElement>('#sync-transfer-text')!.value = '';
         await refresh(); window.dispatchEvent(new Event('byqx:sync-config-change'));
       } catch (error) { if (!lifetime.signal.aborted) message(error instanceof Error ? error.message : '配置操作失败，请重试', true); }
-      finally { busy = false; buttons.forEach(button => { button.disabled = false; }); }
+      finally {
+        if (testTimer) window.clearInterval(testTimer);
+        busy = false; buttons.forEach(button => { button.disabled = false; });
+      }
     }
     for (const name of ['save', 'test', 'import', 'export']) root.querySelector('#sync-config-' + name)?.addEventListener('click', () => void act(name));
     if (root.dataset.android === '1') root.querySelector('#sync-config-export')!.textContent = '复制加密配置';

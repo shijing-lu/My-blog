@@ -1,6 +1,8 @@
 ---
 /* ===== Imports ===== */
 import AdminLayout from '@/layouts/AdminLayout.astro';
+import WorkspaceHeading from '@/components/WorkspaceHeading.astro';
+import '@/styles/completion-workspace.css';
 import MindMapEditor from '@/components/mindmap/MindMapEditor';
 import { getMindmap } from '@/lib/mindmaps';
 import { getArticleById, listAdminArticleMeta } from '@/lib/articles';
@@ -28,14 +30,16 @@ if (map.articleId) {
 }
 ---
 <AdminLayout title="导图编辑器">
-  <div class="flex h-full min-h-0 flex-col">
+  <section class="neo-workspace neo-map-editor">
+    <WorkspaceHeading title="思维导图编辑" eyebrow="MIND MAP / 写作与管理" description="整理节点、关联文章，保存属于你的思路。" />
     <!-- 工具栏 -->
-    <div class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
+    <div class="neo-map-tools neo-workspace-panel">
       <a href="/admin/mindmaps" class="text-xs text-muted-foreground transition-colors hover:text-primary">
         ← 列表
       </a>
       <input
         id="map-title"
+        aria-label="导图标题"
         type="text"
         maxlength="100"
         value={map.title}
@@ -44,6 +48,7 @@ if (map.articleId) {
       />
       <select
         id="map-article"
+        aria-label="绑定文章"
         class="max-w-44 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus-visible:border-ring"
         title="绑定文章（绑定后文章页显示导图入口）"
       >
@@ -85,7 +90,7 @@ if (map.articleId) {
       </button>
     </div>
     <!-- 画布 -->
-    <div class="min-h-0 flex-1">
+    <div class="neo-map-stage">
       <MindMapEditor
         client:load
         mapId={map.id}
@@ -94,7 +99,7 @@ if (map.articleId) {
         blockMap={articleBlockMap}
       />
     </div>
-  </div>
+  </section>
 </AdminLayout>
 
 <script>

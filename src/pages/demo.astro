@@ -4,6 +4,8 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import WorkspaceHeading from '@/components/WorkspaceHeading.astro';
+import '@/styles/completion-workspace.css';
 import { renderMdx } from '@/lib/mdx';
 
 /* ===== Logic ===== */
@@ -82,12 +84,12 @@ const { html, toc } = await renderMdx(
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="MDX 渲染演示" description="Phase 2 MDX 渲染管线现场演示" indexable={false}>
-  <section class="mx-auto w-full max-w-6xl px-4 py-10">
-    <div class="pixel-divider" />
-    <div class="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_220px]">
-      <article class="prose max-w-none" set:html={html} />
-      <aside class="hidden lg:block">
-        <div class="sticky top-20">
+  <section class="neo-workspace neo-demo">
+    <WorkspaceHeading title="Markdown 渲染演示" eyebrow="MARKDOWN / 设计与开发" description="在一张纸面上查看正文、代码、图片与目录的呈现效果。" />
+    <div class="neo-workspace-grid neo-demo-grid">
+      <article class="prose max-w-none" set:html={html.replace(/<h1\b/g, '<h2').replaceAll('</h1>', '</h2>')} />
+      <aside class="neo-workspace-sidebar">
+        <div class="neo-workspace-panel">
           <p class="pixel-chip mb-2 text-muted-foreground">目录 / TOC</p>
           <nav class="border-l border-border pl-2">
             {

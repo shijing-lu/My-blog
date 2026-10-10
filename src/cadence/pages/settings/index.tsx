@@ -30,6 +30,7 @@ import {
 import { SyncPanel } from "@/cadence/sync/SyncPanel";
 import { CAPABILITY_SUMMARY } from "@/cadence/widgets/assistant";
 import { DataManagement } from "./ui/DataManagement";
+import { PageHeader } from "@/cadence/shared/ui/PageHeader";
 
 export function SettingsPage() {
   const motion = useAppearanceStore((s) => s.motion);
@@ -37,8 +38,8 @@ export function SettingsPage() {
   const enabled = useAssistantStore((s) => s.llmEnabled);
   const configure = useAssistantStore((s) => s.setConfig);
   return (
-    <div className="space-y-6 pt-6">
-      <h2 className="text-2xl">设置</h2>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Preferences" title="日程设置" description="调整复盘周期、待办坐标与数据管理。" />
       <Card>
         <CardHeader
           title="外观"

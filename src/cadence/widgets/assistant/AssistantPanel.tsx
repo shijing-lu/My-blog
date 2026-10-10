@@ -16,7 +16,7 @@ import { CAPABILITY_SUMMARY } from "./types";
 import { AnimatePresence, m } from "@/cadence/shared/motion";
 import { Button } from "@/cadence/shared/ui/Button";
 import { TextField } from "@/cadence/shared/ui/TextField";
-import { MaterialIcon } from "@/components/ui/MaterialIcon";
+import { Sparkles } from "lucide-react";
 
 interface ChatItem {
   id: number;
@@ -96,23 +96,7 @@ export function AssistantPanel() {
         className="craft-transition-fast fixed right-5 bottom-24 z-[var(--z-drawer)] grid place-items-center rounded-full bg-primary text-primary-foreground md:bottom-5"
         style={{ height: 52, width: 52 }}
       >
-        <MaterialIcon name="auto_awesome"><svg
-          viewBox="0 0 24 24"
-          width={22}
-          height={22}
-          fill="none"
-          aria-hidden="true"
-        >
-          <path
-            d="M12 3c-4.4 0-8 3-8 6.8 0 2.1 1.1 4 2.9 5.2L6 20l3.6-1.8c.8.2 1.6.3 2.4.3 4.4 0 8-3 8-6.8S16.4 3 12 3Z"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinejoin="round"
-          />
-          <circle cx="9" cy="10" r="1" fill="currentColor" />
-          <circle cx="12" cy="10" r="1" fill="currentColor" />
-          <circle cx="15" cy="10" r="1" fill="currentColor" />
-        </svg></MaterialIcon>
+        <Sparkles size={22} aria-hidden="true" />
       </button>
 
       {/* 对话面板 */}
@@ -125,7 +109,7 @@ export function AssistantPanel() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             transition={{ duration: 0.22, ease: "easeOut" }}
-            className="surface-card fixed right-5 bottom-[152px] z-[var(--z-drawer)] flex w-[min(400px,92vw)] flex-col overflow-hidden md:bottom-[88px]"
+            className="neo-schedule-assistant surface-card fixed right-5 bottom-[152px] z-[var(--z-drawer)] flex w-[min(400px,92vw)] flex-col overflow-hidden md:bottom-[88px]"
             style={{
               height: "min(480px, calc(100dvh - 180px))",
               borderRadius: "var(--radius-hand-lg)",

@@ -5,6 +5,8 @@ import DocInlineEditor from '@/components/doc/DocInlineEditor';
 import HomeArticleSettings from '@/components/article/HomeArticleSettings';
 import HomeArticleFolderDialog from '@/components/article/HomeArticleFolderDialog.astro';
 import ExportMenu from '@/components/ExportMenu.astro';
+import ArticleCoverGenerator from '@/components/article/ArticleCoverGenerator';
+import { isTopAdmin } from '@/lib/admin-auth';
 import { getArticleById, listAdminArticleMeta } from '@/lib/articles';
 import { articleCategoryMap, listArticleCategories } from '@/lib/article-categories';
 import { buildDocTree, renderDocTree, type DocTreeItem } from '@/lib/doc-tree-render';
@@ -14,6 +16,7 @@ import { getImageSizes, collectImageIdsFromHtml, injectImageSizeAttrs } from '@/
 
 const id = Astro.params.id ?? '';
 const article = await getArticleById(id);
+const isOwner = await isTopAdmin(Astro.cookies);
 if (!article) return Astro.redirect('/admin');
 const [articles, categories, categoryMap] = await Promise.all([
   listAdminArticleMeta(), listArticleCategories(), articleCategoryMap(),
@@ -73,6 +76,7 @@ const settingsArticle = {
       <button id="home-article-settings" type="button" class="mt-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-primary">文章设置</button>
       <button id="doc-inline-edit" type="button" class="mt-2 shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary">编辑</button>
       <ExportMenu mdUrl={`/api/export/article/${encodeURIComponent(article.slug)}`} class="mt-1.5" />
+      {isOwner && <ArticleCoverGenerator client:load articleId={article.id} />}
     </Fragment>
     <Fragment slot="editor"><DocInlineEditor client:load /></Fragment>
   </ArticleDetailShell>

@@ -159,7 +159,7 @@ export function injectCustomThemeCss(theme: ThemeDefinition | StoredCustomTheme)
   }
   el.dataset.classicStyle = '';
   el.dataset.classicMedia = 'all';
-  el.media = document.documentElement.dataset.uiStyle === 'material3' ? 'not all' : 'all';
+  el.media = document.documentElement.dataset.uiStyle !== 'classic' ? 'not all' : 'all';
   el.textContent = '_css' in theme ? theme._css : themeToCss(theme);
 }
 

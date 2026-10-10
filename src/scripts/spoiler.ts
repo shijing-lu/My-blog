@@ -14,19 +14,27 @@
 
 /** localStorage 键（'on' | 'off'） */
 const STORAGE_KEY = 'byqx-spoiler-hide';
+import { spoilerFingerprint, spoilerStates, rememberSpoiler } from '@/lib/spoiler-state';
+let modeMemory = false;
+let modeMemoryOnly = false;
 
 function isOn(): boolean {
+  if (modeMemoryOnly) return modeMemory;
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'on';
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved !== null) modeMemory = saved === 'on';
+    return modeMemory;
   } catch {
-    return false; // 隐私模式等场景：退化为仅当前文档生效
+    return modeMemory;
   }
 }
 
 function setMode(on: boolean): void {
+  modeMemory = on;
   try {
     localStorage.setItem(STORAGE_KEY, on ? 'on' : 'off');
   } catch {
+    modeMemoryOnly = true;
     /* 写入失败仅影响跨页持久化，当前文档仍由 data 属性驱动 */
   }
 }
@@ -90,6 +98,7 @@ function bindOnce(): void {
     const open = sp.getAttribute('aria-expanded') === 'true';
     sp.setAttribute('aria-expanded', String(!open));
     sp.classList.toggle('is-open', !open);
+    if (sp.dataset.spoilerArticle && sp.dataset.spoilerKey) rememberSpoiler(sp.dataset.spoilerArticle, sp.dataset.spoilerKey, !open);
   });
 }
 
@@ -98,6 +107,22 @@ function init(): void {
   bindOnce();
   applyMode();
   ensureToggle();
+  document.querySelectorAll<HTMLElement>('article').forEach(article => {
+    const explicit = article.dataset.headingFoldKey;
+    const id = document.getElementById('doc-detail-data')?.dataset.activeNode;
+    const homeId = document.querySelector<HTMLElement>('[data-article-id]')?.dataset.articleId;
+    const key = explicit || (id ? `docs:${id}` : homeId ? `home:${homeId}` : `page:${location.pathname}`);
+    const states = spoilerStates(key), occurrences = new Map<string, number>();
+    article.querySelectorAll<HTMLElement>('.spoiler[data-spoiler]').forEach(item => {
+      // textContent excludes generated expansion attributes, including nested spoilers.
+      const hash = spoilerFingerprint(item.textContent ?? '');
+      const nth = occurrences.get(hash) ?? 0; occurrences.set(hash, nth + 1);
+      const itemKey = `${hash}:${nth}`;
+      item.dataset.spoilerArticle = key; item.dataset.spoilerKey = itemKey;
+      const open = states[itemKey] === true;
+      item.setAttribute('aria-expanded', String(open)); item.classList.toggle('is-open', open);
+    });
+  });
 }
 
 init();
@@ -105,3 +130,4 @@ init();
 document.addEventListener('astro:page-load', init);
 // 文档页就地编辑器（DocInlineEditor）刷新正文后重建按钮
 document.addEventListener('spoiler:refresh', init);
+window.addEventListener('storage', event => { if (event.key?.startsWith('byqx-spoiler-')) init(); });

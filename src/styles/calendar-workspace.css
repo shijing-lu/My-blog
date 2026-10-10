@@ -1,0 +1,62 @@
+/* Calendar remains separate from the private schedule; styles cover only these surfaces. */
+.neo-calendar-workspace { max-width:1280px; padding:32px 72px 36px 30px; color:var(--neo-ink); font-family:var(--neo-font); }
+.neo-calendar-heading h1 { font-family:var(--neo-font); font-size:35px; font-weight:900; letter-spacing:-.035em; }
+.neo-calendar-workspace .font-pixel { font-family:var(--neo-font); font-size:10px; font-weight:750; letter-spacing:.08em; }
+.neo-calendar-workspace .font-display { font-family:var(--neo-font); font-weight:800; }
+.neo-calendar-heading > div:last-child { flex-wrap:wrap; }
+.neo-calendar-workspace .cal-nav-btn { min-height:40px; border:1.5px solid var(--neo-ink); border-radius:10px; background:var(--neo-paper); color:var(--neo-ink); font-weight:750; box-shadow:2px 2px 0 var(--neo-ink); }
+.neo-calendar-prev { transform:rotate(180deg); }
+.neo-calendar-note { display:flex; align-items:center; gap:16px; margin-top:20px; padding:8px 16px; border:1px solid var(--neo-ink); border-radius:12px; background:var(--neo-wash); font-size:13px; font-weight:750; }
+.neo-calendar-note img { width:58px; height:43px; object-fit:contain; }
+.neo-calendar-note a { margin-left:auto; font-size:12px; color:var(--neo-orange-text); }
+.neo-calendar-month { padding:18px; border:2px solid var(--neo-ink); border-radius:20px; background:var(--neo-paper); box-shadow:5px 6px 0 var(--neo-orange); }
+.neo-calendar-month > div:first-child { margin:-18px -18px 12px; padding:13px 18px; border-bottom:2px solid var(--neo-ink); border-radius:17px 17px 0 0; background:var(--neo-orange); color:#151511; font-size:12px; }
+.neo-calendar-workspace #cal-grid { gap:5px; }
+.neo-calendar-workspace .cal-cell { min-width:0; min-height:94px; padding:10px 8px; gap:6px; border:1px solid var(--neo-line); border-radius:11px; background:var(--neo-paper); color:var(--neo-ink); }
+.neo-calendar-workspace .cal-cell:hover { transform:none; border-color:var(--neo-ink); background:var(--neo-wash); }
+.neo-calendar-workspace .cal-cell-other { opacity:.55; }
+.neo-calendar-workspace .cal-cell-selected { border:1.5px solid var(--neo-ink); background:var(--neo-wash); box-shadow:2px 2px 0 var(--neo-orange); }
+.neo-calendar-workspace .cal-cell-today { border-color:var(--neo-orange-text); box-shadow:none; }
+.neo-calendar-workspace .cal-cell-today .cal-day-num { color:var(--neo-orange-text); }
+.neo-calendar-workspace .cal-day-num { font-family:var(--neo-font); font-weight:850; font-size:18px; }
+.neo-calendar-workspace .cal-lunar { font-size:10px; line-height:1.4; }
+.neo-calendar-workspace .cal-tag { font-size:10px; padding:1px 3px; }
+.neo-calendar-workspace :is(#cal-selected-panel,#cal-upcoming-panel) { border:2px solid var(--neo-ink); border-radius:16px; background:var(--neo-paper); box-shadow:4px 5px 0 var(--neo-ink); padding:17px; }
+.neo-calendar-workspace .pixel-chip { font:750 10px var(--neo-font); color:var(--neo-orange-text); background:none; border:none; padding:0; }
+.neo-calendar-workspace :is(button,#all-events-btn) { min-height:36px; border:1px solid var(--neo-ink); border-radius:9px; box-shadow:2px 2px 0 var(--neo-ink); background:var(--neo-paper); color:var(--neo-ink); font-family:var(--neo-font); font-weight:700; }
+.neo-calendar-workspace :is(button.bg-primary,#all-events-btn) { background:var(--neo-orange); color:#151511; }
+.neo-calendar-workspace :is([data-todo-del],[data-event-del]) { box-shadow:none; min-width:28px; padding:2px 5px; color:var(--color-destructive); }
+.neo-calendar-workspace :is(input:not([type='checkbox']),select) { min-width:0; max-width:100%; min-height:36px; padding:8px 10px; border:1px solid var(--neo-ink); border-radius:9px; background:var(--neo-paper); color:var(--neo-ink); }
+.neo-calendar-workspace li { overflow-wrap:anywhere; }
+.neo-calendar-workspace input[type='checkbox'] { accent-color:var(--neo-orange-text); flex-shrink:0; }
+.neo-calendar-workspace #event-add-form #event-add-title { flex-basis:100%; }
+.neo-calendar-workspace .cal-tooltip { border:2px solid var(--neo-ink); border-radius:12px; background:var(--neo-paper); color:var(--neo-ink); box-shadow:4px 5px 0 var(--neo-orange); backdrop-filter:none; }
+html[data-ui-style='neobrutalism'] :is(.neo-calendar-dialog,.neo-diary-dialog) { margin:auto; max-width:calc(100vw - 32px); max-height:calc(100dvh - 50px); border:2px solid var(--neo-ink); border-radius:20px; background:var(--neo-paper); color:var(--neo-ink); box-shadow:6px 7px 0 var(--neo-orange); font-family:var(--neo-font); }
+.neo-calendar-dialog > div:first-child,.neo-diary-dialog > div:first-child { background:var(--neo-orange); color:#151511; border-bottom:2px solid var(--neo-ink); border-radius:17px 17px 0 0; backdrop-filter:none; }
+.neo-diary-dialog > div:first-child { flex-wrap:wrap; }
+.neo-diary-dialog > div:first-child p { font-family:var(--neo-font); color:#151511; }
+.neo-diary-dialog > div:nth-child(2) { max-height:calc(100dvh - 180px); overscroll-behavior:contain; }
+.neo-calendar-dialog button,.neo-diary-dialog > div:first-child button { min-height:36px; border:1px solid var(--neo-ink); border-radius:9px; background:var(--neo-paper); color:var(--neo-ink); font-family:var(--neo-font); font-weight:750; box-shadow:2px 2px 0 var(--neo-ink); }
+.neo-diary-dialog > div:first-child button.bg-primary { background:#151511; color:#fffaf1; }
+:is(.neo-calendar-dialog,.neo-diary-dialog)::backdrop { background:rgb(21 21 17 / .5); backdrop-filter:none; }
+:is(.neo-calendar-workspace,.neo-calendar-dialog,.neo-diary-dialog) :is(a,button,input,summary):focus-visible { outline:3px solid var(--neo-orange-text); outline-offset:3px; }
+@media(max-width:1023px) { .neo-calendar-workspace { padding:26px 66px 30px 24px; } }
+@media(max-width:767px) {
+ .neo-calendar-workspace { padding:24px 18px 36px; }
+ .neo-calendar-heading h1 { font-size:29px; }
+ .neo-calendar-workspace .cal-nav-btn,.neo-calendar-workspace button,.neo-calendar-workspace input:not([type='checkbox']) { min-height:44px; }
+ .neo-calendar-heading { gap:14px; }
+ .neo-calendar-note { flex-wrap:wrap; gap:8px; padding:8px 12px; font-size:12px; }
+ .neo-calendar-note a { margin-left:0; }
+ .neo-calendar-month { padding:10px; }
+ .neo-calendar-month > div:first-child { margin:-10px -10px 8px; padding:10px; }
+ .neo-calendar-workspace #cal-grid { gap:3px; }
+ .neo-calendar-workspace .cal-cell { min-height:76px; padding:7px 3px; border-radius:7px; gap:5px; }
+ .neo-calendar-workspace .cal-day-num { font-size:15px; }
+ .neo-calendar-workspace .cal-lunar,.neo-calendar-workspace .cal-tag { font-size:9px; }
+ .neo-calendar-dialog button,.neo-diary-dialog > div:first-child button { min-height:44px; }
+ .neo-diary-dialog > div:first-child { padding:12px; gap:10px; }
+ .neo-diary-dialog > div:first-child > div:last-child { flex-wrap:wrap; gap:7px; }
+ .neo-diary-dialog > div:nth-child(2) { padding:18px 14px; }
+}
+@media(prefers-reduced-motion:reduce) { .neo-calendar-workspace *, .neo-diary-dialog * { transition:none !important; animation:none !important; } }

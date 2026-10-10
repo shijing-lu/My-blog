@@ -22,6 +22,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeStringify from 'rehype-stringify';
 import { remarkFixGfmAutolink, remarkPlugins, buildRehypePlugins, takeCollectedToc, rehypeDecodeMathEq, rehypeTocCollector, type TocItem, type BlockAnchorMap, type BlockAnchorItem } from './mdx-plugins';
 import { mdxComponents, type MDXComponentMap } from '@/components/mdx/registry';
+import { codeFenceGuard } from './markdown-code-fence';
 
 /** 渲染选项 */
 export interface RenderOptions {
@@ -173,7 +174,7 @@ export function normalizeBackticks(source: string): string {
 export function normalizeMathFences(source: string): string {
   const lines = source.split('\n');
   const out: string[] = [];
-  let inFence = false;
+  const inCode = codeFenceGuard();
   // 跨行 display 数学状态（`$$` 成对翻转）。
   // ⚠️ 必须有这个变量：本函数会把 `$$ … $$` 拆成多行，拆完**中间那些行既没有
   //    `$` 也没有 `$$`**，而 `escapeBareBraces` 只在单行内靠 `$` 计数判断数学区。
@@ -184,13 +185,8 @@ export function normalizeMathFences(source: string): string {
   let inDisplayMath = false;
   for (const raw of lines) {
     const t = raw;
-    // 围栏状态机：``` 或 ~~~ 起止（整行匹配围栏标记，含语言说明）
-    if (/^\s*(?:```+|~~~+)/.test(t)) {
-      inFence = !inFence;
-      out.push(t);
-      continue;
-    }
-    if (inFence) {
+    // 代码必须原样保留；支持引用前缀，且只由同字符、足够长的围栏闭合。
+    if (inCode(t)) {
       out.push(t);
       continue;
     }
@@ -1214,27 +1210,15 @@ export const TABS_FIELD_SEP = '\uE004';
 export function normalizeTabs(source: string): string {
   const lines = source.split('\n');
   const out: string[] = [];
+  const inCode = codeFenceGuard();
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] ?? '';
 
     // 围栏代码块：整体透传（不做任何改写）
-    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (fence) {
-      const marker = fence[1] ?? '';
-      const ch = marker[0] ?? '`';
+    if (inCode(line)) {
       out.push(line);
       i += 1;
-      // P3-1：闭合围栏正则与行内容无关，提到循环外只编译一次（原先每行都 new RegExp）
-      const closeFenceRe = new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`);
-      for (; i < lines.length; i += 1) {
-        const l = lines[i] ?? '';
-        out.push(l);
-        if (closeFenceRe.test(l)) {
-          i += 1;
-          break;
-        }
-      }
       continue;
     }
 
@@ -1350,32 +1334,14 @@ function trimBlankEdges(arr: string[]): string[] {
 function mapOutsideCode(source: string, fn: (chunk: string) => string): string {
   let out = '';
   const lines = source.split('\n');
+  const inCode = codeFenceGuard();
 
   for (let li = 0; li < lines.length; li += 1) {
     const line = lines[li] ?? '';
     const nl = li < lines.length - 1 ? '\n' : '';
 
-    // 围栏代码块起点：0-3 空格 + 至少 3 个 ` 或 ~
-    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (fence) {
-      const marker = fence[1] ?? '';
-      const ch = marker[0] ?? '`';
+    if (inCode(line)) {
       out += line + nl;
-      li += 1;
-      // 找闭合围栏（同字符、长度不短于起始）
-      let closed = false;
-      // P3-1：闭合正则只依赖起始围栏，提到循环外编译一次
-      const closeRe = new RegExp(`^ {0,3}\\${ch}{${marker.length},}\\s*$`);
-      for (; li < lines.length; li += 1) {
-        const l = lines[li] ?? '';
-        const eol = li < lines.length - 1 ? '\n' : '';
-        out += l + eol;
-        if (closeRe.test(l)) {
-          closed = true;
-          break;
-        }
-      }
-      if (!closed) break;
       continue;
     }
 

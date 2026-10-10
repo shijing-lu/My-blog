@@ -4,6 +4,7 @@
 
 /* ===== Imports ===== */
 import BaseLayout from '@/layouts/BaseLayout.astro';
+import '@/styles/completion-workspace.css';
 import { isGitHubConfigured } from '@/lib/auth';
 
 /* ===== Logic ===== */
@@ -11,13 +12,14 @@ const githubEnabled = isGitHubConfigured();
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="登录" description="登录后台" indexable={false}>
-  <section class="mx-auto w-full max-w-sm px-4 py-20">
-    <div class="p-6">
+  <section class="neo-workspace neo-access">
+    <div class="neo-access-card">
+      <img class="neo-access-cat" src="/images/neobrutalism/cat-peek.webp" width="92" height="73" alt="" aria-hidden="true" />
       <p class="pixel-chip text-primary">ADMIN ACCESS</p>
       <h1 class="mt-1 font-display text-2xl font-semibold">登录后台</h1>
       <p class="mt-1 text-sm text-muted-foreground">仅作者本人可进入写作台。</p>
 
-      <form id="login-form" class="mt-6 space-y-3">
+      <form id="login-form" data-astro-reload class="mt-6 space-y-3">
         <label for="login-password" class="text-sm font-medium">密码</label>
         <input
           id="login-password"
@@ -25,7 +27,7 @@ const githubEnabled = isGitHubConfigured();
           required
           autocomplete="current-password"
           class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          placeholder="ADMIN_PASSWORD"
+          placeholder="输入登录密码"
         />
         <p id="login-error" class="hidden text-xs text-destructive" role="alert"></p>
         <button type="submit" class="w-full rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90">

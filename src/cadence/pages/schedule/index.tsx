@@ -236,7 +236,7 @@ export function SchedulePage() {
       />
 
       {/* 日期切换 + 概要 */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="neo-schedule-datebar flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -270,7 +270,7 @@ export function SchedulePage() {
 
       {/* 24 小时面板：挂载/回到今天时自动滚到当前时刻 */}
       <div
-        className="max-h-[72vh] overflow-y-auto pr-1"
+        className="neo-schedule-timeboard max-h-[72vh] overflow-y-auto pr-1"
         data-testid="schedule-scroll"
         ref={scrollRef}
       >
@@ -288,7 +288,7 @@ export function SchedulePage() {
           }
         />
         <p className="text-ink-4 mt-2 text-center text-[11px]">
-          双击空白处新建 · 拖动平移 · 拖底缘调时长（15 分钟吸附）·
+          双击空白处新建 · 拖动平移 · 拖底缘调时长（1 分钟吸附）·
           时间重叠会被拒绝
         </p>
       </div>

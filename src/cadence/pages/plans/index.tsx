@@ -272,9 +272,10 @@ function PlanCard({
         <button
           type="button"
           onClick={onOpen}
+          title={plan.title}
           className="min-w-0 flex-1 text-left"
         >
-          <h3 className="text-ink-1 truncate text-[15px]">{plan.title}</h3>
+          <h3 className="text-ink-1 line-clamp-2 break-words text-[15px]">{plan.title}</h3>
           {plan.description ? (
             <p className="text-ink-3 mt-1 line-clamp-2 text-[12px] leading-relaxed">
               {plan.description}

@@ -127,6 +127,20 @@
       "when": 1790726400000,
       "tag": "0017_cadence_records",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791331200000,
+      "tag": "0018_mobile_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791331200001,
+      "tag": "0019_mobile_sync",
+      "breakpoints": true
     }
   ]
 }

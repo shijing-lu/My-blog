@@ -43,6 +43,8 @@ import type { MarkdownEditorHandle } from '@/components/admin/MarkdownEditor';
 import { renderTocTreeHtml } from '@/lib/toc-tree';
 import { activateInlineArticleTitle, type InlineArticleTitleSession } from '@/lib/inline-article-title';
 import { createLatestSaveQueue } from '@/lib/latest-save-queue';
+import { registerAiEditor } from '@/lib/ai-editor-bridge';
+import { registerArticleBaseline, setArticleContentVersion } from '@/lib/pending-article-saves';
 import { discardArticleField, flushPendingArticleSaves, pendingArticleField, rememberArticleSave, saveArticleSnapshot } from '@/lib/pending-article-saves';
 import type { TocItem } from '@/lib/mdx-plugins';
 import { indexOfNthHeading, pickNearestViewAnchor } from '@/lib/view-anchor';
@@ -67,6 +69,7 @@ declare global {
     __docInlineEditor?: {
       open: () => void;
       saveAndClose?: () => void;
+      openSearch?: () => boolean;
       /** 编辑态目录点击跳转：跳到第 nth 个（0 起）level 级标题；返回是否命中 */
       jumpToHeading?: (level: number, nth: number) => boolean;
     };
@@ -299,10 +302,20 @@ function syncEntryButtons(editing: boolean): void {
   }
 }
 
+function showSaveFeedback(text: string, state: string): void {
+  const status = document.getElementById('article-save-status');
+  if (!status) return;
+  status.hidden = false;
+  status.textContent = text;
+  status.dataset.state = state;
+}
+
 export default function DocInlineEditor(): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const titleSessionRef = useRef<InlineArticleTitleSession | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  const aiApplyingRef = useRef(false);
+  const aiLockedRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState('');
   const [visualModule, setVisualModule] = useState<typeof import('../admin/cm-wysiwyg') | null>(null);
@@ -324,6 +337,25 @@ export default function DocInlineEditor(): ReactElement {
   const fitRef = useRef(true);
   /** 打开流程互斥：加载中重复点击不再发第二次 fetch（也避免按钮语义来回翻） */
   const busyRef = useRef(false);
+  const openingRef = useRef<{ id: string; controller: AbortController } | null>(null);
+  const cancelOpening = useCallback((): void => {
+    if (!openingRef.current) return;
+    openingRef.current.controller.abort();
+    openingRef.current = null;
+    busyRef.current = false;
+    setPhase('idle');
+    document.querySelector('main article.prose')?.classList.remove('doc-article-loading');
+    document.getElementById('doc-switch-progress')?.classList.add('hidden');
+  }, []);
+  useEffect(() => {
+    const identity = document.getElementById('doc-detail-data');
+    const observer = new MutationObserver(() => {
+      if (openingRef.current && readActiveNodeId() !== openingRef.current.id) cancelOpening();
+    });
+    if (identity) observer.observe(identity, { attributes: true, attributeFilter: ['data-active-node'] });
+    document.addEventListener('astro:before-preparation', cancelOpening);
+    return () => { observer.disconnect(); document.removeEventListener('astro:before-preparation', cancelOpening); cancelOpening(); };
+  }, [cancelOpening]);
   /** 用户是否自己滚过编辑器（一旦为真，程序化对齐全部停手）；每次进入编辑重置 */
   const userScrolledEditorRef = useRef(false);
   const markUserScroll = useCallback((): void => {
@@ -394,6 +426,7 @@ export default function DocInlineEditor(): ReactElement {
 
   /** 统一保存：合并并发请求，并持续保存请求期间产生的新内容。 */
   const saveCore = useCallback(async (): Promise<boolean> => {
+    if (aiLockedRef.current) return false;
     const session = saveSessionRef.current;
     if (!session) return false;
     const { id, url: saveUrl } = session;
@@ -428,6 +461,8 @@ export default function DocInlineEditor(): ReactElement {
   /** 关闭编辑态：恢复正文、清理编辑态副作用（有未保存改动时先保存） */
   const closeEditor = useCallback(
     async (opts?: { discard?: boolean }) => {
+      if (aiLockedRef.current) return;
+      cancelOpening();
       window.clearTimeout(saveTimer.current);
       window.clearTimeout(tocTimer.current);
       while (dirtyRef.current && !opts?.discard) {
@@ -485,7 +520,7 @@ export default function DocInlineEditor(): ReactElement {
         realignWhileStable(art, exitAnchor);
       }
     },
-    [refreshRendered, clearAlignment],
+    [refreshRendered, clearAlignment, cancelOpening],
   );
 
   /**
@@ -535,9 +570,13 @@ export default function DocInlineEditor(): ReactElement {
       contentRef.current = v;
       if (saveSessionRef.current) {
         saveSessionRef.current.content = v;
-        rememberArticleSave(saveSessionRef.current.url, { content: v });
+        if (!aiApplyingRef.current) rememberArticleSave(saveSessionRef.current.url, { content: v });
+      }
+      if (aiApplyingRef.current) {
+        dirtyRef.current = false; savedRef.current = true; refreshToc(); return;
       }
       dirtyRef.current = true;
+      showSaveFeedback('待自动保存', 'pending');
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         void saveCoreRef.current();
@@ -683,6 +722,9 @@ export default function DocInlineEditor(): ReactElement {
     const id = readActiveNodeId();
     if (!id || open || busyRef.current) return;
     busyRef.current = true;
+    const controller = new AbortController();
+    const opening = { id, controller };
+    openingRef.current = opening;
     clearAlignment();
     setReadFailed(false);
     savedRef.current = false;
@@ -711,17 +753,15 @@ export default function DocInlineEditor(): ReactElement {
       // 预取命中则零等待；用掉即删 —— 缓存只当加速，不当数据源（正文可能在别处已改）
       let text = isHomeArticle() ? undefined : takePrefetchedDocNode(id);
       if (text === undefined) {
-        const res = await fetch(articleApiUrl(id));
+        const res = await fetch(articleApiUrl(id), { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) });
         const d = (await res.json().catch(() => ({}))) as { node?: { content?: string }; article?: { content?: string }; error?: string };
         const content = isHomeArticle() ? d.article?.content : d.node?.content;
         if (!res.ok || typeof content !== 'string') throw new Error(d.error ?? '读取正文失败');
         text = content;
       }
       const readyVisualModule = await import('../admin/cm-wysiwyg');
-      if (!hostRef.current?.isConnected || readActiveNodeId() !== id) {
-        setPhase('idle');
-        return;
-      }
+      await registerArticleBaseline(articleApiUrl(id), text);
+      if (controller.signal.aborted || openingRef.current !== opening || !hostRef.current?.isConnected || readActiveNodeId() !== id) return;
       const pendingContent = pendingArticleField(articleApiUrl(id), 'content');
       if (pendingContent !== null) text = pendingContent;
       saveQueueRef.current = null;
@@ -744,9 +784,9 @@ export default function DocInlineEditor(): ReactElement {
       setPhase('idle');
       setOpen(true);
     } catch (err) {
-      if (!hostRef.current?.isConnected || readActiveNodeId() !== id) return;
+      if (controller.signal.aborted || openingRef.current !== opening || !hostRef.current?.isConnected || readActiveNodeId() !== id) return;
       setReadFailed(true);
-      setError(err instanceof Error ? err.message : '读取正文失败');
+      setError(err instanceof Error && err.name === 'TimeoutError' ? '读取正文超时，请退出编辑后重试' : err instanceof Error ? err.message : '读取正文失败');
       // 读取失败只显示错误与退出入口，不挂载可保存的空编辑器，避免覆盖原文。
       if (holder) holder.style.minHeight = '';
       if (art) art.style.display = 'none';
@@ -756,15 +796,48 @@ export default function DocInlineEditor(): ReactElement {
       syncEntryButtons(true);
       setPhase('idle');
     } finally {
-      busyRef.current = false;
+      if (openingRef.current === opening) {
+        openingRef.current = null;
+        busyRef.current = false;
+        document.querySelector('main article.prose')?.classList.remove('doc-article-loading');
+        document.getElementById('doc-switch-progress')?.classList.add('hidden');
+      }
     }
   }, [open, clearAlignment]);
 
   /** 挂载期向页面脚本暴露 open / saveAndClose / jumpToHeading */
   useEffect(() => {
+    if (!open || readFailed || !saveSessionRef.current) return;
+    const session = saveSessionRef.current;
+    return registerAiEditor({
+      session: crypto.randomUUID(), domain: isHomeArticle() ? 'article' : 'doc', targetId: session.id,
+      ownsRoot: root => editorRef.current?.ownsRoot(root) ?? false,
+      source: () => editorRef.current?.getSource() ?? contentRef.current,
+      flush: async () => {
+        if (saveSessionRef.current !== session || aiLockedRef.current) return false;
+        editorRef.current?.flushInputs(); window.clearTimeout(saveTimer.current);
+        if(!(await saveCoreRef.current()))return false;
+        if(titleSessionRef.current && !(await titleSessionRef.current.flush()))return false;
+        return true;
+      },
+      lock: locked => { aiLockedRef.current = locked; editorRef.current?.lockAiInput(locked); },
+      apply: (source, contentHash) => {
+        if (saveSessionRef.current !== session) throw new Error('文章编辑会话已切换');
+        window.clearTimeout(saveTimer.current); aiApplyingRef.current = true;
+        try { editorRef.current?.applyAiSource(source); contentRef.current = source; session.content = source; }
+        finally { aiApplyingRef.current = false; }
+        discardArticleField(session.url, 'content'); saveQueueRef.current = null;
+        if(contentHash)setArticleContentVersion(session.url,contentHash);
+        dirtyRef.current = false; savedRef.current = true; refreshToc();
+      },
+    });
+  }, [open, readFailed, refreshToc]);
+
+  useEffect(() => {
     window.__docInlineEditor = {
       open: () => void openEditor(),
       saveAndClose: handleSaveAndClose,
+      openSearch: () => editorRef.current?.openSearch() ?? false,
       jumpToHeading: (level: number, nth: number): boolean => {
         // expectText 从快照同 level 第 nth 项取，供编辑器侧做文本一致性告警
         const expect = tocSnapshotRef.current.filter((t) => t.level === level)[nth]?.text;
@@ -812,6 +885,15 @@ export default function DocInlineEditor(): ReactElement {
   /** viewH = 0 → 高度随内容（短文形态，无内部滚动条）；> 0 → 固定视口高（长文内滚） */
   const autoHeight = viewH === 0;
 
+  useEffect(() => {
+    const status = document.getElementById('article-save-status');
+    if (!open) { if (status) status.hidden = true; return; }
+    showSaveFeedback(
+      error ? '保存或读取失败' : phase === 'loading' ? '正在读取…' : phase === 'saving' ? '正在保存…' : dirtyRef.current ? '待自动保存' : '正文已保存',
+      error ? 'error' : phase === 'saving' ? 'saving' : dirtyRef.current ? 'pending' : 'saved',
+    );
+  }, [open, phase, error]);
+
   return (
     <div ref={hostRef} className={open ? 'doc-ie-host' : 'hidden'}>
       {open && (
@@ -835,7 +917,13 @@ export default function DocInlineEditor(): ReactElement {
                 className="h-full"
                 onViewportHeading={handleViewportHeading}
                 onReady={revealEditor}
-                onLoadError={(cause) => { setError(`可视编辑器加载失败：${cause.message}`); setReadFailed(true); }}
+                onLoadError={(cause) => {
+                  setError(`可视编辑器加载失败：${cause.message}`); setReadFailed(true); setPhase('idle');
+                  const host = hostRef.current;
+                  if (host) { host.style.visibility = ''; host.style.position = ''; host.style.width = ''; }
+                  document.querySelector<HTMLElement>('main article.prose')?.style.setProperty('display', '');
+                  syncEntryButtons(true);
+                }}
               />
             )}
           </div>
@@ -844,6 +932,7 @@ export default function DocInlineEditor(): ReactElement {
           {error && (
             <p className="mt-2 px-1 text-xs text-destructive" role="alert">
               {error}
+              {!readFailed && <button type="button" className="ml-3 rounded-md border border-current px-3 py-2" disabled={phase === 'saving'} onClick={() => { void saveCoreRef.current(); }}>重新保存</button>}
             </p>
           )}
 
