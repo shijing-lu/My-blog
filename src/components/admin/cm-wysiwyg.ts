@@ -454,7 +454,7 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
     if (blocked.has(first) || !/^\s*>\s?/.test(lines[first]!.text)) { first += 1; continue; }
     let last = first + 1;
     while (last < lines.length && !blocked.has(last) && /^\s*>\s?/.test(lines[last]!.text)) last += 1;
-    const head = lines[first]!.text.match(/^\s*>\s?\[!([A-Za-z][\w-]*)\][+-]?(?:\s|$)/);
+    const head = lines[first]!.text.match(/^\s*>\s?\[!\s*([A-Za-z][\w-]*)\s*\][+-]?(?:\s|$)/);
     if (head) {
       const rawType = head[1]!.toLowerCase();
       const type = CALLOUT_ALIASES[rawType] ?? rawType;
@@ -485,7 +485,7 @@ function computeBase(doc: typeof EditorState.prototype.doc): { items: DecoItem[]
       });
       items.push({ from: line.from, to: markerEnd, deco: hide, reveal: true, revealFrom: line.from, revealTo: Math.min(doc.length + 1, line.to + 1) });
       occupy(idx, line.from, markerEnd);
-      const head = quote[2]!.match(/^\[!([A-Za-z][\w-]*)\]([+-]?)([ \t]*)(.*)$/);
+      const head = quote[2]!.match(/^\[!\s*([A-Za-z][\w-]*)\s*\]([+-]?)([ \t]*)(.*)$/);
       if (type && head) {
         const prefixEnd = markerEnd + head[0].length - head[4]!.length;
         items.push({

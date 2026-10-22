@@ -62,16 +62,21 @@ const deferRender = Boolean(activeNode && (activeNode.content?.length ?? 0) > DE
 let html = '';
 let toc: TocItem[] = [];
 if (activeNode && !deferRender) {
-  const r = await renderMdx(activeNode.content);
-  let out = r.html;
-  // 正文图片注入原始宽高（DB 图片），消除懒加载宽度跳变
-  const ids = collectImageIdsFromHtml(out);
-  if (ids.length > 0) {
-    const sizes = await getImageSizes(ids);
-    if (sizes.size > 0) out = injectImageSizeAttrs(out, sizes);
+  try {
+    const r = await renderMdx(activeNode.content);
+    let out = r.html;
+    // 正文图片注入原始宽高（DB 图片），消除懒加载宽度跳变
+    const ids = collectImageIdsFromHtml(out);
+    if (ids.length > 0) {
+      const sizes = await getImageSizes(ids);
+      if (sizes.size > 0) out = injectImageSizeAttrs(out, sizes);
+    }
+    html = out;
+    toc = r.toc;
+  } catch (err) {
+    console.error(`[doc] SSR renderMdx failed for node ${activeNode.id}:`, err);
+    html = `<div class="p-4 rounded-md border border-destructive/40 bg-destructive/10 text-destructive"><h3 class="font-bold">文章渲染异常</h3><p class="text-sm mt-1">${esc(err instanceof Error ? err.message : String(err))}</p><p class="text-xs text-muted-foreground mt-2">可在右上角点击“源码模式”或“编辑”查看并修正内容。</p></div>`;
   }
-  html = out;
-  toc = r.toc;
 } else if (activeNode) {
   // 延迟渲染：占位文案会被客户端拉取到的正文整体替换（见页内切换 handler 的延迟加载分支）
   html = '<p class="text-sm text-muted-foreground">正在加载长文档…</p>';
@@ -370,7 +375,7 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     }
     if (article) enhanceBodyHeadings(article);
     document.dispatchEvent(new CustomEvent('spoiler:refresh'));
-    document.dispatchEvent(new CustomEvent('article:body-updated'));
+    document.dispatchEvent(new CustomEvent('article:body-updated', { bubbles: true }));
   }
 
   /** 加载反馈：正文降透明 + 顶部进度条（大文档首渲染期间页面不得静止无反馈） */
@@ -399,6 +404,25 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     if (t.closest('[data-node-edit], [data-node-del], [data-node-move], [data-node-add-article], [data-node-add-folder]')) return;
     const link = t.closest<HTMLElement>('[data-article-switch]');
     if (!link) return;
+    /* ⭐ Ctrl/Cmd + 左键 → 在新窗口打开该文章（2026-10-18 需求）。
+       命名窗口 `doc-article-<id>` 让重复点击同一篇时**复用并聚焦**：
+         · 网页端 = 同名标签页复用；
+         · 桌面端 = main.cjs 的 setWindowOpenHandler 按 frameName 复用副窗口（白名单已加此前缀）。
+       ⚠️ 必须先 preventDefault 再用 window.open：否则原生 Ctrl+点击会再开一次（双开）。
+       ⚠️ 该分支放在「编辑态禁止切换」之前：新窗口是独立页面，不影响当前编辑中的草稿。 */
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      // 终止传播：本页还有多个 click 委托（目录折叠/锚点等），Ctrl+点击只应"开新窗口"，
+      // 不应再触发任何本地导航逻辑（否则原窗口也会被切到目标文章）。
+      e.stopImmediatePropagation();
+      const href = (link as HTMLAnchorElement).href;
+      const id = link.dataset.articleSwitch;
+      if (!href || !id) return;
+      // window.open 返回 null = 被弹窗拦截 → 降级为同页导航（不丢用户操作）
+      const opened = window.open(href, `doc-article-${id}`);
+      if (!opened) window.location.href = href;
+      return;
+    }
     // 编辑中禁止切换文章：否则编辑器里的旧正文会被保存/渲染到新文章上（数据覆盖）
     if (document.getElementById('doc-3col')?.getAttribute('data-editing') === 'true') return;
     e.preventDefault();
@@ -417,6 +441,20 @@ const folderOptionsJson = JSON.stringify(folderOptions);
     const ok = await loadArticleById(id, 'navigate');
     if (ok) pushArticleUrl(id);
   }, true);
+
+  /* 键盘等效（无障碍）：聚焦文章链接后 Ctrl/Cmd + Enter 同样在新窗口打开。
+     WCAG 2.1 要求指针手势不能是唯一入口；节点链接已在 doc-tree-render.ts 加 tabindex="0"。 */
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return;
+    const link = (document.activeElement as HTMLElement | null)?.closest<HTMLAnchorElement>('[data-article-switch]');
+    if (!link) return;
+    e.preventDefault();
+    const href = link.href;
+    const id = link.dataset.articleSwitch;
+    if (!href || !id) return;
+    const opened = window.open(href, `doc-article-${id}`);
+    if (!opened) window.location.href = href;
+  });
 
   /**
    * 加载并应用某篇文章（点击切换与「大文档延迟渲染」共用同一路径）。
@@ -936,40 +974,54 @@ const folderOptionsJson = JSON.stringify(folderOptions);
      - 编辑态：正文已被 CodeMirror 编辑器原位替换（渲染锚点 #slug 随正文隐藏），
        按序列对齐跳到源码第 nth 个该级标题；
      - 阅读态：此前走原生锚点（首次定位受估算高度影响不准），改走 stableScrollTo。 */
-  const tocJumpList = document.getElementById('doc-toc-list');
-  if (tocJumpList) {
-    tocJumpList.addEventListener(
-      'click',
-      (e) => {
-        const a = (e.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a[data-doc-anchor]');
-        if (!a) return;
-        e.preventDefault();
-        const href = a.getAttribute('href') ?? '';
-        if (document.getElementById('doc-3col')?.getAttribute('data-editing') === 'true') {
-          const level = Number(a.className.match(/toc-l(\d)/)?.[1] ?? 2);
-          // 序列对齐主键：目录里同 level 的第 nth 项 ↔ 源码里第 nth 个该级标题（免 slug 匹配）
-          const same = tocJumpList.querySelectorAll(`a.toc-l${level}`);
-          const nth = Array.prototype.indexOf.call(same, a);
-          if (nth >= 0) window.__docInlineEditor?.jumpToHeading?.(level, nth);
-          return;
+  document.addEventListener(
+    'click',
+    (e) => {
+      const a = (e.target as HTMLElement | null)?.closest<HTMLAnchorElement>('#doc-toc-rail a[data-doc-anchor]');
+      if (!a) return;
+      e.preventDefault();
+      const href = a.getAttribute('href') ?? '';
+      const tocRail = document.getElementById('doc-toc-rail');
+      if (document.getElementById('doc-3col')?.getAttribute('data-editing') === 'true') {
+        const level = Number(a.className.match(/toc-l(\d)/)?.[1] ?? 2);
+        // 序列对齐主键：目录里同 level 的第 nth 项 ↔ 源码里第 nth 个该级标题（免 slug 匹配）
+        const same = tocRail?.querySelectorAll(`a.toc-l${level}`) ?? [];
+        const nth = Array.prototype.indexOf.call(same, a);
+        if (nth >= 0) window.__docInlineEditor?.jumpToHeading?.(level, nth);
+        return;
+      }
+      // 阅读态：稳定定位到锚点标题 + 更新地址栏 hash（pushState 不触发二次滚动）
+      const slug = decodeURIComponent(href.replace(/^#/, ''));
+      let target = slug ? document.getElementById(slug) : null;
+      if (!target) {
+        // 容错回退 1：slug 为 edit-toc-N 或特殊符号时，按同级标题序号对齐
+        const level = Number(a.className.match(/toc-l(\d)/)?.[1] ?? 2);
+        const same = tocRail?.querySelectorAll(`a.toc-l${level}`) ?? [];
+        const nth = Array.prototype.indexOf.call(same, a);
+        const headings = [...document.querySelectorAll<HTMLElement>(`main article.prose h${level}`)];
+        target = headings[nth] ?? null;
+      }
+      if (!target) {
+        // 容错回退 2：按目录项标题文本精确或模糊匹配文章内标题
+        const text = (a.dataset.directoryTitle || a.textContent || '').trim();
+        if (text) {
+          const allHeadings = [...document.querySelectorAll<HTMLElement>('main article.prose h2, main article.prose h3, main article.prose h4')];
+          target = allHeadings.find((h) => (h.textContent || '').trim() === text) ?? null;
         }
-        // 阅读态：稳定定位到锚点标题 + 更新地址栏 hash（pushState 不触发二次滚动）
-        const slug = decodeURIComponent(href.replace(/^#/, ''));
-        const target = slug ? document.getElementById(slug) : null;
-        if (!target) return;
-        stableScrollTo(target);
-        try {
-          // 保留 ClientRouter 的历史索引，否则从其他页面返回此章节时只改 URL、不恢复页面。
-          const state = window.history.state ?? {};
-          const index = typeof state.index === 'number' ? state.index : 0;
-          window.history.pushState({ ...state, index: index + 1, scrollX: window.scrollX, scrollY: window.scrollY }, '', href);
-        } catch {
-          /* 特殊环境（沙箱预览等）下忽略地址栏更新 */
-        }
-      },
-      true,
-    );
-  }
+      }
+      if (!target) return;
+      stableScrollTo(target);
+      try {
+        // 保留 ClientRouter 的历史索引，否则从其他页面返回此章节时只改 URL、不恢复页面。
+        const state = window.history.state ?? {};
+        const index = typeof state.index === 'number' ? state.index : 0;
+        window.history.pushState({ ...state, index: index + 1, scrollX: window.scrollX, scrollY: window.scrollY }, '', href);
+      } catch {
+        /* 特殊环境（沙箱预览等）下忽略地址栏更新 */
+      }
+    },
+    true,
+  );
 
   /* ================= 节点 CRUD（登录） ================= */
   {

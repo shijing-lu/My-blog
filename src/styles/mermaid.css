@@ -1,0 +1,59 @@
+/**
+ * Mermaid 图表块样式
+ *
+ * 适配浅色/深色主题，响应式 SVG 缩放与居中，支持图表/源码自由切换。
+ */
+
+.mermaid-block {
+  margin: 1.75rem 0;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  overflow: hidden;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.mermaid-block:hover {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.mermaid-block .mermaid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+.mermaid-block .mermaid-chart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  overflow-x: auto;
+  min-height: 120px;
+  background: color-mix(in srgb, var(--background) 50%, var(--card));
+}
+
+.mermaid-block .mermaid-chart svg {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
+}
+
+.mermaid-block .mermaid-source {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent) !important;
+}
+
+.mermaid-block .mermaid-source code {
+  white-space: pre !important;
+}

@@ -21,7 +21,7 @@
  * （cm-live-preview 的 CodeWidget / cm-wysiwyg 的 CodeBlockWidget），不经过 MDX 管线
  * —— 因此两个控件在编辑模式下**天然不显示**，无需运行时判断。
  */
-import type { ComponentProps, ReactElement, ReactNode } from 'react';
+import { isValidElement, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { CodeBlockContext } from './CodeBlockContext';
 
 /** 折叠态图标：向上箭头（点击可收起） */
@@ -49,6 +49,85 @@ export default function Pre({
   /** 由 rehypeCodeBlockMeta 按行数标注；"true" 表示达到可折叠阈值 */
   'data-collapsible'?: string;
 }): ReactElement {
+  const codeProps = isValidElement<{ className?: string }>(children) ? children.props : null;
+  const isMermaid = Boolean(
+    className?.includes('language-mermaid') || codeProps?.className?.includes('language-mermaid'),
+  );
+
+  if (isMermaid) {
+    return (
+      <div
+        className="mermaid-block my-6 rounded-2xl border border-border/80 bg-card/60 overflow-hidden shadow-xs"
+        data-mermaid-block
+        data-code-block
+      >
+        <div className="mermaid-header flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-muted/30 text-xs text-muted-foreground select-none">
+          <span className="flex items-center gap-2 font-mono font-medium text-foreground">
+            <svg
+              className="size-4 text-primary"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect width="8" height="6" x="8" y="2" rx="1" />
+              <path d="M12 8v4" />
+              <rect width="8" height="6" x="2" y="14" rx="1" />
+              <rect width="8" height="6" x="14" y="14" rx="1" />
+              <path d="M6 14h12" />
+            </svg>
+            <span>图表 / Mermaid</span>
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className="mermaid-toggle-btn inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono border border-border/80 hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer"
+              data-mermaid-toggle
+              title="切换图表与代码源码"
+            >
+              <span>查看代码</span>
+            </button>
+            <button
+              type="button"
+              className="copy-button p-1.5 rounded-md hover:bg-muted transition text-muted-foreground hover:text-foreground cursor-pointer"
+              data-copy
+              aria-label="复制代码"
+              title="复制代码"
+            >
+              <svg data-icon="copy" className="size-3.5" aria-hidden="true">
+                <use href="#i-code-copy" />
+              </svg>
+              <svg data-icon="check" className="hidden size-3.5" aria-hidden="true">
+                <use href="#i-code-check" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="mermaid-chart flex items-center justify-center p-6 overflow-x-auto min-h-[120px]" data-mermaid-chart>
+          <div className="mermaid-loading flex items-center gap-2 text-xs text-muted-foreground py-4">
+            <span className="size-2 rounded-full bg-primary animate-ping"></span>
+            <span>正在渲染图表…</span>
+          </div>
+        </div>
+        <pre
+          {...props}
+          className={[
+            'code-block mermaid-source hidden !m-0 !rounded-none !border-0 !border-t !border-border/40',
+            className,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          data-mermaid-source
+        >
+          <CodeBlockContext.Provider value={true}>{children}</CodeBlockContext.Provider>
+        </pre>
+      </div>
+    );
+  }
+
   const canCollapse = dataCollapsible === 'true';
 
   return (

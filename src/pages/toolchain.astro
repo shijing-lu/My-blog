@@ -13,7 +13,7 @@ Astro.response.headers.set('cache-control', 'private, no-store');
 ---
 <BaseLayout title="工具链" description="让常用工具各就其位" indexable={false}>
   <section class="neo-workspace toolchain-page">
-    <WorkspaceHeading title="工具链" eyebrow="TOOLCHAIN / 本机工具入口" description="软件、源码项目和网页工具，各自独立，随手打开。仅此电脑的站主可见。" />
+    <WorkspaceHeading title="工具链" eyebrow="TOOLCHAIN / 本机工具入口" description="软件、源码项目、脚本和网页工具，各自独立，随手打开。仅此电脑的站主可见。" />
     {serverEnv('DESKTOP_MODE') === '1' ? <Toolchain client:load /> : <p class="neo-workspace-empty">请在 Windows 桌面端使用工具链。</p>}
   </section>
 </BaseLayout>

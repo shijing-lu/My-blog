@@ -59,7 +59,7 @@ const CALLOUT_ALIASES: Record<string, CalloutType> = {
  * ⚠️ 注意：连续引用行会被 mdast 合并为**同一个 text 节点**（值含 `\n`），
  * 因此匹配发生在「首行」而非「整个节点」，见 splitCalloutHead。
  */
-const CALLOUT_HEAD_RE = /^\s*\[!([A-Za-z][\w-]*)\]([+-]?)[ \t]*(.*)$/;
+const CALLOUT_HEAD_RE = /^\s*\[!\s*([A-Za-z][\w-]*)\s*\]([+-]?)[ \t]*(.*)$/;
 
 /**
  * 拆出 blockquote 首行：返回 { headText, restChildren }
@@ -144,8 +144,7 @@ function rawTextOf(node: Node): string {
  *
  * `type` 为归一的规范类型名（长度可能与用户原文不同），因此用原文类型名长度计算。
  */
-function stripHeadPrefix(headNodes: Node[], rawTypeName: string, marker: string): Node[] {
-  const prefixLen = 2 + rawTypeName.length + 1 + marker.length; // `[!` + name + `]` + `-`/`+`
+function stripHeadPrefix(headNodes: Node[], prefixLen: number): Node[] {
   const out: Node[] = [];
   let consumed = 0;
   let dropped = false;
@@ -240,7 +239,8 @@ export function remarkCallout() {
             const marker = m[2] ?? '';
             // 标题行剥掉 `[!type]-` 前缀后的富文本节点（保留加粗/公式/行内代码结构），
             // 作为 Callout 的首个「标记段落」传入，组件渲染时抽进 <summary>。
-            const richNodes = stripHeadPrefix(split.headNodes, m[1] ?? '', marker);
+            const prefixLen = split.headText.length - (m[3] ?? '').length;
+            const richNodes = stripHeadPrefix(split.headNodes, prefixLen);
             const plainTitle = stripInlineMarkdown(m[3] ?? '');
 
             // 整块 blockquote 的原始 markdown 源码（含 `>` 前缀、嵌套引用与代码块）。

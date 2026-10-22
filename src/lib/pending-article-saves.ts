@@ -6,6 +6,18 @@ const volatile = new Map<string, string>();
 const baselines = new Map<string,string>();
 export function setArticleContentVersion(url: string, hash: string): void { baselines.set(url,hash); }
 export function articleContentVersion(url: string): string | undefined { return baselines.get(url); }
+/** 覆盖某文档的基准版本，若存在排队/冲突的暂存记录，将其期望哈希同步更新为最新服务端哈希 */
+export function overrideArticleContentVersion(url: string, newHash: string): void {
+  baselines.set(url, newHash);
+  const key = keyFor(url, { content: '' });
+  const pending = read(key);
+  if (pending) {
+    pending.body.expectedContentHash = newHash;
+    const value = JSON.stringify(pending);
+    volatile.set(key, value);
+    try { localStorage.setItem(key, value); } catch { /* Storage may be full */ }
+  }
+}
 /** Return the version of the supplied read, which may differ from a concurrent save acknowledgement. */
 export async function registerArticleBaseline(url: string, source: string): Promise<string> {
   const previousVersion = baselines.get(url);
@@ -118,9 +130,27 @@ export async function flushPendingArticleSaves(keepalive = false): Promise<void>
   await Promise.allSettled([...keys].map(key => send(key, keepalive)));
 }
 
+export function hasPendingArticleSaves(): boolean {
+  if (volatile.size > 0 || active.size > 0) return true;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(PREFIX)) return true;
+    }
+  } catch { /* Storage unavailable */ }
+  return false;
+}
+
 if (typeof window !== 'undefined') {
   window.setInterval(() => { void flushPendingArticleSaves(); }, 3000);
   window.addEventListener('pagehide', () => { void flushPendingArticleSaves(true); });
+  window.addEventListener('beforeunload', (e) => {
+    if (hasPendingArticleSaves()) {
+      void flushPendingArticleSaves(true);
+      e.preventDefault();
+      Object.assign(e, { returnValue: '' });
+    }
+  });
   document.addEventListener('astro:before-preparation', () => { void flushPendingArticleSaves(true); });
   document.addEventListener('astro:page-load', () => { void flushPendingArticleSaves(); });
 }

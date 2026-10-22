@@ -33,6 +33,9 @@ scripts/_diag-*.png
 # AI 助手工作区（项目记忆/临时产物，不入库）
 .workbuddy/
 
+# 临时脚本目录（一次性排查/迁移脚本，不入库）
+scratch/
+
 .diag/
 /undefined/
 .workbuddy-tmp/

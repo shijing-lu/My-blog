@@ -250,7 +250,7 @@ function setup(): void {
       if (result.html && deferred.isConnected) {
         deferred.innerHTML = result.html;
         enhanceBodyHeadings(deferred);
-        document.dispatchEvent(new CustomEvent('article:body-updated'));
+        document.dispatchEvent(new CustomEvent('article:body-updated', { bubbles: true }));
       }
       const list = document.getElementById('doc-toc-list');
       if (list && Array.isArray(result.toc)) list.innerHTML = result.toc.length ? renderTocTreeHtml(result.toc) : '<p class="mt-2 text-xs text-muted-foreground">无目录</p>';

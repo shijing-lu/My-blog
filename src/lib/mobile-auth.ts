@@ -1,9 +1,8 @@
 import { and, eq, isNull, or } from 'drizzle-orm';
 import { getPrimaryDb } from '../../db';
 import { mobileSessions } from '../../db/schema.sqlite';
-import { checkTopPassword, topAdminPassword } from './admin-auth';
-import { checkPassword } from './auth';
 import { serverEnv } from './env';
+import { ownerPasswordFingerprint, ownerPasswordStatus, verifyOwnerPassword } from './owner-password';
 import { createMobileAuth, MobileAuthError, type MobileSessionStore } from './mobile-auth-core';
 
 const store: MobileSessionStore = {
@@ -13,9 +12,13 @@ const store: MobileSessionStore = {
   async rotate(id, hash, row) { return (await getPrimaryDb().update(mobileSessions).set(row).where(and(eq(mobileSessions.id, id), eq(mobileSessions.refreshHash, hash), isNull(mobileSessions.revokedAt))).returning({ id: mobileSessions.id })).length === 1; },
   async revoke(id, now) { await getPrimaryDb().update(mobileSessions).set({ revokedAt: now, updatedAt: now }).where(eq(mobileSessions.id, id)); },
 };
+// 站主口令与网页登录共用一处来源（自定义口令优先，其次环境变量），
+// 因此站主在后台改过口令后，移动端用新口令登录、旧会话随即失效。
 export const mobileAuth = createMobileAuth(store, {
-  password: () => topAdminPassword() || serverEnv('ADMIN_PASSWORD'), secret: () => serverEnv('AUTH_SECRET'),
-  checkPassword: value => topAdminPassword() ? checkTopPassword(value) : checkPassword(value),
+  credentialVersion: ownerPasswordFingerprint,
+  checkPassword: verifyOwnerPassword,
+  configured: async () => (await ownerPasswordStatus()).source !== 'none',
+  secret: () => serverEnv('AUTH_SECRET'),
 });
 export async function requireMobileOwner(request: Request) {
   const authorization = request.headers.get('authorization') ?? '';

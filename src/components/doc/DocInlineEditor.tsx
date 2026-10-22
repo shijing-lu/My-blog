@@ -44,7 +44,7 @@ import { renderTocTreeHtml } from '@/lib/toc-tree';
 import { activateInlineArticleTitle, type InlineArticleTitleSession } from '@/lib/inline-article-title';
 import { createLatestSaveQueue } from '@/lib/latest-save-queue';
 import { registerAiEditor } from '@/lib/ai-editor-bridge';
-import { articleContentVersion, registerArticleBaseline, setArticleContentVersion } from '@/lib/pending-article-saves';
+import { articleContentVersion, overrideArticleContentVersion, registerArticleBaseline, setArticleContentVersion } from '@/lib/pending-article-saves';
 import { discardArticleField, flushPendingArticleSaves, pendingArticleField, rememberArticleSave, saveArticleSnapshot } from '@/lib/pending-article-saves';
 import type { TocItem } from '@/lib/mdx-plugins';
 import { indexOfNthHeading, pickNearestViewAnchor } from '@/lib/view-anchor';
@@ -337,6 +337,7 @@ export default function DocInlineEditor(): ReactElement {
   const [visualModule, setVisualModule] = useState<typeof import('../admin/cm-wysiwyg') | null>(null);
   const [phase, setPhase] = useState<'idle' | 'loading' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [forcingSave, setForcingSave] = useState(false);
   const [readFailed, setReadFailed] = useState(false);
   const loadedSourceRef = useRef(false);
   /** 编辑器视口高度（px；打开时按正文高计算，超长文退化为可用屏高） */
@@ -414,8 +415,12 @@ export default function DocInlineEditor(): ReactElement {
           // 不带 v → 绕过 CDN 缓存，强制回源重渲
           const rr = await fetch(articleApiUrl(id, true));
           const d = (await rr.json().catch(() => ({}))) as { html?: string; toc?: TocItem[]; error?: string };
+          if (!rr.ok || typeof d.html !== 'string') {
+            showSaveFeedback(d.error ? `渲染失败: ${d.error}` : '渲染预览失败', 'error');
+            return;
+          }
           // 已跳转到另一篇或重新打开编辑器时，丢弃旧请求，避免覆盖新正文/目录。
-          if (!rr.ok || typeof d.html !== 'string' || readActiveNodeId() !== id || !hostRef.current?.isConnected || !hostRef.current.classList.contains('hidden')) return;
+          if (readActiveNodeId() !== id || !hostRef.current?.isConnected || !hostRef.current.classList.contains('hidden')) return;
           const art = document.querySelector<HTMLElement>('main article.prose');
           const scrollY = window.scrollY;
           const anchor = captureReadingAnchor(art);
@@ -426,6 +431,7 @@ export default function DocInlineEditor(): ReactElement {
           if (tocWrap && Array.isArray(d.toc)) {
             tocWrap.innerHTML = d.toc.length ? renderTocTreeHtml(d.toc) : '<p class="text-xs text-muted-foreground">无目录</p>';
           }
+          showSaveFeedback('正文已更新', 'saved');
           // 以替换前的当前位置为准，不能用退出编辑时可能已经过期的锚点。
           if (restoreReadingAnchor(art, anchor)) {
             // 换完 innerHTML 后图片/公式继续回流 → 稳定期再对齐两次（用户滚过就停手）
@@ -434,7 +440,7 @@ export default function DocInlineEditor(): ReactElement {
           }
           instantScrollTo(scrollY);
         } catch {
-          /* 刷新失败：保留旧正文，下次进入或刷新页面自然更新 */
+          showSaveFeedback('拉取最新预览失败', 'error');
         }
       })();
     },
@@ -475,6 +481,48 @@ export default function DocInlineEditor(): ReactElement {
   /** ref 桥：闭包内始终调用最新 saveCore（避免声明顺序与陈旧闭包问题） */
   const saveCoreRef = useRef(saveCore);
   saveCoreRef.current = saveCore;
+
+  /** 强制覆盖保存：当乐观锁版本冲突（409）时，将本地 baseline 对齐服务端最新 Hash 并强制写入当前编辑器内容 */
+  const handleForceSave = useCallback(async () => {
+    const session = saveSessionRef.current;
+    if (!session || phase === 'saving' || forcingSave) return;
+    setForcingSave(true);
+    setPhase('saving');
+    try {
+      // 1. 获取服务器端当前最新的内容与版本 Hash
+      const res = await fetch(session.url, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`无法获取服务端最新版本（HTTP ${res.status}）`);
+      }
+      const data = (await res.json().catch(() => ({}))) as { contentHash?: string };
+      if (typeof data.contentHash !== 'string') {
+        throw new Error('未获取到有效版本号');
+      }
+
+      // 2. 将本地 baseline 及暂存快照的版本强制更新为服务端当前 Hash
+      overrideArticleContentVersion(session.url, data.contentHash);
+
+      // 3. 重置保存队列，确保使用最新的 contentRef 与版本重新提交
+      saveQueueRef.current = null;
+      dirtyRef.current = true;
+      session.content = contentRef.current;
+
+      // 4. 执行保存覆盖
+      const success = await saveCoreRef.current();
+      if (success) {
+        setError(null);
+      }
+    } catch (err) {
+      if (saveSessionRef.current === session) {
+        setError(err instanceof Error ? err.message : '强制覆盖保存失败');
+      }
+    } finally {
+      setForcingSave(false);
+      if (saveSessionRef.current === session) {
+        setPhase('idle');
+      }
+    }
+  }, [phase, forcingSave]);
 
   /** 关闭编辑态：恢复正文、清理编辑态副作用（有未保存改动时先保存） */
   const closeEditor = useCallback(
@@ -1038,9 +1086,35 @@ export default function DocInlineEditor(): ReactElement {
 
           {/* 读取/保存失败提示（独立红字行，不遮挡正文） */}
           {error && (
-            <p className="mt-2 px-1 text-xs text-destructive" role="alert">
-              {error}
-              {readFailed ? <><button type="button" className="ml-3 rounded-md border border-current px-3 py-2" onClick={() => { void openEditor(sourceMode ? 'source' : 'visual'); }}>重新读取</button><button type="button" className="ml-3 rounded-md border border-current px-3 py-2" onClick={() => { void handleSaveAndClose(); }}>返回预览</button></> : <button type="button" className="ml-3 rounded-md border border-current px-3 py-2" disabled={phase === 'saving'} onClick={() => { void saveCoreRef.current(); }}>重新保存</button>}
+            <p className="mt-2 px-1 text-xs text-destructive flex items-center flex-wrap gap-2" role="alert">
+              <span>{error}</span>
+              {readFailed ? (
+                <>
+                  <button type="button" className="ml-3 rounded-md border border-current px-3 py-1.5 hover:bg-destructive/10 transition-colors" onClick={() => { void openEditor(sourceMode ? 'source' : 'visual'); }}>重新读取</button>
+                  <button type="button" className="ml-3 rounded-md border border-current px-3 py-1.5 hover:bg-destructive/10 transition-colors" onClick={() => { void handleSaveAndClose(); }}>返回预览</button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="ml-3 rounded-md border border-current px-3 py-1.5 hover:bg-destructive/10 transition-colors"
+                    disabled={phase === 'saving' || forcingSave}
+                    onClick={() => { void saveCoreRef.current(); }}
+                  >
+                    重新保存
+                  </button>
+                  {(error.includes('版本已变化') || error.includes('冲突')) && (
+                    <button
+                      type="button"
+                      className="rounded-md bg-destructive text-destructive-foreground px-3 py-1.5 font-medium hover:opacity-90 shadow-xs transition-opacity"
+                      disabled={phase === 'saving' || forcingSave}
+                      onClick={() => { void handleForceSave(); }}
+                    >
+                      {forcingSave ? '正在覆盖…' : '强制覆盖保存'}
+                    </button>
+                  )}
+                </>
+              )}
             </p>
           )}
 

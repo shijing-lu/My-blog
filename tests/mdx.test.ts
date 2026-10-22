@@ -1259,4 +1259,50 @@ describe('渲染缓存（normalizeSource / invalidateRenderCache）', () => {
     const b = await renderMdx('! ');
     expect(a.html).not.toEqual(b.html);
   });
+
+  it('表格单元格中的未闭合 <br> 正常渲染为换行（含/不含反引号）', async () => {
+    // 回归：408 考研笔记中在表格内使用 <br> 并在同一行包含行内反引号
+    const withBacktick = '| 标题 | 第一段<br>第二段 `code` |\n| --- | --- |\n| 1 | 2 |';
+    const res1 = await renderMdx(withBacktick);
+    expect(res1.html).toContain('<br/>');
+    expect(res1.html).not.toContain('&lt;br&gt;');
+
+    const withoutBacktick = '| 标题 | 第一段<br>第二段 |\n| --- | --- |\n| 1 | 2 |';
+    const res2 = await renderMdx(withoutBacktick);
+    expect(res2.html).toContain('<br/>');
+    expect(res2.html).not.toContain('&lt;br&gt;');
+  });
+
+  it('正文中未闭合的 <br>、<hr>、<img> 自动规范化为自闭合 JSX', async () => {
+    const res = await renderMdx('段落第一行<br>段落第二行\n\n<hr>\n\n<img src="/test.png">');
+    expect(res.html).toContain('<br/>');
+    expect(res.html).toContain('<hr');
+    expect(res.html).toContain('<img');
+  });
+
+  it('代码块内的 <br> 字面量保持原样不被误改', async () => {
+    const res = await renderMdx('```html\n<div><br></div>\n```\n\n`<div><br></div>`');
+    expect(res.html).toContain('&lt;br&gt;');
+  });
+
+  it('Mermaid 图表代码块渲染为 [data-mermaid-block] 结构并保留源码以便按需切换', async () => {
+    const mermaidCode = '```mermaid\ngraph TD\n    Router["路由器核心功能"]\n    Router --> CP["控制层面"]\n```';
+    const res = await renderMdx(mermaidCode);
+    expect(res.html).toContain('data-mermaid-block');
+    expect(res.html).toContain('data-mermaid-chart');
+    expect(res.html).toContain('data-mermaid-source');
+    expect(res.html).toContain('路由器核心功能');
+    expect(res.html).toContain('data-mermaid-toggle');
+    expect(res.html).toContain('data-copy');
+  });
+
+  it('Mermaid 图表代码块：计算机网络第三章「三个基本问题」subgraph 语法能正确渲染结构', async () => {
+    const mermaidCode = '```mermaid\ngraph LR\n    subgraph ThreeProblems ["数据链路层三个基本问题"]\n        F1["1. 封装成帧 (Framing)"]\n        F2["2. 透明传输 (Transparency)"]\n        F3["3. 差错检测 (Error Control)"]\n    end\n```';
+    const res = await renderMdx(mermaidCode);
+    expect(res.html).toContain('data-mermaid-block');
+    expect(res.html).toContain('data-mermaid-chart');
+    expect(res.html).toContain('data-mermaid-source');
+    expect(res.html).toContain('ThreeProblems');
+    expect(res.html).toContain('数据链路层三个基本问题');
+  });
 });

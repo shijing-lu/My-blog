@@ -14,6 +14,7 @@ import {
   PERMISSION_KEYS,
 } from '@/lib/admin-auth';
 import { authAccList, authAppList } from '@/lib/admin-auth-render';
+import { ownerPasswordStatus } from '@/lib/owner-password';
 
 /* ===== Logic ===== */
 /**
@@ -28,6 +29,7 @@ const top = await isTopAdmin(Astro.cookies);
 const applications = top ? await listApplications('pending') : [];
 const accounts = top ? await listAdminAccounts() : [];
 const profile = top ? await getProfile() : null;
+const ownerPassword = top ? await ownerPasswordStatus() : { custom: false, source: 'none' as const, updatedAt: null };
 const permEntries = Object.entries(PERMISSION_KEYS);
 ---
 <!-- ===== Template ===== -->
@@ -52,6 +54,50 @@ const permEntries = Object.entries(PERMISSION_KEYS);
       ) : (
         <div>
           <WorkspaceHeading title="授权管理" eyebrow="AUTH / 写作与管理" description="审批申请、分配权限，让每一项管理操作都有明确的边界。" />
+
+          <!-- ===== 站主密码 ===== -->
+          <div class="neo-workspace-panel">
+            <h2 class="font-display text-lg font-semibold">站主密码</h2>
+            <p class="mt-1 text-sm leading-relaxed text-muted-foreground">
+              改完立即生效，下次登录请用新密码。当前来源：
+              <span id="op-source">{ownerPassword.custom ? '本站自定义口令' : ownerPassword.source === 'env-top' ? '环境变量 TOP_ADMIN_PASSWORD' : ownerPassword.source === 'env-admin' ? '环境变量 ADMIN_PASSWORD' : '未配置'}</span>
+              <span class="mt-1 block text-xs">修改后其它已登录的浏览器最多 7 天内仍有效；手机端会话会立即失效。</span>
+            </p>
+            <div class="neo-auth-fields mt-3">
+              <input
+                id="op-current"
+                type="password"
+                aria-label="当前密码"
+                placeholder="当前密码"
+                autocomplete="current-password"
+                class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              />
+              <input
+                id="op-new"
+                type="password"
+                aria-label="新密码"
+                placeholder="新密码（至少 8 位）"
+                autocomplete="new-password"
+                class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              />
+              <input
+                id="op-confirm"
+                type="password"
+                aria-label="确认新密码"
+                placeholder="确认新密码"
+                autocomplete="new-password"
+                class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              />
+              <button
+                id="op-save"
+                type="button"
+                class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity duration-200 hover:opacity-90"
+              >
+                保存密码
+              </button>
+            </div>
+            <p id="op-msg" class="mt-2 hidden text-xs" role="status"></p>
+          </div>
 
           <!-- ===== 权限申请审批 ===== -->
           <div class="neo-workspace-panel">
@@ -458,5 +504,78 @@ const permEntries = Object.entries(PERMISSION_KEYS);
         },
       );
     }
+
+    /* 站主密码：当前密码 + 新密码 + 确认 */
+    if (target.closest('#op-save')) {
+      const read = (id: string): string => (el(id) as HTMLInputElement | null)?.value ?? '';
+      const msg = el('op-msg');
+      const btn = el('op-save') as HTMLButtonElement | null;
+      if (!btn) return;
+      const show = (text: string, ok: boolean): void => {
+        if (!msg) return;
+        msg.textContent = text;
+        msg.className = ok ? 'mt-2 text-xs text-primary' : 'mt-2 text-xs text-destructive';
+        msg.classList.remove('hidden');
+      };
+      const current = read('op-current'), next = read('op-new'), confirm = read('op-confirm');
+      if (!current) {
+        show('请输入当前密码', false);
+        return;
+      }
+      if (next.length < 8) {
+        show('新密码至少 8 位', false);
+        return;
+      }
+      if (next !== confirm) {
+        show('两次输入的新密码不一致', false);
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '保存中…';
+      void (async () => {
+        try {
+          const res = await fetch('/api/owner-password', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ currentPassword: current, newPassword: next, confirmPassword: confirm }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(data.error || '保存失败');
+          for (const id of ['op-current', 'op-new', 'op-confirm']) {
+            const input = el(id) as HTMLInputElement | null;
+            if (input) input.value = '';
+          }
+          show('站主密码已更新，下次登录请使用新密码。', true);
+          await loadOwnerPasswordSource();
+        } catch (error) {
+          show((error as Error).message, false);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '保存密码';
+        }
+      })();
+    }
   });
+
+  /** 刷新「当前来源」文案（服务端已渲染一次，这里用于改完之后就地更新） */
+  async function loadOwnerPasswordSource(): Promise<void> {
+    const box = el('op-source');
+    if (!box) return;
+    const labels: Record<string, string> = {
+      custom: '本站自定义口令',
+      'env-top': '环境变量 TOP_ADMIN_PASSWORD',
+      'env-admin': '环境变量 ADMIN_PASSWORD',
+      none: '未配置',
+    };
+    try {
+      const res = await fetch('/api/owner-password', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = (await res.json()) as { source?: string; updatedAt?: string | null };
+      box.textContent = `${labels[data.source ?? 'none'] ?? '未知'}${data.updatedAt ? `（改于 ${new Date(data.updatedAt).toLocaleString()}）` : ''}`;
+    } catch {
+      /* 读取失败时保留服务端渲染的初始文案 */
+    }
+  }
+  document.addEventListener('astro:page-load', () => void loadOwnerPasswordSource());
+  void loadOwnerPasswordSource();
 </script>

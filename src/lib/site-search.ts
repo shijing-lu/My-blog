@@ -1,10 +1,10 @@
 import { listArticleMeta, getArticleContents } from './articles';
 import { listDocSearchPage } from './docs';
-import { matchMeta, stripMarkdown, extractSnippet } from './search';
+import { matchMeta, stripMarkdownCached, extractSnippet } from './search';
 
 export interface SiteSearchHit { id: string; source: 'article' | 'doc'; title: string; location: string; snippet: string; url: string; encrypted: boolean; updatedAt: string }
 export function searchableBody(source: string): string {
-  return stripMarkdown(source.replace(/^\s*(?:```|~~~).*$/gm, '')).toLowerCase();
+  return stripMarkdownCached(source.replace(/^\s*(?:```|~~~).*$/gm, ''));
 }
 export async function searchSite(query: string, page: number, pageSize: number) {
   const q = query.trim().toLowerCase();
@@ -23,9 +23,16 @@ export async function searchSite(query: string, page: number, pageSize: number) 
   for (let offset = 0; ; offset += 100) {
     const rows = await listDocSearchPage(offset, 100);
     for (const row of rows) {
-      const body = searchableBody(row.content);
-      if (q && !row.title.toLowerCase().includes(q) && !body.includes(q)) continue;
-      hits.push({ id: row.id, source: 'doc', title: row.title, location: row.bundleName, snippet: q ? extractSnippet(body, q) || body.slice(0, 140) : body.slice(0, 140), url: `/doc/${encodeURIComponent(row.bundleId)}?article=${encodeURIComponent(row.id)}`, encrypted: false, updatedAt: row.updatedAt.toISOString() });
+      const titleMatch = !q || row.title.toLowerCase().includes(q);
+      let body: string | undefined;
+      if (!titleMatch) {
+        body = searchableBody(row.content);
+        if (!body.includes(q)) continue;
+      }
+      const snippet = q
+        ? (titleMatch ? (row.content.slice(0, 140)) : (extractSnippet(body ?? searchableBody(row.content), q) || row.content.slice(0, 140)))
+        : row.content.slice(0, 140);
+      hits.push({ id: row.id, source: 'doc', title: row.title, location: row.bundleName, snippet, url: `/doc/${encodeURIComponent(row.bundleId)}?article=${encodeURIComponent(row.id)}`, encrypted: false, updatedAt: row.updatedAt.toISOString() });
     }
     if (rows.length < 100) break;
   }

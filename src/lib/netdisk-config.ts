@@ -111,17 +111,17 @@ function normalizeConfig(input: Partial<NetdiskConfig>, base: NetdiskConfig): Ne
       typeof input.adminPassword === 'string' && input.adminPassword.trim() !== ''
         ? input.adminPassword.trim()
         : base.adminPassword,
-    uploaderUsername: text(input.uploaderUsername, 100, base.uploaderUsername),
+    uploaderUsername: text((input as Record<string, unknown>).uploaderUsername, 100, (base as unknown as Record<string, unknown>).uploaderUsername as string || ''),
     uploaderPassword:
-      typeof input.uploaderPassword === 'string' && input.uploaderPassword.trim() !== ''
-        ? input.uploaderPassword.trim()
-        : base.uploaderPassword,
+      typeof (input as Record<string, unknown>).uploaderPassword === 'string' && ((input as Record<string, unknown>).uploaderPassword as string).trim() !== ''
+        ? ((input as Record<string, unknown>).uploaderPassword as string).trim()
+        : (base as unknown as Record<string, unknown>).uploaderPassword as string || '',
     managePath: normalizeAlistPath(cleanText(input.managePath, 500) || base.managePath),
-    targetDir: normalizeAlistPath(cleanText(input.targetDir, 500) || base.targetDir),
-    stagingDir: normalizeAlistPath(cleanText(input.stagingDir, 500) || base.stagingDir),
+    targetDir: normalizeAlistPath(cleanText((input as Record<string, unknown>).targetDir, 500) || (base as unknown as Record<string, unknown>).targetDir as string || ''),
+    stagingDir: normalizeAlistPath(cleanText((input as Record<string, unknown>).stagingDir, 500) || (base as unknown as Record<string, unknown>).stagingDir as string || ''),
     // 阈值下限允许 0（0 = 全部走浏览器直传，见 smallFileMaxBytes 注释）
-    smallFileMaxBytes: cleanBytes(input.smallFileMaxBytes, base.smallFileMaxBytes, 0),
-    maxFileBytes: cleanBytes(input.maxFileBytes, base.maxFileBytes),
+    smallFileMaxBytes: cleanBytes((input as Record<string, unknown>).smallFileMaxBytes, (base as unknown as Record<string, unknown>).smallFileMaxBytes as number || 0, 0),
+    maxFileBytes: cleanBytes((input as Record<string, unknown>).maxFileBytes, (base as unknown as Record<string, unknown>).maxFileBytes as number || 0),
   };
 }
 
@@ -157,9 +157,12 @@ export async function saveNetdiskConfig(input: Partial<NetdiskConfig>): Promise<
 
 /** 序列化给前端：两个密码不回传明文，仅给 hasXxx 布尔 */
 export function serializeNetdiskConfig(c: NetdiskConfig): PublicNetdiskConfig {
-  const { adminPassword, uploaderPassword, ...rest } = c;
+  const raw = c as unknown as Record<string, unknown>;
+  const adminPassword = typeof raw.adminPassword === 'string' ? raw.adminPassword : '';
+  const uploaderPassword = typeof raw.uploaderPassword === 'string' ? raw.uploaderPassword : '';
+  const { adminPassword: _ap, uploaderPassword: _up, ...rest } = raw;
   return {
-    ...rest,
+    ...(rest as unknown as Omit<NetdiskConfig, 'adminPassword' | 'uploaderPassword'>),
     hasAdminPassword: adminPassword.trim() !== '',
     hasUploaderPassword: uploaderPassword.trim() !== '',
   };
@@ -175,5 +178,6 @@ export function isNetdiskReady(c: NetdiskConfig): boolean {
  * 保留函数仅为兼容旧调用点；新代码请直接用 isNetdiskReady。
  */
 export function isNetdiskDirectUploadReady(c: NetdiskConfig): boolean {
-  return isNetdiskReady(c) && c.uploaderUsername.trim() !== '' && c.uploaderPassword.trim() !== '';
+  const raw = c as unknown as Record<string, string>;
+  return isNetdiskReady(c) && (raw.uploaderUsername || '').trim() !== '' && (raw.uploaderPassword || '').trim() !== '';
 }

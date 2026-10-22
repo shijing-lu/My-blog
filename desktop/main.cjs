@@ -22,6 +22,9 @@
 if (process.argv.includes('--toolchain-runner')) {
   const runnerIndex = process.argv.indexOf('--toolchain-runner');
   require(process.argv[runnerIndex + 1]);
+} else if (process.argv.includes('--toolchain-script-runner')) {
+  const scriptIndex = process.argv.indexOf('--toolchain-script-runner');
+  require(process.argv[scriptIndex + 1]);
 } else {
 const { app, BrowserWindow, Tray, Menu, dialog, nativeImage, session, shell, ipcMain, utilityProcess } = require('electron');
 const { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, appendFileSync, statSync } = require('node:fs');
@@ -134,6 +137,21 @@ function randomSecret() {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Buffer.from(bytes).toString('base64url');
+}
+
+/**
+ * 生成本机站主会话 Cookie（与服务端 auth.signPayload 同一规则：base64url(载荷) + '.' + HMAC）。
+ *
+ * 为什么不再用 ADMIN_PASSWORD 调 /api/login：站主在后台改过密码之后，config.json 里
+ * 仍是旧口令，自动登录会拿到 401 并抛错、中断整个启动流程（窗口都开不出来）。
+ * 主进程本来就持有 AUTH_SECRET，直接按同一套签名规则签发会话即可：
+ * 不依赖明文口令，也省掉一次本地 HTTP 往返。
+ */
+function localOwnerSession(secret) {
+  const { createHash, createHmac } = require('node:crypto');
+  const payload = Buffer.from(JSON.stringify({ purpose: 'admin-session', exp: Date.now() + 7 * 24 * 60 * 60 * 1000 })).toString('base64url');
+  const key = createHash('sha256').update(secret).digest();
+  return `${payload}.${createHmac('sha256', key).update(payload).digest('hex')}`;
 }
 
 /** 读取配置；不存在则写模板并返回 null（调用方引导用户填写后重启） */
@@ -256,19 +274,23 @@ async function toolchainOwner(event) {
 ipcMain.handle('desktop:toolchain', async (event, action, input) => {
   try {
     await toolchainOwner(event);
-    if (!['list', 'inspect-software', 'inspect-project', 'save', 'reorder', 'launch', 'stop', 'restart', 'remove', 'favorite', 'folder', 'logs'].includes(action)) throw Error('不支持的工具操作');
+    if (!['list', 'inspect-software', 'inspect-project', 'inspect-script', 'save', 'reorder', 'launch', 'stop', 'restart', 'remove', 'favorite', 'folder', 'logs'].includes(action)) throw Error('不支持的工具操作');
     return { ok: true, data: await toolchain.operation(action, input) };
   } catch (error) { return { ok: false, error: error.message || '工具操作失败' }; }
 });
 ipcMain.handle('desktop:toolchain-picker', async (event, kind) => {
   try {
     const win = await toolchainOwner(event);
-    if (!['software', 'source'].includes(kind)) throw Error('不支持的选择方式');
-    const result = await dialog.showOpenDialog(win, kind === 'source'
+    if (!['software', 'source', 'script'].includes(kind)) throw Error('不支持的选择方式');
+    const options = kind === 'source'
       ? { title: '选择源码项目文件夹', properties: ['openDirectory'] }
-      : { title: '选择快捷方式或程序', properties: ['openFile'], filters: [{ name: '软件与快捷方式', extensions: ['lnk', 'exe'] }] });
+      : kind === 'script'
+        ? { title: '选择 PowerShell 脚本', properties: ['openFile'], filters: [{ name: 'PowerShell 脚本', extensions: ['ps1'] }] }
+        : { title: '选择快捷方式或程序', properties: ['openFile'], filters: [{ name: '软件与快捷方式', extensions: ['lnk', 'exe'] }] };
+    const result = await dialog.showOpenDialog(win, options);
     if (result.canceled) return { ok: true, data: null };
-    return { ok: true, data: await toolchain.operation(kind === 'source' ? 'inspect-project' : 'inspect-software', { path: result.filePaths[0] }) };
+    const action = kind === 'source' ? 'inspect-project' : kind === 'script' ? 'inspect-script' : 'inspect-software';
+    return { ok: true, data: await toolchain.operation(action, { path: result.filePaths[0] }) };
   } catch (error) { return { ok: false, error: error.message || '选择失败' }; }
 });
 ipcMain.handle('desktop:pick-skill-directory', async (event, skillId) => {
@@ -334,7 +356,8 @@ function createWindow(url, { primary = false } = {}) {
   });
   win.webContents.setWindowOpenHandler(({ url: targetUrl, frameName }) => {
     if (isLocalPage(targetUrl)) {
-      const named = typeof frameName === 'string' && frameName.length < 260 && /^(article-mindmap-|mindmap-source-)/.test(frameName);
+      // 按窗口名复用副窗口：Ctrl+点击文章链接用 `doc-article-<id>` 命名，重复点击同一篇应聚焦已有窗口
+      const named = typeof frameName === 'string' && frameName.length < 260 && /^(article-mindmap-|mindmap-source-|doc-article-)/.test(frameName);
       const existing = named ? namedArticleWindows.get(frameName) : null;
       if (existing && !existing.isDestroyed()) { if (existing.isMinimized()) existing.restore(); existing.show(); existing.focus(); }
       else {
@@ -684,7 +707,8 @@ async function main() {
   process.env.HOST = '127.0.0.1';
   process.env.PORT = String(port);
   process.env.PUBLIC_SITE_URL = `http://127.0.0.1:${port}`;
-  process.env.AUTH_SECRET = config.AUTH_SECRET || randomSecret();
+  const authSecret = config.AUTH_SECRET || randomSecret();
+  process.env.AUTH_SECRET = authSecret;
   process.env.ADMIN_PASSWORD = config.ADMIN_PASSWORD ?? '';
   // 历史桌面 config.json 只有 ADMIN_PASSWORD；保留原来的站主登录体验。
   // 显式设置 TOP_ADMIN_PASSWORD 时仍优先使用独立密码。
@@ -769,14 +793,17 @@ async function main() {
   }
 
   // ---- 窗口 / 托盘 / 版本检查 ----
+  // 本机自动登录：主进程直接签发站主会话，不再用 config.ADMIN_PASSWORD 走 /api/login
+  // （站主在后台改过密码后配置文件里是旧口令，那样会 401 并让启动流程抛错）。
   if (config.LOCAL_OWNER_AUTO_LOGIN === true) {
-    const response = await fetch(`${siteUrl}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: config.ADMIN_PASSWORD }), signal: AbortSignal.timeout(10000) });
-    if (!response.ok) throw new Error('本地站主登录失败');
-    for (const cookie of response.headers.getSetCookie()) {
-      const pair = cookie.split(';')[0], at = pair.indexOf('=');
-      if (at <= 0) continue;
-      await session.defaultSession.cookies.set({ url: siteUrl, name: pair.slice(0, at), value: pair.slice(at + 1), path: '/', httpOnly: true, sameSite: 'lax' });
-    }
+    await session.defaultSession.cookies.set({
+      url: siteUrl,
+      name: 'admin_session',
+      value: localOwnerSession(authSecret),
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+    });
   }
   mainWindow = createWindow(siteUrl + startPath, { primary: true });
   createTray(mainWindow);

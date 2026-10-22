@@ -21,17 +21,32 @@ export const tokenHash = (token: string) => createHash('sha256').update(token).d
 const validToken = (token: string, type: 'a' | 'r') => new RegExp(`^mb1${type}_[A-Za-z0-9_-]{43}$`).test(token);
 const unauthorized = () => new MobileAuthError(401, 'reauth_required', '会话已失效，请重新输入站主口令');
 
+/**
+ * 移动端站主会话。
+ *
+ * 口令相关依赖全部是异步的：站主口令现在可能有自定义记录（存 settings 表），
+ * 读取要走数据库，因此 credentialVersion / checkPassword / configured 都是 Promise。
+ * credentialVersion 由口令指纹派生（见 ownerPasswordFingerprint），站主改口令后
+ * 所有已签发的移动会话会立刻因 credentialVersion 不匹配而失效。
+ */
 export function createMobileAuth(store: MobileSessionStore, config: {
-  password: () => string; secret: () => string; checkPassword: (value: string) => boolean; now?: () => number;
+  /** 口令指纹：口令一改指纹就变 */
+  credentialVersion: () => Promise<string>;
+  checkPassword: (value: string) => Promise<boolean>;
+  /** 是否已配置站主口令（info 探针用） */
+  configured: () => Promise<boolean>;
+  secret: () => string; now?: () => number;
 }) {
   const now = config.now ?? (() => Date.now());
-  function version() {
-    if (!config.password() || !config.secret()) throw new MobileAuthError(503, 'auth_unconfigured', '服务端尚未配置站主认证');
-    return createHmac('sha256', config.secret()).update(`mobile-owner-v1:${config.password()}`).digest('hex');
+  /** 服务端口令版本：同一请求内只算一次，避免重复查库 */
+  async function serverVersion(): Promise<string> {
+    const fingerprint = await config.credentialVersion();
+    if (!fingerprint || !config.secret()) throw new MobileAuthError(503, 'auth_unconfigured', '服务端尚未配置站主认证');
+    return createHmac('sha256', config.secret()).update(`mobile-owner-v1:${fingerprint}`).digest('hex');
   }
   const serverId = () => createHmac('sha256', config.secret()).update('mobile-server-v1').digest('hex');
-  function active(row: MobileSessionRow | null): row is MobileSessionRow {
-    return !!row && !row.revokedAt && row.credentialVersion === version() && Date.parse(row.refreshExpiresAt) > now();
+  function active(row: MobileSessionRow | null, version: string): row is MobileSessionRow {
+    return !!row && !row.revokedAt && row.credentialVersion === version && Date.parse(row.refreshExpiresAt) > now();
   }
   function envelope(row: MobileSessionRow, accessToken?: string, refreshToken?: string) {
     return { protocolVersion: 1, serverId: serverId(), sessionId: row.id, owner: { id: 'site-owner', role: 'owner' },
@@ -41,25 +56,27 @@ export function createMobileAuth(store: MobileSessionStore, config: {
   function rotatedToken(id: string, requestId: string, type: 'a' | 'r') {
     return `mb1${type}_` + createHmac('sha256', config.secret()).update(`mobile-rotate-v1:${id}:${requestId}:${type}`).digest('base64url');
   }
-  function retry(row: MobileSessionRow, hash: string, requestId: string) {
-    if (!active(row) || row.previousRefreshHash !== hash || row.refreshRequestId !== requestId) throw unauthorized();
+  function retry(row: MobileSessionRow, hash: string, requestId: string, version: string) {
+    if (!active(row, version) || row.previousRefreshHash !== hash || row.refreshRequestId !== requestId) throw unauthorized();
     const access = rotatedToken(row.id, requestId, 'a'), refresh = rotatedToken(row.id, requestId, 'r');
     if (tokenHash(access) !== row.accessHash || tokenHash(refresh) !== row.refreshHash) throw unauthorized();
     return envelope(row, access, refresh);
   }
   return {
-    info() { return { protocolVersion: 1, appName: '白衣卿相', ownerLoginConfigured: !!config.password() && !!config.secret() }; },
+    async info() {
+      return { protocolVersion: 1, appName: '白衣卿相', ownerLoginConfigured: (await config.configured()) && !!config.secret() };
+    },
     async login(input: { password?: unknown; deviceId?: unknown; deviceName?: unknown }) {
-      version();
+      const version = await serverVersion();
       if (typeof input.password !== 'string' || !input.password || input.password.length > 1024 ||
           typeof input.deviceId !== 'string' || !uuid.test(input.deviceId) ||
           typeof input.deviceName !== 'string' || !input.deviceName.trim() || input.deviceName.length > 80) {
         throw new MobileAuthError(400, 'invalid_input', '请提供站主口令与设备信息');
       }
-      if (!config.checkPassword(input.password)) throw new MobileAuthError(401, 'wrong_password', '站主口令错误');
+      if (!(await config.checkPassword(input.password))) throw new MobileAuthError(401, 'wrong_password', '站主口令错误');
       const accessToken = 'mb1a_' + randomBytes(32).toString('base64url'), refreshToken = 'mb1r_' + randomBytes(32).toString('base64url');
       const time = now(), stamp = new Date(time).toISOString();
-      const row: MobileSessionRow = { id: randomUUID(), deviceId: input.deviceId, deviceName: input.deviceName.trim(), credentialVersion: version(),
+      const row: MobileSessionRow = { id: randomUUID(), deviceId: input.deviceId, deviceName: input.deviceName.trim(), credentialVersion: version,
         accessHash: tokenHash(accessToken), refreshHash: tokenHash(refreshToken), previousRefreshHash: null, refreshRequestId: null,
         accessExpiresAt: new Date(time + ACCESS_TTL).toISOString(), refreshExpiresAt: new Date(time + REFRESH_TTL).toISOString(),
         createdAt: stamp, updatedAt: stamp, revokedAt: null };
@@ -68,16 +85,16 @@ export function createMobileAuth(store: MobileSessionStore, config: {
     },
     async me(token: string) {
       if (!validToken(token, 'a')) throw unauthorized();
-      const row = await store.byAccess(tokenHash(token));
-      if (!active(row) || Date.parse(row.accessExpiresAt) <= now()) throw unauthorized();
+      const version = await serverVersion(), row = await store.byAccess(tokenHash(token));
+      if (!active(row, version) || Date.parse(row.accessExpiresAt) <= now()) throw unauthorized();
       return envelope(row);
     },
     async refresh(input: { refreshToken?: unknown; requestId?: unknown }) {
       if (typeof input.refreshToken !== 'string' || !validToken(input.refreshToken, 'r') ||
           typeof input.requestId !== 'string' || !uuid.test(input.requestId)) throw unauthorized();
-      const hash = tokenHash(input.refreshToken), row = await store.byRefresh(hash);
-      if (!active(row)) throw unauthorized();
-      if (row.refreshHash !== hash) return retry(row, hash, input.requestId);
+      const version = await serverVersion(), hash = tokenHash(input.refreshToken), row = await store.byRefresh(hash);
+      if (!active(row, version)) throw unauthorized();
+      if (row.refreshHash !== hash) return retry(row, hash, input.requestId, version);
       const access = rotatedToken(row.id, input.requestId, 'a'), refresh = rotatedToken(row.id, input.requestId, 'r');
       const time = now();
       const next: MobileSessionRow = { ...row, accessHash: tokenHash(access), refreshHash: tokenHash(refresh),
@@ -87,14 +104,14 @@ export function createMobileAuth(store: MobileSessionStore, config: {
       if (!await store.rotate(row.id, hash, next)) {
         const concurrent = await store.byRefresh(hash);
         if (!concurrent) throw unauthorized();
-        return retry(concurrent, hash, input.requestId);
+        return retry(concurrent, hash, input.requestId, version);
       }
       return envelope(next, access, refresh);
     },
     async revoke(refreshToken: string) {
       if (!validToken(refreshToken, 'r')) throw unauthorized();
-      const row = await store.byRefresh(tokenHash(refreshToken));
-      if (!row || row.credentialVersion !== version()) throw unauthorized();
+      const version = await serverVersion(), row = await store.byRefresh(tokenHash(refreshToken));
+      if (!row || row.credentialVersion !== version) throw unauthorized();
       await store.revoke(row.id, new Date(now()).toISOString());
       return { ok: true };
     },

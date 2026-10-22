@@ -83,6 +83,12 @@ describe('API 逐项权限边界', () => {
     expect(requiredApiPermission('/api/admin-auth/applications', 'GET')).toBe('top');
     expect(requiredApiPermission('/api/admin-auth/new-endpoint', 'POST')).toBe('top');
   });
+
+  it('站主密码接口仅允许站主本人', () => {
+    for (const method of ['GET', 'PUT']) {
+      expect(requiredApiPermission('/api/owner-password', method)).toBe('top');
+    }
+  });
 });
 
 describe('设置子页权限', () => {

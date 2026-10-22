@@ -78,9 +78,15 @@ console.log(add(1, 2));
 点击上方任意图片即可进入灯箱预览（ESC / 点击遮罩关闭，←/→ 切换）。
 `;
 
-const { html, toc } = await renderMdx(
-  SOURCE.replace('IMG1', img1).replace('IMG2', img2),
-);
+let html = '';
+let toc: import('@/lib/mdx-plugins').TocItem[] = [];
+try {
+  const rendered = await renderMdx(SOURCE.replace('IMG1', img1).replace('IMG2', img2));
+  html = rendered.html;
+  toc = rendered.toc;
+} catch (err) {
+  html = `<p class="text-destructive">演示内容渲染失败：${err instanceof Error ? err.message : String(err)}</p>`;
+}
 ---
 <!-- ===== Template ===== -->
 <BaseLayout title="MDX 渲染演示" description="Phase 2 MDX 渲染管线现场演示" indexable={false}>

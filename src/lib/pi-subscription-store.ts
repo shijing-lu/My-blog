@@ -7,6 +7,28 @@ import type { Credential, CredentialStore, AuthOperationOptions } from '@earendi
 import type { ChatGptRegistration } from './chatgpt-oauth';
 
 type State = { hostId: string; credentials: Record<string, Credential>; registration?: ChatGptRegistration };
+async function safeAtomicRename(source: string, destination: string, retries = 10): Promise<void> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await fs.rename(source, destination);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if ((code === 'EPERM' || code === 'EBUSY') && attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+        continue;
+      }
+      try {
+        await fs.copyFile(source, destination);
+        await fs.unlink(source).catch(() => {});
+        return;
+      } catch {
+        throw error;
+      }
+    }
+  }
+}
+
 export function subscriptionFile() {
   if (process.env.BYQX_PI_AUTH_PATH) return path.resolve(process.env.BYQX_PI_AUTH_PATH);
   if (process.env.BYQX_CONFIG_PATH) return path.join(path.dirname(process.env.BYQX_CONFIG_PATH), 'pi-auth.json');
@@ -56,10 +78,9 @@ export class LocalSubscriptionStore implements CredentialStore {
       const state = await this.load();
       signal?.throwIfAborted();
       const result = await fn(state);
-      // Once token rotation has completed, persist it even if the caller stopped waiting.
       temp = `${this.file}.${randomUUID()}.tmp`;
       await fs.writeFile(temp, JSON.stringify(state), { mode: 0o600 });
-      await fs.rename(temp, this.file);
+      await safeAtomicRename(temp, this.file);
       return result;
     } finally {
       if (temp) await fs.unlink(temp).catch(() => {});

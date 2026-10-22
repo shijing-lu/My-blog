@@ -81,6 +81,7 @@
     "lucide-react": "^1.33.0",
     "lunar-javascript": "^1.7.7",
     "marked": "^18.0.12",
+    "mermaid": "^12.2.0",
     "motion": "^12.43.0",
     "postgres": "^3.4.9",
     "radix-ui": "^1.6.7",

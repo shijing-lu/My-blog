@@ -47,7 +47,14 @@ while (parentId && !seen.has(parentId)) {
 }
 if (folderPath.length === 0) folderPath.push('未分类');
 const deferRender = article.content.length > 96 * 1024;
-const rendered = deferRender ? null : await renderMdx(article.content);
+let rendered: Awaited<ReturnType<typeof renderMdx>> | null = null;
+if (!deferRender) {
+  try {
+    rendered = await renderMdx(article.content);
+  } catch (err) {
+    console.error(`[edit] SSR renderMdx failed for article ${article.id}:`, err);
+  }
+}
 let html = rendered?.html ?? (deferRender ? '<p class="text-sm text-muted-foreground">正在加载长文章…</p>' : '');
 if (rendered && html) {
   const imageIds = collectImageIdsFromHtml(html);

@@ -182,7 +182,8 @@ const boot = {
         ta.style.top = '-1000px';
         document.body.appendChild(ta);
         ta.select();
-        const ok = document.execCommand('copy');
+        const exec = (document as unknown as { execCommand?: (c: string) => boolean }).execCommand;
+        const ok = typeof exec === 'function' ? exec.call(document, 'copy') : false;
         document.body.removeChild(ta);
         return ok;
       } catch {

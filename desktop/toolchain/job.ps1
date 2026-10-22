@@ -57,7 +57,7 @@ try {
   Write-Output "SERVICE_PID=$pidValue"
   $ready = $false
   while ([ToolJob]::Alive()) {
-    if (-not $ready) {
+    if (-not $ready -and $config.port -gt 0) {
       $connections = @(Get-NetTCPConnection -State Listen -LocalPort $config.port -ErrorAction SilentlyContinue)
       foreach ($connection in $connections) {
         if ([ToolJob]::Owns([uint32]$connection.OwningProcess)) {

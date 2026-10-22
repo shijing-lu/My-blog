@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
@@ -35,6 +36,47 @@ function softwarePath(value) {
   if (!['.exe', '.lnk'].includes(path.extname(resolved).toLowerCase())) throw Error('仅支持 .lnk 快捷方式或 .exe 程序');
   return resolved;
 }
+/** 脚本启动只接受 PowerShell 脚本；批处理需先包一层 .ps1，避免再引入 cmd.exe 这一层解释器。 */
+function scriptPath(value) {
+  const resolved = existingPath(value);
+  if (path.extname(resolved).toLowerCase() !== '.ps1') throw Error('仅支持 .ps1 PowerShell 脚本；.bat / .cmd 请先包一层 .ps1');
+  const stat = fs.statSync(resolved);
+  if (stat.size > 512 * 1024) throw Error('脚本超过 512KB，请精简后再登记');
+  return resolved;
+}
+/**
+ * 内联脚本：直接粘贴的 PowerShell 代码，不落成用户文件。
+ * 换行统一为 LF（PowerShell 两种都认），去掉首尾空行；上限与 .ps1 文件登记保持一致，
+ * 避免单条登记把 registry.json 撑到无法原子改写。
+ */
+function inlineScript(value) {
+  if (typeof value !== 'string') throw Error('请粘贴要运行的脚本代码');
+  if (value.includes('\u0000')) throw Error('脚本代码含有无法保存的控制字符，请重新粘贴');
+  const code = value.replace(/\r\n?/g, '\n').replace(/^\s+|\s+$/g, '');
+  if (!code) throw Error('请粘贴要运行的脚本代码');
+  if (Buffer.byteLength(code, 'utf8') > 512 * 1024) throw Error('脚本超过 512KB，请精简后再登记');
+  return code;
+}
+/**
+ * 把粘贴的代码落成可执行的 .ps1。
+ * Windows PowerShell 5.1 在无 BOM 时按 ANSI 读取脚本，中文与注释会乱码，因此必须写 BOM。
+ */
+function writeInlineScript(file, code) {
+  const body = inlineScript(code);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '\uFEFF' + body, { mode: 0o600 });
+  return file;
+}
+/**
+ * 脚本日志解码。
+ * job.ps1 用 Start-Process 把子进程 stdout 直接重定向进日志文件，子进程的
+ * [Console]::OutputEncoding 是它自己的（中文 Windows 默认 GBK），不会继承 job.ps1。
+ * 因此日志既可能是 UTF-8（脚本自己设过），也可能是 GBK：先严格按 UTF-8 判定，失败再回落。
+ */
+function decodeLogBuffer(buffer) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
+  catch { try { return new TextDecoder('gbk').decode(buffer); } catch { return buffer.toString('utf8'); } }
+}
 function webUrl(value, local = false) {
   let url;
   try { url = new URL(value); } catch { throw Error('请输入完整的 HTTP / HTTPS 地址'); }
@@ -44,18 +86,34 @@ function webUrl(value, local = false) {
   return url.href;
 }
 // No shell evaluation: quotes are arguments, metacharacters/pipelines are rejected.
-function commandTokens(command) {
-  if (typeof command !== 'string' || !command.trim() || command.length > 1000 || /[\r\n;&|<>`$]/.test(command)) throw Error('请使用单条 npm / pnpm / yarn / node 命令；复杂命令请写入 package.json 的脚本');
+function splitQuoted(text, message) {
   const tokens = []; let current = '', quote = '', started = false;
-  for (const char of command.trim()) {
+  for (const char of text) {
     if (quote) { if (char === quote) quote = ''; else current += char; }
     else if (char === '"' || char === "'") { quote = char; started = true; }
     else if (/\s/.test(char)) { if (started || current) { tokens.push(current); current = ''; started = false; } }
     else { current += char; started = true; }
   }
-  if (quote) throw Error('启动命令的引号没有闭合');
+  if (quote) throw Error(message);
   if (started || current) tokens.push(current);
   return tokens;
+}
+function commandTokens(command) {
+  if (typeof command !== 'string' || !command.trim() || command.length > 1000 || /[\r\n;&|<>`$]/.test(command)) throw Error('请使用单条 npm / pnpm / yarn / node 命令；复杂命令请写入 package.json 的脚本');
+  return splitQuoted(command.trim(), '启动命令的引号没有闭合');
+}
+/**
+ * 脚本启动参数：整体交给 argv 数组，不经过任何 shell。
+ * 只拒绝换行与控制型元字符（防止日后被拼进命令行时改变语义）；`$`/反引号在 argv 里是普通字符。
+ */
+function tokenizeArguments(text) {
+  if (text === undefined || text === null) return [];
+  if (typeof text !== 'string') throw Error('启动参数格式不正确');
+  const value = text.trim();
+  if (!value) return [];
+  if (value.length > 500) throw Error('启动参数过长，请简化后再登记');
+  if (/[\r\n;&|<>]/.test(value)) throw Error('启动参数只接受普通参数，不支持管道、重定向或命令串联；复杂逻辑请写进脚本');
+  return splitQuoted(value, '启动参数的引号没有闭合');
 }
 function parseCommand(command, scripts = {}) {
   const tokens = commandTokens(command), manager = tokens.shift()?.replace(/\.cmd$/i, '').toLowerCase();
@@ -124,7 +182,7 @@ function resolveCommand(directory, command, node = findNode()) {
   return { executable: node, args: [cli, ...recipe.args] };
 }
 function validateEntry(input, previous = {}) {
-  if (!input || !['software', 'source', 'web'].includes(input.kind)) throw Error('工具类型不正确');
+  if (!input || !['software', 'source', 'script', 'web'].includes(input.kind)) throw Error('工具类型不正确');
   const name = String(input.name || '').trim().slice(0, 80);
   if (!name) throw Error('请填写工具名称');
   const result = { id: previous.id || crypto.randomUUID(), kind: input.kind, name, category: String(input.category || '').trim().slice(0, 30), tags: [...new Set(String(input.tags || '').split(/[,，\s]+/).filter(Boolean))].slice(0, 8).map(tag => tag.slice(0, 24)), favorite: input.favorite === true, createdAt: previous.createdAt || new Date().toISOString() };
@@ -137,6 +195,22 @@ function validateEntry(input, previous = {}) {
     parseCommand(result.command, metadata.scripts);
     result.url = webUrl(input.url, true);
   }
+  if (input.kind === 'script') {
+    // 两种登记方式共用同一套启动流程：文件登记记 path，粘贴代码记 code，二者互斥。
+    result.mode = input.mode === 'inline' ? 'inline' : 'file';
+    // 参数只保留为 argv 数组原料（字符串），启动时再分词；不写入任何命令拼接结果。
+    result.arguments = String(input.arguments || '').trim().slice(0, 500);
+    tokenizeArguments(result.arguments);
+    const directory = String(input.workingDirectory || '').trim();
+    if (result.mode === 'inline') {
+      result.code = inlineScript(input.code);
+      // 内联脚本没有源文件可依据，默认工作目录取用户主目录，而不是工具链数据目录。
+      result.workingDirectory = directory ? existingPath(directory, true) : os.homedir();
+    } else {
+      result.path = scriptPath(input.path);
+      result.workingDirectory = directory ? existingPath(directory, true) : path.dirname(result.path);
+    }
+  }
   return result;
 }
-module.exports = { atomicJson, jsonFile, existingPath, softwarePath, webUrl, commandTokens, parseCommand, projectMetadata, redactStartup, cleanEnvironment, findNode, resolveCommand, validateEntry };
+module.exports = { atomicJson, jsonFile, existingPath, softwarePath, scriptPath, inlineScript, writeInlineScript, decodeLogBuffer, webUrl, commandTokens, splitQuoted, tokenizeArguments, parseCommand, projectMetadata, redactStartup, cleanEnvironment, findNode, resolveCommand, validateEntry };

@@ -67,8 +67,9 @@ export const SYNC_POLICIES: SyncPolicy[] = [
     pk: ['key'],
     role: 'lww',
     changeBy: 'updated_at',
-    note: '站点设置 KV；ai_usage 为高频计数器 → 排除（否则 LWW 会丢计数）',
-    excludeWhere: (row: SyncRow) => row.key === 'ai_usage' || row.key === 'ai_skill_mounts',
+    note: '站点设置 KV；ai_usage 为高频计数器 → 排除（否则 LWW 会丢计数）；owner_password 是本机凭据摘要，不上云',
+    excludeWhere: (row: SyncRow) =>
+      row.key === 'ai_usage' || row.key === 'ai_skill_mounts' || row.key === 'owner_password',
   },
 
   // ── 追加型（union，按主键并集）───────────────────────────────────────

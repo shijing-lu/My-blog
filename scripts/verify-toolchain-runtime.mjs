@@ -71,6 +71,25 @@ try {
   try { await invoke('launch', { id: entry.id }); } catch {}
   await waitStatus('failed'); assert.match(state().error, /占用/); await new Promise(resolve => occupied.close(resolve)); report.cases.push('occupied port fails without taking over other process');
   await invoke('remove', { id: entry.id }); assert.equal(fs.existsSync(path.join(project, 'server.cjs')), true); report.cases.push('remove registration preserves original project');
+  // 脚本启动：在 PowerShell 中运行、记录运行窗口与退出码、失败时带出错误
+  const scriptFile = path.join(out, 'script-review.ps1');
+  fs.writeFileSync(scriptFile, 'Write-Output "script-runtime-ok"\r\n');
+  entry = await invoke('save', { kind: 'script', name: '隔离验收脚本', path: scriptFile, tags: '验收' });
+  assert.equal(entry.workingDirectory, path.dirname(scriptFile));
+  await invoke('launch', { id: entry.id });
+  const finished = await waitStatus('stopped');
+  assert.equal(finished.exitCode, 0);
+  assert.ok(Date.parse(finished.finishedAt) >= Date.parse(finished.startedAt));
+  assert.match(await invoke('logs', { id: entry.id }), /script-runtime-ok/);
+  report.cases.push('script tool runs in PowerShell, records the run window and exit code, logs its output');
+  fs.writeFileSync(scriptFile, 'Write-Output "will-fail"\r\nexit 4\r\n');
+  await invoke('launch', { id: entry.id });
+  const failedScript = await waitStatus('failed');
+  assert.match(failedScript.error, /退出码 4/);
+  report.cases.push('failing script surfaces its exit code instead of a generic error');
+  await invoke('remove', { id: entry.id });
+  assert.equal(fs.readFileSync(scriptFile, 'utf8').includes('will-fail'), true);
+  report.cases.push('removing a script entry keeps the original .ps1 file');
   console.log('TOOLCHAIN_RUNTIME_OK', report.cases.length);
 } catch (error) { report.errors.push(error.stack); throw error; }
 finally { if (entry) await invoke('stop', { id: entry.id }).catch(() => {}); await host?.close().catch(() => {}); fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2)); }

@@ -19,10 +19,10 @@ for (const directory of [out, project, profile, path.join(appData, 'byqx-blog-de
 const report = { executable, isolated: true, cases: [], errors: [] };
 const record = message => { report.cases.push(message); console.log(message); };
 const digest = filename => crypto.createHash('sha256').update(fs.readFileSync(filename)).digest('hex');
-for (const file of ['main.cjs', 'preload.cjs', 'toolchain/core.cjs', 'toolchain/manager.cjs', 'toolchain/runner.cjs', 'toolchain/job.ps1']) {
+for (const file of ['main.cjs', 'preload.cjs', 'toolchain/core.cjs', 'toolchain/manager.cjs', 'toolchain/runner.cjs', 'toolchain/script-runner.cjs', 'toolchain/job.ps1']) {
   assert.equal(digest(path.join(root, 'desktop', file)), digest(path.join(portable, 'resources/app/desktop', file)), file);
 }
-record('Portable main, preload and all four toolchain runtime files match the source');
+record('Portable main, preload and all five toolchain runtime files match the source');
 const freePort = () => new Promise(resolve => { const server = net.createServer(); server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); }); });
 const port = await freePort(), toolPort = await freePort();
 const dbPath = path.join(out, 'test.db');

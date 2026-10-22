@@ -23,26 +23,44 @@ fs.rmSync(TMP_DIR, { recursive: true, force: true });
 fs.mkdirSync(TMP_DIR, { recursive: true });
 
 /** 生成临时 drizzle 配置（与 drizzle.config.sqlite.ts 同构，仅 url 指向临时库） */
-const cfgSrc = fs.readFileSync(path.join(ROOT, 'drizzle.config.sqlite.ts'), 'utf8');
-const cfgTmp = cfgSrc.replace(
-  /url:\s*'[^']*'/,
-  `url: ${JSON.stringify(`file:${TMP_DB.split(path.sep).join('/')}`)}`,
-);
-fs.writeFileSync(path.join(TMP_DIR, 'drizzle.config.tmp.ts'), cfgTmp, 'utf8');
+const cfgPath = path.join(ROOT, 'drizzle.config.tmp.ts');
+const fileUrl = TMP_DB.split(path.sep).join('/');
+const cfgTmp = `import { defineConfig } from 'drizzle-kit';
+
+export default defineConfig({
+  dialect: 'sqlite',
+  schema: './db/schema.sqlite.ts',
+  dbCredentials: {
+    url: ${JSON.stringify(fileUrl)},
+  },
+  verbose: true,
+  strict: true,
+});
+`;
+fs.writeFileSync(cfgPath, cfgTmp, 'utf8');
 
 // drizzle-kit 需要解析 TS 配置与 schema（含 @ 别名）→ 直接用 node 调其 bin（绕开 pnpm 的
 // run 前置校验，见 scripts/build-desktop.mjs 同款做法）
 const drizzleKitBin = path.join(ROOT, 'node_modules', 'drizzle-kit', 'bin.cjs');
-const res = spawnSync(
-  process.execPath,
-  [
-    drizzleKitBin, 'push',
-    `--config=${path.join(TMP_DIR, 'drizzle.config.tmp.ts')}`,
-    '--force',
-  ],
-  { cwd: ROOT, stdio: 'inherit', shell: false },
-);
-if (res.status !== 0) {
+let pushSuccess = false;
+try {
+  const res = spawnSync(
+    process.execPath,
+    [
+      drizzleKitBin, 'push',
+      `--config=${cfgPath}`,
+      '--force',
+    ],
+    { cwd: ROOT, stdio: 'inherit', shell: false },
+  );
+  if (res.status === 0) {
+    pushSuccess = true;
+  }
+} finally {
+  fs.rmSync(cfgPath, { force: true });
+}
+
+if (!pushSuccess) {
   console.error('[desktop-template] drizzle-kit push 失败');
   process.exit(1);
 }

@@ -11,6 +11,10 @@
 用户数据位于 `%APPDATA%\\byqx-blog-desktop\\`：
 
 - `config.json`：本地及云端配置。已有配置升级时保留。
+  其中 `ADMIN_PASSWORD` 只是**初始**站主口令：站主在 `/admin/auth` 改过密码后，新口令以
+  scrypt 摘要存进 `blog-local.db` 的 `settings.owner_password`，登录优先比对它（见
+  `src/lib/owner-password.ts`）；该键不参与云同步。本机自动登录已改为主进程用 `AUTH_SECRET`
+  直接签发 `admin_session`，因此改密码后重启仍能自动进入，不需要回写 `config.json`。
 - `blog-local.db`：本地文章、设置和同步记录。
 - `files/`：对象缓存。
 - `logs/launch.log`：启动及同步日志。
@@ -51,5 +55,14 @@ pnpm exec electron-builder --win nsis --x64 --prepackaged release/win-unpacked -
 - `desktop/server-process.cjs`、`server.cjs`、`local-db.cjs`：服务进程、本地库检查和补表。
 - `src/sync/`：本地与 PostgreSQL 的同步、镜像和冲突副本。
 - `scripts/build-portable.mjs`：模板、构建、组装的统一入口。
+
+### 工具链（`/toolchain`）
+
+四类入口：本机软件（`.lnk` / `.exe`）、源码项目（启动本地服务并开独立窗口）、脚本启动（在 PowerShell 中运行 `.ps1`，也可直接粘贴代码）、网页工具（外部浏览器）。
+
+- 运行状态、日志与版本化运行目录位于 `%APPDATA%\\byqx-blog-desktop\\toolchain\\`；登记表为 `registry.json`，只存入口信息，不复制、不改写被登记的项目或脚本。内联脚本的代码本身存在 `registry.json` 里，启动时才写到 `runs/<id>/inline.ps1`。
+- 源码项目与脚本启动都由一个独立的 Electron 宿主进程托管：`runner.cjs`（有窗口，等端口就绪）与 `script-runner.cjs`（无窗口，只看脚本存活与退出码），二者都用 `job.ps1` 把子进程放进 Windows Job（`KILL_ON_JOB_CLOSE`），因此停止、重启、移除入口都能精确终止整棵进程树。
+- 脚本启动的边界：只接受 `.ps1`（≤512KB）或等长的粘贴代码；参数按 argv 传入、不经任何 shell，登记时拒绝管道 / 重定向 / 命令串联。工作目录缺省为脚本所在目录，内联脚本缺省为用户主目录。`.bat` / `.cmd` 需先包一层 `.ps1`，避免再引入 `cmd.exe` 解释层。内联脚本每次启动前重写，写出时带 UTF-8 BOM，否则 Windows PowerShell 5.1 会把中文按 ANSI 读坏。
+- 所有原生操作都要过 `toolchainOwner`：仅站主会话、仅 `/toolchain` 主框架、并由本地服务二次校验授权。
 
 数据库变更应同时适配 SQLite 和 PostgreSQL；需要同步的新表还应登记到 `src/sync/tables.ts`。Web 构建可能执行云端迁移，桌面打包不会执行 Web 构建的云端前置脚本。

@@ -107,4 +107,36 @@ describe('silent article navigation saves', () => {
     expect(request).toHaveBeenCalledOnce();
     expect(pendingArticleField('/api/articles/full-storage', 'content')).toBeNull();
   });
+  it('correctly reports pending save status through hasPendingArticleSaves', async () => {
+    const { hasPendingArticleSaves } = await import('../src/lib/pending-article-saves');
+    expect(hasPendingArticleSaves()).toBe(false);
+    rememberArticleSave('/api/articles/check-pending', { content: 'unsent' });
+    expect(hasPendingArticleSaves()).toBe(true);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')));
+    await flushPendingArticleSaves();
+    expect(hasPendingArticleSaves()).toBe(false);
+  });
+  it('overrides baseline and pending snapshot version to resolve 409 conflict', async () => {
+    const { overrideArticleContentVersion } = await import('../src/lib/pending-article-saves');
+    const url = '/api/articles/resolve-conflict';
+    setArticleContentVersion(url, hash('stale-hash'));
+    rememberArticleSave(url, { content: 'my local edits' });
+
+    const request = vi.fn(async (_url, options) => {
+      const body = JSON.parse(options.body);
+      if (body.expectedContentHash === hash('new-server-hash')) {
+        return new Response(JSON.stringify({ contentHash: hash(body.content) }));
+      }
+      return new Response('{}', { status: 409 });
+    });
+    vi.stubGlobal('fetch', request);
+
+    await expect(saveArticleSnapshot(url, { content: 'my local edits' })).rejects.toThrow('服务器正文版本已变化');
+
+    overrideArticleContentVersion(url, hash('new-server-hash'));
+    expect(articleContentVersion(url)).toBe(hash('new-server-hash'));
+
+    await expect(saveArticleSnapshot(url, { content: 'my local edits' })).resolves.toBeDefined();
+    expect(pendingArticleField(url, 'content')).toBeNull();
+  });
 });

@@ -22,6 +22,7 @@ const {
 /* ===== Imports ===== */
 import '../styles/global.css';
 import '../styles/soft-code-blocks.css';
+import '@/styles/mermaid.css';
 import '../styles/print.css'; // 「导出 PDF」打印样式表（@media print，零屏显开销）
 import 'katex/dist/katex.min.css'; // LaTeX 公式渲染样式（配合 mdx-plugins 的 rehype-katex）
 import '@/styles/mobile-reading.css';
@@ -397,6 +398,7 @@ const needsKatexFonts =
       import '@/scripts/spoiler';
       import '@/scripts/interactive-html';
       import '@/scripts/body-heading-folding';
+      import '@/scripts/mermaid';
     </script>
     <script>
       import '@/scripts/desktop-navigation';

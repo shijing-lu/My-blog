@@ -6,7 +6,7 @@ import { clientKey, rateLimit } from '@/lib/rate-limit';
 export const prerender = false;
 export const GET: APIRoute = async ({ request, params }) => {
   try {
-    if (params.action === 'info') return mobileJson(mobileAuth.info());
+    if (params.action === 'info') return mobileJson(await mobileAuth.info());
     if (params.action === 'me') return mobileJson(await requireMobileOwner(request));
     return mobileJson({ error: '接口不存在' }, 404);
   } catch (error) { return mobileError(error); }

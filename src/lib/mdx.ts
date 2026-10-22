@@ -186,6 +186,7 @@ export function normalizeMathFences(source: string): string {
   //    `Mismatch: \begin{vmatrix} matched by \end{\{}` → 整块公式退化为红字源码
   //    （2026-09-12 用户报障：文档文章界面 n 阶行列式显示错误）。
   let inDisplayMath = false;
+  let activeQuotePrefix = '';
   for (const raw of lines) {
     const t = raw;
     // 代码必须原样保留；支持引用前缀，且只由同字符、足够长的围栏闭合。
@@ -216,7 +217,10 @@ export function normalizeMathFences(source: string): string {
     }
     // 引用前缀剥离开销：拆分行内 `$$` 时逐段回添 `>` 前缀，
     // 否则 fence 行会逃出 blockquote，产生「未闭合引用 + 引用内 $…$ 被拒」双重报错。
-    const { prefix, content } = splitQuotePrefix(t);
+    let { prefix, content } = splitQuotePrefix(t);
+    if (inDisplayMath && !prefix && activeQuotePrefix) {
+      prefix = activeQuotePrefix;
+    }
     // ② 表格数据行（顶格/≤3 缩进 + 行首 `|`）：remark-math 的 `$…$` 在 GFM 表格
     //    cell 内不激活 → 剥掉 `$` 以干净字面 LaTeX 显示，并把裸 `{`/`}` 转义为
     //    `\{`/`\}`（MDX 文本原样输出），阻止表达式解析崩溃（见 tableLineToSafe）。
@@ -290,9 +294,14 @@ export function normalizeMathFences(source: string): string {
       //    非数学段（isMath=false）的花括号落在数学区外 → 必须转义，
       //    否则暴露给 MDX 表达式解析 → acorn「Could not parse expression」。
       //    两段都追加 encodeMathEq（数学段整段、非数学段按其内部 `$…$` 判定）。
-      for (const s of segs) {
+      const listMatch = content.match(/^([ \t]*([-*+]|\d+\.)[ \t]+)/);
+      const itemIndent = listMatch ? ' '.repeat(listMatch[0].length) : '';
+      for (let sIdx = 0; sIdx < segs.length; sIdx++) {
+        const s = segs[sIdx]!;
+        const lineIndent = sIdx > 0 && itemIndent ? itemIndent : '';
         out.push(
           prefix +
+            lineIndent +
             (s.isMath
               ? encodeMathEq(s.text, true)
               : encodeMathEq(escapeBareBraces(escapeBareLt(s.text)))),
@@ -300,7 +309,10 @@ export function normalizeMathFences(source: string): string {
       }
     }
     // 本行出现过 `$$` → 把行内扫描结果带到下一行（跨行 display 数学状态）。
-    if (sawFence) inDisplayMath = inMath;
+    if (sawFence) {
+      inDisplayMath = inMath;
+      activeQuotePrefix = inMath ? prefix : '';
+    }
   }
   return out.join('\n');
 }
@@ -719,8 +731,20 @@ function tableLineToSafe(t: string): string {
       i += 1;
       continue;
     }
-    if (ch === '{' || ch === '}' || ch === '<') {
+    if (ch === '{' || ch === '}') {
       out += `\\${ch}`;
+      i += 1;
+      continue;
+    }
+    if (ch === '<') {
+      const rest = t.slice(i);
+      const tagMatch = /^<\/?([A-Za-z_$][\w$-]*)\b([^>]*?)(\/?)>/.exec(rest);
+      if (tagMatch) {
+        out += tagMatch[0];
+        i += tagMatch[0].length;
+        continue;
+      }
+      out += `\\<`;
       i += 1;
       continue;
     }
@@ -977,6 +1001,35 @@ function mapOutsideInlineCode(line: string, fn: (chunk: string) => string): stri
   }
   out += fn(line.slice(plain));
   return out;
+}
+
+/**
+ * HTML void elements / 常见无闭合标签规范化为 JSX 自闭合形态（<br />、<hr />、<wbr />、<img ... />）。
+ *
+ * 背景（2026-10-17 生产故障修复）：Markdown/GFM 中表格与正文常使用 `<br>` 进行换行或用 `<hr>` 画分割线，
+ * 但 MDX 将原始 HTML 标签当 JSX 解析，要求必须自闭合（<br />），
+ * 否则抛出「Expected a closing tag for `<br>` before the end of `tableData`」等语法错误导致整篇 500 页面白屏。
+ */
+export function normalizeVoidTags(source: string): string {
+  const inCode = codeFenceGuard();
+  return source
+    .split('\n')
+    .map((line) => {
+      if (inCode(line)) return line;
+      return mapOutsideInlineCode(line, (chunk) => {
+        let s = chunk;
+        // 1. </br> 与 </hr> 容错规范化为自闭合
+        s = s.replace(/<\/\s*(br|hr)\s*>/gi, '<$1 />');
+        // 2. 裸 <br>、<hr>、<wbr> 规范化为自闭合（保留已有属性如 <hr class="..." />）
+        s = s.replace(/<(br|hr|wbr)\b([^>]*?[^/])>/gi, '<$1$2 />');
+        s = s.replace(/<(br|hr|wbr)\s*>/gi, '<$1 />');
+        // 3. 裸 <img ...> 规范化为自闭合
+        s = s.replace(/<img\b([^>]*?[^/])>/gi, '<img$1 />');
+        s = s.replace(/<img\s*>/gi, '<img />');
+        return s;
+      });
+    })
+    .join('\n');
 }
 
 /**
@@ -1473,24 +1526,50 @@ function blockWindowText(fragment: string): string {
 /**
  * 源码预处理的唯一入口
  *
- * 七层规范化，顺序不可调换（后者依赖前者的输出）：
+ * 八层规范化，顺序不可调换（后者依赖前者的输出）：
  * 1. normalizeBackticks  反引号变体 → ASCII（U+0060），修复行内代码渲染失败
- * 2. **encodeMarkLeadVariant** 花括号前缀 `=={.variant} 正文 ==` → 哨兵编码。
- *    ⚠️ 必须排在第 3 层之前：normalizeMathFences 内嵌的 escapeBareBraces 会把
+ * 2. **normalizeVoidTags** 常见未闭合 HTML 标签（`<br>`、`<hr>`、`<wbr>`、`<img>`、`</br>`）规范化为 JSX 自闭合形态（`<br />`），
+ *    彻底解决 Markdown 表格/正文中书写 `<br>` 时 MDX 抛出 `Expected a closing tag for <br> before the end of tableData` 导致整篇 500 页面白屏。
+ * 3. **encodeMarkLeadVariant** 花括号前缀 `=={.variant} 正文 ==` → 哨兵编码。
+ *    ⚠️ 必须排在第 4 层之前：normalizeMathFences 内嵌的 escapeBareBraces 会把
  *    `{.variant}` 的 `{` 转义成 `\{`，一旦转义本形态即不可逆地退化为字面文本
  *    （变体丢失 + 正文里显出 `{.tip}`），后续再也无法识别。
- * 3. normalizeMathFences 「内容与 $$ 同行」→ 拆为独占行，修复 KaTeX 收到非法 TeX 的红字
- * 4. normalizeCollapseParams `:::collapse accordion` → `:::collapse{accordion}`
+ * 4. normalizeMathFences 「内容与 $$ 同行」→ 拆为独占行，修复 KaTeX 收到非法 TeX 的红字
+ * 5. normalizeCollapseParams `:::collapse accordion` → `:::collapse{accordion}`
  *    （remark-directive 只认花括号属性，空格参数会被整行降级为普通段落）
- * 5. normalizeTabs `:::tabs#id` + `@tab` → `:::tabs{stableId="id"}` + 无序列表
+ * 6. normalizeTabs `:::tabs#id` + `@tab` → `:::tabs{stableId="id"}` + 无序列表
  *    （`#` 容器名不被识别、`@tab` 非标准、`:` 被吃成 textDirective，且不支持嵌套容器）
- * 6. encodeCollapseMarkers / 7. encodeMarkSyntax
+ * 7. encodeCollapseMarkers / 8. encodeMarkSyntax
  *    字面量 `\=\=` 与后缀 `{…}` 在 MDX 解析前打上私有区哨兵，
  *    防 acorn 表达式崩溃 + 让插件能区分「字面量 / 真定界符 / 后缀」
  *
  * **抽成单一函数的原因**：renderMdx 写缓存与 invalidateRenderCache 失效缓存
  * 必须基于同一份归一化结果，否则两侧 key 永不相等、失效变成 no-op。
  */
+/**
+ * 修复意外被 JS 字符串转义或 JSON 反序列化吞噬反斜杠的 TeX 控制字符。
+ * 例如：`\approx` 变成 `\x07pprox` (`\a`)，`\frac` 变成 `\x0Crac` (`\f`)，
+ * `\times` 变成 `\x09imes` (`\t`)，`\text` 变成 `\x09ext`，`\tau` 变成 `\x09au`，
+ * `\right)` 因 `\r` 误拆成换行 `\n   ight)` 等。
+ */
+export function repairCorruptedTeXEscapes(source: string): string {
+  if (!/[\x07\x08\x0B\x0C\r\t]/.test(source)) return source;
+  return source
+    .replace(/\x07pprox/g, '\\approx')
+    .replace(/\x0Crac/g, '\\frac')
+    .replace(/\x08egin/g, '\\begin')
+    .replace(/\x08eta/g, '\\beta')
+    .replace(/\x08mathbf/g, '\\mathbf')
+    .replace(/\x0Bmatrix/g, '\\vmatrix')
+    .replace(/\x0Bec/g, '\\vec')
+    .replace(/\t(?:imes\b)/g, '\\times')
+    .replace(/\t(?:ext(?=[{\s]))/g, '\\text')
+    .replace(/\t(?:au\b)/g, '\\tau')
+    .replace(/\t(?:heta\b)/g, '\\theta')
+    .replace(/(\r?\n)([ \t]*)ight\)/g, '$1> $2\\right)')
+    .replace(/\r(?!\n)/g, '\n');
+}
+
 export function normalizeSource(source: string): string {
   return encodeMarkSyntax(
     encodeCollapseMarkers(
@@ -1499,7 +1578,7 @@ export function normalizeSource(source: string): string {
           // grid 必须排在 normalizeMathFences 之后：花括号转义兜底先跑，
           // 否则作者写的 `{columns="3"}` 会被转义成 `\{…\}` 而在解析器前失效
           normalizeGridParams(
-            normalizeMathFences(encodeMarkLeadVariant(normalizeBackticks(source))),
+            normalizeMathFences(encodeMarkLeadVariant(normalizeVoidTags(normalizeBackticks(repairCorruptedTeXEscapes(source))))),
           ),
         ),
       ),

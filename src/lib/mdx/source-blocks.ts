@@ -71,7 +71,7 @@ export function remarkSourceBlocks() {
           headings[(node.depth ?? 1) - 1] = text;
         }
         const callout =
-          node.type === "blockquote" && /^>\s*\[!\w+\]/.test(markdown);
+          node.type === "blockquote" && /^>\s*\[!\s*[\w-]+\]/.test(markdown);
         const fingerprint = blockFingerprint(markdown),
           ordinal = (counts.get(fingerprint) ?? 0) + 1;
         counts.set(fingerprint, ordinal);

@@ -29,6 +29,8 @@ export function requiredApiPermission(pathname: string, method: string): Permiss
   // Astro 可接受尾斜杠；权限匹配必须与实际路由保持一致。
   pathname = pathname.replace(/\/+$/, '') || '/';
   if (pathname === '/api/toolchain' || pathname.startsWith('/api/toolchain/')) return 'top';
+  // 站主密码只允许站主本人改（handler 内还会用 guardTopAdmin 二次校验）。
+  if (pathname === '/api/owner-password') return 'top';
   // handler 再按身份 kind='top' 收紧至站主本人，授权 top 管理员也不共享私人日程。
   if (pathname === '/api/cadence' || pathname.startsWith('/api/cadence/')) return 'top';
   const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
