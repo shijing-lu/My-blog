@@ -13,11 +13,11 @@
 import SettingsForm from '@/components/admin/SettingsForm.astro';
 import NeoIcon from '@/components/NeoIcon.astro';
 import '@/styles/settings-workspace.css';
-import { serverEnv } from '@/lib/env';
+import { supportsCloudSync } from '@/lib/sync-runtime';
 import { getSettingsSections } from '@/lib/settings-sections';
 
 /* 左侧导航：分区 key + 标签 + 搜索关键词；anchor 用于分区内的子定位（如站点背景） */
-const navItems = getSettingsSections(serverEnv('DESKTOP_MODE') === '1');
+const navItems = getSettingsSections(supportsCloudSync());
 ---
 
 <!-- ===== Template ===== -->

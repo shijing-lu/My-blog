@@ -38,6 +38,7 @@ export default defineConfig({
     defaultStrategy: 'hover',
   },
   vite: {
+    server: { watch: { ignored: ['**/.pnpm-store/**', '**/outputs/**', '**/release/**', '**/.android-tools/**'] } },
     // 桌面构建（DESKTOP=1）：envDir 指向空目录 —— 根目录 .env / .env.production（内含
     // `[SENSITIVE]` 脱敏占位与本地 dev 值）不被加载，import.meta.env 保持干净，
     // 运行时全部由 Electron 主进程注入的 process.env 提供（见 desktop/main.cjs）。

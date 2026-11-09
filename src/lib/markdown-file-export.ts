@@ -1,8 +1,11 @@
 /** Preserve tree reorder: the small export grip alone starts a native file drag. */
 type Prepared = { ok: boolean; token?: string; filename?: string; error?: string };
+/** 桌面端主进程导出的能力桥；类型集中声明在这里（其余模块只读 `window.desktop`） */
 declare global { interface Window { desktop?: {
   prepareMarkdownExport?: (id: string) => Promise<Prepared>;
   startMarkdownDrag?: (token: string) => void;
+  /** PDF 直出：渲染层准备好正文后交由主进程 printToPDF 静默写文件（见 desktop/pdf-export.cjs） */
+  exportPdf?: (input: { title: string }) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string; error?: string }>;
   [key: string]: unknown;
 }; } }
 function status(message: string): void {

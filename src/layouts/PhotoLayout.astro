@@ -32,11 +32,11 @@ import ArticleFooter from '@/components/article/ArticleFooter.astro';
   <section class="neo-reader">
     <div class="reader-columns">
       <main class="article-paper min-w-0">
-        {/* 整篇文章统一宽度：图片 object-cover（与分割线同宽，不铺满全屏） */}
+        {/* 图片呈现交由 Markdown 样式设置控制，不强制裁切比例。 */}
         <div class="max-w-3xl">
           <ArticleHeader article={article} />
           <div class="pixel-divider mt-6" />
-          <div class="layout-photo mt-6">
+          <div class="mt-6">
             <slot />
           </div>
           <ArticleFooter article={article} prev={prev} next={next} />

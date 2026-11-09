@@ -32,11 +32,11 @@ import ArticleFooter from '@/components/article/ArticleFooter.astro';
   <section class="neo-reader">
     <div class="reader-columns">
       <main class="article-paper min-w-0">
-        {/* 整篇文章统一宽度：引用/列表强调由 .layout-note 提供 */}
+        {/* 正文样式统一交由 Markdown 样式设置控制。 */}
         <div class="max-w-3xl">
           <ArticleHeader article={article} />
           <div class="pixel-divider mt-6" />
-          <div class="layout-note mt-6">
+          <div class="mt-6">
             <slot />
           </div>
           <ArticleFooter article={article} prev={prev} next={next} />

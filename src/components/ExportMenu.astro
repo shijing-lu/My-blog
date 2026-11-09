@@ -1,11 +1,16 @@
 ---
 /**
- * 文章导出菜单（MD 下载 + PDF 打印）
+ * 文章导出菜单（MD 下载 + PDF 直出）
  *
  * 纯静态组件 + 一个文档级事件委托脚本：blog 详情页传静态 `mdUrl`；
  * doc 页在客户端切文章（URL 同步 ?article=），故传 `mdBase`+`mdParam`
- * 由点击时解析当前节点 id。PDF 走 window.print()（样式见 styles/print.css），
- * 两种形态（Vercel Web / Electron 桌面）共用同一实现。
+ * 由点击时解析当前节点 id。
+ *
+ * PDF 走 `@/lib/pdf-export`：
+ *   - 桌面端 → 主进程 printToPDF，保存对话框后直接落盘；
+ *   - 浏览器 → 离屏画布分页出图并直接下载；
+ * 两条路径都不再打开系统打印对话框（旧实现 `window.print()` 即用户报的「打印机页面」）。
+ * 导出期间按钮实时显示进度，失败/取消都会给出中文提示（见下方脚本）。
  */
 interface Props {
   /** 静态 MD 导出端点（文章详情页：SSR 期已知 slug） */
@@ -19,7 +24,7 @@ interface Props {
 
 const { mdUrl = '', mdBase = '', mdParam = 'article', class: className = '' } = Astro.props;
 const btn =
-  'inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-xs text-muted-foreground transition-all duration-150 hover:border-primary/50 hover:text-primary';
+  'inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-xs text-muted-foreground transition-all duration-150 hover:border-primary/50 hover:text-primary disabled:opacity-60';
 ---
 
 <span
@@ -29,10 +34,20 @@ const btn =
   data-md-param={mdParam}
 >
   <button type="button" data-export-md class={btn} title="下载 Markdown 源文件">导出 MD</button>
-  <button type="button" data-export-pdf class={btn} title="打开打印对话框，选择「另存为 PDF」">导出 PDF</button>
+  <button
+    type="button"
+    data-export-pdf
+    class={btn}
+    title="直接下载 PDF（无需打印对话框；黑幕与折叠会自动展开）"
+  >
+    导出 PDF
+  </button>
+  <span data-export-status class="hidden text-xs" role="status" aria-live="polite"></span>
 </span>
 
 <script>
+  import { exportArticlePdf, resolveExportTitle } from '@/lib/pdf-export';
+
   /** 解析当前文章的 MD 导出地址：静态 mdUrl 优先；否则 mdBase + 节点 id。
    *  节点 id 取当前 URL ?article=（doc 页切文章会 pushState 同步），
    *  缺省回落 SSR 注入的 [data-active-node]（首屏未带参数时选中第一篇）。 */
@@ -48,6 +63,44 @@ const btn =
     return id ? `${base}${encodeURIComponent(id)}` : '';
   }
 
+  /** 结果提示：成功为中性色，失败为强调色；空串 = 清空 */
+  function showStatus(menu: HTMLElement, message: string, failed = false): void {
+    const el = menu.querySelector<HTMLElement>('[data-export-status]');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle('hidden', !message);
+    el.classList.toggle('text-destructive', failed);
+    el.classList.toggle('text-muted-foreground', !failed);
+    if (!message) return;
+    window.clearTimeout(Number(el.dataset.timer ?? 0));
+    el.dataset.timer = String(
+      window.setTimeout(() => {
+        el.classList.add('hidden');
+      }, 6000),
+    );
+  }
+
+  /** PDF 导出：按钮禁用 + 实时进度（分页渲染耗时可能到秒级，必须有反馈） */
+  async function runPdfExport(menu: HTMLElement): Promise<void> {
+    const button = menu.querySelector<HTMLButtonElement>('[data-export-pdf]');
+    if (!button || button.dataset.busy === '1') return;
+    button.dataset.busy = '1';
+    button.disabled = true;
+    const original = button.textContent ?? '导出 PDF';
+    showStatus(menu, '');
+    const result = await exportArticlePdf({
+      title: resolveExportTitle(menu),
+      onStatus: (message) => {
+        button.textContent = message;
+      },
+    });
+    button.disabled = false;
+    button.textContent = original;
+    delete button.dataset.busy;
+    if (result.ok) showStatus(menu, result.mode === 'desktop' ? 'PDF 已保存' : 'PDF 已下载');
+    else if (!result.canceled) showStatus(menu, result.error ?? 'PDF 导出失败', true);
+  }
+
   // 文档级委托：ClientRouter 转场/doc 页内切换重建 DOM 后依旧有效
   document.addEventListener('click', (e) => {
     const target = e.target as HTMLElement | null;
@@ -57,7 +110,7 @@ const btn =
       const url = resolveMdUrl(menu);
       if (url) location.assign(url);
     } else if (target?.closest('[data-export-pdf]')) {
-      window.print();
+      void runPdfExport(menu);
     }
   });
 </script>

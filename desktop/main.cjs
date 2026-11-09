@@ -257,6 +257,8 @@ function trustedWindow(event) {
   return navigationWindow(event.sender);
 }
 require('./markdown-export.cjs').installMarkdownExport({ app, ipcMain, trustedWindow, baseUrl: () => siteBaseUrl, nativeImage });
+// PDF 直出：渲染层准备正文后由主进程 printToPDF 静默写文件（不弹系统打印对话框）
+require('./pdf-export.cjs').installPdfExport({ ipcMain, dialog, trustedWindow });
 ipcMain.handle('desktop:navigation-state', (event) => navigationState(trustedWindow(event)));
 ipcMain.handle('desktop:focus-window', (event) => {
   const win = trustedWindow(event);
@@ -336,6 +338,9 @@ function createWindow(url, { primary = false } = {}) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 云端连接测试/保存依赖渲染进程里的计时器；窗口被遮挡或最小化时不能被 Chromium
+      // 节流，否则超时回调不触发，界面会卡在“正在测试”且按钮一直禁用。
+      backgroundThrottling: false,
       nodeIntegrationInSubFrames: false,
       webviewTag: false,
     },
@@ -698,6 +703,16 @@ async function main() {
   const port = await pickPort(Number(config.PORT) || 43217);
   currentPort = port;
   setupObjectInterceptor(config.R2_PUBLIC_BASE_URL);
+  // 云端连接测试/保存的结果写入启动日志，便于排查“一直正在测试”这类前端无反馈问题。
+  try {
+    const filter = { urls: [`http://127.0.0.1:${port}/api/desktop/sync-config`] };
+    session.defaultSession.webRequest.onCompleted(filter, (details) => {
+      logLaunch(`sync-config ${details.method} → HTTP ${details.statusCode}`);
+    });
+    session.defaultSession.webRequest.onErrorOccurred(filter, (details) => {
+      logLaunch(`sync-config ${details.method} 网络错误：${details.error}`);
+    });
+  } catch { /* 日志注册失败不影响启动 */ }
   const localDbPath = config.LOCAL_DB_PATH || path.join(CONFIG_DIR, 'blog-local.db');
 
   // ---- env 注入（必须先于 import 服务产物：db/index.ts 在模块加载时读方言） ----

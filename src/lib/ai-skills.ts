@@ -65,6 +65,15 @@ export interface SkillSnapshot {
 }
 type Mounts = Partial<Record<SkillId, string>>;
 
+/**
+ * 归一化技能正文用于比较：只把换行符统一成 LF。
+ *
+ * 为什么需要：同一份技能曾以 CRLF 与 LF 两种形态各存一份（种子版本 + 换行符不同的副本），
+ * 两者 parentId 都是 null → 被判成两个并行 head → readSkill() 抛「有 N 个并行版本」，
+ * 技能在 AI 助手里整体不可用。内容其实完全一致，必须按同一版本处理。
+ */
+const normalizeSource = (source: string) => source.replace(/\r\n/g, "\n");
+
 export async function skillVersions(id: SkillId) {
   if (!(await ensureAiTables())) throw new Error("技能数据层不可用");
   const seed = {
@@ -94,7 +103,20 @@ export async function skillVersions(id: SkillId) {
       r.parentId ? (JSON.parse(r.parentId) as string[]) : [],
     ),
   );
-  return { rows, heads: rows.filter((r) => !parents.has(r.id)) };
+  const rawHeads = rows.filter((r) => !parents.has(r.id));
+  // 内容一致（仅换行符不同）的 head 视为同一个版本：保留与内置默认一致的那份。
+  const byContent = new Map<string, (typeof rawHeads)[number]>();
+  for (const head of rawHeads) {
+    const key = normalizeSource(head.source);
+    const kept = byContent.get(key);
+    if (!kept) {
+      byContent.set(key, head);
+      continue;
+    }
+    const preferred = head.source === defaults[id] ? head : kept.source === defaults[id] ? kept : null;
+    if (preferred) byContent.set(key, preferred);
+  }
+  return { rows, heads: [...byContent.values()] };
 }
 async function readMounts(): Promise<Mounts> {
   if (process.env.DESKTOP_MODE !== "1") return {};

@@ -22,7 +22,7 @@ import AiSkillsSettings from '@/components/admin/AiSkillsSettings';
 import UiStyleSettings from '@/components/admin/UiStyleSettings.astro';
 import SyncConnectionSettings from '@/components/admin/SyncConnectionSettings.astro';
 import ClassicAppearanceSettings from '@/components/admin/ClassicAppearanceSettings.astro';
-import { serverEnv } from '@/lib/env';
+import { supportsCloudSync } from '@/lib/sync-runtime';
 import { getImageBedConfig, serializeImageBedConfig } from '@/lib/image-bed';
 import { getCustomMdCss, scopeMdCss } from '@/lib/md-css';
 import { getMdCssLibrary } from '@/lib/md-css-library';
@@ -55,9 +55,8 @@ const showAi = !section || section === 'ai';
 const showNetdisk = !section || section === 'netdisk';
 const showSync = !section || section === 'sync';
 
-/** 仅在桌面端（Electron 主进程注入 DESKTOP_MODE=1）显示同步分区：
- *  Web 版没有本地库，"同步"无从谈起 —— 同一份代码按环境裁剪入口。 */
-const isDesktopMode = serverEnv('DESKTOP_MODE') === '1';
+/** 持久化 SQLite 的桌面端和 Web 端共用同步分区。 */
+const canCloudSync = supportsCloudSync();
 
 /** GitHub 图床配置（token 掩码：SSR 注入 hasToken，明文永不出库） */
 const imageBed = serializeImageBedConfig(await getImageBedConfig());
@@ -672,7 +671,7 @@ const mdCssLib = await getMdCssLibrary();
     </>)}
 
     <!-- 云端同步分区（仅桌面端） -->
-    {showSync && isDesktopMode && (<>
+    {showSync && canCloudSync && (<>
     <section id="sync" data-settings-section="sync" class="border-t border-border pt-6">
       <div data-m3-role="actions" class="flex items-center justify-between">
         <div>

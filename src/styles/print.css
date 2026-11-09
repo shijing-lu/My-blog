@@ -1,9 +1,15 @@
 /**
- * 打印样式表（「导出 PDF」的实现载体）
+ * 打印 / 导出 PDF 样式表（「导出 PDF」的实现载体之一）
  *
- * 浏览器/Electron 的打印引擎即 Chromium，`window.print()` + 本表产出
- * 与站点样式一致的 PDF（KaTeX/代码高亮/callout 天然保真），Web 与桌面端
- * 共用同一份代码，无服务端依赖。
+ * 两条导出路径共用本表的视觉约定：
+ * 1. **桌面端**：主进程 `webContents.printToPDF`（Chromium 打印管线），
+ *    由下方 `@media print` 生效——分页、断页规则、浅色主题都由打印引擎执行；
+ * 2. **浏览器端**：离屏画布截图（html2canvas-pro + jsPDF）后写进 PDF，
+ *    拿不到 `@media print`，改用文件末尾 `html[data-pdf-export='on']` 的
+ *    「纸面态」规则复刻同一套效果。
+ *
+ * 旧实现是 `window.print()`：必然弹系统打印对话框，且收起的折叠块、
+ * 正文里的交互按钮会一起丢失/打进纸面，现已改为直接导出文件。
  *
  * 约定：任何不希望出现在纸面上的元素加 `.no-print`；结构性 chrome 在下方
  * 按选择器隐藏。深色主题直接打出来费墨且对比反常，故在 print 下强制浅色
@@ -31,7 +37,10 @@
     color: #141413 !important;
   }
 
-  /* 站点 chrome 与交互件 */
+  /* 站点 chrome 与交互件；
+     ⚠️ 正文里的交互件（代码块折叠/复制、Callout 复制、黑幕开关、章节折叠箭头、
+     顶部编辑/源码/思维导图按钮、文章搜索条）也必须显式隐藏——它们不是 `.no-print`，
+     否则会一起打进纸面（旧实现即有此问题）。 */
   body > header,
   body > footer,
   .side-toolbar,
@@ -49,7 +58,19 @@
   #article-gate-form,
   #to-top,
   dialog,
-  .no-print {
+  .no-print,
+  main header button,
+  .article-title-cat,
+  .article-save-status,
+  .article-search-actions,
+  #article-find,
+  [data-code-toggle],
+  [data-copy],
+  .callout-copy,
+  [data-mermaid-toggle],
+  .spoiler-toggle-wrap,
+  .body-heading-toggle,
+  [data-markdown-export-drag] {
     display: none !important;
   }
 
@@ -78,4 +99,100 @@
     box-shadow: none !important;
     text-shadow: none !important;
   }
+}
+
+/* =====================================================================
+   「纸面态」—— 导出 PDF 期间临时挂到 <html> 上的屏幕态样式
+
+   桌面端走 Chromium 打印管线（上面的 @media print 生效）；
+   浏览器端走离屏画布（html2canvas-pro），拿不到 @media print，
+   故这里用 `html[data-pdf-export='on']` 复刻同一套「纸面规则」：
+   隐藏交互件、揭示黑幕、强制 content-visibility 为 visible（否则视口外
+   内容在画布里只有估算高度，等于空白）。导出结束由 JS 摘掉该属性。
+   ===================================================================== */
+html[data-pdf-export='on'] .no-print,
+html[data-pdf-export='on'] [data-code-toggle],
+html[data-pdf-export='on'] [data-copy],
+html[data-pdf-export='on'] .callout-copy,
+html[data-pdf-export='on'] [data-mermaid-toggle],
+html[data-pdf-export='on'] .spoiler-toggle-wrap,
+html[data-pdf-export='on'] .body-heading-toggle,
+html[data-pdf-export='on'] .article-search-actions,
+html[data-pdf-export='on'] .article-title-cat,
+html[data-pdf-export='on'] .article-save-status,
+html[data-pdf-export='on'] main header button,
+html[data-pdf-export='on'] [data-markdown-export-drag] {
+  display: none !important;
+}
+
+/* 黑幕：导出件是静态文件，没有点击揭示的可能 → 一律完整显示正文 */
+html[data-pdf-export='on'] .prose .spoiler {
+  filter: none !important;
+  background: none !important;
+  padding: 0 !important;
+  color: inherit !important;
+}
+
+/* 长文渲染优化（content-visibility:auto）在截图里会让视口外区块塌成估算高度 */
+html[data-pdf-export='on'] .prose *,
+html[data-pdf-export='on'] .pdf-export-root * {
+  content-visibility: visible !important;
+}
+
+/* 纸面不允许横向滚动：代码/表格/公式在页宽内换行，避免右侧被裁掉 */
+html[data-pdf-export='on'] .prose pre.code-block,
+html[data-pdf-export='on'] .pdf-export-root pre.code-block {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: visible;
+}
+html[data-pdf-export='on'] .prose table,
+html[data-pdf-export='on'] .pdf-export-root table {
+  display: table;
+  width: 100%;
+  table-layout: auto;
+}
+html[data-pdf-export='on'] .prose :is(td, th),
+html[data-pdf-export='on'] .pdf-export-root :is(td, th) {
+  overflow-wrap: anywhere;
+}
+html[data-pdf-export='on'] .prose .katex-display,
+html[data-pdf-export='on'] .pdf-export-root .katex-display {
+  overflow-x: visible;
+}
+
+/* ---- 离屏渲染载体（浏览器端画布导出专用） ----
+   fixed + 左移 100000px：不进布局流、不可见，但仍是真实渲染的 DOM。
+   视口高度由 JS 设为「本次要渲染的页组总高」，内容整体上移 -top 即得该页窗口。 */
+.pdf-export-viewport {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* 纸面正文容器：宽度 = A4 96dpi 宽 - 左右页边距（与 lib/pdf-pagination.ts 常量一致） */
+.pdf-export-root {
+  width: 698px;
+  background: #fff;
+  color: #141413;
+}
+
+.pdf-export-header {
+  margin: 0 0 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #d8d2c6;
+}
+.pdf-export-header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.pdf-export-meta {
+  margin: 0.45rem 0 0;
+  font-size: 0.72rem;
+  color: #6b6660;
+  word-break: break-all;
 }

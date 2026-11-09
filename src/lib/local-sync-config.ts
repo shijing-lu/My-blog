@@ -1,5 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
+import { supportsCloudSync } from './sync-runtime';
 import { randomUUID, randomBytes, scryptSync, createCipheriv, createDecipheriv } from 'node:crypto';
 import postgres from 'postgres';
 import { serverEnv } from './env';
@@ -8,8 +10,17 @@ export interface CloudConnections { primaryUrl: string; fallbackUrl: string }
 export class SyncConfigError extends Error {}
 let saving = false;
 export const syncConfigurationBusy = () => saving;
-export const localAppMode = () => serverEnv('DESKTOP_MODE') === '1';
+export const localAppMode = supportsCloudSync;
 export function cloudConnections(): CloudConnections {
+  if (serverEnv('DESKTOP_MODE') !== '1' && supportsCloudSync()) {
+    try {
+      const saved = JSON.parse(readFileSync(configPath(), 'utf8'));
+      if (typeof saved.SYNC_DATABASE_URL === 'string') return {
+        primaryUrl: saved.SYNC_DATABASE_URL,
+        fallbackUrl: typeof saved.SYNC_DATABASE_URL_FALLBACK === 'string' ? saved.SYNC_DATABASE_URL_FALLBACK : '',
+      };
+    } catch { /* An unsaved Web configuration falls back to environment settings. */ }
+  }
   return { primaryUrl: serverEnv('SYNC_DATABASE_URL'), fallbackUrl: serverEnv('SYNC_DATABASE_URL_FALLBACK') };
 }
 export function connectionSummary() {
@@ -20,6 +31,7 @@ function configPath(): string {
   if (!localAppMode()) throw new SyncConfigError('云同步连接仅可在本地客户端中配置');
   const explicit = serverEnv('BYQX_CONFIG_PATH');
   if (explicit) return path.resolve(explicit);
+  if (serverEnv('DESKTOP_MODE') !== '1') return path.resolve('data', 'web-sync-config.json');
   const appData = serverEnv('APPDATA');
   if (!appData) throw new SyncConfigError('本地配置目录不可用，请重新打开应用');
   return path.join(appData, 'byqx-blog-desktop', 'config.json');
@@ -50,7 +62,14 @@ export async function saveCloudConnections(input: Record<string, unknown>) {
   const temp = file + '.' + randomUUID() + '.tmp';
   saving = true;
   try {
-    const config: unknown = JSON.parse(await fs.readFile(file, 'utf8'));
+    let raw: string;
+    try { raw = await fs.readFile(file, 'utf8'); }
+    catch (error) {
+      if (serverEnv('DESKTOP_MODE') === '1' || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      raw = '{}';
+    }
+    const config: unknown = JSON.parse(raw);
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw Error('invalid config');
     const next = { ...config, SYNC_DATABASE_URL: connections.primaryUrl, SYNC_DATABASE_URL_FALLBACK: connections.fallbackUrl };
     await fs.writeFile(temp, JSON.stringify(next, null, 2), { mode: 0o600 });
@@ -65,34 +84,47 @@ export async function saveCloudConnections(input: Record<string, unknown>) {
 }
 async function probe(url: string) {
   const startedAt = Date.now();
-  const sql = postgres(url, { max: 1, connect_timeout: 5, idle_timeout: 1, max_lifetime: 10 });
+  const sql = postgres(url, { max: 1, connect_timeout: 4, idle_timeout: 1, max_lifetime: 10 });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([sql.unsafe('SELECT 1'), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('timeout')), 8000); })]);
+    await Promise.race([sql.unsafe('SELECT 1'), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('timeout')), 6000); })]);
     return { ok: true, elapsedMs: Date.now() - startedAt };
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error && error.message === 'timeout'
-        ? '连接超时（8 秒），请检查网络和数据库服务状态'
+        ? '连接超时（约 8 秒），请检查网络和数据库服务状态'
         : '连接失败，请检查连接串、网络和数据库服务状态',
       elapsedMs: Date.now() - startedAt,
     };
   } finally {
     if (timer) clearTimeout(timer);
-    // Closing a client with a stalled query must not hold the HTTP response open.
-    let closeTimer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      sql.end({ timeout: 1 }).catch(() => {}),
-      new Promise<void>(resolve => { closeTimer = setTimeout(resolve, 1500); }),
-    ]);
-    if (closeTimer) clearTimeout(closeTimer);
+    // 关闭连接不能拖住 HTTP 响应：结束动作放后台，失败也不影响返回。
+    void sql.end({ timeout: 1 }).catch(() => {});
   }
 }
 export async function testCloudConnections(input: Record<string, unknown>) {
   const connections = mergeConnections(input);
-  const [primary, fallback] = await Promise.all([probe(connections.primaryUrl), connections.fallbackUrl ? probe(connections.fallbackUrl) : Promise.resolve(null)]);
-  return { primary, fallback, ok: primary.ok && (!fallback || fallback.ok) };
+  const run = (async () => {
+    const [primary, fallback] = await Promise.all([probe(connections.primaryUrl), connections.fallbackUrl ? probe(connections.fallbackUrl) : Promise.resolve(null)]);
+    return { primary, fallback, ok: primary.ok && (!fallback || fallback.ok) };
+  })();
+  // 总超时兜底：无论底层驱动/网络如何卡住，10 秒内都要给界面一个结果。
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<{ primary: { ok: boolean; error?: string; elapsedMs: number }; fallback: { ok: boolean; error?: string; elapsedMs: number } | null; ok: boolean }>((resolve) => {
+    deadlineTimer = setTimeout(() => resolve({
+      primary: { ok: false, error: '连接测试超时（约 10 秒），请检查网络和数据库服务状态', elapsedMs: 10000 },
+      fallback: connections.fallbackUrl
+        ? { ok: false, error: '连接测试超时（约 10 秒），请检查网络和数据库服务状态', elapsedMs: 10000 }
+        : null,
+      ok: false,
+    }), 10000);
+  });
+  try {
+    return await Promise.race([run, deadline]);
+  } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+  }
 }
 function transferPassword(password: unknown): string {
   if (typeof password !== 'string' || password.length < 8 || password.length > 256) throw new SyncConfigError('配置文件口令须为 8–256 个字符');

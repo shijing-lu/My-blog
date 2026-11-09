@@ -46,8 +46,6 @@ import { serverEnv } from '@/lib/env';
     if (!candidate || candidate.dataset.inited) return;
     const root: HTMLElement = candidate;
     root.dataset.inited = '1';
-    const lifetime = new AbortController();
-    document.addEventListener('astro:before-swap', () => lifetime.abort(), { once: true, signal: lifetime.signal });
     const input = (id: string) => root.querySelector<HTMLInputElement>('#' + id)!;
     const feedback = root.querySelector<HTMLElement>('#sync-config-feedback')!;
     const state = root.querySelector<HTMLElement>('#sync-connection-state')!;
@@ -56,25 +54,36 @@ import { serverEnv } from '@/lib/env';
     function message(text: string, error = false) { feedback.textContent = text; feedback.classList.toggle('text-destructive', error); }
     function body() { return { primaryUrl: input('sync-primary-url').value, fallbackUrl: input('sync-fallback-url').value, clearFallback: input('sync-clear-fallback').checked }; }
     async function request(method: string, value?: unknown, timeoutMs = 15000) {
-      const timeout = AbortSignal.timeout(timeoutMs);
-      let response: Response;
+      // 手动 AbortController：既不依赖 AbortSignal.any 的可用性，也保证超时一定落到
+      // 具体的 UI 提示上（此前请求/页面切换时曾出现按钮永久忙碌、提示卡在“正在测试”）。
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
       try {
-        response = await fetch('/api/desktop/sync-config', { method, cache: 'no-store', signal: AbortSignal.any([lifetime.signal, timeout]), ...(value === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }) });
+        const response = await fetch('/api/desktop/sync-config', {
+          method,
+          cache: 'no-store',
+          signal: controller.signal,
+          ...(value === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) }),
+        });
+        const text = await response.text();
+        let result: Record<string, any> = {};
+        try { result = text ? JSON.parse(text) : {}; } catch { throw Error('服务返回内容异常，请重试'); }
+        if (!response.ok) throw Error(result.error || '配置操作失败，请重试');
+        return result;
       } catch (error) {
-        if (!lifetime.signal.aborted && timeout.aborted) {
-          throw new Error(method === 'POST' ? '连接测试超时，未能及时收到数据库响应。请检查网络和数据库服务后重试。' : '请求超时，请检查网络后重试。');
+        if (controller.signal.aborted) {
+          throw Error(method === 'POST' ? '连接测试超时，未能及时收到数据库响应。请检查网络和数据库服务后重试。' : '请求超时，请检查网络后重试。');
         }
         throw error;
+      } finally {
+        window.clearTimeout(timer);
       }
-      const result = await response.json();
-      if (!response.ok) throw Error(result.error || '配置操作失败，请重试');
-      return result;
     }
     async function refresh() {
       try {
         const summary = await request('GET');
         state.textContent = `主库：${summary.primaryConfigured ? '已配置，留空保持原值' : '未配置'}；备库：${summary.fallbackConfigured ? '已配置，留空保持原值' : '未配置（可选）'}`;
-      } catch (error) { if (!lifetime.signal.aborted) message(error instanceof Error ? error.message : '读取配置状态失败', true); }
+      } catch (error) { if (root.isConnected) message(error instanceof Error ? error.message : '读取配置状态失败', true); }
     }
     input('sync-show-urls').addEventListener('change', () => {
       for (const id of ['sync-primary-url', 'sync-fallback-url']) input(id).type = input('sync-show-urls').checked ? 'text' : 'password';
@@ -88,11 +97,24 @@ import { serverEnv } from '@/lib/env';
         elapsedSeconds += 1;
         message(`正在测试主库和备库连接…已等待 ${elapsedSeconds} 秒（最长约 12 秒）`);
       }, 1000) : 0;
+      // 看门狗：即使 fetch/超时回调因窗口被遮挡、渲染进程卡顿等原因没有触发，
+      // 也必须把按钮和忙碌状态恢复，避免整个「云端连接」区块永久失效。
+      let abandoned = false;
+      const watchdog = window.setTimeout(() => {
+        if (!busy) return;
+        abandoned = true;
+        busy = false;
+        buttons.forEach(button => { button.disabled = false; });
+        if (root.isConnected) message(name === 'test' ? '连接测试超时，界面已恢复。请检查数据库地址与网络后重试。' : '请求超时，界面已恢复，请重试。', true);
+      }, name === 'test' ? 14000 : 10000);
       try {
         if (name === 'save') {
-          await request('PUT', body()); message('连接配置已保存并立即生效，无需重启。可点击「立即同步」。');
+          await request('PUT', body());
+          if (abandoned) return;
+          message('连接配置已保存并立即生效，无需重启。可点击「立即同步」。');
         } else if (name === 'test') {
           const result = await request('POST', { action: 'test', ...body() }, 12000);
+          if (abandoned) return;
           const describe = (label: string, connection: { ok: boolean; error?: string; elapsedMs?: number } | null) => {
             if (!connection) return `${label}：未配置（可选）`;
             const duration = typeof connection.elapsedMs === 'number' ? `（${Math.ceil(connection.elapsedMs / 1000)} 秒）` : '';
@@ -107,9 +129,11 @@ import { serverEnv } from '@/lib/env';
           let envelope: unknown;
           try { envelope = JSON.parse(pasted || await file!.text()); } catch { throw Error('配置文件格式不正确'); }
           await request('POST', { action: 'import', envelope, password: input('sync-transfer-password').value });
+          if (abandoned) return;
           message('主备库连接配置已导入并生效，本地文章未改动。可先测试连接，再点击「立即同步」。');
         } else {
           const envelope = await request('POST', { action: 'export', password: input('sync-transfer-password').value });
+          if (abandoned) return;
           if (root.dataset.android === '1') {
             const text = JSON.stringify(envelope);
             try { await navigator.clipboard.writeText(text); }
@@ -132,9 +156,16 @@ import { serverEnv } from '@/lib/env';
         for (const id of ['sync-primary-url', 'sync-fallback-url', 'sync-transfer-password', 'sync-transfer-file']) input(id).value = '';
         input('sync-clear-fallback').checked = false;
         root.querySelector<HTMLTextAreaElement>('#sync-transfer-text')!.value = '';
-        await refresh(); window.dispatchEvent(new Event('byqx:sync-config-change'));
-      } catch (error) { if (!lifetime.signal.aborted) message(error instanceof Error ? error.message : '配置操作失败，请重试', true); }
+        if (abandoned) return;
+        await refresh();
+        if (abandoned) return;
+        window.dispatchEvent(new Event('byqx:sync-config-change'));
+      } catch (error) {
+        if (abandoned) return;
+        if (root.isConnected) message(error instanceof Error ? error.message : '配置操作失败，请重试', true);
+      }
       finally {
+        window.clearTimeout(watchdog);
         if (testTimer) window.clearInterval(testTimer);
         busy = false; buttons.forEach(button => { button.disabled = false; });
       }

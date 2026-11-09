@@ -10,6 +10,8 @@ allowBuilds:
   # SDK 已包含编译产物；preinstall 只是 no-op，无需执行。
   '@google/genai': false
   better-sqlite3: true
+  # jspdf 的传递依赖；只是 polyfill 的 postinstall 提示，无实际构建产物。
+  core-js: false
   electron: true
   # 本项目使用 NSIS / 自包含便携包，无需 Squirrel 安装器的下载脚本。
   electron-winstaller: false

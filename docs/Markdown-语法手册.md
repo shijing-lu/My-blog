@@ -521,7 +521,7 @@ $$
 **次要原因**：正文里的裸花括号（`{cases}`、`{花括号}`）→ 转义 `\{` `\}`。
 
 ⚠️ 看到这类报错**不要去找同名变量**，它不是代码问题，是内容里的定界符/花括号问题。
-⚠️ 漏 `$` 但花括号内是**合法 JS** 时（如 `\frac{1}{2}` 的 `{1}`、`{2}`）**不会报错，只会静默错乱**——所以「能跑通」不等于公式正确。交付前用 `.diag/check-math-delims.mjs` 扫一遍（用法见 skill `my-blog-note-writing` 第 5 节）。
+⚠️ 漏 `$` 但花括号内是**合法 JS** 时（如 `\frac{1}{2}` 的 `{1}`、`{2}`）**不会报错，只会静默错乱**——所以「能跑通」不等于公式正确。交付前用 `node skills/my-blog-structured-notes/scripts/check-math-delims.mjs <笔记.md>` 扫一遍（用法见 skill `my-blog-structured-notes` 第 6.1 节）。
 
 ### 4.3 `:::` / `@tab` / `[!` 原样显示在页面上
 
@@ -567,7 +567,7 @@ $$
 改完一篇内容后，确认以下各项均为「否」：页面上出现 `:::`、出现 `@tab`、出现 `[!`、出现 `==`、表格表头为空。
 任一项为「是」，说明有语法没被识别，按 4.3 对照排查。
 
-另外**始终单独跑一次公式定界符检查**（`.diag/check-math-delims.mjs`，用法见 skill `my-blog-note-writing` 第 5 节）——它专门抓「不报错但错乱」的那一类。
+另外**始终单独跑一次公式定界符检查**（`skills/my-blog-structured-notes/scripts/check-math-delims.mjs`，用法见 skill `my-blog-structured-notes` 第 6.1 节）——它专门抓「不报错但错乱」的那一类。
 
 ---
 

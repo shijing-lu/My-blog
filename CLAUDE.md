@@ -25,6 +25,7 @@
 - `db/` — schema（sqlite/pg 成对）、迁移、seed、breaker（熔断）
 - `src/themes/` — 主题系统（编译期 TS 插件 + 运行时 JSON，开发手册 `docs/THEME-DEV.md`）
 - `docs/` — 设计与部署文档（DESIGN.md、DEPLOY.md、THEME-DEV.md 等）
+- `skills/` — **给 AI Agent 的技能**（`note-normalizer` 判型路由 / `my-blog-structured-notes` 笔记书写 / `my-blog-interactive-html` 交互演示）；`src/ai-skills/` 是随桌面包内置的 AI 助手技能，桌面端优先挂载 `~/.agents/skills/<id>`
 - `scripts/` — 构建迁移脚本与一次性诊断脚本（diag-*、prod-*，用 playwright-core 截图验证）
 
 ## Conventions

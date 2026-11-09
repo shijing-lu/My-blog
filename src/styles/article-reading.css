@@ -1,0 +1,86 @@
+/* Neutral reading surfaces. Markdown CSS and font settings remain unlayered
+   so user choices take precedence over these defaults. */
+html[data-reading-page] {
+  --background: #fafafa;
+  --foreground: #30343b;
+  --card: #fff;
+  --card-foreground: #30343b;
+  --popover: #fff;
+  --popover-foreground: #30343b;
+  --primary: #526b80;
+  --primary-foreground: #fff;
+  --muted: #f1f3f5;
+  --muted-foreground: #737983;
+  --accent: #edf1f5;
+  --accent-foreground: #30343b;
+  --border: #e3e6ea;
+  --input: #e3e6ea;
+  --ring: #526b80;
+}
+
+html.dark[data-reading-page] {
+  --background: #191b1f;
+  --foreground: #e0e3e8;
+  --card: #202329;
+  --card-foreground: #e0e3e8;
+  --popover: #202329;
+  --popover-foreground: #e0e3e8;
+  --primary: #aac3d8;
+  --primary-foreground: #191b1f;
+  --muted: #292d34;
+  --muted-foreground: #a0a7b2;
+  --accent: #2b333e;
+  --accent-foreground: #e0e3e8;
+  --border: #373d46;
+  --input: #373d46;
+  --ring: #aac3d8;
+}
+
+html[data-reading-page], html[data-reading-page] body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Keep navigation available without carrying the homepage decoration into reading. */
+html[data-reading-page] :is(.neo-site-header, .neo-site-footer, .side-toolbar) {
+  border-color: var(--border);
+  border-width: 1px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+}
+html[data-reading-page] :is(.neo-brand, .neo-site-navigation a, .neo-header-actions > :is(a, button), .side-toolbar :is(a, button)) {
+  color: var(--muted-foreground);
+  box-shadow: none;
+  border-color: transparent;
+}
+html[data-reading-page] .neo-site-navigation a:is([aria-current='page'], :hover) {
+  background: var(--accent);
+  color: var(--primary);
+  border-color: transparent;
+}
+html[data-reading-page] .side-toolbar :is(a, button):hover {
+  color: var(--primary);
+  background: var(--accent);
+}
+html[data-reading-page] :is(.neo-site-header, .side-toolbar) :is(a, button, input):focus-visible {
+  outline: 2px solid var(--ring);
+}
+html[data-reading-page] .neo-site-footer { padding-inline: 24px; }
+html[data-reading-page] .neo-footer-copyright { color: var(--muted-foreground); }
+html[data-reading-page] :is(.neo-footer-cat, .neo-footer-dots) { display: none; }
+
+/* Low specificity lets uploaded Markdown CSS own headings and other content. */
+@layer components {
+  :where(html[data-reading-page] .prose) {
+    --tw-prose-body: var(--foreground);
+    --tw-prose-headings: var(--foreground);
+    --tw-prose-links: var(--primary);
+    --tw-prose-bold: var(--foreground);
+    --tw-prose-quotes: var(--muted-foreground);
+    --tw-prose-quote-borders: var(--border);
+    --tw-prose-hr: var(--border);
+    --tw-prose-th-borders: var(--border);
+    --tw-prose-td-borders: var(--border);
+  }
+}

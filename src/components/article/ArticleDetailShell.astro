@@ -63,7 +63,6 @@ const { domain, authed, treeLabel, treeHtml, title, articleHtml = '', tocHtml, t
                 <h1 class="font-display text-3xl font-semibold tracking-tight">{title}</h1>
                 <slot name="title-actions" />
                 <span id="article-save-status" class="article-save-status" role="status" aria-live="polite" hidden />
-                <img class="article-title-cat" src="/images/neobrutalism/cat-peek.webp" alt="" aria-hidden="true" width="72" height="44" />
               </div>
               <div class="pixel-divider mt-4" />
             </header>
@@ -72,7 +71,7 @@ const { domain, authed, treeLabel, treeHtml, title, articleHtml = '', tocHtml, t
             <article class="prose mt-6 max-w-none break-words" data-heading-folding data-defer-article={deferArticleId} set:html={articleHtml} />
             <slot name="editor" />
           </>
-        ) : <div class="article-empty"><img src="/images/neobrutalism/cat-peek.webp" alt="" aria-hidden="true" width="120" height="72" /><p>{emptyText}</p></div>}
+        ) : <div class="article-empty"><p>{emptyText}</p></div>}
       </main>
       <ArticleDirectory tocHtml={tocHtml} tocState={tocState} />
     </div>

@@ -14,6 +14,13 @@ if (process.isMainFrame) contextBridge.exposeInMainWorld('desktop', {
   version: process.env.DESKTOP_VERSION ?? '',
   prepareMarkdownExport: (nodeId) => ipcRenderer.invoke('desktop:prepare-markdown-export', nodeId),
   startMarkdownDrag: (token) => { if (typeof token === 'string') ipcRenderer.send('desktop:start-markdown-drag', token); },
+  /**
+   * 导出 PDF：渲染层先把正文切到纸面态（黑幕关闭 / 折叠展开），再交给主进程
+   * printToPDF 写文件；返回 { ok, canceled, filePath, error }，不打开系统打印对话框。
+   */
+  exportPdf: (input) => ipcRenderer.invoke('desktop:export-pdf', {
+    title: typeof input?.title === 'string' ? input.title.slice(0, 200) : '',
+  }),
   toolchain: (action, input) => ipcRenderer.invoke('desktop:toolchain', action, input),
   pickToolchain: (kind) => ipcRenderer.invoke('desktop:toolchain-picker', kind),
   // Electron 32+ removed File.path. A renderer-created fake File resolves to no

@@ -5,8 +5,8 @@
  * - 状态可查：运行中 / 进度 / 最近报告（设置页与托盘共用）；
  * - 依赖装配：本地端点用运行时 db，云端端点用 `SYNC_DATABASE_URL`（+ 可选备库镜像）。
  */
-import { serverEnv } from '@/lib/env';
-import { syncConfigurationBusy } from '@/lib/local-sync-config';
+import { syncConfigurationBusy, cloudConnections } from '@/lib/local-sync-config';
+import { supportsCloudSync } from '@/lib/sync-runtime';
 import { db } from '../../db';
 import { SqliteEndpoint, type SqliteLikeDb } from './adapters/sqlite-endpoint';
 import { PgEndpoint } from './adapters/pg-endpoint';
@@ -51,9 +51,10 @@ export function syncStatus(): SyncStatus {
 
 /** 云端连接串（桌面端由主进程从 config.json 注入到环境变量） */
 function cloudUrls(): { primary: string | null; fallback: string | null } {
+  const connections = cloudConnections();
   return {
-    primary: serverEnv('SYNC_DATABASE_URL') || null,
-    fallback: serverEnv('SYNC_DATABASE_URL_FALLBACK') || null,
+    primary: connections.primaryUrl || null,
+    fallback: connections.fallbackUrl || null,
   };
 }
 
@@ -88,6 +89,7 @@ function buildDeps(onProgress: (p: SyncProgress) => void, warnings: string[]) {
 export async function startSync(
   awaitCompletion = true,
 ): Promise<{ started: boolean; running: boolean; report?: SyncReport; error?: string }> {
+  if (!supportsCloudSync()) return { started: false, running: false, error: '云端同步需要使用持久化 SQLite 数据库' };
   if (syncConfigurationBusy()) return { started: false, running: state.running, error: '连接配置正在保存，请稍后重试' };
   if (!cloudUrls().primary) {
     state.lastError = '云端尚未配置，请在设置 → 云端同步中保存或导入连接配置';
